@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>MSS Protocol — Methodology</title>
+<style>
+body{margin:0;font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial;background:#05070c;color:rgba(255,255,255,.9)}
+.wrap{max-width:980px;margin:0 auto;padding:28px 18px 80px}
+a{color:rgba(0,255,209,.9);text-decoration:none}
+a:hover{text-decoration:underline}
+.card{border:1px solid rgba(255,255,255,.10);background:rgba(255,255,255,.04);border-radius:18px;padding:18px}
+h1{margin:0 0 10px}
+h2{margin:18px 0 8px}
+p,li{line-height:1.6;color:rgba(255,255,255,.78)}
+.muted{color:rgba(255,255,255,.60);font-size:13px}
+</style>
+</head>
+<body>
+<div class="wrap">
+<a href="./index.html">← Home</a>
+<h1>Methodology</h1>
+<div class="card">
+<p>MSS Protocol focuses on <strong>structural risk</strong> — signals that often exist <em>before</em> problems become obvious.</p>
+
+<h2>Authorities</h2>
+<ul>
+<li><strong>Mint Authority</strong>: if present, supply can be changed (risk).</li>
+<li><strong>Freeze Authority</strong>: if present, transfers may be restricted (risk).</li>
+</ul>
+
+<h2>Concentration</h2>
+<ul>
+<li>Top1 / Top5 / Top10 / Top20 are calculated from largest token accounts.</li>
+<li>Owner is resolved from token account data where possible.</li>
+</ul>
+
+<h2>Market Context</h2>
+<ul>
+<li>Price / liquidity / volume / FDV come from public market sources.</li>
+<li><strong>MCap</strong> is computed as <code>price × totalSupplyUi</code> when direct market cap is unavailable.</li>
+</ul>
+
+<h2>Clusters</h2>
+<p>Beta clusters are a best-effort snapshot. “Clusters” here means repeated ownership across top token accounts, which can indicate structuring. This is not a definitive conclusion.</p>
+
+<p class="muted">This methodology will expand as historical tracking, alerting, and deeper on-chain heuristics are enabled.</p>
+</div>
+</div>
+</body>
+</html>

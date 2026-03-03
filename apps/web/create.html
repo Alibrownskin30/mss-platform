@@ -1,0 +1,172 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>MSS – Create Token</title>
+<link rel="stylesheet" href="./assets/app.css" />
+</head>
+<body data-page="create">
+<div class="wrap">
+<div class="topbar">
+<div>
+<a class="link" href="./index.html">← Back</a>
+<h1 style="margin-top:10px;">Create Token (MSS Wizard)</h1>
+<p class="muted">Pick token details + choose your starting market cap. MSS calculates LP + stage plan.</p>
+</div>
+<div class="stats mini">
+<div class="stat">
+<div class="label">Stage Plan</div>
+<div class="value">1 → 2 → 3 → Open</div>
+</div>
+</div>
+</div>
+
+<div class="card" style="margin-top:14px;">
+<h2 style="margin:0 0 10px 0;">Token Details</h2>
+<div class="form-grid">
+<div>
+<div class="k">Token Name</div>
+<input class="input" id="name" placeholder="e.g. Meme Safety Coin" />
+</div>
+<div>
+<div class="k">Symbol</div>
+<input class="input" id="symbol" placeholder="e.g. MSS" maxlength="10" />
+</div>
+<div>
+<div class="k">Total Supply</div>
+<select class="input" id="supply">
+<option value="1000000000">1,000,000,000</option>
+<option value="100000000">100,000,000</option>
+<option value="10000000">10,000,000</option>
+</select>
+</div>
+<div>
+<div class="k">Decimals</div>
+<select class="input" id="decimals">
+<option value="9">9 (Solana-style)</option>
+<option value="6">6</option>
+</select>
+</div>
+</div>
+</div>
+
+<div class="card" style="margin-top:14px;">
+<h2 style="margin:0 0 10px 0;">Launch Settings</h2>
+
+<div class="form-grid">
+<div>
+<div class="k">Starting Market Cap (USD)</div>
+<select class="input" id="startMc">
+<option value="10000">$10,000</option>
+<option value="20000" selected>$20,000</option>
+<option value="50000">$50,000</option>
+<option value="100000">$100,000</option>
+</select>
+<div class="muted" style="margin-top:8px;">
+Starting MC affects initial price + token allocation to LP.
+</div>
+</div>
+
+<div>
+<div class="k">Liquidity (USD) you will add</div>
+<select class="input" id="lpUsd">
+<option value="500">$500</option>
+<option value="1000" selected>$1,000</option>
+<option value="3000">$3,000</option>
+<option value="5000">$5,000</option>
+</select>
+<div class="muted" style="margin-top:8px;">
+More LP = smoother movement + more trust (but slower price spikes).
+</div>
+</div>
+
+<div>
+<div class="k">Week 1 Sell Tax</div>
+<select class="input" id="tax">
+<option value="0">0%</option>
+<option value="2">2%</option>
+<option value="5" selected>5% (burn)</option>
+</select>
+<div class="muted" style="margin-top:8px;">
+You chose burn (not LP) for week 1.
+</div>
+</div>
+
+<div>
+<div class="k">Max Wallet (Stage 1)</div>
+<select class="input" id="maxWallet">
+<option value="0.5">0.5%</option>
+<option value="1" selected>1%</option>
+<option value="2">2%</option>
+</select>
+<div class="muted" style="margin-top:8px;">
+Prevents whale wallets early.
+</div>
+</div>
+</div>
+</div>
+
+<div class="card" style="margin-top:14px;">
+<h2 style="margin:0 0 10px 0;">Socials (shown on token profile)</h2>
+<div class="form-grid">
+<div>
+<div class="k">X (Twitter)</div>
+<input class="input" id="x" placeholder="https://x.com/yourtoken" />
+</div>
+<div>
+<div class="k">Telegram</div>
+<input class="input" id="tg" placeholder="https://t.me/yourtoken" />
+</div>
+<div>
+<div class="k">Website</div>
+<input class="input" id="web" placeholder="https://yourtoken.com" />
+</div>
+<div>
+<div class="k">Description</div>
+<input class="input" id="desc" placeholder="One-liner that investors understand." />
+</div>
+</div>
+</div>
+
+<div class="card" style="margin-top:14px;">
+<h2 style="margin:0 0 10px 0;">MSS Output (Calculated)</h2>
+
+<div class="grid2">
+<div class="card soft">
+<div class="k">Initial Token Price</div>
+<div class="v big" id="outPrice">—</div>
+<div class="muted">Based on your starting MC + supply</div>
+</div>
+<div class="card soft">
+<div class="k">Tokens to LP</div>
+<div class="v big" id="outLpTokens">—</div>
+<div class="muted">This many tokens will be paired with your LP</div>
+</div>
+<div class="card soft">
+<div class="k">Starting Liquidity Ratio</div>
+<div class="v big" id="outLiqRatio">—</div>
+<div class="muted">LP / MC (helps movement vs trust)</div>
+</div>
+<div class="card soft">
+<div class="k">Stage Plan</div>
+<div class="v big" id="outStages">—</div>
+<div class="muted">Stages + unlock timeline</div>
+</div>
+</div>
+
+<div class="token-actions" style="margin-top:14px;">
+<button class="btn primary" id="btnPreview">Preview Token Page</button>
+<button class="btn" id="btnExport">Export JSON</button>
+</div>
+
+<div class="muted" style="margin-top:10px;">
+Next we’ll wire this to real contract deployment + LP lock. For now this outputs a clean token config.
+</div>
+</div>
+</div>
+
+<script src="./assets/app.js"></script>
+<script src="./assets/pages/create.js"></script>
+</body>
+</html>

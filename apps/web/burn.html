@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>MSS – Burn Dashboard</title>
+<link rel="stylesheet" href="./assets/app.css" />
+</head>
+<body data-page="burn">
+<div class="wrap">
+<div class="topbar">
+<div>
+<a class="link" href="./index.html">← Back</a>
+<h1 style="margin-top:10px;">MSS Burn Dashboard</h1>
+<p class="muted">Weekly buy & burn schedule + transparency proof (demo now, on-chain proof later).</p>
+</div>
+
+<div class="stats mini">
+<div class="stat">
+<div class="label">Next Burn</div>
+<div class="value" id="bNext">—</div>
+</div>
+<div class="stat">
+<div class="label">Burn Time</div>
+<div class="value">Mon 8:00 UTC</div>
+</div>
+</div>
+</div>
+
+<div class="grid2" style="margin-top:14px;">
+<div class="card">
+<div class="k">Total Tokens Created (MSS)</div>
+<div class="v big" id="bCreated">—</div>
+<div class="muted">This will be real from the registry later.</div>
+</div>
+
+<div class="card">
+<div class="k">Total Fees Collected</div>
+<div class="v big" id="bFees">—</div>
+<div class="muted">Demo accrual. Later: verifiable wallet balance.</div>
+</div>
+
+<div class="card">
+<div class="k">Total Burned</div>
+<div class="v big" id="bBurned">—</div>
+<div class="muted">Later: tx links + proof feed.</div>
+</div>
+
+<div class="card">
+<div class="k">Current Week Allocation</div>
+<div class="v big" id="bWeek">—</div>
+<div class="muted">80% of builder fees → buy & burn (demo rule).</div>
+</div>
+</div>
+
+<div class="card" style="margin-top:14px;">
+<h2 style="margin:0 0 10px 0;">Burn History (Demo)</h2>
+<div class="muted">We’ll show on-chain proof links here later.</div>
+<div id="bTable" style="margin-top:12px;"></div>
+</div>
+
+<div class="card" style="margin-top:14px;">
+<h2 style="margin:0 0 10px 0;">Transparency</h2>
+<div class="pill-row">
+<span class="pill">📌 Burn schedule fixed: <b>Mon 8am UTC</b></span>
+<span class="pill">🔥 Burn receipts: <b>tx links (later)</b></span>
+<span class="pill">📊 Registry count: <b>live (later)</b></span>
+</div>
+</div>
+</div>
+
+<script src="./assets/app.js"></script>
+<script src="./assets/pages/monetize.js"></script>
+<script src="./assets/pages/burn.js"></script>
+</body>
+</html>

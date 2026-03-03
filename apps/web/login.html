@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>MSS Protocol — Login</title>
+<style>
+body{margin:0;font-family:system-ui;background:#05070c;color:#fff}
+.wrap{max-width:520px;margin:0 auto;padding:40px 18px}
+.card{border:1px solid rgba(255,255,255,.12);border-radius:16px;padding:18px;background:rgba(255,255,255,.05)}
+input{width:100%;padding:12px;border-radius:12px;border:1px solid rgba(255,255,255,.12);background:rgba(0,0,0,.35);color:#fff;margin-top:10px}
+button{margin-top:12px;width:100%;padding:12px;border-radius:12px;border:1px solid rgba(255,255,255,.12);background:rgba(0,255,209,.12);color:#fff;font-weight:800;cursor:pointer}
+.muted{opacity:.7;font-size:12px;margin-top:10px}
+a{color:#9ef; text-decoration:none}
+</style>
+</head>
+<body>
+<div class="wrap">
+<h2>Login</h2>
+<div class="card">
+<input id="email" placeholder="Email" />
+<input id="password" placeholder="Password" type="password" />
+<button id="btn">Login</button>
+<div class="muted" id="msg"></div>
+<div class="muted">No account? <a href="./register.html">Register</a></div>
+<div class="muted"><a href="./token.html">Back to Scanner</a></div>
+</div>
+</div>
+
+<script type="module">
+import { login } from "./assets/auth.js";
+const $ = (id)=>document.getElementById(id);
+$("btn").addEventListener("click", async ()=>{
+$("msg").textContent = "Signing in…";
+try{
+const out = await login($("email").value.trim(), $("password").value.trim());
+$("msg").textContent = "Success. Redirecting…";
+setTimeout(()=> window.location.href = "./token.html", 600);
+}catch(e){
+$("msg").textContent = String(e?.message || e);
+}
+});
+</script>
+</body>
+</html>

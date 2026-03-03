@@ -1,0 +1,518 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>MSS Protocol — Token Scan</title>
+<meta name="description" content="MSS Protocol Token Scan — Elite security intelligence: contract authorities, holder concentration, market signals, and alerts." />
+
+<!-- Runtime config (NO API KEYS HERE) -->
+<script>
+// Leave blank to auto-detect:
+// - Codespaces: maps -3000. -> -8787.
+// - Local: http://127.0.0.1:8787
+window.API_BASE = "";
+</script>
+
+<style>
+/* YOUR ORIGINAL STYLES (UNCHANGED) */
+:root{
+--bg0:#05070c;
+--bg1:#070a12;
+--card:rgba(255,255,255,.06);
+--card2:rgba(255,255,255,.045);
+--line:rgba(255,255,255,.10);
+--muted:rgba(255,255,255,.60);
+--muted2:rgba(255,255,255,.45);
+--text:rgba(255,255,255,.92);
+--good:#35f5a3;
+--warn:#ffd166;
+--bad:#ff5b6b;
+--a:#00ffd1;
+--b:#3aa0ff;
+--shadow: 0 22px 60px rgba(0,0,0,.55);
+--shadow2: 0 10px 30px rgba(0,0,0,.35);
+--r:18px;
+--r2:14px;
+--mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+--sans: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, "Apple Color Emoji","Segoe UI Emoji";
+}
+*{box-sizing:border-box}
+html,body{height:100%}
+body{
+margin:0;
+font-family:var(--sans);
+color:var(--text);
+background:
+radial-gradient(1200px 700px at 15% -10%, rgba(0,255,209,.18), transparent 55%),
+radial-gradient(900px 600px at 95% 10%, rgba(58,160,255,.16), transparent 50%),
+radial-gradient(600px 400px at 40% 110%, rgba(255,91,107,.08), transparent 60%),
+linear-gradient(180deg, var(--bg0), var(--bg1));
+overflow-x:hidden;
+}
+a{color:inherit; text-decoration:none}
+.container{max-width:1180px; margin:0 auto; padding:28px 18px 80px}
+.topbar{
+position:sticky; top:0; z-index:50;
+backdrop-filter: blur(14px);
+background: rgba(5,7,12,.55);
+border-bottom:1px solid rgba(255,255,255,.08);
+}
+.topbar-inner{max-width:1180px; margin:0 auto; padding:14px 18px; display:flex; align-items:center; gap:14px}
+.brand{display:flex; align-items:center; gap:10px; min-width:220px;}
+.mark{
+width:34px; height:34px; border-radius:10px;
+background: linear-gradient(135deg, rgba(0,255,209,.9), rgba(58,160,255,.9));
+box-shadow: 0 10px 24px rgba(0,255,209,.18), 0 10px 24px rgba(58,160,255,.14);
+}
+.brand-title{font-weight:800; letter-spacing:.3px}
+.brand-sub{font-size:12px; color:var(--muted2); margin-top:2px}
+.nav{display:flex; gap:8px; align-items:center; margin-left:auto}
+.nav a{
+padding:8px 12px; border-radius:12px;
+color:rgba(255,255,255,.72);
+border:1px solid transparent;
+transition:.18s ease;
+font-size:13px;
+}
+.nav a:hover{color:rgba(255,255,255,.92); border-color:rgba(255,255,255,.10); background:rgba(255,255,255,.04)}
+.nav a.active{color:rgba(255,255,255,.92); border-color:rgba(0,255,209,.20); background:rgba(0,255,209,.06)}
+.pill{
+display:inline-flex; align-items:center; gap:8px;
+padding:8px 12px;
+border-radius:999px;
+border:1px solid rgba(255,255,255,.10);
+background:rgba(255,255,255,.04);
+color:rgba(255,255,255,.78);
+font-size:12px;
+box-shadow: var(--shadow2);
+}
+.dot{
+width:8px; height:8px; border-radius:50%;
+background:rgba(255,255,255,.35);
+box-shadow:0 0 0 3px rgba(255,255,255,.06);
+}
+.dot.good{background:rgba(53,245,163,.95); box-shadow:0 0 0 3px rgba(53,245,163,.14)}
+.dot.warn{background:rgba(255,209,102,.95); box-shadow:0 0 0 3px rgba(255,209,102,.14)}
+.dot.bad{background:rgba(255,91,107,.95); box-shadow:0 0 0 3px rgba(255,91,107,.14)}
+.hero{padding:22px 0 14px; display:flex; gap:14px; flex-wrap:wrap; align-items:flex-end;}
+.hero h1{margin:0; font-size:26px; letter-spacing:.2px;}
+.hero p{margin:10px 0 0; color:var(--muted); max-width:720px; line-height:1.45; font-size:14px;}
+.search{width:100%; margin-top:16px; display:flex; gap:10px; align-items:center; flex-wrap:wrap;}
+.input{
+flex:1; min-width:260px;
+background: rgba(255,255,255,.05);
+border:1px solid rgba(255,255,255,.10);
+border-radius:14px;
+padding:12px 14px;
+color:rgba(255,255,255,.90);
+outline:none;
+transition:.18s ease;
+box-shadow: inset 0 0 0 1px rgba(0,0,0,.25);
+}
+.input:focus{border-color: rgba(0,255,209,.22); box-shadow: 0 0 0 4px rgba(0,255,209,.10);}
+.btn{
+border:1px solid rgba(255,255,255,.12);
+background: rgba(255,255,255,.05);
+color: rgba(255,255,255,.86);
+padding:12px 14px;
+border-radius:14px;
+cursor:pointer;
+font-weight:700;
+letter-spacing:.2px;
+transition:.18s ease;
+white-space:nowrap;
+}
+.btn:hover{transform:translateY(-1px); border-color:rgba(255,255,255,.18); background:rgba(255,255,255,.07)}
+.btn.primary{border-color: rgba(0,255,209,.20); background: linear-gradient(135deg, rgba(0,255,209,.20), rgba(58,160,255,.16));}
+.btn.ghost{background:transparent}
+.grid{margin-top:18px; display:grid; grid-template-columns: 1.2fr .8fr; gap:14px;}
+@media (max-width: 980px){.grid{grid-template-columns:1fr}}
+.card{
+background: linear-gradient(180deg, rgba(255,255,255,.06), rgba(255,255,255,.035));
+border: 1px solid rgba(255,255,255,.10);
+border-radius: var(--r);
+box-shadow: var(--shadow);
+overflow:hidden;
+position:relative;
+}
+.card::before{
+content:"";
+position:absolute; inset:-2px;
+background: radial-gradient(600px 240px at 20% -10%, rgba(0,255,209,.18), transparent 55%),
+radial-gradient(520px 220px at 90% 0%, rgba(58,160,255,.14), transparent 55%);
+opacity:.55;
+pointer-events:none;
+}
+.card-inner{position:relative; padding:16px}
+.card-head{
+display:flex; align-items:center; justify-content:space-between; gap:10px;
+padding-bottom:12px; margin-bottom:12px;
+border-bottom:1px solid rgba(255,255,255,.08);
+}
+.card-title{font-weight:800; letter-spacing:.2px}
+.small{font-size:12px; color:var(--muted2)}
+.row{display:flex; gap:10px; flex-wrap:wrap; align-items:center}
+.kpis{display:grid; grid-template-columns: repeat(3, 1fr); gap:10px; margin-top:10px;}
+@media (max-width: 980px){.kpis{grid-template-columns:repeat(2,1fr)}}
+.kpi{
+background: rgba(255,255,255,.04);
+border:1px solid rgba(255,255,255,.08);
+border-radius: var(--r2);
+padding:12px;
+min-height:78px;
+}
+.kpi .label{font-size:12px; color:var(--muted2); display:flex; justify-content:space-between; align-items:center}
+.kpi .value{margin-top:8px; font-size:22px; font-weight:900; letter-spacing:.2px}
+.kpi .sub{margin-top:6px; font-size:12px; color:rgba(255,255,255,.68)}
+.badge{
+display:inline-flex; align-items:center; gap:8px;
+border:1px solid rgba(255,255,255,.10);
+border-radius:999px;
+padding:7px 10px;
+background: rgba(255,255,255,.04);
+color: rgba(255,255,255,.80);
+font-size:12px;
+white-space:nowrap;
+}
+.chipbar{display:flex; gap:10px; flex-wrap:wrap; margin-top:12px}
+.chip{
+padding:9px 12px;
+border-radius:999px;
+border:1px solid rgba(255,255,255,.10);
+background: rgba(255,255,255,.04);
+font-size:12px;
+color:rgba(255,255,255,.78);
+}
+.section-title{
+margin:14px 0 10px;
+font-weight:800;
+font-size:13px;
+color:rgba(255,255,255,.86);
+letter-spacing:.2px;
+display:flex; align-items:center; justify-content:space-between;
+}
+.divider{height:1px; background:rgba(255,255,255,.08); margin:12px 0}
+.alert-box{
+display:flex; justify-content:space-between; align-items:center; gap:12px;
+margin:12px 0 2px; padding:12px 14px;
+border:1px solid rgba(0,255,209,.16);
+border-radius:16px;
+background: linear-gradient(145deg, rgba(0,255,209,.06), rgba(58,160,255,.05));
+backdrop-filter: blur(14px);
+}
+.alert-box .muted{margin:0; font-size:12px; color:rgba(255,255,255,.62)}
+.alert-box .btn{padding:10px 12px; border-radius:14px; font-size:12px;}
+table{width:100%; border-collapse:collapse; overflow:hidden}
+th,td{padding:10px 10px; text-align:left; font-size:13px}
+th{color:rgba(255,255,255,.70); font-weight:800; border-bottom:1px solid rgba(255,255,255,.10)}
+td{color:rgba(255,255,255,.86); border-bottom:1px solid rgba(255,255,255,.06)}
+tr:hover td{background:rgba(255,255,255,.03)}
+.mono{font-family:var(--mono)}
+.right{text-align:right}
+.muted{color:rgba(255,255,255,.62)}
+.footer{
+margin-top:18px;
+border-top:1px solid rgba(255,255,255,.08);
+padding-top:16px;
+display:flex;
+justify-content:space-between;
+gap:12px;
+flex-wrap:wrap;
+color:rgba(255,255,255,.66);
+font-size:12px;
+}
+.footer-left{display:flex; flex-direction:column; gap:6px;}
+.footer-line{display:flex; align-items:center; gap:10px; flex-wrap:wrap;}
+.footer-sep{opacity:.35}
+.stamp{
+display:inline-flex;
+align-items:center;
+gap:10px;
+padding:10px 12px;
+border-radius:999px;
+border:1px solid rgba(255,255,255,.10);
+background: rgba(255,255,255,.04);
+box-shadow: var(--shadow2);
+letter-spacing:.2px;
+}
+.stamp b{
+background: linear-gradient(135deg, rgba(0,255,209,.95), rgba(58,160,255,.95));
+-webkit-background-clip:text;
+background-clip:text;
+color:transparent;
+font-weight:900;
+}
+select.input{
+padding:10px 12px;
+border-radius:12px;
+min-width: 140px;
+}
+</style>
+</head>
+
+<body>
+<div class="topbar">
+<div class="topbar-inner">
+<div class="brand">
+<div class="mark" aria-hidden="true"></div>
+<div>
+<div class="brand-title">MSS Protocol</div>
+<div class="brand-sub">Token Scan</div>
+</div>
+</div>
+
+<div class="nav" role="navigation" aria-label="Main">
+<a href="./index.html">Home</a>
+<a class="active" href="./token.html">Scanner</a>
+<a href="./explore.html" title="Coming soon">Explore</a>
+<a href="./alerts.html" title="Coming soon">Alerts</a>
+<a href="./launches.html" title="Coming soon">Launches</a>
+</div>
+
+<div class="pill" id="netPill" title="Connection status">
+<span class="dot good" id="netDot"></span>
+<span id="netText">Online</span>
+</div>
+</div>
+</div>
+
+<div class="container">
+<div class="hero">
+<div style="flex:1; min-width:280px">
+<h1>Elite Security Intelligence</h1>
+<p>
+Institutional-grade token scanning: authority verification, holder concentration analysis, market context,
+and actionable alerts — engineered for serious participants.
+</p>
+
+<div class="search">
+<input class="input mono" id="tokenInput" placeholder="Paste token mint address..." autocomplete="off" />
+<button class="btn primary" id="scanBtn">Scan Token</button>
+<button class="btn ghost" id="demoBtn">Demo</button>
+</div>
+
+<div class="row" style="margin-top:10px">
+<span class="badge" id="scanStatusBadge">
+<span class="dot" id="scanDot"></span>
+<span id="scanStatusText">Ready</span>
+</span>
+<span class="small" id="scanMetaText"></span>
+</div>
+</div>
+</div>
+
+<div class="grid">
+<!-- LEFT -->
+<div class="card">
+<div class="card-inner">
+<div class="card-head">
+<div>
+<div class="card-title">Market & Risk</div>
+<div class="small">Live price, liquidity, authority checks, and headline risk summary.</div>
+</div>
+<div class="row">
+<span class="badge">DEX: <span id="dexName" class="mono">—</span></span>
+<span class="badge">Pair: <span id="pairName" class="mono">—</span></span>
+</div>
+</div>
+
+<div class="kpis">
+<div class="kpi">
+<div class="label"><span>Price (USD)</span></div>
+<div class="value" id="priceUsd">$—</div>
+<div class="sub" id="pricePair">Pair: —</div>
+</div>
+
+<div class="kpi">
+<div class="label"><span>Liquidity (USD)</span></div>
+<div class="value" id="liqUsd">$—</div>
+<div class="sub" id="liqMeta">Vol 24h: —</div>
+</div>
+
+<div class="kpi">
+<div class="label"><span>FDV / MCap</span></div>
+<div class="value" id="fdvUsd">$—</div>
+<div class="sub" id="mcapUsd">MCap: —</div>
+</div>
+</div>
+
+<div class="chipbar">
+<span class="chip">Mint Authority: <b id="mintAuthority">—</b></span>
+<span class="chip">Freeze Authority: <b id="freezeAuthority">—</b></span>
+<span class="chip">Program: <span id="tokenProgram" class="mono">—</span></span>
+</div>
+
+<div class="divider"></div>
+
+<div class="section-title">
+<span>Risk Overview</span>
+<span class="badge" id="riskBadge"><span class="dot" id="riskDot"></span><span id="riskText">—</span></span>
+</div>
+
+<div class="alert-box" id="alertsBox">
+<div>
+<div style="font-weight:900; letter-spacing:.2px">Enable Risk Notifications</div>
+<p id="alertStatus" class="muted">Get alerts for authority changes, liquidity events, whale movement, and risk spikes.</p>
+</div>
+<button class="btn primary" id="enableAlertsBtn">Turn On</button>
+</div>
+
+<div class="chipbar">
+<span class="chip">Score: <b id="riskScore">—</b>/100</span>
+<span class="chip">Whale Dominance: <b id="whaleScore">—</b>/100</span>
+<span class="chip">Signal: <b id="riskSignal">—</b></span>
+</div>
+
+<div class="divider"></div>
+
+<div class="section-title">
+<span>Cluster Intelligence</span>
+<span class="badge">Clusters: <span id="clustersCount">0</span></span>
+</div>
+
+<div class="chipbar" style="margin-top:0">
+<span class="chip">Cluster Score: <b id="clusterScore">—</b>/100</span>
+<span class="chip">Label: <b id="clusterLabel">—</b></span>
+<span class="chip">Sybil Score: <b id="sybilScore">—</b></span>
+<span class="chip">Whale Flow 1h: <b id="whaleFlow1h">—</b></span>
+<span class="chip">Whale Flow 24h: <b id="whaleFlow24h">—</b></span>
+</div>
+
+<div style="overflow:auto; border-radius:14px; border:1px solid rgba(255,255,255,.08); margin-top:10px">
+<table>
+<thead>
+<tr>
+<th style="width:70px">ID</th>
+<th style="width:90px">Wallets</th>
+<th style="width:80px">Score</th>
+<th>Evidence</th>
+</tr>
+</thead>
+<tbody id="clusterTableBody">
+<tr>
+<td class="muted">—</td>
+<td class="muted">—</td>
+<td class="muted">—</td>
+<td class="muted">No strong cluster evidence detected in this snapshot.</td>
+</tr>
+</tbody>
+</table>
+</div>
+<div class="small" id="clusterMeta" style="margin-top:8px; color:rgba(255,255,255,.62)">—</div>
+
+<div class="divider"></div>
+
+<div class="section-title">
+<span>Notes</span>
+<span class="small">Auto</span>
+</div>
+<div class="small" id="notesText" style="line-height:1.55; color:rgba(255,255,255,.64)">
+Scan a token to generate on-chain risk notes and concentration commentary.
+</div>
+
+<div class="divider"></div>
+
+<details>
+<summary class="badge" style="cursor:pointer">Raw JSON (debug)</summary>
+<pre id="rawJson" class="mono" style="white-space:pre-wrap; margin-top:10px"></pre>
+</details>
+</div>
+</div>
+
+<!-- RIGHT -->
+<div class="card">
+<div class="card-inner">
+<div class="card-head">
+<div>
+<div class="card-title">Holder Concentration</div>
+<div class="small">Top holder metrics and distribution context.</div>
+</div>
+<span class="badge">Holders: <span id="holdersCount">—</span></span>
+</div>
+
+<div class="row" style="justify-content:space-between; gap:10px; margin-top:6px">
+<div class="chipbar" style="margin-top:0">
+<span class="chip">Top1: <b id="top1">—</b></span>
+<span class="chip">Top5: <b id="top5">—</b></span>
+<span class="chip">Top10: <b id="top10">—</b></span>
+<span class="chip">Top20: <b id="top20">—</b></span>
+</div>
+
+<div class="row" style="gap:8px">
+<span class="small">Show</span>
+<select id="holdersSelect" class="input mono" aria-label="Top holders count">
+<option value="5">Top 5</option>
+<option value="10">Top 10</option>
+<option value="20" selected>Top 20</option>
+</select>
+</div>
+</div>
+
+<div class="divider"></div>
+
+<div class="section-title">
+<span>Top Holders</span>
+<span class="small" id="holdersLoaded">—</span>
+</div>
+
+<div style="overflow:auto; border-radius:14px; border:1px solid rgba(255,255,255,.08)">
+<table>
+<thead>
+<tr>
+<th style="width:60px">#</th>
+<th>Wallet</th>
+<th class="right">Amount</th>
+<th class="right">% Supply</th>
+</tr>
+</thead>
+<tbody id="holdersTable">
+<tr>
+<td class="muted">—</td>
+<td class="muted">No data yet</td>
+<td class="muted right">—</td>
+<td class="muted right">—</td>
+</tr>
+</tbody>
+</table>
+</div>
+
+<div class="divider"></div>
+
+<div class="section-title">
+<span>Connection</span>
+<span class="small" id="rpcLabel">RPC: hidden</span>
+</div>
+<div class="small" style="line-height:1.45; color:rgba(255,255,255,.62)">
+We never render RPC URLs or API keys in the interface. Debug via server logs only.
+</div>
+</div>
+</div>
+</div>
+
+<div class="footer">
+<div class="footer-left">
+<div class="footer-line">
+<span>Powered by <strong>MSS Protocol</strong></span>
+<span class="footer-sep">•</span>
+<span>Security Layer</span>
+<span class="footer-sep">•</span>
+<span class="mono" id="buildMeta">build: web</span>
+</div>
+<div class="footer-line small">
+<span class="mono" id="apiMeta">API: —</span>
+<span class="footer-sep">•</span>
+<span>Risk • Market • Holder Intelligence • Alerts</span>
+</div>
+</div>
+
+<div class="stamp" title="MSS Protocol">
+<span class="dot good" aria-hidden="true"></span>
+<span><b>MSS</b> Intelligence</span>
+</div>
+</div>
+</div>
+
+<script type="module" src="./assets/token.js?v=1"></script>
+</body>
+</html>
