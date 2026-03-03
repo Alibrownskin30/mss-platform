@@ -1,8 +1,3 @@
-/* ===========================
-MSS Token Page (Elite UI)
-Add this at bottom of app.css
-=========================== */
-
 :root{
 --bg0: #070A12;
 --bg1: rgba(255,255,255,.04);
@@ -398,6 +393,21 @@ padding: 12px;
 max-height: 320px;
 overflow:auto;
 color: rgba(255,255,255,.85);
+}
+
+/* ============================
+Dropdown readability fix (Top holders select)
+============================ */
+select,
+select:focus {
+color: var(--text);
+background: rgba(0,0,0,.28);
+border: 1px solid rgba(255,255,255,.12);
+}
+
+select option{
+background: #0b0f1a;
+color: rgba(255,255,255,.92);
 }
 
 /* ============================

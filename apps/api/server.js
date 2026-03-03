@@ -1,4 +1,3 @@
-// apps/api/server.js
 import "dotenv/config";
 import express from "express";
 import cors from "cors";
@@ -12,13 +11,42 @@ import { register, login, authRequired } from "./auth.js";
 import { startWatcher } from "./watcher.js";
 import { getClusterIntel } from "./cluster.js";
 
+// ✅ Cassie
+import { cassieMiddleware, registerCassieHoneypots, cassieDiagHandler } from "./cassie/index.js";
+
 const { Metadata } = pkg;
 
 const app = express();
 const PORT = process.env.PORT || 8787;
 
-app.use(cors({ origin: true }));
+// IMPORTANT: behind Codespaces / reverse proxy
+app.set("trust proxy", 1);
+
+// CORS (safer defaults in production)
+const isProd = process.env.NODE_ENV === "production";
+const corsOrigin =
+process.env.CORS_ORIGIN?.trim() ||
+(isProd ? "" : true); // dev: allow; prod: require explicit origin
+
+app.use(
+cors({
+origin: corsOrigin || false,
+credentials: true,
+})
+);
+
+// Body limits (parser bombs)
 app.use(express.json({ limit: "1mb" }));
+
+// ✅ Cassie FIRST (protect everything below)
+app.use(cassieMiddleware());
+
+// ✅ Cassie honeypots (should be early, before real routes)
+registerCassieHoneypots(app);
+
+// OPTIONAL: internal diagnostics (lock this down)
+// Use: curl -H "Authorization: Bearer <ADMIN_KEY>" /api/_cassie/diag
+app.get("/api/_cassie/diag", (req, res) => cassieDiagHandler(req, res));
 
 // Auth
 app.post("/api/register", register);
@@ -43,7 +71,8 @@ try {
 return await fn();
 } catch (e) {
 lastErr = e;
-const delay = Math.min(8000, baseDelayMs * Math.pow(2, i)) + Math.floor(Math.random() * 200);
+const delay =
+Math.min(8000, baseDelayMs * Math.pow(2, i)) + Math.floor(Math.random() * 200);
 if (isRateLimitError(e)) await sleep(delay);
 else await sleep(150);
 }
@@ -210,7 +239,8 @@ holdersInFlight.delete(mintStr);
 return res.json(data);
 } catch (e) {
 holdersInFlight.delete(mintStr);
-if (isRateLimitError(e)) return res.status(429).json({ error: "RPC rate limited (429). Try again shortly." });
+if (isRateLimitError(e))
+return res.status(429).json({ error: "RPC rate limited (429). Try again shortly." });
 return res.status(500).json({ error: String(e?.message || e) });
 }
 });
@@ -225,7 +255,6 @@ if (cached && Date.now() - cached.ts < CLUSTER_TTL_MS) return res.json(cached.da
 // Get owners from holders endpoint logic (reuse cached if exists)
 let holdersData = holdersCache.get(mintStr)?.data;
 if (!holdersData) {
-// fetch via internal logic quickly
 const mint = new PublicKey(mintStr);
 const largest = await rpcRetry(() => connection.getTokenLargestAccounts(mint));
 const top = (largest?.value || []).slice(0, 20);
@@ -252,7 +281,8 @@ const intel = await getClusterIntel({ connection, rpcRetry, owners });
 clusterCache.set(mintStr, { ts: Date.now(), data: intel });
 return res.json(intel);
 } catch (e) {
-if (isRateLimitError(e)) return res.status(429).json({ error: "RPC rate limited (429). Try again shortly." });
+if (isRateLimitError(e))
+return res.status(429).json({ error: "RPC rate limited (429). Try again shortly." });
 return res.status(500).json({ error: String(e?.message || e) });
 }
 });
@@ -293,7 +323,8 @@ res.json({ ok: true, alerts: rows });
 
 app.post("/api/alerts", authRequired, (req, res) => {
 const { mint, type, direction, threshold } = req.body || {};
-if (!mint || !type || !direction || threshold == null) return res.status(400).json({ error: "Missing fields" });
+if (!mint || !type || !direction || threshold == null)
+return res.status(400).json({ error: "Missing fields" });
 
 const info = db
 .prepare(

@@ -248,6 +248,16 @@ padding:10px 12px;
 border-radius:12px;
 min-width: 140px;
 }
+/* Fix select + option contrast */
+#holdersSelect{
+color: rgba(255,255,255,.92);
+background: rgba(0,0,0,.35);
+border: 1px solid rgba(255,255,255,.14);
+}
+#holdersSelect option{
+color: #0b0f1a;
+background: #f3f5f8;
+}
 </style>
 </head>
 
@@ -268,6 +278,8 @@ min-width: 140px;
 <a href="./explore.html" title="Coming soon">Explore</a>
 <a href="./alerts.html" title="Coming soon">Alerts</a>
 <a href="./launches.html" title="Coming soon">Launches</a>
+<a href="./methodology.html">Methodology</a>
+<a href="./legal.html">Legal</a>
 </div>
 
 <div class="pill" id="netPill" title="Connection status">
@@ -290,6 +302,7 @@ and actionable alerts — engineered for serious participants.
 <input class="input mono" id="tokenInput" placeholder="Paste token mint address..." autocomplete="off" />
 <button class="btn primary" id="scanBtn">Scan Token</button>
 <button class="btn ghost" id="demoBtn">Demo</button>
+<button class="btn ghost" id="saveShareBtn">Save Share Card</button>
 </div>
 
 <div class="row" style="margin-top:10px">
@@ -513,6 +526,7 @@ We never render RPC URLs or API keys in the interface. Debug via server logs onl
 </div>
 </div>
 
-<script type="module" src="./assets/token.js?v=1"></script>
+<!-- ✅ Modular entrypoint ONLY -->
+<script type="module" src="./assets/token.js?v=6"></script>
 </body>
 </html>

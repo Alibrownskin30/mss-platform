@@ -1,136 +1,160 @@
-import { ENDPOINTS, SAMPLE_MINT } from "./config.js";
-import { $, setText, setPill, setStatus } from "./dom.js";
-import { fetchRetry, safeJson } from "./api.js";
-import { renderToken, renderMarket, renderMcap, renderHolders, renderRisk, renderRaw } from "./render.js";
+import { apiGet, apiPost, getApiBase } from "./api.js";
+import { SAMPLE_MINT } from "./config.js";
+import { $, setText, setBadge } from "./dom.js";
+import { renderMarket, renderTokenAuthorities, renderHolders, renderClusters, renderRisk, renderRaw, renderNotes } from "./render.js";
+import { computeConcentration, calcRisk } from "./metrics.js";
+import { buildActivityFromHolders } from "../activity.js"; // ✅ uses existing apps/web/assets/activity.js
+
+let lastState = {
+mint: "",
+tokenJson: null,
+marketJson: null,
+holdersJson: null,
+};
 
 async function runScan(mint) {
-const t0 = performance.now();
-setStatus({ ok: null, msg: "Scanning…", ms: null });
-
-// Reset key UI
-setText("priceUsd", "—");
-setText("pairText", "Pair: —");
-setText("liqUsd", "—");
-setText("vol24h", "Vol 24h: —");
-setText("fdvUsd", "—");
-setText("mcapUsd", "MCap: —");
-setText("supplyText", "—");
-setText("decimalsText", "—");
-setPill("mintAuthPill", "Mint Authority: —", "muted");
-setPill("freezeAuthPill", "Freeze Authority: —", "muted");
-setPill("dexPill", "DEX: —", "muted");
-
-setText("chipTop1", "Top1: —");
-setText("chipTop5", "Top5: —");
-setText("chipTop10", "Top10: —");
-setText("chipTop20", "Top20: —");
-setText("chipWhale", "Whale Dominance: —/100");
+setBadge("scanDot", "scanStatusText", "warn", "Scanning…");
+setText("scanMetaText", `mint: ${mint.slice(0, 4)}…${mint.slice(-4)}`);
 
 try {
-// Token + Market in parallel
-const [tokenResp, marketResp] = await Promise.all([
-fetchRetry(ENDPOINTS.token(mint), { tries: 4, baseDelay: 250 }),
-fetchRetry(ENDPOINTS.market(mint), { tries: 3, baseDelay: 250 }),
+const [tokenJson, marketJson, holdersJson] = await Promise.all([
+apiGet(`/api/sol/token/${mint}`),
+apiGet(`/api/sol/market/${mint}`),
+apiGet(`/api/sol/holders/${mint}`),
 ]);
 
-const tokenJson = await safeJson(tokenResp);
-const marketJson = await safeJson(marketResp);
+lastState = { mint, tokenJson, marketJson, holdersJson };
 
-renderToken(tokenJson);
+renderTokenAuthorities(tokenJson);
 renderMarket(marketJson);
 
-// Holders (separate)
-let holdersJson = null;
-let top1 = null;
-let top10 = null;
-let totalSupplyUi = null;
+// holders dropdown
+const holdersSelect = $("holdersSelect");
+const topN = holdersSelect ? Number(holdersSelect.value || 20) : 20;
 
-try {
-const holdersResp = await fetchRetry(ENDPOINTS.holders(mint), { tries: 4, baseDelay: 350 });
-holdersJson = await safeJson(holdersResp);
+// render holders + concentration
+const conc = renderHolders(holdersJson, topN, computeConcentration);
 
-const conc = renderHolders(holdersJson);
-top1 = conc.top1;
-top10 = conc.top10;
-totalSupplyUi = conc.totalSupplyUi;
+// clusters (best-effort from holders snapshot)
+const activity = buildActivityFromHolders(holdersJson);
+renderClusters(activity);
+
+// risk model (uses market + concentration + authorities)
+const rm = calcRisk({ tokenJson, marketJson, conc });
+renderRisk(rm);
+
+// notes
+renderNotes({ tokenJson, marketJson, conc, activity, rm });
+
+// raw json panel
+renderRaw({
+mint,
+token: tokenJson,
+market: marketJson,
+holders: holdersJson,
+derived: { concentration: conc, activity, riskModel: rm },
+});
+
+// footer api label
+setText("apiMeta", `API: ${getApiBase().replace(/^https?:\/\//, "")}`);
+
+setBadge("scanDot", "scanStatusText", "good", "Scan complete");
 } catch (e) {
-holdersJson = { found: false, error: e?.message || String(e) };
-renderHolders(holdersJson);
+renderRaw({ mint, error: e?.message || String(e) });
+setBadge("scanDot", "scanStatusText", "bad", "Scan error");
+}
 }
 
-// Market cap (derived)
-renderMcap({ marketJson, totalSupplyUi });
-
-// Risk
-renderRisk({ tokenJson, marketJson, top1, top10 });
-
-// Raw JSON panel
-renderRaw({ mint, token: tokenJson, market: marketJson, holders: holdersJson });
-
-const ms = Math.round(performance.now() - t0);
-setStatus({ ok: true, msg: "Scan complete", ms });
-} catch (e) {
-const ms = Math.round(performance.now() - t0);
-setStatus({ ok: false, msg: "Scan failed — check API server", ms });
-renderRaw({ error: e?.message || String(e), mint });
-}
+function rerenderHoldersOnly() {
+if (!lastState?.holdersJson) return;
+const holdersSelect = $("holdersSelect");
+const topN = holdersSelect ? Number(holdersSelect.value || 20) : 20;
+renderHolders(lastState.holdersJson, topN, computeConcentration);
 }
 
 function init() {
-const mintInput = $("mintInput");
+const tokenInput = $("tokenInput");
 const scanBtn = $("scanBtn");
-const pasteBtn = $("pasteBtn");
-const sampleBtn = $("sampleBtn");
-const retryHoldersBtn = $("retryHoldersBtn");
+const demoBtn = $("demoBtn");
+const holdersSelect = $("holdersSelect");
 
-if (!mintInput || !scanBtn) return;
+if (!tokenInput || !scanBtn) return;
 
-scanBtn.addEventListener("click", async () => {
-const mint = (mintInput.value || "").trim();
-if (!mint) {
-setStatus({ ok: false, msg: "Paste a Solana mint first.", ms: null });
-return;
-}
-await runScan(mint);
-});
+// initial badges
+setBadge("netDot", "netText", "good", "Online");
+setBadge("scanDot", "scanStatusText", null, "Ready");
+setText("apiMeta", `API: ${getApiBase().replace(/^https?:\/\//, "")}`);
 
-if (pasteBtn) {
-pasteBtn.addEventListener("click", async () => {
-try {
-const txt = (await navigator.clipboard.readText()).trim();
-if (txt) mintInput.value = txt;
-} catch {
-setStatus({ ok: false, msg: "Clipboard blocked by browser permissions.", ms: null });
-}
-});
-}
-
-if (sampleBtn) {
-sampleBtn.addEventListener("click", () => {
-mintInput.value = SAMPLE_MINT;
-});
-}
-
-if (retryHoldersBtn) {
-retryHoldersBtn.addEventListener("click", async () => {
-const mint = (mintInput.value || "").trim();
+scanBtn.addEventListener("click", () => {
+const mint = (tokenInput.value || "").trim();
 if (!mint) return;
-await runScan(mint);
+runScan(mint);
 });
-}
 
-mintInput.addEventListener("keydown", (e) => {
+tokenInput.addEventListener("keydown", (e) => {
 if (e.key === "Enter") {
 e.preventDefault();
 scanBtn.click();
 }
 });
 
-setStatus({ ok: null, msg: "Ready", ms: null });
+if (demoBtn) {
+demoBtn.addEventListener("click", () => {
+tokenInput.value = SAMPLE_MINT;
+scanBtn.click();
+});
 }
 
-if (document.readyState === "loading") {
-document.addEventListener("DOMContentLoaded", init);
-} else {
-init();
+if (holdersSelect) {
+holdersSelect.addEventListener("change", () => {
+rerenderHoldersOnly();
+});
 }
+
+// Alerts (requires token)
+const enableAlertsBtn = $("enableAlertsBtn");
+const alertStatus = $("alertStatus");
+
+if (enableAlertsBtn && alertStatus) {
+enableAlertsBtn.addEventListener("click", async () => {
+const mint = (tokenInput.value || "").trim();
+if (!mint) {
+alertStatus.textContent = "Scan a token first.";
+return;
+}
+
+const jwt = localStorage.getItem("mssToken");
+if (!jwt) {
+alertStatus.textContent = "Login required to enable alerts.";
+return;
+}
+
+try {
+alertStatus.textContent = "Saving alert…";
+const data = await apiPost(
+"/api/alerts",
+{ mint, type: "risk", direction: "up", threshold: 1 },
+jwt // ✅ token string
+);
+if (data?.error) {
+alertStatus.textContent = data.error;
+return;
+}
+alertStatus.textContent = "Alerts enabled for this token.";
+} catch (err) {
+alertStatus.textContent = err?.message || "Failed to save alert.";
+}
+});
+}
+
+// auto-scan ?mint=
+const params = new URLSearchParams(window.location.search);
+const qMint = params.get("mint");
+if (qMint) {
+tokenInput.value = qMint;
+runScan(qMint);
+}
+}
+
+if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", init);
+else init();
