@@ -56,6 +56,7 @@ setDot(dotId, state);
 setText(textId, text);
 }
 
+// ---- Concentration / Risk ----
 function computeConcentration(holders = []) {
 const pct = holders.map((h) => Number(h.pctSupply || 0));
 const sumTopN = (n) => pct.slice(0, n).reduce((a, b) => a + b, 0);
@@ -68,6 +69,7 @@ top20: sumTopN(20),
 }
 
 function calcRisk({ tokenJson, marketJson, conc }) {
+// 0..100 (higher = riskier)
 const mintRevoked = !!tokenJson?.safety?.mintRevoked;
 const freezeRevoked = !!tokenJson?.safety?.freezeRevoked;
 
@@ -83,9 +85,11 @@ const volLiq = liq > 0 ? vol / liq : 0;
 
 let score = 0;
 
+// Authority control
 if (!mintRevoked) score += 18;
 if (!freezeRevoked) score += 18;
 
+// Liquidity depth
 if (fdv > 0 && liq > 0) {
 if (liqFdvPct < 1) score += 18;
 else if (liqFdvPct < 3) score += 14;
@@ -96,6 +100,7 @@ else score += 3;
 score += 14;
 }
 
+// Holder distribution
 if (top1 > 45) score += 16;
 else if (top1 > 35) score += 12;
 else if (top1 > 25) score += 9;
@@ -108,6 +113,7 @@ else if (top10 > 40) score += 6;
 else if (top10 > 30) score += 3;
 else score += 1;
 
+// Volume/liquidity churn
 if (volLiq > 6) score += 6;
 else if (volLiq > 3) score += 5;
 else if (volLiq > 1.5) score += 3;
@@ -137,21 +143,18 @@ Math.min(100, Math.round((Number(conc?.top10 || 0) / 80) * 100))
 );
 
 const signal =
-label.state === "bad"
-? "High Alert"
-: label.state === "warn"
-? "Caution"
-: "Normal";
+label.state === "bad" ? "High Alert" : label.state === "warn" ? "Caution" : "Normal";
 
-return { score, label, primaryDriver, whaleScore, signal };
+return { score, label, primaryDriver, whaleScore, signal, liqFdvPct, volLiq };
 }
 
+// ---- Derived MCap fallback ----
 function getSupplyUi({ holdersJson, tokenJson }) {
-// Try common “UI supply” fields first
 const directCandidates = [
 holdersJson?.totalSupplyUi,
 holdersJson?.supplyUi,
 holdersJson?.totalSupply,
+tokenJson?.totalSupplyUi,
 tokenJson?.supplyUi,
 tokenJson?.uiSupply,
 ];
@@ -161,15 +164,11 @@ const v = Number(c);
 if (Number.isFinite(v) && v > 0) return v;
 }
 
-// Fallback: convert raw supply + decimals
 const raw = Number(tokenJson?.supply);
 const dec = Number(tokenJson?.decimals);
 if (Number.isFinite(raw) && raw > 0 && Number.isFinite(dec) && dec >= 0 && dec <= 18) {
-// If raw is huge, treat as raw base units and convert
-// If raw already looks like a UI value, this conversion would shrink it too much;
-// heuristic: raw > 1e10 -> raw units
+// heuristic: if raw looks like base units, convert
 if (raw > 1e10) return raw / Math.pow(10, dec);
-// otherwise assume it’s already UI
 return raw;
 }
 
@@ -186,9 +185,9 @@ if (!(supplyUi > 0)) return 0;
 return price * supplyUi;
 }
 
+// ---- Render ----
 function renderMarket(marketJson, derivedMcapUsd = 0) {
 if (!marketJson?.found) {
-// Still show derived mcap if we have it
 setText("priceUsd", "$—");
 setText("pricePair", "Pair: —");
 setText("liqUsd", "$—");
@@ -216,7 +215,6 @@ setText("fdvUsd", fmtUsd(marketJson?.fdv));
 
 const apiMcap = Number(marketJson?.mcapUsd || 0);
 const mcap = apiMcap > 0 ? apiMcap : derivedMcapUsd;
-
 setText("mcapUsd", mcap > 0 ? `MCap: ${fmtUsd(mcap)}` : "MCap: —");
 
 setText("dexName", marketJson?.dex || "—");
@@ -234,6 +232,9 @@ const freezeAuthority = tokenJson?.freezeAuthority
 setText("mintAuthority", mintAuthority);
 setText("freezeAuthority", freezeAuthority);
 setText("tokenProgram", tokenJson?.program || "SPL Token");
+
+// keep hidden label
+setText("rpcLabel", "RPC: hidden");
 }
 
 function renderHolders(holdersJson, topN = 20) {
@@ -264,8 +265,7 @@ tr.innerHTML = `
 <td class="mono">${h.rank ?? ""}</td>
 <td class="mono" title="${wallet}">${shortAddr(wallet, 6, 6)}</td>
 <td class="right mono">${uiAmt}</td>
-<td class="right mono">${pctSupply}</td>
-`;
+<td class="right mono">${pctSupply}</td>`;
 tbody.appendChild(tr);
 }
 }
@@ -315,8 +315,7 @@ tr.innerHTML = `
 <td class="mono">${c.id}</td>
 <td class="mono">${c.wallets}</td>
 <td class="mono">${c.score}</td>
-<td>${c.evidence}</td>
-`;
+<td>${c.evidence}</td>`;
 body.appendChild(tr);
 }
 }
@@ -358,16 +357,46 @@ notes.push(`Primary driver: ${rm.primaryDriver}.`);
 return notes.join(" ");
 }
 
+// Normalize price change keys for sharecard/UI robustness
+function normalizePriceChange(marketJson) {
+const pc = marketJson?.priceChange || {};
+return {
+h1: pc.h1 ?? null,
+h24: pc.h24 ?? null,
+d7: pc.d7 ?? pc.h168 ?? null,
+m30: pc.m30 ?? pc.d30 ?? null,
+};
+}
+
+async function bestEffortRecordRisk({ mint, rm, conc, marketJson }) {
+try {
+await apiPost("/api/sol/risk-record", {
+mint,
+risk: rm.score,
+whale: rm.whaleScore,
+top10: Number(conc?.top10 || 0),
+liqUsd: Number(marketJson?.liquidityUsd || 0),
+fdvUsd: Number(marketJson?.fdv || 0),
+});
+} catch {
+// silent (non-critical)
+}
+}
+
 async function runScan(mint) {
 setBadge(null, "scanDot", "scanStatusText", "warn", "Scanning…");
 setText("scanMetaText", `mint: ${mint.slice(0, 4)}…${mint.slice(-4)}`);
 
 try {
-const [tokenJson, marketJson, holdersJson] = await Promise.all([
+const [tokenJson, marketJsonRaw, holdersJson] = await Promise.all([
 apiGet(`/api/sol/token/${mint}`),
 apiGet(`/api/sol/market/${mint}`),
 apiGet(`/api/sol/holders/${mint}`),
 ]);
+
+// Ensure marketJson has normalized priceChange keys for sharecard
+const marketJson = { ...(marketJsonRaw || {}) };
+marketJson.priceChange = normalizePriceChange(marketJsonRaw);
 
 renderTokenAuthorities(tokenJson);
 
@@ -403,6 +432,9 @@ renderRaw(scanObj);
 
 setText("apiMeta", `API: ${getApiBase()}`);
 setBadge(null, "scanDot", "scanStatusText", "good", "Scan complete");
+
+// Record risk history for trends/alerts (best-effort)
+bestEffortRecordRisk({ mint, rm, conc, marketJson });
 } catch (e) {
 renderRaw({ mint, error: e?.message || String(e) });
 setBadge(null, "scanDot", "scanStatusText", "bad", "Scan error");
@@ -416,18 +448,34 @@ const demoBtn = $("demoBtn");
 
 if (!tokenInput || !scanBtn) return;
 
-// holders dropdown: re-render from last scan
+// holders dropdown: re-render from last scan + recompute risk/notes
 const holdersSelect = $("holdersSelect");
 if (holdersSelect) {
 holdersSelect.addEventListener("change", () => {
 const last = window.__MSS_LAST_SCAN__;
-if (!last?.holders) return;
+if (!last?.holders || !last?.token || !last?.market) return;
 
 const topN = Number(holdersSelect.value || 20);
 const conc = renderHolders(last.holders, topN);
 
+const rm = calcRisk({ tokenJson: last.token, marketJson: last.market, conc });
+setText("riskScore", `${rm.score}`);
+setText("whaleScore", `${rm.whaleScore}`);
+setText("riskSignal", rm.signal);
+setBadge("riskBadge", "riskDot", "riskText", rm.label.state, rm.label.text);
+
+const notes = buildNotes({
+tokenJson: last.token,
+marketJson: last.market,
+conc,
+activity: last.derived?.activity,
+rm,
+});
+setText("notesText", notes);
+
 last.derived = last.derived || {};
 last.derived.concentration = conc;
+last.derived.riskModel = rm;
 window.__MSS_LAST_SCAN__ = last;
 renderRaw(last);
 });
@@ -469,11 +517,10 @@ alert(err?.message || "Failed to generate share card.");
 }
 });
 } else {
-// If button missing, we still want you to know why nothing happens
 console.warn("Save share button not found (missing #saveShareBtn in token.html).");
 }
 
-// Alerts
+// Alerts (auth required)
 const enableAlertsBtn = $("enableAlertsBtn");
 const alertStatus = $("alertStatus");
 
@@ -493,11 +540,19 @@ return;
 
 try {
 alertStatus.textContent = "Saving alert…";
-const data = await apiPost("/api/alerts", { mint, type: "risk", direction: "up", threshold: 1 }, jwt);
+
+// Use watcher-compatible defaults (risk_score threshold)
+const data = await apiPost(
+"/api/alerts",
+{ mint, type: "risk_spike", direction: "above", threshold: 70 },
+jwt
+);
+
 if (data?.error) {
 alertStatus.textContent = data.error;
 return;
 }
+
 alertStatus.textContent = "Alerts enabled for this token.";
 } catch (err) {
 alertStatus.textContent = err?.message || "Failed to save alert.";

@@ -2,6 +2,10 @@ import "dotenv/config";
 import express from "express";
 import cors from "cors";
 import fetch from "node-fetch";
+import helmet from "helmet";
+import rateLimit from "express-rate-limit";
+import slowDown from "express-slow-down";
+
 import { Connection, PublicKey } from "@solana/web3.js";
 import pkg from "@metaplex-foundation/mpl-token-metadata";
 import { AccountLayout } from "@solana/spl-token";
@@ -10,49 +14,96 @@ import { db, insertRiskPoint, getRiskTrend } from "./db.js";
 import { register, login, authRequired } from "./auth.js";
 import { startWatcher } from "./watcher.js";
 import { getClusterIntel } from "./cluster.js";
-
-// ✅ Cassie
-import { cassieMiddleware, registerCassieHoneypots, cassieDiagHandler } from "./cassie/index.js";
+import { createCassie } from "./cassie/index.js";
 
 const { Metadata } = pkg;
 
 const app = express();
 const PORT = process.env.PORT || 8787;
 
-// IMPORTANT: behind Codespaces / reverse proxy
 app.set("trust proxy", 1);
+app.disable("x-powered-by");
 
-// CORS (safer defaults in production)
-const isProd = process.env.NODE_ENV === "production";
-const corsOrigin =
-process.env.CORS_ORIGIN?.trim() ||
-(isProd ? "" : true); // dev: allow; prod: require explicit origin
+const NODE_ENV = process.env.NODE_ENV || "development";
 
+// ---- Security headers ----
 app.use(
-cors({
-origin: corsOrigin || false,
-credentials: true,
+helmet({
+crossOriginResourcePolicy: { policy: "cross-origin" },
+// DO NOT disable CSP unless you truly need it. Helmet doesn't set CSP unless configured.
 })
 );
 
-// Body limits (parser bombs)
-app.use(express.json({ limit: "1mb" }));
+// ---- Body parsing ----
+app.use(express.json({ limit: process.env.BODY_LIMIT || "1mb" }));
 
-// ✅ Cassie FIRST (protect everything below)
-app.use(cassieMiddleware());
+// ---- CORS ----
+const rawOrigins = (process.env.CORS_ORIGINS || "")
+.split(",")
+.map((s) => s.trim())
+.filter(Boolean);
 
-// ✅ Cassie honeypots (should be early, before real routes)
-registerCassieHoneypots(app);
+const corsOptions =
+NODE_ENV !== "production" || rawOrigins.length === 0
+? { origin: true, credentials: false }
+: {
+origin(origin, cb) {
+if (!origin) return cb(null, true);
+if (rawOrigins.includes(origin)) return cb(null, true);
+return cb(new Error("Not allowed by CORS"));
+},
+credentials: false,
+};
 
-// OPTIONAL: internal diagnostics (lock this down)
-// Use: curl -H "Authorization: Bearer <ADMIN_KEY>" /api/_cassie/diag
-app.get("/api/_cassie/diag", (req, res) => cassieDiagHandler(req, res));
+app.use(cors(corsOptions));
 
-// Auth
-app.post("/api/register", register);
-app.post("/api/login", login);
+// ---- Baseline abuse protection (global) ----
+const limiter = rateLimit({
+windowMs: 60 * 1000,
+limit: Number(process.env.RATE_LIMIT_RPM || 240),
+standardHeaders: true,
+legacyHeaders: false,
+message: { error: "Too many requests. Try again shortly." },
+});
 
-// Solana RPC (Helius if SOLANA_RPC set)
+const speed = slowDown({
+windowMs: 60 * 1000,
+delayAfter: Number(process.env.SLOWDOWN_AFTER || 120),
+delayMs: () => Number(process.env.SLOWDOWN_DELAY_MS || 200),
+validate: { delayMs: false },
+});
+
+app.use(limiter);
+app.use(speed);
+
+// ---- Auth route-specific protection (stronger) ----
+const authLimiter = rateLimit({
+windowMs: 15 * 60 * 1000,
+limit: Number(process.env.AUTH_RATE_LIMIT_15M || 25),
+standardHeaders: true,
+legacyHeaders: false,
+message: { error: "Too many attempts. Try again later." },
+});
+
+const authSlow = slowDown({
+windowMs: 15 * 60 * 1000,
+delayAfter: Number(process.env.AUTH_SLOWDOWN_AFTER_15M || 10),
+delayMs: () => Number(process.env.AUTH_SLOWDOWN_DELAY_MS || 500),
+validate: { delayMs: false },
+});
+
+// ---- Cassie (middleware sits in front of API) ----
+const { cassie, cassieApi } = createCassie();
+app.use(cassie);
+
+// Honeypots (keep boring)
+app.get("/api/_cassie/diag", (req, res) => res.status(404).end());
+app.post("/api/admin/_sync", (req, res) => res.status(401).end());
+
+// Optional Cassie status endpoint (auth-gated)
+app.get("/api/cassie/status", authRequired, (req, res) => cassieApi.status(req, res));
+
+// ---- Solana RPC ----
 const RPC = process.env.SOLANA_RPC || "https://api.mainnet-beta.solana.com";
 const connection = new Connection(RPC, "confirmed");
 
@@ -80,19 +131,31 @@ else await sleep(150);
 throw lastErr;
 }
 
-// Caches
+function assertMint(mintStr) {
+try {
+return new PublicKey(mintStr);
+} catch {
+return null;
+}
+}
+
+// ---- Caches ----
 const holdersCache = new Map();
 const holdersInFlight = new Map();
 const HOLDERS_TTL_MS = 120_000;
 
-const clusterCache = new Map(); // mint -> {ts,data}
-const CLUSTER_TTL_MS = 180_000; // 3 mins
+const clusterCache = new Map();
+const CLUSTER_TTL_MS = 180_000;
 
-// Health
+const marketCache = new Map();
+const MARKET_TTL_MS = 30_000;
+
+// ---- Health ----
 app.get("/health", (req, res) => {
 res.json({
 ok: true,
 service: "mss-api",
+env: NODE_ENV,
 port: Number(PORT),
 rpcLabel: "Solana Mainnet (Live)",
 });
@@ -102,10 +165,15 @@ app.get("/", (req, res) => {
 res.json({ ok: true, service: "mss-api" });
 });
 
+// ---- Auth ----
+app.post("/api/register", authLimiter, authSlow, register);
+app.post("/api/login", authLimiter, authSlow, login);
+
 // ---------- Token Safety + metadata ----------
 app.get("/api/sol/token/:mint", async (req, res) => {
 try {
-const mint = new PublicKey(req.params.mint);
+const mint = assertMint(req.params.mint);
+if (!mint) return res.status(400).json({ error: "Invalid mint" });
 
 const info = await rpcRetry(() => connection.getParsedAccountInfo(mint));
 if (!info.value) return res.status(404).json({ error: "Mint not found" });
@@ -151,24 +219,53 @@ return res.status(500).json({ error: String(e?.message || e) });
 app.get("/api/sol/market/:mint", async (req, res) => {
 try {
 const mint = req.params.mint;
+const mintPk = assertMint(mint);
+if (!mintPk) return res.status(400).json({ error: "Invalid mint" });
+
+const cached = marketCache.get(mint);
+if (cached && Date.now() - cached.ts < MARKET_TTL_MS) return res.json(cached.data);
+
 const url = `https://api.dexscreener.com/latest/dex/tokens/${mint}`;
 const r = await fetch(url, { timeout: 10_000 });
 const j = await r.json();
 
-if (!j?.pairs?.length) return res.json({ found: false });
+if (!j?.pairs?.length) {
+const out = { found: false };
+marketCache.set(mint, { ts: Date.now(), data: out });
+return res.json(out);
+}
 
 const p = j.pairs[0];
-return res.json({
+
+const mcapUsd = p.marketCap ?? p.marketcap ?? p.mcap ?? null;
+
+const pc = p.priceChange || {};
+
+const out = {
 found: true,
 dex: p.dexId,
 pair: p.pairAddress,
 priceUsd: p.priceUsd,
-fdv: p.fdv,
+fdv: p.fdv ?? null,
+mcapUsd: mcapUsd ?? null,
 liquidityUsd: p.liquidity?.usd || 0,
 volume24h: p.volume?.h24 || 0,
 baseSymbol: p.baseToken?.symbol,
 quoteSymbol: p.quoteToken?.symbol,
-});
+baseName: p.baseToken?.name,
+quoteName: p.quoteToken?.name,
+
+// ✅ normalized for UI/sharecard
+priceChange: {
+h1: pc.h1 ?? null,
+h24: pc.h24 ?? null,
+d7: pc.d7 ?? pc.h168 ?? null,
+m30: pc.m30 ?? pc.d30 ?? null,
+},
+};
+
+marketCache.set(mint, { ts: Date.now(), data: out });
+return res.json(out);
 } catch (e) {
 return res.status(500).json({ error: String(e?.message || e) });
 }
@@ -179,6 +276,9 @@ app.get("/api/sol/holders/:mint", async (req, res) => {
 const mintStr = req.params.mint;
 
 try {
+const mint = assertMint(mintStr);
+if (!mint) return res.status(400).json({ error: "Invalid mint" });
+
 const cached = holdersCache.get(mintStr);
 if (cached && Date.now() - cached.ts < HOLDERS_TTL_MS) return res.json(cached.data);
 
@@ -188,8 +288,6 @@ return res.json(data);
 }
 
 const task = (async () => {
-const mint = new PublicKey(mintStr);
-
 const [supplyResp, largest] = await Promise.all([
 rpcRetry(() => connection.getTokenSupply(mint)),
 rpcRetry(() => connection.getTokenLargestAccounts(mint)),
@@ -205,7 +303,7 @@ const accInfos = await rpcRetry(() => connection.getMultipleAccountsInfo(tokenAc
 
 const owners = accInfos.map((info) => {
 try {
-if (!info?.data) return null;
+if (!info?.data || info.data.length !== AccountLayout.span) return null;
 const decoded = AccountLayout.decode(info.data);
 return new PublicKey(decoded.owner).toBase58();
 } catch {
@@ -227,7 +325,13 @@ pctSupply: pct,
 };
 });
 
-const out = { found: true, mint: mint.toBase58(), decimals, totalSupplyUi: totalUi, holders };
+const out = {
+found: true,
+mint: mint.toBase58(),
+decimals,
+totalSupplyUi: totalUi,
+holders,
+};
 
 holdersCache.set(mintStr, { ts: Date.now(), data: out });
 return out;
@@ -245,17 +349,19 @@ return res.status(500).json({ error: String(e?.message || e) });
 }
 });
 
-// ---------- Cluster Intelligence (NEW) ----------
+// ---------- Cluster Intelligence (on-chain heuristic) ----------
 app.get("/api/sol/cluster/:mint", async (req, res) => {
 const mintStr = req.params.mint;
 try {
+const mint = assertMint(mintStr);
+if (!mint) return res.status(400).json({ error: "Invalid mint" });
+
 const cached = clusterCache.get(mintStr);
 if (cached && Date.now() - cached.ts < CLUSTER_TTL_MS) return res.json(cached.data);
 
-// Get owners from holders endpoint logic (reuse cached if exists)
 let holdersData = holdersCache.get(mintStr)?.data;
+
 if (!holdersData) {
-const mint = new PublicKey(mintStr);
 const largest = await rpcRetry(() => connection.getTokenLargestAccounts(mint));
 const top = (largest?.value || []).slice(0, 20);
 const tokenAccPubkeys = top.map((a) => new PublicKey(a.address));
@@ -263,7 +369,7 @@ const accInfos = await rpcRetry(() => connection.getMultipleAccountsInfo(tokenAc
 
 const owners = accInfos.map((info) => {
 try {
-if (!info?.data) return null;
+if (!info?.data || info.data.length !== AccountLayout.span) return null;
 const decoded = AccountLayout.decode(info.data);
 return new PublicKey(decoded.owner).toBase58();
 } catch {
@@ -275,7 +381,6 @@ holdersData = { holders: top.map((a, i) => ({ owner: owners[i] })) };
 }
 
 const owners = (holdersData?.holders || []).map((h) => h.owner).filter(Boolean);
-
 const intel = await getClusterIntel({ connection, rpcRetry, owners });
 
 clusterCache.set(mintStr, { ts: Date.now(), data: intel });
@@ -318,6 +423,7 @@ const rows = db
 FROM alerts WHERE user_id = ? ORDER BY id DESC`
 )
 .all(req.user.id);
+
 res.json({ ok: true, alerts: rows });
 });
 
@@ -325,6 +431,12 @@ app.post("/api/alerts", authRequired, (req, res) => {
 const { mint, type, direction, threshold } = req.body || {};
 if (!mint || !type || !direction || threshold == null)
 return res.status(400).json({ error: "Missing fields" });
+
+// Minimal validation (keeps it robust without being annoying)
+const allowedTypes = new Set(["risk_spike", "whale", "liquidity", "authority"]);
+const allowedDirections = new Set(["above", "below"]);
+if (!allowedTypes.has(type)) return res.status(400).json({ error: "Invalid type" });
+if (!allowedDirections.has(direction)) return res.status(400).json({ error: "Invalid direction" });
 
 const info = db
 .prepare(
@@ -346,10 +458,11 @@ db.prepare(`UPDATE alerts SET is_enabled = ? WHERE id = ?`).run(next, id);
 res.json({ ok: true, is_enabled: next });
 });
 
-// Start
+// ---- Start ----
 app.listen(PORT, "0.0.0.0", () => {
 console.log(`✅ MSS API running on http://0.0.0.0:${PORT}`);
 console.log(`🔒 RPC hidden (label only)`);
+console.log(`🛡️ Cassie: enabled (defensive middleware)`);
 });
 
 startWatcher();

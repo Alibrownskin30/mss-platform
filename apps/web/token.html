@@ -6,11 +6,7 @@
 <title>MSS Protocol — Token Scan</title>
 <meta name="description" content="MSS Protocol Token Scan — Elite security intelligence: contract authorities, holder concentration, market signals, and alerts." />
 
-<!-- Runtime config (NO API KEYS HERE) -->
 <script>
-// Leave blank to auto-detect:
-// - Codespaces: maps -3000. -> -8787.
-// - Local: http://127.0.0.1:8787
 window.API_BASE = "";
 </script>
 
@@ -258,6 +254,12 @@ border: 1px solid rgba(255,255,255,.14);
 color: #0b0f1a;
 background: #f3f5f8;
 }
+
+/* ✅ Price change styling */
+.pchg{font-weight:900}
+.pchg.up{color:var(--good)}
+.pchg.down{color:var(--bad)}
+.pchg.flat{color:rgba(255,255,255,.72)}
 </style>
 </head>
 
@@ -348,6 +350,14 @@ and actionable alerts — engineered for serious participants.
 <div class="value" id="fdvUsd">$—</div>
 <div class="sub" id="mcapUsd">MCap: —</div>
 </div>
+</div>
+
+<!-- ✅ Price change row -->
+<div class="chipbar" style="margin-top:10px">
+<span class="chip">1h: <b id="pc1h" class="pchg flat">—</b></span>
+<span class="chip">1d: <b id="pc1d" class="pchg flat">—</b></span>
+<span class="chip">1w: <b id="pc1w" class="pchg flat">—</b></span>
+<span class="chip">1m: <b id="pc1m" class="pchg flat">—</b></span>
 </div>
 
 <div class="chipbar">
@@ -526,7 +536,6 @@ We never render RPC URLs or API keys in the interface. Debug via server logs onl
 </div>
 </div>
 
-<!-- ✅ Modular entrypoint ONLY -->
-<script type="module" src="./assets/token.js?v=6"></script>
+<script type="module" src="./assets/token.js?v=7"></script>
 </body>
 </html>

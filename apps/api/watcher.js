@@ -1,5 +1,3 @@
-// apps/api/watcher.js
-import fetch from "node-fetch";
 import { db } from "./db.js";
 
 const POLL_SECONDS = Number(process.env.WATCHER_POLL_SECONDS || 60);
@@ -10,15 +8,20 @@ return new Date().toISOString().replace("T", " ").slice(0, 19);
 
 // Placeholder notification (upgrade later)
 async function notify({ alert, message }) {
-db.prepare(`INSERT INTO alert_events (alert_id, mint, message) VALUES (?, ?, ?)`).run(alert.id, alert.mint, message);
-// You’ll see these in API logs:
-console.log(`🔔 ALERT TRIGGERED [${alert.type}] mint=${alert.mint} user=${alert.user_id} :: ${message}`);
+db.prepare(`INSERT INTO alert_events (alert_id, mint, message) VALUES (?, ?, ?)`).run(
+alert.id,
+alert.mint,
+message
+);
+console.log(`🔔 ALERT [${alert.type}] mint=${alert.mint} user=${alert.user_id} :: ${message}`);
 }
 
 async function getLatestRisk(mint) {
 const r = db
-.prepare(`SELECT risk_score, whale_score, top10_pct, liq_usd, fdv_usd, created_at
-FROM risk_history WHERE mint = ? ORDER BY datetime(created_at) DESC LIMIT 1`)
+.prepare(
+`SELECT risk_score, whale_score, top10_pct, liq_usd, fdv_usd, created_at
+FROM risk_history WHERE mint = ? ORDER BY datetime(created_at) DESC LIMIT 1`
+)
 .get(mint);
 return r || null;
 }
@@ -44,6 +47,7 @@ let value = null;
 if (a.type === "risk_spike") value = Number(latest.risk_score);
 if (a.type === "whale") value = Number(latest.whale_score ?? 0);
 if (a.type === "liquidity") value = Number(latest.liq_usd ?? 0);
+if (a.type === "authority") value = null; // reserved for future (authority polling)
 
 if (value == null) continue;
 

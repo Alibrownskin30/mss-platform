@@ -1,31 +1,28 @@
 import { createCassieMiddleware } from "./middleware.js";
-import { registerHoneypots } from "./honeypots.js";
-import { getCassieSnapshot } from "./store.js";
 
 /**
-* Mounted early in server.js:
-* app.use(cassieMiddleware())
-* registerCassieHoneypots(app)
+* Cassie — defensive middleware for MSS Protocol
+* Detect hostile automation → stop it → learn from it → keep real users untouched.
+*
+* Usage:
+* const { cassie, cassieApi } = createCassie();
+* app.use(cassie);
+* app.get("/api/cassie/status", authRequired, cassieApi.status);
 */
-export function cassieMiddleware() {
-return createCassieMiddleware();
-}
+export function createCassie(opts = {}) {
+const cassie = createCassieMiddleware(opts);
 
-export function registerCassieHoneypots(app) {
-registerHoneypots(app);
-}
+// Optional internal API helper (keep private/auth-gated in server.js)
+const cassieApi = {
+status(req, res) {
+const snap =
+typeof req.__cassieGetSnapshot === "function"
+? req.__cassieGetSnapshot()
+: null;
 
-/**
-* Minimal diag endpoint (lock behind ADMIN_KEY env).
-* Use: Authorization: Bearer <ADMIN_KEY>
-*/
-export function cassieDiagHandler(req, res) {
-const adminKey = process.env.CASSIE_ADMIN_KEY;
-if (!adminKey) return res.status(404).end();
+res.json({ ok: true, cassie: snap || { enabled: true } });
+},
+};
 
-const auth = String(req.headers.authorization || "");
-const ok = auth === `Bearer ${adminKey}`;
-if (!ok) return res.status(404).end();
-
-return res.json({ ok: true, cassie: getCassieSnapshot() });
+return { cassie, cassieApi };
 }

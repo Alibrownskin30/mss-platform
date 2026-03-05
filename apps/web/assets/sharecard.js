@@ -16,11 +16,12 @@ return `${s.slice(0, left)}…${s.slice(-right)}`;
 function fmtUsdCompact(n) {
 const v = Number(n);
 if (!Number.isFinite(v)) return "—";
-if (v >= 1e12) return `$${(v / 1e12).toFixed(2)}T`;
-if (v >= 1e9) return `$${(v / 1e9).toFixed(2)}B`;
-if (v >= 1e6) return `$${(v / 1e6).toFixed(2)}M`;
-if (v >= 1e3) return `$${(v / 1e3).toFixed(2)}K`;
-if (v >= 1) return `$${v.toFixed(4)}`;
+const abs = Math.abs(v);
+if (abs >= 1e12) return `$${(v / 1e12).toFixed(2)}T`;
+if (abs >= 1e9) return `$${(v / 1e9).toFixed(2)}B`;
+if (abs >= 1e6) return `$${(v / 1e6).toFixed(2)}M`;
+if (abs >= 1e3) return `$${(v / 1e3).toFixed(2)}K`;
+if (abs >= 1) return `$${v.toFixed(6)}`;
 return `$${v.toFixed(8)}`;
 }
 
@@ -28,6 +29,13 @@ function fmtPct(n, dp = 2) {
 const v = Number(n);
 if (!Number.isFinite(v)) return "—";
 return `${v.toFixed(dp)}%`;
+}
+
+function fmtSignedPct(n, dp = 2) {
+const v = Number(n);
+if (!Number.isFinite(v)) return "—";
+const sign = v > 0 ? "+" : "";
+return `${sign}${v.toFixed(dp)}%`;
 }
 
 function fitText(ctx, text, maxWidth) {
@@ -50,21 +58,24 @@ function riskBadgeColors(state) {
 const s = String(state || "warn");
 if (s === "good") return {
 bg: "rgba(43,227,138,0.14)",
-stroke: "rgba(43,227,138,0.32)",
-glow: "rgba(43,227,138,0.18)",
-text: "rgba(234,240,255,0.94)"
+stroke: "rgba(43,227,138,0.34)",
+glow: "rgba(43,227,138,0.20)",
+text: "rgba(234,240,255,0.95)",
+dot: "rgba(43,227,138,0.95)"
 };
 if (s === "bad") return {
 bg: "rgba(255,77,109,0.14)",
-stroke: "rgba(255,77,109,0.32)",
+stroke: "rgba(255,77,109,0.34)",
 glow: "rgba(255,77,109,0.18)",
-text: "rgba(234,240,255,0.94)"
+text: "rgba(234,240,255,0.95)",
+dot: "rgba(255,77,109,0.95)"
 };
 return {
 bg: "rgba(255,200,87,0.14)",
-stroke: "rgba(255,200,87,0.32)",
-glow: "rgba(255,200,87,0.16)",
-text: "rgba(234,240,255,0.94)"
+stroke: "rgba(255,200,87,0.34)",
+glow: "rgba(255,200,87,0.18)",
+text: "rgba(234,240,255,0.95)",
+dot: "rgba(255,200,87,0.95)"
 };
 }
 
@@ -79,44 +90,41 @@ ctx.arcTo(x, y, x + w, y, radius);
 ctx.closePath();
 }
 
-function drawGlow(ctx, x, y, w, h, color) {
-const g = ctx.createRadialGradient(
-x + w * 0.30, y + h * 0.40, 10,
-x + w * 0.30, y + h * 0.40, Math.max(w, h)
-);
+function drawSoftGlow(ctx, cx, cy, r, color, alpha = 1) {
+ctx.save();
+ctx.globalAlpha = alpha;
+const g = ctx.createRadialGradient(cx, cy, 1, cx, cy, r);
 g.addColorStop(0, color);
 g.addColorStop(1, "rgba(0,0,0,0)");
 ctx.fillStyle = g;
-ctx.fillRect(x - 40, y - 40, w + 80, h + 80);
+ctx.fillRect(cx - r, cy - r, r * 2, r * 2);
+ctx.restore();
 }
 
-// Simple shield watermark (vector)
-function drawShieldWatermark(ctx, x, y, size = 86) {
+// Clean shield mark (subtle watermark)
+function drawShieldWatermark(ctx, x, y, size = 92) {
 ctx.save();
-ctx.globalAlpha = 0.14;
+ctx.globalAlpha = 0.12;
 
-// outer glow
-const g = ctx.createRadialGradient(x, y, 6, x, y, size * 0.9);
-g.addColorStop(0, "rgba(79,209,255,0.55)");
+const g = ctx.createRadialGradient(x, y, 8, x, y, size * 0.95);
+g.addColorStop(0, "rgba(79,209,255,0.65)");
 g.addColorStop(1, "rgba(0,0,0,0)");
 ctx.fillStyle = g;
 ctx.beginPath();
 ctx.arc(x, y, size * 0.9, 0, Math.PI * 2);
 ctx.fill();
 
-// shield shape
-ctx.globalAlpha = 0.18;
-const w = size, h = size * 1.1;
+const w = size;
+const h = size * 1.12;
 const sx = x - w / 2;
 const sy = y - h / 2;
 
 const grad = ctx.createLinearGradient(sx, sy, sx + w, sy + h);
-grad.addColorStop(0, "rgba(57,208,200,0.70)");
-grad.addColorStop(1, "rgba(120,140,255,0.70)");
+grad.addColorStop(0, "rgba(57,208,200,0.75)");
+grad.addColorStop(1, "rgba(120,140,255,0.75)");
 ctx.fillStyle = grad;
 
 ctx.beginPath();
-// shield polygon
 ctx.moveTo(sx + w * 0.5, sy);
 ctx.lineTo(sx + w * 0.92, sy + h * 0.18);
 ctx.lineTo(sx + w * 0.92, sy + h * 0.58);
@@ -126,8 +134,7 @@ ctx.lineTo(sx + w * 0.08, sy + h * 0.18);
 ctx.closePath();
 ctx.fill();
 
-// check mark
-ctx.globalAlpha = 0.22;
+ctx.globalAlpha = 0.18;
 ctx.strokeStyle = "rgba(234,240,255,0.95)";
 ctx.lineWidth = Math.max(2, Math.round(size / 18));
 ctx.lineCap = "round";
@@ -141,6 +148,27 @@ ctx.stroke();
 ctx.restore();
 }
 
+function normalizePriceChange(pc = {}) {
+// allow multiple shapes: {h1,h24,d7,m30} or {h1,h24,d7,d30} etc
+const out = {
+h1: pc.h1 ?? null,
+h24: pc.h24 ?? null,
+d7: pc.d7 ?? pc.h168 ?? null,
+m30: pc.m30 ?? pc.d30 ?? pc.m1 ?? null,
+};
+return out;
+}
+
+function buildPriceChangeLine(pc) {
+const c = normalizePriceChange(pc);
+const parts = [];
+if (c.h1 != null) parts.push(`1h ${fmtSignedPct(c.h1, 2)}`);
+if (c.h24 != null) parts.push(`24h ${fmtSignedPct(c.h24, 2)}`);
+if (c.d7 != null) parts.push(`7d ${fmtSignedPct(c.d7, 2)}`);
+if (c.m30 != null) parts.push(`30d ${fmtSignedPct(c.m30, 2)}`);
+return parts.length ? parts.join(" • ") : "—";
+}
+
 export function buildShareCardData(scan) {
 const mint = scan?.mint || scan?.token?.mint || "";
 
@@ -151,8 +179,14 @@ const risk = derived?.riskModel || {};
 const conc = derived?.concentration || {};
 const activity = derived?.activity || {};
 
-const name = safeText(token?.name || token?.tokenName || token?.meta?.name, "—");
-const symbol = safeText(token?.symbol || token?.tokenSymbol || token?.meta?.symbol, "");
+const name = safeText(
+token?.metadata?.name || token?.meta?.name || token?.name || token?.tokenName,
+"—"
+);
+const symbol = safeText(
+token?.metadata?.symbol || token?.meta?.symbol || token?.symbol || token?.tokenSymbol,
+""
+);
 const tokenLabel = symbol ? `${name} (${symbol})` : name;
 
 const dex = safeText(market?.dex, "—");
@@ -169,17 +203,19 @@ const authLine = `${mintAuthText} • ${freezeAuthText}`;
 
 const price = Number(market?.priceUsd);
 const mcapApi = Number(market?.mcapUsd);
-const supplyUi = Number(token?.supplyUi ?? token?.supply ?? derived?.supplyUi);
-const mcapDerived = (Number.isFinite(price) && Number.isFinite(supplyUi)) ? price * supplyUi : NaN;
-const mcapUsd = Number.isFinite(mcapApi) && mcapApi > 0 ? mcapApi : mcapDerived;
+const derivedMcap = Number(derived?.derivedMcapUsd);
+const mcapUsd = (Number.isFinite(mcapApi) && mcapApi > 0)
+? mcapApi
+: (Number.isFinite(derivedMcap) && derivedMcap > 0 ? derivedMcap : NaN);
 
 const clustersCount = Number.isFinite(Number(activity?.clustersCount)) ? Number(activity.clustersCount) : 0;
 const sybil = Number.isFinite(Number(activity?.sybilScore0to100)) ? Number(activity.sybilScore0to100) : null;
-const clusterSignal = safeText(activity?.signalText, "—");
 
 const clusterLine = sybil == null
 ? `Clusters: ${clustersCount}`
 : `Clusters: ${clustersCount} • Sybil: ${sybil}/100`;
+
+const priceChangeLine = buildPriceChangeLine(market?.priceChange);
 
 return {
 title: "MSS Protocol",
@@ -199,10 +235,8 @@ fdv: fmtUsdCompact(market?.fdv),
 mcap: fmtUsdCompact(mcapUsd),
 
 top10: conc?.top10 != null ? fmtPct(conc.top10, 2) : "—",
-
 authLine,
 clusterLine,
-clusterSignal,
 
 riskScore: risk?.score != null ? `${risk.score}/100` : "—",
 riskLabel: safeText(risk?.label?.text, "—"),
@@ -210,8 +244,56 @@ signal: safeText(risk?.signal, "—"),
 driver: safeText(risk?.primaryDriver, "—"),
 state: safeText(risk?.label?.state, "warn"),
 
+priceChangeLine,
+
 ts: new Date().toLocaleString(),
 };
+}
+
+function drawChip(ctx, x, y, text, opts = {}) {
+const padX = opts.padX ?? 10;
+const h = opts.h ?? 26;
+const r = opts.r ?? 999;
+const maxW = opts.maxW ?? 9999;
+
+ctx.save();
+ctx.font = opts.font ?? "700 12px system-ui, -apple-system, Segoe UI, Roboto, Arial";
+const t = safeText(text, "—");
+const wText = Math.min(maxW - padX * 2, ctx.measureText(t).width);
+const w = Math.ceil(wText + padX * 2);
+
+roundRect(ctx, x, y, w, h, r);
+ctx.fillStyle = opts.bg ?? "rgba(255,255,255,0.06)";
+ctx.fill();
+ctx.strokeStyle = opts.stroke ?? "rgba(255,255,255,0.10)";
+ctx.lineWidth = 1;
+ctx.stroke();
+
+ctx.fillStyle = opts.color ?? "rgba(234,240,255,0.78)";
+ctx.fillText(fitText(ctx, t, w - padX * 2), x + padX, y + Math.floor(h * 0.68));
+ctx.restore();
+
+return w;
+}
+
+function drawKpiCard(ctx, x, y, w, h, label, value) {
+ctx.save();
+roundRect(ctx, x, y, w, h, 16);
+ctx.fillStyle = "rgba(0,0,0,0.20)";
+ctx.fill();
+ctx.strokeStyle = "rgba(255,255,255,0.10)";
+ctx.lineWidth = 1;
+ctx.stroke();
+
+ctx.fillStyle = "rgba(234,240,255,0.58)";
+ctx.font = "800 12px system-ui, -apple-system, Segoe UI, Roboto, Arial";
+ctx.fillText(safeText(label, "—"), x + 14, y + 22);
+
+ctx.fillStyle = "rgba(234,240,255,0.94)";
+ctx.font = "900 18px system-ui, -apple-system, Segoe UI, Roboto, Arial";
+ctx.fillText(fitText(ctx, safeText(value, "—"), w - 28), x + 14, y + 48);
+
+ctx.restore();
 }
 
 export async function downloadShareCardPNG(scan, opts = {}) {
@@ -222,144 +304,161 @@ canvas.width = 1200;
 canvas.height = 630;
 const ctx = canvas.getContext("2d");
 
-// Background
+// ===== Background (deep, premium) =====
 const bg = ctx.createLinearGradient(0, 0, 1200, 630);
 bg.addColorStop(0, "#070A10");
 bg.addColorStop(1, "#0A1022");
 ctx.fillStyle = bg;
 ctx.fillRect(0, 0, 1200, 630);
 
-// Soft glows
-const glow1 = ctx.createRadialGradient(280, 140, 10, 280, 140, 520);
-glow1.addColorStop(0, "rgba(57,208,200,0.20)");
-glow1.addColorStop(1, "rgba(57,208,200,0)");
-ctx.fillStyle = glow1;
-ctx.fillRect(0, 0, 1200, 630);
+drawSoftGlow(ctx, 260, 130, 540, "rgba(57,208,200,0.22)");
+drawSoftGlow(ctx, 980, 170, 580, "rgba(120,140,255,0.18)");
+drawSoftGlow(ctx, 720, 620, 520, "rgba(255,77,109,0.08)");
 
-const glow2 = ctx.createRadialGradient(940, 180, 10, 940, 180, 540);
-glow2.addColorStop(0, "rgba(120,140,255,0.18)");
-glow2.addColorStop(1, "rgba(120,140,255,0)");
-ctx.fillStyle = glow2;
-ctx.fillRect(0, 0, 1200, 630);
-
-// Panel
-const panelX = 60, panelY = 70, panelW = 1080, panelH = 490;
-roundRect(ctx, panelX, panelY, panelW, panelH, 22);
+// ===== Main Panel =====
+const panelX = 54, panelY = 56, panelW = 1092, panelH = 500;
+roundRect(ctx, panelX, panelY, panelW, panelH, 24);
 ctx.fillStyle = "rgba(255,255,255,0.05)";
 ctx.fill();
-ctx.lineWidth = 2;
 ctx.strokeStyle = "rgba(255,255,255,0.10)";
+ctx.lineWidth = 2;
 ctx.stroke();
 
-// ✅ Watermark shield (bottom-right, subtle)
-drawShieldWatermark(ctx, 1085, 500, 96);
+// Watermark (bottom-right)
+drawShieldWatermark(ctx, panelX + panelW - 92, panelY + panelH - 86, 104);
 
-// Header (text-only)
+// ===== Header =====
+const left = panelX + 40;
+const top = panelY + 44;
+
+// brand line
 ctx.fillStyle = "rgba(234,240,255,0.92)";
-ctx.font = "800 26px system-ui, -apple-system, Segoe UI, Roboto, Arial";
-ctx.fillText(data.title, 92, 126);
+ctx.font = "900 28px system-ui, -apple-system, Segoe UI, Roboto, Arial";
+ctx.fillText(data.title, left, top);
 
 ctx.fillStyle = "rgba(234,240,255,0.62)";
-ctx.font = "600 16px system-ui, -apple-system, Segoe UI, Roboto, Arial";
-ctx.fillText(data.subtitle, 92, 152);
+ctx.font = "700 15px system-ui, -apple-system, Segoe UI, Roboto, Arial";
+ctx.fillText(data.subtitle, left, top + 26);
 
-// Main title
-ctx.fillStyle = "rgba(234,240,255,0.94)";
-ctx.font = "900 44px system-ui, -apple-system, Segoe UI, Roboto, Arial";
-ctx.fillText("Token Scan Report", 92, 226);
+// ===== Token title =====
+ctx.fillStyle = "rgba(234,240,255,0.96)";
+ctx.font = "900 40px system-ui, -apple-system, Segoe UI, Roboto, Arial";
+ctx.fillText("Token Scan Report", left, top + 86);
 
-// Token + mint lines
 ctx.fillStyle = "rgba(234,240,255,0.78)";
-ctx.font = "700 18px system-ui, -apple-system, Segoe UI, Roboto, Arial";
-ctx.fillText(`Token: ${fitText(ctx, data.tokenLabel, 720)}`, 92, 262);
+ctx.font = "750 17px system-ui, -apple-system, Segoe UI, Roboto, Arial";
+ctx.fillText(`Token: ${fitText(ctx, data.tokenLabel, 760)}`, left, top + 118);
 
-ctx.fillStyle = "rgba(234,240,255,0.70)";
-ctx.font = "650 16px ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace";
-ctx.fillText(`mint: ${data.mintShort}`, 92, 292);
+ctx.fillStyle = "rgba(234,240,255,0.62)";
+ctx.font = "650 14px ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace";
+ctx.fillText(`mint: ${data.mintShort}`, left, top + 142);
 
-// Risk badge
+// ===== Risk Pill (clean) =====
 const badge = riskBadgeColors(data.state);
-drawGlow(ctx, 92, 312, 420, 56, badge.glow);
 
-roundRect(ctx, 92, 316, 420, 56, 999);
+drawSoftGlow(ctx, left + 180, top + 186, 220, badge.glow, 1);
+
+// pill box
+const pillX = left;
+const pillY = top + 160;
+const pillW = 520;
+const pillH = 56;
+
+roundRect(ctx, pillX, pillY, pillW, pillH, 999);
 ctx.fillStyle = badge.bg;
 ctx.fill();
 ctx.strokeStyle = badge.stroke;
 ctx.lineWidth = 2;
 ctx.stroke();
 
+// dot
+ctx.beginPath();
+ctx.fillStyle = badge.dot;
+ctx.arc(pillX + 24, pillY + Math.floor(pillH / 2), 6, 0, Math.PI * 2);
+ctx.fill();
+
+// risk label
 ctx.fillStyle = badge.text;
 ctx.font = "900 20px system-ui, -apple-system, Segoe UI, Roboto, Arial";
-ctx.fillText(fitText(ctx, data.riskLabel, 240), 114, 350);
+ctx.fillText(fitText(ctx, data.riskLabel, 250), pillX + 40, pillY + 36);
 
-ctx.fillStyle = "rgba(234,240,255,0.90)";
+// score (right)
+ctx.textAlign = "right";
+ctx.fillStyle = "rgba(234,240,255,0.92)";
 ctx.font = "900 20px system-ui, -apple-system, Segoe UI, Roboto, Arial";
-ctx.fillText(data.riskScore, 350, 350);
+ctx.fillText(data.riskScore, pillX + pillW - 22, pillY + 36);
+ctx.textAlign = "left";
 
-// Driver + Cluster signal lines (clean)
-ctx.fillStyle = "rgba(234,240,255,0.60)";
-ctx.font = "650 14px system-ui, -apple-system, Segoe UI, Roboto, Arial";
-ctx.fillText(`Primary driver: ${data.driver}`, 92, 386);
+// ===== Meta lines under pill =====
+ctx.fillStyle = "rgba(234,240,255,0.64)";
+ctx.font = "700 14px system-ui, -apple-system, Segoe UI, Roboto, Arial";
+ctx.fillText(`Primary driver: ${fitText(ctx, data.driver, 520)}`, left, pillY + 84);
 
-ctx.fillStyle = "rgba(234,240,255,0.55)";
-ctx.font = "650 14px system-ui, -apple-system, Segoe UI, Roboto, Arial";
-ctx.fillText(`Cluster signal: ${data.clusterSignal}`, 92, 406);
+ctx.fillStyle = "rgba(234,240,255,0.52)";
+ctx.font = "650 13px system-ui, -apple-system, Segoe UI, Roboto, Arial";
+ctx.fillText(`Cluster signal: ${fitText(ctx, data.clusterLine, 520)}`, left, pillY + 104);
 
-// KPI cards (3 x 3)
+ctx.fillStyle = "rgba(234,240,255,0.52)";
+ctx.font = "650 13px system-ui, -apple-system, Segoe UI, Roboto, Arial";
+ctx.fillText(`Price change: ${fitText(ctx, data.priceChangeLine, 720)}`, left, pillY + 124);
+
+// ===== Right-side chips (DEX/Pair + Signal) =====
+const rightColX = panelX + panelW - 40 - 420;
+const chipY = top + 108;
+
+// small chips stack (no overlap, fixed widths)
+drawChip(ctx, rightColX, chipY, `DEX: ${data.dex}`, { maxW: 420, h: 28 });
+drawChip(ctx, rightColX, chipY + 36, `Pair: ${data.pairText}`, { maxW: 420, h: 28 });
+drawChip(ctx, rightColX, chipY + 72, `Signal: ${data.signal}`, { maxW: 420, h: 28 });
+drawChip(ctx, rightColX, chipY + 108, data.authLine, { maxW: 420, h: 28 });
+
+// ===== KPI Grid (2 rows x 3 cols) — zero clashing =====
+const gridX = left;
+const gridY = top + 310; // safely below text block
+const cardW = 330;
+const cardH = 64;
+const gapX = 18;
+const gapY = 14;
+
 const kpis = [
-{ k: "DEX • Pair", v: `${data.dex} • ${data.pairText}` },
-{ k: "Price", v: data.priceUsd },
-{ k: "Liquidity", v: data.liquidity },
-
-{ k: "Volume 24h", v: data.volume24h },
-{ k: "FDV", v: data.fdv },
-{ k: "MCap", v: data.mcap },
-
-{ k: "Top10 Holders", v: data.top10 },
-{ k: "Clusters", v: data.clusterLine },
-{ k: "Authorities", v: data.authLine },
+["Price (USD)", data.priceUsd],
+["Liquidity", data.liquidity],
+["Volume (24h)", data.volume24h],
+["FDV", data.fdv],
+["MCap", data.mcap],
+["Top10 Holders", data.top10],
 ];
-
-const startX = 92;
-const startY = 420;
-const colW = 340;
-const rowH = 74;
 
 for (let i = 0; i < kpis.length; i++) {
 const col = i % 3;
 const row = Math.floor(i / 3);
-const x = startX + col * colW;
-const y = startY + row * rowH;
-
-roundRect(ctx, x, y, 320, 62, 16);
-ctx.fillStyle = "rgba(0,0,0,0.18)";
-ctx.fill();
-ctx.strokeStyle = "rgba(255,255,255,0.08)";
-ctx.lineWidth = 1;
-ctx.stroke();
-
-ctx.fillStyle = "rgba(234,240,255,0.62)";
-ctx.font = "800 12px system-ui, -apple-system, Segoe UI, Roboto, Arial";
-ctx.fillText(kpis[i].k, x + 16, y + 22);
-
-ctx.fillStyle = "rgba(234,240,255,0.92)";
-ctx.font = "900 16px system-ui, -apple-system, Segoe UI, Roboto, Arial";
-ctx.fillText(fitText(ctx, kpis[i].v, 290), x + 16, y + 46);
+const x = gridX + col * (cardW + gapX);
+const y = gridY + row * (cardH + gapY);
+drawKpiCard(ctx, x, y, cardW, cardH, kpis[i][0], kpis[i][1]);
 }
 
-// Bottom line
-ctx.fillStyle = "rgba(234,240,255,0.55)";
-ctx.font = "650 14px system-ui, -apple-system, Segoe UI, Roboto, Arial";
-ctx.fillText("Powered by MSS Protocol • Elite Security Layer", 92, 582);
+// ===== Footer strip (outside panel) =====
+const footerY = 608;
+ctx.strokeStyle = "rgba(255,255,255,0.08)";
+ctx.lineWidth = 1;
+ctx.beginPath();
+ctx.moveTo(54, footerY - 18);
+ctx.lineTo(1146, footerY - 18);
+ctx.stroke();
 
-// Timestamp right
-ctx.textAlign = "right";
-ctx.fillStyle = "rgba(234,240,255,0.42)";
+ctx.fillStyle = "rgba(234,240,255,0.52)";
 ctx.font = "650 13px system-ui, -apple-system, Segoe UI, Roboto, Arial";
-ctx.fillText(data.ts, 1140, 582);
+ctx.textAlign = "left";
+ctx.fillText("Powered by MSS Protocol • Elite Security Layer", 54, footerY);
+
+ctx.textAlign = "right";
+ctx.fillStyle = "rgba(234,240,255,0.38)";
+ctx.font = "650 12px system-ui, -apple-system, Segoe UI, Roboto, Arial";
+ctx.fillText(data.ts, 1146, footerY);
+
 ctx.textAlign = "left";
 
-// Download
+// ===== Download =====
 const fileMint = (data.mintFull || "mint").slice(0, 8);
 const filename = `mss-scan-${fileMint}.png`;
 
