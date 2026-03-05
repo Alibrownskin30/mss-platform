@@ -54,29 +54,23 @@ else hi = mid - 1;
 return s.slice(0, lo) + ell;
 }
 
-function riskBadgeColors(state) {
-const s = String(state || "warn");
-if (s === "good") return {
-bg: "rgba(43,227,138,0.14)",
-stroke: "rgba(43,227,138,0.34)",
-glow: "rgba(43,227,138,0.20)",
-text: "rgba(234,240,255,0.95)",
-dot: "rgba(43,227,138,0.95)"
-};
-if (s === "bad") return {
-bg: "rgba(255,77,109,0.14)",
-stroke: "rgba(255,77,109,0.34)",
-glow: "rgba(255,77,109,0.18)",
-text: "rgba(234,240,255,0.95)",
-dot: "rgba(255,77,109,0.95)"
-};
+function normalizePriceChange(pc = {}) {
 return {
-bg: "rgba(255,200,87,0.14)",
-stroke: "rgba(255,200,87,0.34)",
-glow: "rgba(255,200,87,0.18)",
-text: "rgba(234,240,255,0.95)",
-dot: "rgba(255,200,87,0.95)"
+h1: pc.h1 ?? null,
+h24: pc.h24 ?? null,
+d7: pc.d7 ?? pc.h168 ?? null,
+m30: pc.m30 ?? pc.d30 ?? pc.m1 ?? null,
 };
+}
+
+function buildPriceChangeLine(pc) {
+const c = normalizePriceChange(pc);
+const parts = [];
+if (c.h1 != null) parts.push(`1h ${fmtSignedPct(c.h1, 2)}`);
+if (c.h24 != null) parts.push(`24h ${fmtSignedPct(c.h24, 2)}`);
+if (c.d7 != null) parts.push(`7d ${fmtSignedPct(c.d7, 2)}`);
+if (c.m30 != null) parts.push(`30d ${fmtSignedPct(c.m30, 2)}`);
+return parts.length ? parts.join(" • ") : "—";
 }
 
 function roundRect(ctx, x, y, w, h, r) {
@@ -90,6 +84,19 @@ ctx.arcTo(x, y, x + w, y, radius);
 ctx.closePath();
 }
 
+function fillRounded(ctx, x, y, w, h, r, fillStyle) {
+roundRect(ctx, x, y, w, h, r);
+ctx.fillStyle = fillStyle;
+ctx.fill();
+}
+
+function strokeRounded(ctx, x, y, w, h, r, strokeStyle, lineWidth = 1) {
+roundRect(ctx, x, y, w, h, r);
+ctx.strokeStyle = strokeStyle;
+ctx.lineWidth = lineWidth;
+ctx.stroke();
+}
+
 function drawSoftGlow(ctx, cx, cy, r, color, alpha = 1) {
 ctx.save();
 ctx.globalAlpha = alpha;
@@ -101,10 +108,55 @@ ctx.fillRect(cx - r, cy - r, r * 2, r * 2);
 ctx.restore();
 }
 
+// High-end “orb” background: subtle noise + thin grid + vignette
+function drawPremiumBackdrop(ctx, w, h) {
+// Base gradient
+const bg = ctx.createLinearGradient(0, 0, w, h);
+bg.addColorStop(0, "#05070d");
+bg.addColorStop(0.55, "#070b16");
+bg.addColorStop(1, "#090f24");
+ctx.fillStyle = bg;
+ctx.fillRect(0, 0, w, h);
+
+// Orbs
+drawSoftGlow(ctx, 240, 120, 520, "rgba(0,255,209,0.16)");
+drawSoftGlow(ctx, w - 220, 140, 560, "rgba(58,160,255,0.14)");
+drawSoftGlow(ctx, w * 0.62, h + 40, 520, "rgba(255,91,107,0.06)");
+
+// Thin grid
+ctx.save();
+ctx.globalAlpha = 0.08;
+ctx.strokeStyle = "rgba(255,255,255,0.18)";
+ctx.lineWidth = 1;
+const step = 56;
+for (let x = 0; x <= w; x += step) {
+ctx.beginPath();
+ctx.moveTo(x + 0.5, 0);
+ctx.lineTo(x + 0.5, h);
+ctx.stroke();
+}
+for (let y = 0; y <= h; y += step) {
+ctx.beginPath();
+ctx.moveTo(0, y + 0.5);
+ctx.lineTo(w, y + 0.5);
+ctx.stroke();
+}
+ctx.restore();
+
+// Vignette
+ctx.save();
+const vg = ctx.createRadialGradient(w / 2, h / 2, Math.min(w, h) * 0.2, w / 2, h / 2, Math.max(w, h) * 0.75);
+vg.addColorStop(0, "rgba(0,0,0,0)");
+vg.addColorStop(1, "rgba(0,0,0,0.55)");
+ctx.fillStyle = vg;
+ctx.fillRect(0, 0, w, h);
+ctx.restore();
+}
+
 // Clean shield mark (subtle watermark)
 function drawShieldWatermark(ctx, x, y, size = 92) {
 ctx.save();
-ctx.globalAlpha = 0.12;
+ctx.globalAlpha = 0.10;
 
 const g = ctx.createRadialGradient(x, y, 8, x, y, size * 0.95);
 g.addColorStop(0, "rgba(79,209,255,0.65)");
@@ -120,8 +172,8 @@ const sx = x - w / 2;
 const sy = y - h / 2;
 
 const grad = ctx.createLinearGradient(sx, sy, sx + w, sy + h);
-grad.addColorStop(0, "rgba(57,208,200,0.75)");
-grad.addColorStop(1, "rgba(120,140,255,0.75)");
+grad.addColorStop(0, "rgba(0,255,209,0.65)");
+grad.addColorStop(1, "rgba(58,160,255,0.65)");
 ctx.fillStyle = grad;
 
 ctx.beginPath();
@@ -134,8 +186,8 @@ ctx.lineTo(sx + w * 0.08, sy + h * 0.18);
 ctx.closePath();
 ctx.fill();
 
-ctx.globalAlpha = 0.18;
-ctx.strokeStyle = "rgba(234,240,255,0.95)";
+ctx.globalAlpha = 0.16;
+ctx.strokeStyle = "rgba(234,240,255,0.90)";
 ctx.lineWidth = Math.max(2, Math.round(size / 18));
 ctx.lineCap = "round";
 ctx.lineJoin = "round";
@@ -148,25 +200,137 @@ ctx.stroke();
 ctx.restore();
 }
 
-function normalizePriceChange(pc = {}) {
-// allow multiple shapes: {h1,h24,d7,m30} or {h1,h24,d7,d30} etc
-const out = {
-h1: pc.h1 ?? null,
-h24: pc.h24 ?? null,
-d7: pc.d7 ?? pc.h168 ?? null,
-m30: pc.m30 ?? pc.d30 ?? pc.m1 ?? null,
+function riskBadgeColors(state) {
+const s = String(state || "warn");
+if (s === "good") return {
+bg: "rgba(53,245,163,0.12)",
+stroke: "rgba(53,245,163,0.30)",
+glow: "rgba(53,245,163,0.18)",
+text: "rgba(234,240,255,0.96)",
+dot: "rgba(53,245,163,0.95)"
 };
-return out;
+if (s === "bad") return {
+bg: "rgba(255,91,107,0.12)",
+stroke: "rgba(255,91,107,0.30)",
+glow: "rgba(255,91,107,0.16)",
+text: "rgba(234,240,255,0.96)",
+dot: "rgba(255,91,107,0.95)"
+};
+return {
+bg: "rgba(255,209,102,0.12)",
+stroke: "rgba(255,209,102,0.30)",
+glow: "rgba(255,209,102,0.16)",
+text: "rgba(234,240,255,0.96)",
+dot: "rgba(255,209,102,0.95)"
+};
 }
 
-function buildPriceChangeLine(pc) {
-const c = normalizePriceChange(pc);
-const parts = [];
-if (c.h1 != null) parts.push(`1h ${fmtSignedPct(c.h1, 2)}`);
-if (c.h24 != null) parts.push(`24h ${fmtSignedPct(c.h24, 2)}`);
-if (c.d7 != null) parts.push(`7d ${fmtSignedPct(c.d7, 2)}`);
-if (c.m30 != null) parts.push(`30d ${fmtSignedPct(c.m30, 2)}`);
-return parts.length ? parts.join(" • ") : "—";
+// Draw a premium “glass” panel with inner highlight
+function drawGlassPanel(ctx, x, y, w, h, r) {
+// Base glass
+const glass = ctx.createLinearGradient(x, y, x + w, y + h);
+glass.addColorStop(0, "rgba(255,255,255,0.060)");
+glass.addColorStop(0.45, "rgba(255,255,255,0.042)");
+glass.addColorStop(1, "rgba(255,255,255,0.030)");
+fillRounded(ctx, x, y, w, h, r, glass);
+
+// Border
+strokeRounded(ctx, x, y, w, h, r, "rgba(255,255,255,0.10)", 2);
+
+// Inner highlight (top edge)
+ctx.save();
+ctx.globalAlpha = 0.9;
+roundRect(ctx, x + 2, y + 2, w - 4, h - 4, r - 1);
+ctx.clip();
+const hi = ctx.createLinearGradient(x, y, x, y + h);
+hi.addColorStop(0, "rgba(255,255,255,0.10)");
+hi.addColorStop(0.25, "rgba(255,255,255,0.02)");
+hi.addColorStop(1, "rgba(255,255,255,0.00)");
+ctx.fillStyle = hi;
+ctx.fillRect(x, y, w, h);
+ctx.restore();
+}
+
+function drawPill(ctx, x, y, w, h, bg, stroke) {
+fillRounded(ctx, x, y, w, h, 999, bg);
+strokeRounded(ctx, x, y, w, h, 999, stroke, 2);
+}
+
+function drawChip(ctx, x, y, text, opts = {}) {
+const padX = opts.padX ?? 12;
+const h = opts.h ?? 30;
+const r = opts.r ?? 999;
+const maxW = opts.maxW ?? 9999;
+
+ctx.save();
+ctx.font = opts.font ?? "800 12px system-ui, -apple-system, Segoe UI, Roboto, Arial";
+const t = safeText(text, "—");
+const wText = Math.min(maxW - padX * 2, ctx.measureText(t).width);
+const w = Math.ceil(wText + padX * 2);
+
+// Slightly more premium chip fill
+const chip = ctx.createLinearGradient(x, y, x + w, y + h);
+chip.addColorStop(0, opts.bg ?? "rgba(255,255,255,0.055)");
+chip.addColorStop(1, opts.bg2 ?? "rgba(255,255,255,0.035)");
+fillRounded(ctx, x, y, w, h, r, chip);
+strokeRounded(ctx, x, y, w, h, r, opts.stroke ?? "rgba(255,255,255,0.10)", 1);
+
+ctx.fillStyle = opts.color ?? "rgba(234,240,255,0.78)";
+ctx.fillText(fitText(ctx, t, w - padX * 2), x + padX, y + Math.floor(h * 0.69));
+ctx.restore();
+
+return w;
+}
+
+function drawKpiCard(ctx, x, y, w, h, label, value) {
+ctx.save();
+
+// card glass
+const g = ctx.createLinearGradient(x, y, x + w, y + h);
+g.addColorStop(0, "rgba(0,0,0,0.24)");
+g.addColorStop(1, "rgba(0,0,0,0.16)");
+fillRounded(ctx, x, y, w, h, 18, g);
+strokeRounded(ctx, x, y, w, h, 18, "rgba(255,255,255,0.10)", 1);
+
+// subtle top highlight
+ctx.save();
+roundRect(ctx, x + 1, y + 1, w - 2, h - 2, 17);
+ctx.clip();
+const hi = ctx.createLinearGradient(x, y, x, y + h);
+hi.addColorStop(0, "rgba(255,255,255,0.10)");
+hi.addColorStop(0.22, "rgba(255,255,255,0.03)");
+hi.addColorStop(1, "rgba(255,255,255,0.00)");
+ctx.fillStyle = hi;
+ctx.fillRect(x, y, w, h);
+ctx.restore();
+
+ctx.fillStyle = "rgba(234,240,255,0.58)";
+ctx.font = "900 12px system-ui, -apple-system, Segoe UI, Roboto, Arial";
+ctx.fillText(safeText(label, "—"), x + 16, y + 24);
+
+ctx.fillStyle = "rgba(234,240,255,0.95)";
+ctx.font = "950 20px system-ui, -apple-system, Segoe UI, Roboto, Arial";
+ctx.fillText(fitText(ctx, safeText(value, "—"), w - 32), x + 16, y + 52);
+
+ctx.restore();
+}
+
+function drawBrandMark(ctx, x, y) {
+// Minimal “MSS” accent badge (premium, not loud)
+ctx.save();
+const w = 54, h = 24;
+const bg = ctx.createLinearGradient(x, y, x + w, y + h);
+bg.addColorStop(0, "rgba(0,255,209,0.20)");
+bg.addColorStop(1, "rgba(58,160,255,0.18)");
+fillRounded(ctx, x, y, w, h, 999, bg);
+strokeRounded(ctx, x, y, w, h, 999, "rgba(255,255,255,0.14)", 1);
+
+ctx.fillStyle = "rgba(234,240,255,0.92)";
+ctx.font = "900 12px system-ui, -apple-system, Segoe UI, Roboto, Arial";
+ctx.textAlign = "center";
+ctx.fillText("MSS", x + w / 2, y + 16);
+ctx.textAlign = "left";
+ctx.restore();
 }
 
 export function buildShareCardData(scan) {
@@ -217,6 +381,10 @@ const clusterLine = sybil == null
 
 const priceChangeLine = buildPriceChangeLine(market?.priceChange);
 
+// Deterministic timestamp for consistent output
+const ts = new Date();
+const tsText = `${ts.toLocaleDateString()} ${ts.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`;
+
 return {
 title: "MSS Protocol",
 subtitle: "Elite Security Intelligence",
@@ -246,54 +414,8 @@ state: safeText(risk?.label?.state, "warn"),
 
 priceChangeLine,
 
-ts: new Date().toLocaleString(),
+ts: tsText,
 };
-}
-
-function drawChip(ctx, x, y, text, opts = {}) {
-const padX = opts.padX ?? 10;
-const h = opts.h ?? 26;
-const r = opts.r ?? 999;
-const maxW = opts.maxW ?? 9999;
-
-ctx.save();
-ctx.font = opts.font ?? "700 12px system-ui, -apple-system, Segoe UI, Roboto, Arial";
-const t = safeText(text, "—");
-const wText = Math.min(maxW - padX * 2, ctx.measureText(t).width);
-const w = Math.ceil(wText + padX * 2);
-
-roundRect(ctx, x, y, w, h, r);
-ctx.fillStyle = opts.bg ?? "rgba(255,255,255,0.06)";
-ctx.fill();
-ctx.strokeStyle = opts.stroke ?? "rgba(255,255,255,0.10)";
-ctx.lineWidth = 1;
-ctx.stroke();
-
-ctx.fillStyle = opts.color ?? "rgba(234,240,255,0.78)";
-ctx.fillText(fitText(ctx, t, w - padX * 2), x + padX, y + Math.floor(h * 0.68));
-ctx.restore();
-
-return w;
-}
-
-function drawKpiCard(ctx, x, y, w, h, label, value) {
-ctx.save();
-roundRect(ctx, x, y, w, h, 16);
-ctx.fillStyle = "rgba(0,0,0,0.20)";
-ctx.fill();
-ctx.strokeStyle = "rgba(255,255,255,0.10)";
-ctx.lineWidth = 1;
-ctx.stroke();
-
-ctx.fillStyle = "rgba(234,240,255,0.58)";
-ctx.font = "800 12px system-ui, -apple-system, Segoe UI, Roboto, Arial";
-ctx.fillText(safeText(label, "—"), x + 14, y + 22);
-
-ctx.fillStyle = "rgba(234,240,255,0.94)";
-ctx.font = "900 18px system-ui, -apple-system, Segoe UI, Roboto, Arial";
-ctx.fillText(fitText(ctx, safeText(value, "—"), w - 28), x + 14, y + 48);
-
-ctx.restore();
 }
 
 export async function downloadShareCardPNG(scan, opts = {}) {
@@ -304,119 +426,116 @@ canvas.width = 1200;
 canvas.height = 630;
 const ctx = canvas.getContext("2d");
 
-// ===== Background (deep, premium) =====
-const bg = ctx.createLinearGradient(0, 0, 1200, 630);
-bg.addColorStop(0, "#070A10");
-bg.addColorStop(1, "#0A1022");
-ctx.fillStyle = bg;
-ctx.fillRect(0, 0, 1200, 630);
+// ===== Premium Backdrop =====
+drawPremiumBackdrop(ctx, canvas.width, canvas.height);
 
-drawSoftGlow(ctx, 260, 130, 540, "rgba(57,208,200,0.22)");
-drawSoftGlow(ctx, 980, 170, 580, "rgba(120,140,255,0.18)");
-drawSoftGlow(ctx, 720, 620, 520, "rgba(255,77,109,0.08)");
+// ===== Outer panel geometry =====
+const panelX = 54, panelY = 54, panelW = 1092, panelH = 535;
+drawGlassPanel(ctx, panelX, panelY, panelW, panelH, 26);
 
-// ===== Main Panel =====
-const panelX = 54, panelY = 56, panelW = 1092, panelH = 500;
-roundRect(ctx, panelX, panelY, panelW, panelH, 24);
-ctx.fillStyle = "rgba(255,255,255,0.05)";
-ctx.fill();
-ctx.strokeStyle = "rgba(255,255,255,0.10)";
-ctx.lineWidth = 2;
-ctx.stroke();
+// Watermark (bottom-right inside panel)
+drawShieldWatermark(ctx, panelX + panelW - 94, panelY + panelH - 86, 110);
 
-// Watermark (bottom-right)
-drawShieldWatermark(ctx, panelX + panelW - 92, panelY + panelH - 86, 104);
-
-// ===== Header =====
-const left = panelX + 40;
+// ===== Header layout =====
+const left = panelX + 44;
 const top = panelY + 44;
 
-// brand line
+// Brand mark
+drawBrandMark(ctx, left, top - 18);
+
+// Title
 ctx.fillStyle = "rgba(234,240,255,0.92)";
-ctx.font = "900 28px system-ui, -apple-system, Segoe UI, Roboto, Arial";
-ctx.fillText(data.title, left, top);
+ctx.font = "950 30px system-ui, -apple-system, Segoe UI, Roboto, Arial";
+ctx.fillText(data.title, left + 70, top);
 
 ctx.fillStyle = "rgba(234,240,255,0.62)";
-ctx.font = "700 15px system-ui, -apple-system, Segoe UI, Roboto, Arial";
-ctx.fillText(data.subtitle, left, top + 26);
+ctx.font = "800 14px system-ui, -apple-system, Segoe UI, Roboto, Arial";
+ctx.fillText(data.subtitle, left + 70, top + 22);
 
-// ===== Token title =====
-ctx.fillStyle = "rgba(234,240,255,0.96)";
-ctx.font = "900 40px system-ui, -apple-system, Segoe UI, Roboto, Arial";
-ctx.fillText("Token Scan Report", left, top + 86);
-
-ctx.fillStyle = "rgba(234,240,255,0.78)";
-ctx.font = "750 17px system-ui, -apple-system, Segoe UI, Roboto, Arial";
-ctx.fillText(`Token: ${fitText(ctx, data.tokenLabel, 760)}`, left, top + 118);
-
-ctx.fillStyle = "rgba(234,240,255,0.62)";
-ctx.font = "650 14px ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace";
-ctx.fillText(`mint: ${data.mintShort}`, left, top + 142);
-
-// ===== Risk Pill (clean) =====
-const badge = riskBadgeColors(data.state);
-
-drawSoftGlow(ctx, left + 180, top + 186, 220, badge.glow, 1);
-
-// pill box
-const pillX = left;
-const pillY = top + 160;
-const pillW = 520;
-const pillH = 56;
-
-roundRect(ctx, pillX, pillY, pillW, pillH, 999);
-ctx.fillStyle = badge.bg;
-ctx.fill();
-ctx.strokeStyle = badge.stroke;
-ctx.lineWidth = 2;
+// Divider line under header
+ctx.save();
+ctx.globalAlpha = 0.9;
+ctx.strokeStyle = "rgba(255,255,255,0.08)";
+ctx.lineWidth = 1;
+ctx.beginPath();
+ctx.moveTo(panelX + 36, top + 44);
+ctx.lineTo(panelX + panelW - 36, top + 44);
 ctx.stroke();
+ctx.restore();
+
+// ===== Primary report heading =====
+ctx.fillStyle = "rgba(234,240,255,0.96)";
+ctx.font = "980 42px system-ui, -apple-system, Segoe UI, Roboto, Arial";
+ctx.fillText("Token Scan Report", left, top + 100);
+
+// Token label
+ctx.fillStyle = "rgba(234,240,255,0.78)";
+ctx.font = "850 18px system-ui, -apple-system, Segoe UI, Roboto, Arial";
+ctx.fillText(`Token: ${fitText(ctx, data.tokenLabel, 780)}`, left, top + 134);
+
+// Mint line
+ctx.fillStyle = "rgba(234,240,255,0.58)";
+ctx.font = "700 14px ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace";
+ctx.fillText(`mint: ${data.mintShort}`, left, top + 158);
+
+// ===== Risk Pill =====
+const badge = riskBadgeColors(data.state);
+drawSoftGlow(ctx, left + 190, top + 220, 240, badge.glow, 1);
+
+const pillX = left;
+const pillY = top + 182;
+const pillW = 548;
+const pillH = 60;
+
+// pill background
+drawPill(ctx, pillX, pillY, pillW, pillH, badge.bg, badge.stroke);
 
 // dot
 ctx.beginPath();
 ctx.fillStyle = badge.dot;
-ctx.arc(pillX + 24, pillY + Math.floor(pillH / 2), 6, 0, Math.PI * 2);
+ctx.arc(pillX + 26, pillY + Math.floor(pillH / 2), 6.5, 0, Math.PI * 2);
 ctx.fill();
 
 // risk label
 ctx.fillStyle = badge.text;
-ctx.font = "900 20px system-ui, -apple-system, Segoe UI, Roboto, Arial";
-ctx.fillText(fitText(ctx, data.riskLabel, 250), pillX + 40, pillY + 36);
+ctx.font = "950 21px system-ui, -apple-system, Segoe UI, Roboto, Arial";
+ctx.fillText(fitText(ctx, data.riskLabel, 320), pillX + 44, pillY + 38);
 
-// score (right)
+// score
 ctx.textAlign = "right";
 ctx.fillStyle = "rgba(234,240,255,0.92)";
-ctx.font = "900 20px system-ui, -apple-system, Segoe UI, Roboto, Arial";
-ctx.fillText(data.riskScore, pillX + pillW - 22, pillY + 36);
+ctx.font = "980 21px system-ui, -apple-system, Segoe UI, Roboto, Arial";
+ctx.fillText(data.riskScore, pillX + pillW - 22, pillY + 38);
 ctx.textAlign = "left";
 
 // ===== Meta lines under pill =====
-ctx.fillStyle = "rgba(234,240,255,0.64)";
-ctx.font = "700 14px system-ui, -apple-system, Segoe UI, Roboto, Arial";
-ctx.fillText(`Primary driver: ${fitText(ctx, data.driver, 520)}`, left, pillY + 84);
+ctx.fillStyle = "rgba(234,240,255,0.66)";
+ctx.font = "850 14px system-ui, -apple-system, Segoe UI, Roboto, Arial";
+ctx.fillText(`Primary driver: ${fitText(ctx, data.driver, 548)}`, left, pillY + 86);
 
 ctx.fillStyle = "rgba(234,240,255,0.52)";
-ctx.font = "650 13px system-ui, -apple-system, Segoe UI, Roboto, Arial";
-ctx.fillText(`Cluster signal: ${fitText(ctx, data.clusterLine, 520)}`, left, pillY + 104);
+ctx.font = "750 13px system-ui, -apple-system, Segoe UI, Roboto, Arial";
+ctx.fillText(`Cluster signal: ${fitText(ctx, data.clusterLine, 548)}`, left, pillY + 108);
 
 ctx.fillStyle = "rgba(234,240,255,0.52)";
-ctx.font = "650 13px system-ui, -apple-system, Segoe UI, Roboto, Arial";
-ctx.fillText(`Price change: ${fitText(ctx, data.priceChangeLine, 720)}`, left, pillY + 124);
+ctx.font = "750 13px system-ui, -apple-system, Segoe UI, Roboto, Arial";
+ctx.fillText(`Price change: ${fitText(ctx, data.priceChangeLine, 740)}`, left, pillY + 130);
 
-// ===== Right-side chips (DEX/Pair + Signal) =====
-const rightColX = panelX + panelW - 40 - 420;
-const chipY = top + 108;
+// ===== Right-side chips =====
+const rightColX = panelX + panelW - 44 - 430;
+const chipY = top + 96;
 
-// small chips stack (no overlap, fixed widths)
-drawChip(ctx, rightColX, chipY, `DEX: ${data.dex}`, { maxW: 420, h: 28 });
-drawChip(ctx, rightColX, chipY + 36, `Pair: ${data.pairText}`, { maxW: 420, h: 28 });
-drawChip(ctx, rightColX, chipY + 72, `Signal: ${data.signal}`, { maxW: 420, h: 28 });
-drawChip(ctx, rightColX, chipY + 108, data.authLine, { maxW: 420, h: 28 });
+// Header chips (consistent widths, premium feel)
+drawChip(ctx, rightColX, chipY, `DEX: ${data.dex}`, { maxW: 430, h: 30 });
+drawChip(ctx, rightColX, chipY + 38, `Pair: ${data.pairText}`, { maxW: 430, h: 30 });
+drawChip(ctx, rightColX, chipY + 76, `Signal: ${data.signal}`, { maxW: 430, h: 30 });
+drawChip(ctx, rightColX, chipY + 114, data.authLine, { maxW: 430, h: 30 });
 
-// ===== KPI Grid (2 rows x 3 cols) — zero clashing =====
+// ===== KPI Grid (2 rows x 3 cols) =====
 const gridX = left;
-const gridY = top + 310; // safely below text block
-const cardW = 330;
-const cardH = 64;
+const gridY = top + 330;
+const cardW = 334;
+const cardH = 70;
 const gapX = 18;
 const gapY = 14;
 
@@ -437,25 +556,27 @@ const y = gridY + row * (cardH + gapY);
 drawKpiCard(ctx, x, y, cardW, cardH, kpis[i][0], kpis[i][1]);
 }
 
-// ===== Footer strip (outside panel) =====
-const footerY = 608;
+// ===== Footer strip =====
+const footerY = 606;
+
+ctx.save();
 ctx.strokeStyle = "rgba(255,255,255,0.08)";
 ctx.lineWidth = 1;
 ctx.beginPath();
 ctx.moveTo(54, footerY - 18);
 ctx.lineTo(1146, footerY - 18);
 ctx.stroke();
+ctx.restore();
 
 ctx.fillStyle = "rgba(234,240,255,0.52)";
-ctx.font = "650 13px system-ui, -apple-system, Segoe UI, Roboto, Arial";
+ctx.font = "750 13px system-ui, -apple-system, Segoe UI, Roboto, Arial";
 ctx.textAlign = "left";
-ctx.fillText("Powered by MSS Protocol • Elite Security Layer", 54, footerY);
+ctx.fillText("Powered by MSS Protocol • Security Layer", 54, footerY);
 
 ctx.textAlign = "right";
 ctx.fillStyle = "rgba(234,240,255,0.38)";
-ctx.font = "650 12px system-ui, -apple-system, Segoe UI, Roboto, Arial";
+ctx.font = "700 12px system-ui, -apple-system, Segoe UI, Roboto, Arial";
 ctx.fillText(data.ts, 1146, footerY);
-
 ctx.textAlign = "left";
 
 // ===== Download =====

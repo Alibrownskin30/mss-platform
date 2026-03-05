@@ -56,6 +56,41 @@ setDot(dotId, state);
 setText(textId, text);
 }
 
+// ---- Price Change UI ----
+function setPriceChange(elId, n) {
+const el = $(elId);
+if (!el) return;
+
+el.classList.remove("up", "down", "flat");
+
+if (n == null || Number.isNaN(Number(n))) {
+el.textContent = "—";
+el.classList.add("flat");
+return;
+}
+
+const v = Number(n);
+const sign = v > 0 ? "+" : v < 0 ? "" : "";
+el.textContent = `${sign}${v.toFixed(2)}%`;
+
+if (v > 0) el.classList.add("up");
+else if (v < 0) el.classList.add("down");
+else el.classList.add("flat");
+}
+
+function renderPriceChanges(marketJson) {
+const pc = marketJson?.priceChange || {};
+// Mapping:
+// 1h -> h1
+// 1d -> h24
+// 1w -> d7
+// 1m -> m30
+setPriceChange("pc1h", pc.h1);
+setPriceChange("pc1d", pc.h24);
+setPriceChange("pc1w", pc.d7);
+setPriceChange("pc1m", pc.m30);
+}
+
 // ---- Concentration / Risk ----
 function computeConcentration(holders = []) {
 const pct = holders.map((h) => Number(h.pctSupply || 0));
@@ -187,6 +222,9 @@ return price * supplyUi;
 
 // ---- Render ----
 function renderMarket(marketJson, derivedMcapUsd = 0) {
+// Always render price change row (even if not found)
+renderPriceChanges(marketJson);
+
 if (!marketJson?.found) {
 setText("priceUsd", "$—");
 setText("pricePair", "Pair: —");
@@ -394,7 +432,7 @@ apiGet(`/api/sol/market/${mint}`),
 apiGet(`/api/sol/holders/${mint}`),
 ]);
 
-// Ensure marketJson has normalized priceChange keys for sharecard
+// Ensure marketJson has normalized priceChange keys for sharecard + UI
 const marketJson = { ...(marketJsonRaw || {}) };
 marketJson.priceChange = normalizePriceChange(marketJsonRaw);
 
@@ -501,7 +539,7 @@ scanBtn.click();
 });
 }
 
-// Save share card
+// Save share card (download)
 const saveShareBtn = $("saveShareBtn");
 if (saveShareBtn) {
 saveShareBtn.addEventListener("click", async () => {
@@ -518,6 +556,23 @@ alert(err?.message || "Failed to generate share card.");
 });
 } else {
 console.warn("Save share button not found (missing #saveShareBtn in token.html).");
+}
+
+// Share to X (opens tweet composer)
+const shareXBtn = $("shareXBtn");
+if (shareXBtn) {
+shareXBtn.addEventListener("click", () => {
+const scanObj = window.__MSS_LAST_SCAN__;
+const mint = scanObj?.mint || (tokenInput.value || "").trim();
+if (!mint) {
+alert("Scan a token first.");
+return;
+}
+const url = `${window.location.origin}${window.location.pathname}?mint=${encodeURIComponent(mint)}`;
+const text = `MSS Protocol Scanner — ${mint}\nElite security intelligence on Solana.\n`;
+const intent = `https://x.com/intent/tweet?text=${encodeURIComponent(text)}&url=${encodeURIComponent(url)}`;
+window.open(intent, "_blank", "noopener,noreferrer");
+});
 }
 
 // Alerts (auth required)
@@ -563,6 +618,9 @@ alertStatus.textContent = err?.message || "Failed to save alert.";
 setBadge(null, "netDot", "netText", "good", "Online");
 setBadge(null, "scanDot", "scanStatusText", null, "Ready");
 setText("apiMeta", `API: ${getApiBase()}`);
+
+// Default price change row state
+renderPriceChanges({ priceChange: { h1: null, h24: null, d7: null, m30: null } });
 
 const params = new URLSearchParams(window.location.search);
 const qMint = params.get("mint");
