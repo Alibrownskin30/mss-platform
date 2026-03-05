@@ -15,6 +15,7 @@ import { register, login, authRequired } from "./auth.js";
 import { startWatcher } from "./watcher.js";
 import { getClusterIntel } from "./cluster.js";
 import { createCassie } from "./cassie/index.js";
+import { buildSecurityModel } from "./intelligence/securityModel.js";
 
 const { Metadata } = pkg;
 
@@ -122,8 +123,7 @@ try {
 return await fn();
 } catch (e) {
 lastErr = e;
-const delay =
-Math.min(8000, baseDelayMs * Math.pow(2, i)) + Math.floor(Math.random() * 200);
+const delay = Math.min(8000, baseDelayMs * Math.pow(2, i)) + Math.floor(Math.random() * 200);
 if (isRateLimitError(e)) await sleep(delay);
 else await sleep(150);
 }
@@ -385,6 +385,159 @@ const intel = await getClusterIntel({ connection, rpcRetry, owners });
 
 clusterCache.set(mintStr, { ts: Date.now(), data: intel });
 return res.json(intel);
+} catch (e) {
+if (isRateLimitError(e))
+return res.status(429).json({ error: "RPC rate limited (429). Try again shortly." });
+return res.status(500).json({ error: String(e?.message || e) });
+}
+});
+
+// ---------- MSS Security Intelligence (derived from cluster + holders + authorities) ----------
+// This endpoint is optional for now; it returns the security model only.
+// Your UI can call it later, or you can keep using the existing endpoints and compute client-side.
+app.get("/api/sol/security/:mint", async (req, res) => {
+const mintStr = req.params.mint;
+
+try {
+const mint = assertMint(mintStr);
+if (!mint) return res.status(400).json({ error: "Invalid mint" });
+
+// Pull base data (reuse caches where possible)
+const [tokenJson, holdersJson, clusterJson] = await Promise.all([
+(async () => {
+const info = await rpcRetry(() => connection.getParsedAccountInfo(mint));
+if (!info.value) return null;
+
+const mintParsed = info.value.data?.parsed?.info;
+if (!mintParsed) return null;
+
+const mintAuthority = mintParsed.mintAuthority ?? null;
+const freezeAuthority = mintParsed.freezeAuthority ?? null;
+const supply = mintParsed.supply;
+const decimals = mintParsed.decimals;
+
+let metadata = null;
+try {
+const metaPDA = Metadata.getPDA(mint);
+const metaAcc = await rpcRetry(() => Metadata.load(connection, metaPDA));
+metadata = metaAcc?.data?.data || null;
+} catch {
+metadata = null;
+}
+
+return {
+mint: mint.toBase58(),
+chain: "solana",
+supply,
+decimals,
+mintAuthority,
+freezeAuthority,
+safety: {
+mintRevoked: !mintAuthority,
+freezeRevoked: !freezeAuthority,
+},
+metadata,
+rpcLabel: "Solana Mainnet (Live)",
+source: "onchain",
+};
+})(),
+(async () => {
+const cached = holdersCache.get(mintStr);
+if (cached && Date.now() - cached.ts < HOLDERS_TTL_MS) return cached.data;
+
+const [supplyResp, largest] = await Promise.all([
+rpcRetry(() => connection.getTokenSupply(mint)),
+rpcRetry(() => connection.getTokenLargestAccounts(mint)),
+]);
+
+const totalUi = supplyResp?.value?.uiAmount ?? null;
+const decimals = supplyResp?.value?.decimals ?? null;
+
+const top = (largest?.value || []).slice(0, 20);
+const tokenAccPubkeys = top.map((a) => new PublicKey(a.address));
+const accInfos = await rpcRetry(() => connection.getMultipleAccountsInfo(tokenAccPubkeys));
+
+const owners = accInfos.map((info) => {
+try {
+if (!info?.data || info.data.length !== AccountLayout.span) return null;
+const decoded = AccountLayout.decode(info.data);
+return new PublicKey(decoded.owner).toBase58();
+} catch {
+return null;
+}
+});
+
+const holders = top.map((a, i) => {
+const ui = a.uiAmount ?? null;
+const pct = totalUi && ui != null && totalUi > 0 ? (ui / totalUi) * 100 : null;
+
+return {
+rank: i + 1,
+tokenAccount: a.address,
+owner: owners[i],
+uiAmount: ui,
+amount: a.amount,
+pctSupply: pct,
+};
+});
+
+const out = {
+found: true,
+mint: mint.toBase58(),
+decimals,
+totalSupplyUi: totalUi,
+holders,
+};
+
+holdersCache.set(mintStr, { ts: Date.now(), data: out });
+return out;
+})(),
+(async () => {
+const cached = clusterCache.get(mintStr);
+if (cached && Date.now() - cached.ts < CLUSTER_TTL_MS) return cached.data;
+
+// For cluster, we need owners from top holders
+const owners =
+(holdersCache.get(mintStr)?.data?.holders || [])
+.map((h) => h.owner)
+.filter(Boolean) || [];
+
+const intel = await getClusterIntel({ connection, rpcRetry, owners });
+
+clusterCache.set(mintStr, { ts: Date.now(), data: intel });
+return intel;
+})(),
+]);
+
+if (!tokenJson || !holdersJson) return res.status(404).json({ error: "Mint not found" });
+
+// Concentration
+const holders = Array.isArray(holdersJson?.holders) ? holdersJson.holders : [];
+const pct = holders.map((h) => Number(h.pctSupply || 0));
+const sumTopN = (n) => pct.slice(0, n).reduce((a, b) => a + b, 0);
+
+const concentration = {
+top1: sumTopN(1),
+top5: sumTopN(5),
+top10: sumTopN(10),
+top20: sumTopN(20),
+};
+
+// activity is whatever cluster.json returns (your existing structure)
+const activity = clusterJson || {};
+
+const securityModel = buildSecurityModel({
+concentration,
+token: tokenJson,
+activity,
+});
+
+return res.json({
+ok: true,
+mint: mintStr,
+concentration,
+securityModel,
+});
 } catch (e) {
 if (isRateLimitError(e))
 return res.status(429).json({ error: "RPC rate limited (429). Try again shortly." });

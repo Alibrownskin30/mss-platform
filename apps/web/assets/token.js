@@ -33,6 +33,13 @@ if (n == null || Number.isNaN(Number(n))) return "—";
 return `${Number(n).toFixed(dp)}%`;
 };
 
+const fmtSignedPct = (n, dp = 2) => {
+if (n == null || Number.isNaN(Number(n))) return "—";
+const v = Number(n);
+const sign = v > 0 ? "+" : "";
+return `${sign}${v.toFixed(dp)}%`;
+};
+
 const shortAddr = (s, left = 5, right = 5) => {
 if (!s || typeof s !== "string") return "—";
 if (s.length <= left + right + 3) return s;
@@ -54,41 +61,6 @@ if (state) dot.classList.add(state);
 function setBadge(_badgeId, dotId, textId, state, text) {
 setDot(dotId, state);
 setText(textId, text);
-}
-
-// ---- Price Change UI ----
-function setPriceChange(elId, n) {
-const el = $(elId);
-if (!el) return;
-
-el.classList.remove("up", "down", "flat");
-
-if (n == null || Number.isNaN(Number(n))) {
-el.textContent = "—";
-el.classList.add("flat");
-return;
-}
-
-const v = Number(n);
-const sign = v > 0 ? "+" : v < 0 ? "" : "";
-el.textContent = `${sign}${v.toFixed(2)}%`;
-
-if (v > 0) el.classList.add("up");
-else if (v < 0) el.classList.add("down");
-else el.classList.add("flat");
-}
-
-function renderPriceChanges(marketJson) {
-const pc = marketJson?.priceChange || {};
-// Mapping:
-// 1h -> h1
-// 1d -> h24
-// 1w -> d7
-// 1m -> m30
-setPriceChange("pc1h", pc.h1);
-setPriceChange("pc1d", pc.h24);
-setPriceChange("pc1w", pc.d7);
-setPriceChange("pc1m", pc.m30);
 }
 
 // ---- Concentration / Risk ----
@@ -178,7 +150,11 @@ Math.min(100, Math.round((Number(conc?.top10 || 0) / 80) * 100))
 );
 
 const signal =
-label.state === "bad" ? "High Alert" : label.state === "warn" ? "Caution" : "Normal";
+label.state === "bad"
+? "High Alert"
+: label.state === "warn"
+? "Caution"
+: "Normal";
 
 return { score, label, primaryDriver, whaleScore, signal, liqFdvPct, volLiq };
 }
@@ -220,11 +196,48 @@ if (!(supplyUi > 0)) return 0;
 return price * supplyUi;
 }
 
+// ---- Price Change UI ----
+function normalizePriceChange(marketJson) {
+const pc = marketJson?.priceChange || {};
+return {
+h1: pc.h1 ?? null,
+h24: pc.h24 ?? null,
+d7: pc.d7 ?? pc.h168 ?? null,
+m30: pc.m30 ?? pc.d30 ?? null,
+};
+}
+
+function renderPriceChange(marketJson) {
+const pc = normalizePriceChange(marketJson);
+
+const setPc = (id, val) => {
+const el = $(id);
+if (!el) return;
+
+el.classList.remove("up", "down", "flat");
+
+if (val == null || Number.isNaN(Number(val))) {
+el.textContent = "—";
+el.classList.add("flat");
+return;
+}
+
+const v = Number(val);
+el.textContent = fmtSignedPct(v, 2);
+
+if (v > 0) el.classList.add("up");
+else if (v < 0) el.classList.add("down");
+else el.classList.add("flat");
+};
+
+setPc("pc1h", pc.h1);
+setPc("pc1d", pc.h24);
+setPc("pc1w", pc.d7);
+setPc("pc1m", pc.m30);
+}
+
 // ---- Render ----
 function renderMarket(marketJson, derivedMcapUsd = 0) {
-// Always render price change row (even if not found)
-renderPriceChanges(marketJson);
-
 if (!marketJson?.found) {
 setText("priceUsd", "$—");
 setText("pricePair", "Pair: —");
@@ -234,6 +247,7 @@ setText("fdvUsd", "$—");
 setText("mcapUsd", derivedMcapUsd > 0 ? `MCap: ${fmtUsd(derivedMcapUsd)}` : "MCap: —");
 setText("dexName", "—");
 setText("pairName", "—");
+renderPriceChange({ priceChange: {} });
 return;
 }
 
@@ -257,6 +271,8 @@ setText("mcapUsd", mcap > 0 ? `MCap: ${fmtUsd(mcap)}` : "MCap: —");
 
 setText("dexName", marketJson?.dex || "—");
 setText("pairName", marketJson?.pair ? pairShort : "—");
+
+renderPriceChange(marketJson);
 }
 
 function renderTokenAuthorities(tokenJson) {
@@ -395,17 +411,6 @@ notes.push(`Primary driver: ${rm.primaryDriver}.`);
 return notes.join(" ");
 }
 
-// Normalize price change keys for sharecard/UI robustness
-function normalizePriceChange(marketJson) {
-const pc = marketJson?.priceChange || {};
-return {
-h1: pc.h1 ?? null,
-h24: pc.h24 ?? null,
-d7: pc.d7 ?? pc.h168 ?? null,
-m30: pc.m30 ?? pc.d30 ?? null,
-};
-}
-
 async function bestEffortRecordRisk({ mint, rm, conc, marketJson }) {
 try {
 await apiPost("/api/sol/risk-record", {
@@ -426,15 +431,11 @@ setBadge(null, "scanDot", "scanStatusText", "warn", "Scanning…");
 setText("scanMetaText", `mint: ${mint.slice(0, 4)}…${mint.slice(-4)}`);
 
 try {
-const [tokenJson, marketJsonRaw, holdersJson] = await Promise.all([
+const [tokenJson, marketJson, holdersJson] = await Promise.all([
 apiGet(`/api/sol/token/${mint}`),
 apiGet(`/api/sol/market/${mint}`),
 apiGet(`/api/sol/holders/${mint}`),
 ]);
-
-// Ensure marketJson has normalized priceChange keys for sharecard + UI
-const marketJson = { ...(marketJsonRaw || {}) };
-marketJson.priceChange = normalizePriceChange(marketJsonRaw);
 
 renderTokenAuthorities(tokenJson);
 
@@ -476,6 +477,8 @@ bestEffortRecordRisk({ mint, rm, conc, marketJson });
 } catch (e) {
 renderRaw({ mint, error: e?.message || String(e) });
 setBadge(null, "scanDot", "scanStatusText", "bad", "Scan error");
+// keep price change fields sane
+renderPriceChange({ priceChange: {} });
 }
 }
 
@@ -539,7 +542,7 @@ scanBtn.click();
 });
 }
 
-// Save share card (download)
+// Save share card (download PNG)
 const saveShareBtn = $("saveShareBtn");
 if (saveShareBtn) {
 saveShareBtn.addEventListener("click", async () => {
@@ -554,23 +557,38 @@ await downloadShareCardPNG(scanObj);
 alert(err?.message || "Failed to generate share card.");
 }
 });
-} else {
-console.warn("Save share button not found (missing #saveShareBtn in token.html).");
 }
 
-// Share to X (opens tweet composer)
+// Share to X (opens composer; user attaches downloaded image)
 const shareXBtn = $("shareXBtn");
 if (shareXBtn) {
-shareXBtn.addEventListener("click", () => {
+shareXBtn.addEventListener("click", async () => {
 const scanObj = window.__MSS_LAST_SCAN__;
-const mint = scanObj?.mint || (tokenInput.value || "").trim();
-if (!mint) {
+if (!scanObj?.mint) {
 alert("Scan a token first.");
 return;
 }
-const url = `${window.location.origin}${window.location.pathname}?mint=${encodeURIComponent(mint)}`;
-const text = `MSS Protocol Scanner — ${mint}\nElite security intelligence on Solana.\n`;
-const intent = `https://x.com/intent/tweet?text=${encodeURIComponent(text)}&url=${encodeURIComponent(url)}`;
+
+// Generate/download first so the image is ready in Downloads.
+try {
+await downloadShareCardPNG(scanObj);
+} catch (err) {
+alert(err?.message || "Failed to generate share card.");
+return;
+}
+
+const baseUrl = `${window.location.protocol}//${window.location.host}`;
+const scanUrl = `${baseUrl}/token.html?mint=${encodeURIComponent(scanObj.mint)}`;
+
+const text =
+`MSS Protocol — Token Scan\n` +
+`Mint: ${scanObj.mint.slice(0, 4)}…${scanObj.mint.slice(-4)}\n` +
+`Scan:`;
+
+const intent = `https://twitter.com/intent/tweet?text=${encodeURIComponent(
+text
+)}&url=${encodeURIComponent(scanUrl)}`;
+
 window.open(intent, "_blank", "noopener,noreferrer");
 });
 }
@@ -596,7 +614,7 @@ return;
 try {
 alertStatus.textContent = "Saving alert…";
 
-// Use watcher-compatible defaults (risk_score threshold)
+// watcher-compatible defaults (risk_score threshold)
 const data = await apiPost(
 "/api/alerts",
 { mint, type: "risk_spike", direction: "above", threshold: 70 },
@@ -618,9 +636,6 @@ alertStatus.textContent = err?.message || "Failed to save alert.";
 setBadge(null, "netDot", "netText", "good", "Online");
 setBadge(null, "scanDot", "scanStatusText", null, "Ready");
 setText("apiMeta", `API: ${getApiBase()}`);
-
-// Default price change row state
-renderPriceChanges({ priceChange: { h1: null, h24: null, d7: null, m30: null } });
 
 const params = new URLSearchParams(window.location.search);
 const qMint = params.get("mint");

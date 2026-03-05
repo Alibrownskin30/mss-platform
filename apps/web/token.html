@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
 <head>
 <meta charset="utf-8" />
@@ -7,7 +7,13 @@
 <meta name="description" content="MSS Protocol Token Scan — Elite security intelligence: contract authorities, holder concentration, market signals, and alerts." />
 
 <script>
-window.API_BASE = "";
+// API base:
+// - In Codespaces dev: web on :3000, api on :8787
+// - In production: leave blank to use same-origin if you reverse-proxy, or set a full URL if needed.
+(function () {
+const isLocalDev = (location.port === "3000");
+window.API_BASE = isLocalDev ? (location.protocol + "//" + location.hostname + ":8787") : "";
+})();
 </script>
 
 <style>
