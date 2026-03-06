@@ -63,6 +63,45 @@ setDot(dotId, state);
 setText(textId, text);
 }
 
+function setVisible(id, visible) {
+const el = $(id);
+if (!el) return;
+el.style.display = visible ? "" : "none";
+}
+
+function hasNumber(v) {
+return v != null && v !== "" && !Number.isNaN(Number(v));
+}
+
+function getTokenDisplay(scanObj) {
+const token = scanObj?.token || {};
+const market = scanObj?.market || {};
+const risk = scanObj?.derived?.riskModel || {};
+
+const name =
+token?.metadata?.name ||
+token?.meta?.name ||
+token?.name ||
+token?.tokenName ||
+"";
+
+const symbol =
+token?.metadata?.symbol ||
+token?.meta?.symbol ||
+token?.symbol ||
+token?.tokenSymbol ||
+market?.baseSymbol ||
+"";
+
+const riskText = risk?.label?.text || "—";
+
+return {
+name: String(name || "").trim(),
+symbol: String(symbol || "").trim(),
+riskText: String(riskText || "—").trim(),
+};
+}
+
 // ---- Concentration / Risk ----
 function computeConcentration(holders = []) {
 const pct = holders.map((h) => Number(h.pctSupply || 0));
@@ -234,6 +273,10 @@ setPc("pc1h", pc.h1);
 setPc("pc1d", pc.h24);
 setPc("pc1w", pc.d7);
 setPc("pc1m", pc.m30);
+
+// start hidden in HTML, only reveal if real data exists
+setVisible("chip1w", hasNumber(pc.d7));
+setVisible("chip1m", hasNumber(pc.m30));
 }
 
 // ---- Render ----
@@ -469,6 +512,15 @@ derived: { concentration: conc, activity, riskModel: rm, derivedMcapUsd },
 window.__MSS_LAST_SCAN__ = scanObj;
 renderRaw(scanObj);
 
+// keep shareable URL in sync with the current scan
+try {
+const url = new URL(window.location.href);
+url.searchParams.set("mint", mint);
+window.history.replaceState({}, "", url.toString());
+} catch {
+// ignore
+}
+
 setText("apiMeta", `API: ${getApiBase()}`);
 setBadge(null, "scanDot", "scanStatusText", "good", "Scan complete");
 
@@ -577,13 +629,20 @@ alert(err?.message || "Failed to generate share card.");
 return;
 }
 
-const baseUrl = `${window.location.protocol}//${window.location.host}`;
-const scanUrl = `${baseUrl}/token.html?mint=${encodeURIComponent(scanObj.mint)}`;
+const currentUrl = new URL(window.location.href);
+currentUrl.searchParams.set("mint", scanObj.mint);
+const scanUrl = currentUrl.toString();
+
+const info = getTokenDisplay(scanObj);
+const tokenLine = info.symbol
+? `$${info.symbol}${info.name ? ` (${info.name})` : ""}`
+: (info.name || `Mint ${scanObj.mint.slice(0, 4)}…${scanObj.mint.slice(-4)}`);
 
 const text =
-`MSS Protocol — Token Scan\n` +
-`Mint: ${scanObj.mint.slice(0, 4)}…${scanObj.mint.slice(-4)}\n` +
-`Scan:`;
+`MSS Protocol Token Scan\n` +
+`${tokenLine}\n` +
+`Risk: ${info.riskText}\n` +
+`Full scan:`;
 
 const intent = `https://twitter.com/intent/tweet?text=${encodeURIComponent(
 text
