@@ -1,5 +1,4 @@
 import { apiGet, apiPost, getApiBase } from "./api.js";
-import { buildActivityFromHolders } from "./activity.js";
 import { downloadShareCardPNG } from "./sharecard.js";
 
 (() => {
@@ -31,6 +30,13 @@ return `${v.toFixed(2)}`;
 const fmtPct = (n, dp = 2) => {
 if (n == null || Number.isNaN(Number(n))) return "—";
 return `${Number(n).toFixed(dp)}%`;
+};
+
+const fmtSigned = (n, dp = 1) => {
+if (n == null || Number.isNaN(Number(n))) return "—";
+const v = Number(n);
+const sign = v > 0 ? "+" : "";
+return `${sign}${v.toFixed(dp)}`;
 };
 
 const fmtSignedPct = (n, dp = 2) => {
@@ -83,6 +89,7 @@ token?.metadata?.name ||
 token?.meta?.name ||
 token?.name ||
 token?.tokenName ||
+market?.baseName ||
 "";
 
 const symbol =
@@ -111,85 +118,6 @@ top5: sumTopN(5),
 top10: sumTopN(10),
 top20: sumTopN(20),
 };
-}
-
-function calcRisk({ tokenJson, marketJson, conc }) {
-const mintRevoked = !!tokenJson?.safety?.mintRevoked;
-const freezeRevoked = !!tokenJson?.safety?.freezeRevoked;
-
-const top1 = Number(conc?.top1 || 0);
-const top10 = Number(conc?.top10 || 0);
-
-const liq = Number(marketJson?.liquidityUsd || 0);
-const fdv = Number(marketJson?.fdv || 0);
-const vol = Number(marketJson?.volume24h || 0);
-
-const liqFdvPct = fdv > 0 ? (liq / fdv) * 100 : 0;
-const volLiq = liq > 0 ? vol / liq : 0;
-
-let score = 0;
-
-if (!mintRevoked) score += 18;
-if (!freezeRevoked) score += 18;
-
-if (fdv > 0 && liq > 0) {
-if (liqFdvPct < 1) score += 18;
-else if (liqFdvPct < 3) score += 14;
-else if (liqFdvPct < 5) score += 10;
-else if (liqFdvPct < 10) score += 6;
-else score += 3;
-} else {
-score += 14;
-}
-
-if (top1 > 45) score += 16;
-else if (top1 > 35) score += 12;
-else if (top1 > 25) score += 9;
-else if (top1 > 15) score += 5;
-else score += 2;
-
-if (top10 > 70) score += 12;
-else if (top10 > 55) score += 10;
-else if (top10 > 40) score += 6;
-else if (top10 > 30) score += 3;
-else score += 1;
-
-if (volLiq > 6) score += 6;
-else if (volLiq > 3) score += 5;
-else if (volLiq > 1.5) score += 3;
-else score += 1;
-
-score = Math.max(0, Math.min(100, Math.round(score)));
-
-const label =
-score >= 75
-? { text: "High Risk", state: "bad" }
-: score >= 45
-? { text: "Elevated Risk", state: "warn" }
-: { text: "Lower Exposure", state: "good" };
-
-const primaryDriver =
-!mintRevoked || !freezeRevoked
-? "Authority Control"
-: liqFdvPct > 0 && liqFdvPct < 3
-? "Liquidity Depth"
-: top10 >= 55
-? "Holder Distribution"
-: "Volume Integrity";
-
-const whaleScore = Math.max(
-0,
-Math.min(100, Math.round((Number(conc?.top10 || 0) / 80) * 100))
-);
-
-const signal =
-label.state === "bad"
-? "High Alert"
-: label.state === "warn"
-? "Caution"
-: "Normal";
-
-return { score, label, primaryDriver, whaleScore, signal, liqFdvPct, volLiq };
 }
 
 function getSupplyUi({ holdersJson, tokenJson }) {
@@ -374,17 +302,23 @@ return { top1: 0, top5: 0, top10: 0, top20: 0 };
 }
 
 function renderClusters(activity) {
-setText("clusterScore", `${activity.sybilScore0to100}`);
-setText("clusterLabel", activity.signalText);
-setText("sybilScore", `${activity.sybilScore0to100} /100`);
-setText("clustersCount", String(activity.clustersCount));
-setText("whaleFlow1h", activity.whaleFlow1hPct == null ? "—" : fmtPct(activity.whaleFlow1hPct, 3));
-setText("whaleFlow24h", activity.whaleFlow24hPct == null ? "—" : fmtPct(activity.whaleFlow24hPct, 3));
+const hidden = activity?.hiddenControl || {};
+const score = Number(hidden?.score ?? activity?.score ?? 0);
+const label = hidden?.label || activity?.label || "—";
+
+setText("clusterScore", hasNumber(score) ? `${score}` : "—");
+setText("clusterLabel", label || "—");
+setText("sybilScore", hasNumber(score) ? `${score} /100` : "—");
+setText("clustersCount", String(activity?.clusterCount ?? activity?.clusters?.length ?? 0));
+setText("whaleFlow1h", activity?.whaleActivity?.syncBurstSize == null ? "—" : String(activity.whaleActivity.syncBurstSize));
+setText("whaleFlow24h", activity?.clusteredWallets == null ? "—" : String(activity.clusteredWallets));
 
 const body = $("clusterTableBody");
 if (body) {
 body.innerHTML = "";
-if (!activity.clusters.length) {
+const rows = Array.isArray(activity?.clusters) ? activity.clusters : [];
+
+if (!rows.length) {
 body.innerHTML = `
 <tr>
 <td class="muted">—</td>
@@ -393,13 +327,19 @@ body.innerHTML = `
 <td class="muted">No strong cluster evidence detected in this snapshot.</td>
 </tr>`;
 } else {
-for (const c of activity.clusters) {
+for (let i = 0; i < rows.length; i++) {
+const c = rows[i];
+const evidence = [];
+if (c?.payer) evidence.push(`Shared payer ${shortAddr(c.payer, 5, 5)}`);
+if (c?.size) evidence.push(`${c.size} linked wallets`);
+if (Array.isArray(c?.members) && c.members.length) evidence.push("Linked holder group");
+
 const tr = document.createElement("tr");
 tr.innerHTML = `
-<td class="mono">${c.id}</td>
-<td class="mono">${c.wallets}</td>
-<td class="mono">${c.score}</td>
-<td>${c.evidence}</td>`;
+<td class="mono">${c.id || `C${i + 1}`}</td>
+<td class="mono">${c.size ?? c.walletCount ?? "—"}</td>
+<td class="mono">${c.score ?? "—"}</td>
+<td>${evidence.join(" • ") || "Linked wallet pattern detected."}</td>`;
 body.appendChild(tr);
 }
 }
@@ -407,8 +347,58 @@ body.appendChild(tr);
 
 setText(
 "clusterMeta",
-`Confidence: ${activity.meta.confidence} • Analyzed: ${activity.meta.analyzedWallets} • Parsed tx: ${activity.meta.parsedTx}`
+`Analyzed: ${activity?.analyzedWallets ?? "—"} • Linked wallets: ${activity?.hiddenControl?.linkedWallets ?? activity?.clusteredWallets ?? "—"} • Fresh wallets: ${fmtPct(activity?.freshWalletRisk?.pct ?? activity?.newWalletPct ?? null, 1)}`
 );
+}
+
+function renderRiskMeter(rm) {
+const fill = $("riskMeterFill");
+const score = Number(rm?.score ?? 0);
+const state = rm?.label?.state || "warn";
+
+if (fill) {
+fill.style.width = `${Math.max(0, Math.min(100, score))}%`;
+fill.classList.remove("good", "warn", "bad");
+fill.classList.add(state);
+}
+
+setText("riskTrendLabel", rm?.trend?.label || "—");
+setText("riskTrendMomentum", rm?.trend?.momentum || "—");
+setText("riskTrend1h", fmtSigned(rm?.trend?.delta1h, 1));
+setText("riskTrend24h", fmtSigned(rm?.trend?.delta24h, 1));
+setText("reputationLabel", rm?.reputation?.label || "—");
+setText("reputationScore", rm?.reputation?.score != null ? `${rm.reputation.score}/100` : "—");
+
+// optional secondary ids if present
+setText("riskTrendLabel2", rm?.trend?.label || "—");
+setText("reputationLabel2", rm?.reputation?.label || "—");
+setText("reputationScore2", rm?.reputation?.score != null ? `${rm.reputation.score}/100` : "—");
+}
+
+function renderPhase2Signals(rm) {
+setText("hiddenControlLabel", rm?.hiddenControl?.label || "—");
+setText("hiddenControlScore", rm?.hiddenControl?.score != null ? `${rm.hiddenControl.score}/100` : "—");
+setText("hiddenControlLinked", rm?.hiddenControl?.linkedWallets != null ? String(rm.hiddenControl.linkedWallets) : "—");
+setText("hiddenControlSupply", rm?.hiddenControl?.linkedWalletPct != null ? fmtPct(rm.hiddenControl.linkedWalletPct, 1) : "—");
+setText("sharedFunding", rm?.hiddenControl?.sharedFundingDetected ? "Detected" : "Not detected");
+
+setText("devActivityLabel", rm?.developerActivity?.label || "—");
+setText("devActivityDetected", rm?.developerActivity?.detected ? "Yes" : "No");
+setText("devActivityWallets", rm?.developerActivity?.linkedWallets != null ? String(rm.developerActivity.linkedWallets) : "—");
+
+setText("freshWalletLabel", rm?.freshWalletRisk?.label || "—");
+setText("freshWalletCount", rm?.freshWalletRisk?.walletCount != null ? String(rm.freshWalletRisk.walletCount) : "—");
+setText("freshWalletPct", rm?.freshWalletRisk?.pct != null ? fmtPct(rm.freshWalletRisk.pct, 1) : "—");
+
+setText("liqStabilityLabel", rm?.liquidityStability?.label || "—");
+setText("liqStabilityScore", rm?.liquidityStability?.score != null ? `${rm.liquidityStability.score}/100` : "—");
+setText("liqFdvPct", rm?.liquidityStability?.liqFdvPct != null ? fmtPct(rm.liquidityStability.liqFdvPct, 2) : "—");
+setText("liqRemovable", rm?.liquidityStability?.removableRisk || "—");
+
+setText("whaleActivityLabel", rm?.whaleActivity?.label || "—");
+setText("whaleActivityScore", rm?.whaleActivity?.score != null ? `${rm.whaleActivity.score}/100` : "—");
+setText("whalePressure", rm?.whaleActivity?.pressure || "—");
+setText("whaleSync", rm?.whaleActivity?.syncBurstSize != null ? String(rm.whaleActivity.syncBurstSize) : "—");
 }
 
 function renderRaw(obj) {
@@ -434,9 +424,31 @@ const liqFdv = (Number(marketJson.liquidityUsd) / Number(marketJson.fdv)) * 100;
 if (liqFdv < 3) notes.push("Liquidity depth is thin relative to valuation.");
 }
 
-if (activity?.sybilScore0to100 >= 40) notes.push("Distribution shows structuring/coordinated patterns (best-effort).");
+if (Number(rm?.hiddenControl?.score || 0) >= 45) {
+notes.push("Linked wallet behavior suggests hidden control or coordinated structure.");
+}
 
-notes.push(`Primary driver: ${rm.primaryDriver}.`);
+if (Number(rm?.freshWalletRisk?.pct || 0) >= 20) {
+notes.push("Fresh-wallet concentration is elevated.");
+}
+
+if (rm?.developerActivity?.detected) {
+notes.push("Possible developer-linked holder overlap detected.");
+}
+
+if (rm?.liquidityStability?.state === "bad") {
+notes.push("Liquidity stability appears weak.");
+}
+
+if (rm?.trend?.label === "Escalating") {
+notes.push("Risk trend is increasing versus prior snapshots.");
+}
+
+if (!notes.length && Number(activity?.score || 0) >= 40) {
+notes.push("Distribution shows structuring/coordinated patterns (best-effort).");
+}
+
+notes.push(`Primary driver: ${rm?.primaryDriver || "—"}.`);
 
 return notes.join(" ");
 }
@@ -461,39 +473,79 @@ setBadge(null, "scanDot", "scanStatusText", "warn", "Scanning…");
 setText("scanMetaText", `mint: ${mint.slice(0, 4)}…${mint.slice(-4)}`);
 
 try {
-const [tokenJson, marketJson, holdersJson] = await Promise.all([
-apiGet(`/api/sol/token/${mint}`),
-apiGet(`/api/sol/market/${mint}`),
+const [securityJson, holdersJson] = await Promise.all([
+apiGet(`/api/sol/security/${mint}`),
 apiGet(`/api/sol/holders/${mint}`),
 ]);
+
+const tokenJson = securityJson?.token || {};
+const marketJson = securityJson?.market || {};
+const activity = securityJson?.activity || {};
+const trend = securityJson?.trend || {};
 
 renderTokenAuthorities(tokenJson);
 
 const holdersSelect = $("holdersSelect");
 const topN = holdersSelect ? Number(holdersSelect.value || 20) : 20;
-const conc = renderHolders(holdersJson, topN);
+const holderConc = renderHolders(holdersJson, topN);
+const backendConc = securityJson?.concentration || {};
+const conc = {
+top1: hasNumber(backendConc.top1) ? Number(backendConc.top1) : Number(holderConc.top1 || 0),
+top5: hasNumber(backendConc.top5) ? Number(backendConc.top5) : Number(holderConc.top5 || 0),
+top10: hasNumber(backendConc.top10) ? Number(backendConc.top10) : Number(holderConc.top10 || 0),
+top20: hasNumber(backendConc.top20) ? Number(backendConc.top20) : Number(holderConc.top20 || 0),
+};
 
-const activity = buildActivityFromHolders(holdersJson);
+setText("top1", fmtPct(conc.top1));
+setText("top5", fmtPct(conc.top5));
+setText("top10", fmtPct(conc.top10));
+setText("top20", fmtPct(conc.top20));
+
 renderClusters(activity);
 
-const rm = calcRisk({ tokenJson, marketJson, conc });
+let rm = securityJson?.securityModel || null;
+if (!rm || typeof rm.score !== "number") {
+rm = {
+score: 0,
+label: { text: "Unknown", state: "warn" },
+signal: "—",
+primaryDriver: "—",
+whaleScore: 0,
+hiddenControl: {},
+developerActivity: {},
+freshWalletRisk: {},
+liquidityStability: {},
+whaleActivity: {},
+trend: trend || {},
+reputation: {},
+};
+}
 
 const derivedMcapUsd = deriveMcapUsd({ marketJson, holdersJson, tokenJson });
 renderMarket(marketJson, derivedMcapUsd);
 
-setText("riskScore", `${rm.score}`);
-setText("whaleScore", `${rm.whaleScore}`);
-setText("riskSignal", rm.signal);
-setBadge("riskBadge", "riskDot", "riskText", rm.label.state, rm.label.text);
+setText("riskScore", `${rm.score ?? "—"}`);
+setText("whaleScore", `${rm.whaleScore ?? "—"}`);
+setText("riskSignal", rm.signal || "—");
+setBadge("riskBadge", "riskDot", "riskText", rm?.label?.state || "warn", rm?.label?.text || "—");
 
-setText("notesText", buildNotes({ tokenJson, marketJson, conc, activity, rm }));
+renderRiskMeter(rm);
+renderPhase2Signals(rm);
+
+setText("notesText", buildNotes({ tokenJson, marketJson, conc, activity, rm, trend }));
 
 const scanObj = {
 mint,
 token: tokenJson,
 market: marketJson,
 holders: holdersJson,
-derived: { concentration: conc, activity, riskModel: rm, derivedMcapUsd },
+trend,
+derived: {
+concentration: conc,
+activity,
+riskModel: rm,
+derivedMcapUsd,
+},
 };
 
 window.__MSS_LAST_SCAN__ = scanObj;
@@ -532,13 +584,34 @@ const last = window.__MSS_LAST_SCAN__;
 if (!last?.holders || !last?.token || !last?.market) return;
 
 const topN = Number(holdersSelect.value || 20);
-const conc = renderHolders(last.holders, topN);
+const holderConc = renderHolders(last.holders, topN);
+const backendConc = last.derived?.concentration || {};
+const conc = {
+top1: hasNumber(backendConc.top1) ? Number(backendConc.top1) : Number(holderConc.top1 || 0),
+top5: hasNumber(backendConc.top5) ? Number(backendConc.top5) : Number(holderConc.top5 || 0),
+top10: hasNumber(backendConc.top10) ? Number(backendConc.top10) : Number(holderConc.top10 || 0),
+top20: hasNumber(backendConc.top20) ? Number(backendConc.top20) : Number(holderConc.top20 || 0),
+};
 
-const rm = calcRisk({ tokenJson: last.token, marketJson: last.market, conc });
-setText("riskScore", `${rm.score}`);
-setText("whaleScore", `${rm.whaleScore}`);
-setText("riskSignal", rm.signal);
-setBadge("riskBadge", "riskDot", "riskText", rm.label.state, rm.label.text);
+setText("top1", fmtPct(conc.top1));
+setText("top5", fmtPct(conc.top5));
+setText("top10", fmtPct(conc.top10));
+setText("top20", fmtPct(conc.top20));
+
+const rm = last.derived?.riskModel || {
+score: 0,
+label: { text: "Unknown", state: "warn" },
+signal: "—",
+whaleScore: 0,
+};
+
+setText("riskScore", `${rm.score ?? "—"}`);
+setText("whaleScore", `${rm.whaleScore ?? "—"}`);
+setText("riskSignal", rm.signal || "—");
+setBadge("riskBadge", "riskDot", "riskText", rm?.label?.state || "warn", rm?.label?.text || "—");
+
+renderRiskMeter(rm);
+renderPhase2Signals(rm);
 
 const notes = buildNotes({
 tokenJson: last.token,
@@ -551,7 +624,6 @@ setText("notesText", notes);
 
 last.derived = last.derived || {};
 last.derived.concentration = conc;
-last.derived.riskModel = rm;
 window.__MSS_LAST_SCAN__ = last;
 renderRaw(last);
 });
