@@ -27,17 +27,14 @@ app.disable("x-powered-by");
 
 const NODE_ENV = process.env.NODE_ENV || "development";
 
-// ---- Security headers ----
 app.use(
 helmet({
 crossOriginResourcePolicy: { policy: "cross-origin" },
 })
 );
 
-// ---- Body parsing ----
 app.use(express.json({ limit: process.env.BODY_LIMIT || "1mb" }));
 
-// ---- CORS ----
 const rawOrigins = (process.env.CORS_ORIGINS || "")
 .split(",")
 .map((s) => s.trim())
@@ -57,7 +54,6 @@ credentials: false,
 
 app.use(cors(corsOptions));
 
-// ---- Baseline abuse protection (global) ----
 const limiter = rateLimit({
 windowMs: 60 * 1000,
 limit: Number(process.env.RATE_LIMIT_RPM || 240),
@@ -76,7 +72,6 @@ validate: { delayMs: false },
 app.use(limiter);
 app.use(speed);
 
-// ---- Auth route-specific protection (stronger) ----
 const authLimiter = rateLimit({
 windowMs: 15 * 60 * 1000,
 limit: Number(process.env.AUTH_RATE_LIMIT_15M || 25),
@@ -92,22 +87,16 @@ delayMs: () => Number(process.env.AUTH_SLOWDOWN_DELAY_MS || 500),
 validate: { delayMs: false },
 });
 
-// ---- Cassie (middleware sits in front of API) ----
 const { cassie, cassieApi } = createCassie();
 app.use(cassie);
 
-// Honeypots (keep boring)
 app.get("/api/_cassie/diag", (req, res) => res.status(404).end());
 app.post("/api/admin/_sync", (req, res) => res.status(401).end());
-
-// Optional Cassie status endpoint (auth-gated)
 app.get("/api/cassie/status", authRequired, (req, res) => cassieApi.status(req, res));
 
-// ---- Solana RPC ----
 const RPC = process.env.SOLANA_RPC || "https://api.mainnet-beta.solana.com";
 const connection = new Connection(RPC, "confirmed");
 
-// ---- Helpers ----
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 function isRateLimitError(e) {
@@ -150,7 +139,6 @@ if (abs >= 1) return `$${v.toFixed(6)}`;
 return `$${v.toFixed(8)}`;
 }
 
-// ---- Caches ----
 const holdersCache = new Map();
 const holdersInFlight = new Map();
 const HOLDERS_TTL_MS = 120_000;
@@ -161,7 +149,6 @@ const CLUSTER_TTL_MS = 180_000;
 const marketCache = new Map();
 const MARKET_TTL_MS = 30_000;
 
-// ---- Health ----
 app.get("/health", (req, res) => {
 res.json({
 ok: true,
@@ -176,11 +163,9 @@ app.get("/", (req, res) => {
 res.json({ ok: true, service: "mss-api" });
 });
 
-// ---- Auth ----
 app.post("/api/register", authLimiter, authSlow, register);
 app.post("/api/login", authLimiter, authSlow, login);
 
-// ---------- Token Safety + metadata ----------
 app.get("/api/sol/token/:mint", async (req, res) => {
 try {
 const mint = assertMint(req.params.mint);
@@ -226,7 +211,6 @@ return res.status(500).json({ error: String(e?.message || e) });
 }
 });
 
-// ---------- Market (Dexscreener) ----------
 app.get("/api/sol/market/:mint", async (req, res) => {
 try {
 const mint = req.params.mint;
@@ -278,7 +262,6 @@ return res.status(500).json({ error: String(e?.message || e) });
 }
 });
 
-// ---------- Holders (Top 20 + owner wallet) ----------
 app.get("/api/sol/holders/:mint", async (req, res) => {
 const mintStr = req.params.mint;
 
@@ -357,7 +340,6 @@ return res.status(500).json({ error: String(e?.message || e) });
 }
 });
 
-// ---------- Cluster Intelligence (on-chain heuristic) ----------
 app.get("/api/sol/cluster/:mint", async (req, res) => {
 const mintStr = req.params.mint;
 try {
@@ -385,7 +367,11 @@ return null;
 }
 });
 
-holdersData = { holders: top.map((a, i) => ({ owner: owners[i] })) };
+holdersData = {
+holders: top.map((a, i) => ({
+owner: owners[i],
+})),
+};
 }
 
 const owners = (holdersData?.holders || []).map((h) => h.owner).filter(Boolean);
@@ -401,7 +387,6 @@ return res.status(500).json({ error: String(e?.message || e) });
 }
 });
 
-// ---------- MSS Security Intelligence ----------
 app.get("/api/sol/security/:mint", async (req, res) => {
 const mintStr = req.params.mint;
 
@@ -409,7 +394,7 @@ try {
 const mint = assertMint(mintStr);
 if (!mint) return res.status(400).json({ error: "Invalid mint" });
 
-const [tokenJson, holdersJson, clusterJson] = await Promise.all([
+const [tokenJson, marketJson, holdersJson, clusterJson, trendJson] = await Promise.all([
 (async () => {
 const info = await rpcRetry(() => connection.getParsedAccountInfo(mint));
 if (!info.value) return null;
@@ -448,6 +433,41 @@ source: "onchain",
 };
 })(),
 (async () => {
+const cached = marketCache.get(mintStr);
+if (cached && Date.now() - cached.ts < MARKET_TTL_MS) return cached.data;
+
+const url = `https://api.dexscreener.com/latest/dex/tokens/${mintStr}`;
+const r = await fetch(url, { timeout: 10_000 });
+const j = await r.json();
+
+if (!j?.pairs?.length) return { found: false };
+
+const p = j.pairs[0];
+const out = {
+found: true,
+dex: p.dexId,
+pair: p.pairAddress,
+priceUsd: p.priceUsd,
+fdv: p.fdv ?? null,
+mcapUsd: p.marketCap ?? p.marketcap ?? p.mcap ?? null,
+liquidityUsd: p.liquidity?.usd || 0,
+volume24h: p.volume?.h24 || 0,
+baseSymbol: p.baseToken?.symbol,
+quoteSymbol: p.quoteToken?.symbol,
+baseName: p.baseToken?.name,
+quoteName: p.quoteToken?.name,
+priceChange: {
+h1: p.priceChange?.h1 ?? null,
+h24: p.priceChange?.h24 ?? null,
+d7: p.priceChange?.d7 ?? p.priceChange?.h168 ?? null,
+m30: p.priceChange?.m30 ?? p.priceChange?.d30 ?? null,
+},
+};
+
+marketCache.set(mintStr, { ts: Date.now(), data: out });
+return out;
+})(),
+(async () => {
 const cached = holdersCache.get(mintStr);
 if (cached && Date.now() - cached.ts < HOLDERS_TTL_MS) return cached.data;
 
@@ -511,9 +531,12 @@ const intel = await getClusterIntel({ connection, rpcRetry, owners });
 clusterCache.set(mintStr, { ts: Date.now(), data: intel });
 return intel;
 })(),
+Promise.resolve(getRiskTrend(mintStr)),
 ]);
 
-if (!tokenJson || !holdersJson) return res.status(404).json({ error: "Mint not found" });
+if (!tokenJson || !holdersJson) {
+return res.status(404).json({ error: "Mint not found" });
+}
 
 const holders = Array.isArray(holdersJson?.holders) ? holdersJson.holders : [];
 const pct = holders.map((h) => Number(h.pctSupply || 0));
@@ -526,17 +549,22 @@ top10: sumTopN(10),
 top20: sumTopN(20),
 };
 
-const activity = clusterJson || {};
 const securityModel = buildSecurityModel({
 concentration,
 token: tokenJson,
-activity,
+activity: clusterJson || {},
+market: marketJson || {},
+trend: trendJson || {},
 });
 
 return res.json({
 ok: true,
 mint: mintStr,
+token: tokenJson,
+market: marketJson || { found: false },
 concentration,
+activity: clusterJson || {},
+trend: trendJson || { ok: true, found: false },
 securityModel,
 });
 } catch (e) {
@@ -547,7 +575,6 @@ return res.status(500).json({ error: String(e?.message || e) });
 }
 });
 
-// ---------- Share Summary ----------
 app.get("/api/sol/share-summary/:mint", async (req, res) => {
 const mintStr = req.params.mint;
 
@@ -555,7 +582,7 @@ try {
 const mint = assertMint(mintStr);
 if (!mint) return res.status(400).json({ error: "Invalid mint" });
 
-const [tokenJson, marketJson, holdersJson, clusterJson] = await Promise.all([
+const [tokenJson, marketJson, holdersJson, clusterJson, trendJson] = await Promise.all([
 (async () => {
 const info = await rpcRetry(() => connection.getParsedAccountInfo(mint));
 if (!info.value) return null;
@@ -591,7 +618,6 @@ freezeRevoked: !freezeAuthority,
 metadata,
 };
 })(),
-
 (async () => {
 const cached = marketCache.get(mintStr);
 if (cached && Date.now() - cached.ts < MARKET_TTL_MS) return cached.data;
@@ -627,7 +653,6 @@ m30: p.priceChange?.m30 ?? p.priceChange?.d30 ?? null,
 marketCache.set(mintStr, { ts: Date.now(), data: out });
 return out;
 })(),
-
 (async () => {
 const cached = holdersCache.get(mintStr);
 if (cached && Date.now() - cached.ts < HOLDERS_TTL_MS) return cached.data;
@@ -679,7 +704,6 @@ holders,
 holdersCache.set(mintStr, { ts: Date.now(), data: out });
 return out;
 })(),
-
 (async () => {
 const cached = clusterCache.get(mintStr);
 if (cached && Date.now() - cached.ts < CLUSTER_TTL_MS) return cached.data;
@@ -693,6 +717,7 @@ const intel = await getClusterIntel({ connection, rpcRetry, owners });
 clusterCache.set(mintStr, { ts: Date.now(), data: intel });
 return intel;
 })(),
+Promise.resolve(getRiskTrend(mintStr)),
 ]);
 
 if (!tokenJson || !holdersJson) {
@@ -714,6 +739,8 @@ const securityModel = buildSecurityModel({
 concentration,
 token: tokenJson,
 activity: clusterJson || {},
+market: marketJson || {},
+trend: trendJson || {},
 });
 
 const name = tokenJson?.metadata?.name || marketJson?.baseName || "Unknown Token";
@@ -734,6 +761,7 @@ liquidityUsd,
 top10Pct: top10,
 liquidityText: fmtUsdCompact(liquidityUsd),
 top10Text: `${top10.toFixed(2)}%`,
+hiddenControlText: securityModel?.hiddenControl?.label || "Low",
 imageUrl: `${req.protocol}://${req.get("host")}/api/sol/share-image/${mintStr}`,
 scanUrl: `https://www.mssprotocol.com/token.html?mint=${encodeURIComponent(mintStr)}`,
 });
@@ -745,29 +773,34 @@ return res.status(500).json({ error: String(e?.message || e) });
 }
 });
 
-// ---------- Share Image (fallback/static for now) ----------
 app.get("/api/sol/share-image/:mint", async (req, res) => {
 try {
-return res.redirect(302, "https://www.mssprotocol.com/images/mss-share-card.png");
+return res.redirect(302, "https://www.mssprotocol.com/images/mss-sharecard-v3.jpg");
 } catch (e) {
 return res.status(500).json({ error: String(e?.message || e) });
 }
 });
 
-// ---------- Risk Record ----------
 app.post("/api/sol/risk-record", (req, res) => {
 try {
 const { mint, risk, whale, top10, liqUsd, fdvUsd } = req.body || {};
 if (!mint || risk == null) return res.status(400).json({ error: "Missing mint/risk" });
 
-insertRiskPoint({ mint, risk, whale, top10, liqUsd, fdvUsd });
+insertRiskPoint({
+mint,
+risk,
+whale,
+top10,
+liqUsd,
+fdvUsd,
+});
+
 return res.json({ ok: true });
 } catch (e) {
 return res.status(500).json({ error: String(e?.message || e) });
 }
 });
 
-// ---------- Risk Trend ----------
 app.get("/api/sol/risk-trend/:mint", (req, res) => {
 try {
 const mint = req.params.mint;
@@ -777,7 +810,6 @@ return res.status(500).json({ error: String(e?.message || e) });
 }
 });
 
-// ---------- Alerts (auth required) ----------
 app.get("/api/alerts", authRequired, (req, res) => {
 const rows = db
 .prepare(
@@ -820,7 +852,6 @@ db.prepare(`UPDATE alerts SET is_enabled = ? WHERE id = ?`).run(next, id);
 res.json({ ok: true, is_enabled: next });
 });
 
-// ---- Start ----
 app.listen(PORT, "0.0.0.0", () => {
 console.log(`✅ MSS API running on http://0.0.0.0:${PORT}`);
 console.log(`🔒 RPC hidden (label only)`);
