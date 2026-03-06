@@ -101,7 +101,6 @@ ctx.fillRect(cx - r, cy - r, r * 2, r * 2);
 ctx.restore();
 }
 
-// Clean shield mark (subtle watermark)
 function drawShieldWatermark(ctx, x, y, size = 92) {
 ctx.save();
 ctx.globalAlpha = 0.12;
@@ -178,11 +177,11 @@ const conc = derived?.concentration || {};
 const activity = derived?.activity || {};
 
 const name = safeText(
-token?.metadata?.name || token?.meta?.name || token?.name || token?.tokenName,
+token?.metadata?.name || token?.meta?.name || token?.name || token?.tokenName || market?.baseName,
 "—"
 );
 const symbol = safeText(
-token?.metadata?.symbol || token?.meta?.symbol || token?.symbol || token?.tokenSymbol,
+token?.metadata?.symbol || token?.meta?.symbol || token?.symbol || token?.tokenSymbol || market?.baseSymbol,
 ""
 );
 const tokenLabel = symbol ? `${name} (${symbol})` : name;
@@ -195,8 +194,8 @@ const pairText = (base && quote) ? `${base}/${quote}` : safeText(market?.pair, "
 const mintRevoked = !!token?.safety?.mintRevoked;
 const freezeRevoked = !!token?.safety?.freezeRevoked;
 
-const mintAuthText = mintRevoked ? "Mint: Revoked" : "Mint: Present/Unknown";
-const freezeAuthText = freezeRevoked ? "Freeze: Revoked" : "Freeze: Present/Unknown";
+const mintAuthText = mintRevoked ? "Mint: Revoked" : "Mint: Present";
+const freezeAuthText = freezeRevoked ? "Freeze: Revoked" : "Freeze: Present";
 const authLine = `${mintAuthText} • ${freezeAuthText}`;
 
 const price = Number(market?.priceUsd);
@@ -206,18 +205,22 @@ const mcapUsd = (Number.isFinite(mcapApi) && mcapApi > 0)
 ? mcapApi
 : (Number.isFinite(derivedMcap) && derivedMcap > 0 ? derivedMcap : NaN);
 
-const clustersCount = Number.isFinite(Number(activity?.clustersCount)) ? Number(activity.clustersCount) : 0;
-const sybil = Number.isFinite(Number(activity?.sybilScore0to100)) ? Number(activity.sybilScore0to100) : null;
+const hidden = risk?.hiddenControl || {};
+const fresh = risk?.freshWalletRisk || {};
+const liq = risk?.liquidityStability || {};
+const whale = risk?.whaleActivity || {};
+const trend = risk?.trend || {};
+const reputation = risk?.reputation || {};
 
-const clusterLine = sybil == null
-? `Clusters: ${clustersCount}`
-: `Clusters: ${clustersCount} • Sybil: ${sybil}/100`;
+const clustersCount = Number(activity?.clusterCount || activity?.clusters?.length || 0);
+const linkedWallets = Number(hidden?.linkedWallets || activity?.clusteredWallets || 0);
+const clusterLine = `Clusters: ${clustersCount} • Linked wallets: ${linkedWallets}`;
 
 const priceChangeLine = buildPriceChangeLine(market?.priceChange);
 
 return {
 title: "MSS Protocol",
-subtitle: "Elite Security Intelligence",
+subtitle: "Phase 2 Intelligence",
 
 mintShort: shortAddr(mint, 6, 6),
 mintFull: mint,
@@ -241,6 +244,22 @@ riskLabel: safeText(risk?.label?.text, "—"),
 signal: safeText(risk?.signal, "—"),
 driver: safeText(risk?.primaryDriver, "—"),
 state: safeText(risk?.label?.state, "warn"),
+
+hiddenControlLabel: safeText(hidden?.label, "—"),
+hiddenControlScore: hidden?.score != null ? `${hidden.score}/100` : "—",
+hiddenControlSupply: hidden?.linkedWalletPct != null ? fmtPct(hidden.linkedWalletPct, 1) : "—",
+
+freshLabel: safeText(fresh?.label, "—"),
+freshPct: fresh?.pct != null ? fmtPct(fresh.pct, 1) : "—",
+
+liqLabel: safeText(liq?.label, "—"),
+liqRatio: liq?.liqFdvPct != null ? fmtPct(liq.liqFdvPct, 2) : "—",
+
+whaleLabel: safeText(whale?.label, "—"),
+whaleSync: whale?.syncBurstSize != null ? String(whale.syncBurstSize) : "—",
+
+trendLabel: safeText(trend?.label || trend?.momentum, "—"),
+reputationLabel: safeText(reputation?.label, "—"),
 
 priceChangeLine,
 
@@ -294,21 +313,15 @@ ctx.fillText(fitText(ctx, safeText(value, "—"), w - 28), x + 14, y + 48);
 ctx.restore();
 }
 
-// ✅ Big glass panel behind KPI grid (covers both rows)
 function drawKpiGlassPanel(ctx, x, y, w, h) {
 ctx.save();
 roundRect(ctx, x, y, w, h, 22);
-
-// subtle glass fill
 ctx.fillStyle = "rgba(255,255,255,0.04)";
 ctx.fill();
-
-// faint inner highlight
 ctx.strokeStyle = "rgba(255,255,255,0.10)";
 ctx.lineWidth = 1.5;
 ctx.stroke();
 
-// soft sheen gradient
 const g = ctx.createLinearGradient(x, y, x + w, y + h);
 g.addColorStop(0, "rgba(0,255,209,0.06)");
 g.addColorStop(0.5, "rgba(255,255,255,0.02)");
@@ -320,7 +333,7 @@ ctx.fill();
 ctx.restore();
 }
 
-export async function downloadShareCardPNG(scan, opts = {}) {
+export async function downloadShareCardPNG(scan) {
 const data = buildShareCardData(scan);
 
 const canvas = document.createElement("canvas");
@@ -328,7 +341,6 @@ canvas.width = 1200;
 canvas.height = 630;
 const ctx = canvas.getContext("2d");
 
-// ===== Background (deep, premium) =====
 const bg = ctx.createLinearGradient(0, 0, 1200, 630);
 bg.addColorStop(0, "#070A10");
 bg.addColorStop(1, "#0A1022");
@@ -339,7 +351,6 @@ drawSoftGlow(ctx, 260, 130, 540, "rgba(57,208,200,0.22)");
 drawSoftGlow(ctx, 980, 170, 580, "rgba(120,140,255,0.18)");
 drawSoftGlow(ctx, 720, 620, 520, "rgba(255,77,109,0.08)");
 
-// ===== Main Panel =====
 const panelX = 54, panelY = 56, panelW = 1092, panelH = 500;
 roundRect(ctx, panelX, panelY, panelW, panelH, 24);
 ctx.fillStyle = "rgba(255,255,255,0.05)";
@@ -348,14 +359,11 @@ ctx.strokeStyle = "rgba(255,255,255,0.10)";
 ctx.lineWidth = 2;
 ctx.stroke();
 
-// Watermark (bottom-right)
 drawShieldWatermark(ctx, panelX + panelW - 92, panelY + panelH - 86, 104);
 
-// ===== Header =====
 const left = panelX + 40;
 const top = panelY + 44;
 
-// brand line
 ctx.fillStyle = "rgba(234,240,255,0.92)";
 ctx.font = "900 28px system-ui, -apple-system, Segoe UI, Roboto, Arial";
 ctx.fillText(data.title, left, top);
@@ -364,10 +372,9 @@ ctx.fillStyle = "rgba(234,240,255,0.62)";
 ctx.font = "700 15px system-ui, -apple-system, Segoe UI, Roboto, Arial";
 ctx.fillText(data.subtitle, left, top + 26);
 
-// ===== Token title =====
 ctx.fillStyle = "rgba(234,240,255,0.96)";
 ctx.font = "900 40px system-ui, -apple-system, Segoe UI, Roboto, Arial";
-ctx.fillText("Token Scan Report", left, top + 86);
+ctx.fillText("Security Scan Report", left, top + 86);
 
 ctx.fillStyle = "rgba(234,240,255,0.78)";
 ctx.font = "750 17px system-ui, -apple-system, Segoe UI, Roboto, Arial";
@@ -377,12 +384,9 @@ ctx.fillStyle = "rgba(234,240,255,0.62)";
 ctx.font = "650 14px ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace";
 ctx.fillText(`mint: ${data.mintShort}`, left, top + 142);
 
-// ===== Risk Pill (clean) =====
 const badge = riskBadgeColors(data.state);
-
 drawSoftGlow(ctx, left + 180, top + 186, 220, badge.glow, 1);
 
-// pill box
 const pillX = left;
 const pillY = top + 160;
 const pillW = 520;
@@ -395,38 +399,33 @@ ctx.strokeStyle = badge.stroke;
 ctx.lineWidth = 2;
 ctx.stroke();
 
-// dot
 ctx.beginPath();
 ctx.fillStyle = badge.dot;
 ctx.arc(pillX + 24, pillY + Math.floor(pillH / 2), 6, 0, Math.PI * 2);
 ctx.fill();
 
-// risk label
 ctx.fillStyle = badge.text;
 ctx.font = "900 20px system-ui, -apple-system, Segoe UI, Roboto, Arial";
 ctx.fillText(fitText(ctx, data.riskLabel, 250), pillX + 40, pillY + 36);
 
-// score (right)
 ctx.textAlign = "right";
 ctx.fillStyle = "rgba(234,240,255,0.92)";
 ctx.font = "900 20px system-ui, -apple-system, Segoe UI, Roboto, Arial";
 ctx.fillText(data.riskScore, pillX + pillW - 22, pillY + 36);
 ctx.textAlign = "left";
 
-// ===== Meta lines under pill =====
 ctx.fillStyle = "rgba(234,240,255,0.64)";
 ctx.font = "700 14px system-ui, -apple-system, Segoe UI, Roboto, Arial";
 ctx.fillText(`Primary driver: ${fitText(ctx, data.driver, 520)}`, left, pillY + 84);
 
 ctx.fillStyle = "rgba(234,240,255,0.52)";
 ctx.font = "650 13px system-ui, -apple-system, Segoe UI, Roboto, Arial";
-ctx.fillText(`Cluster signal: ${fitText(ctx, data.clusterLine, 520)}`, left, pillY + 104);
+ctx.fillText(`Hidden control: ${fitText(ctx, `${data.hiddenControlLabel} • ${data.hiddenControlScore}`, 520)}`, left, pillY + 104);
 
 ctx.fillStyle = "rgba(234,240,255,0.52)";
 ctx.font = "650 13px system-ui, -apple-system, Segoe UI, Roboto, Arial";
 ctx.fillText(`Price change: ${fitText(ctx, data.priceChangeLine, 720)}`, left, pillY + 124);
 
-// ===== Right-side chips (DEX/Pair + Signal) =====
 const rightColX = panelX + panelW - 40 - 420;
 const chipY = top + 108;
 
@@ -435,7 +434,6 @@ drawChip(ctx, rightColX, chipY + 36, `Pair: ${data.pairText}`, { maxW: 420, h: 2
 drawChip(ctx, rightColX, chipY + 72, `Signal: ${data.signal}`, { maxW: 420, h: 28 });
 drawChip(ctx, rightColX, chipY + 108, data.authLine, { maxW: 420, h: 28 });
 
-// ===== KPI Grid (2 rows x 3 cols) =====
 const gridX = left;
 const gridY = top + 310;
 const cardW = 330;
@@ -443,7 +441,6 @@ const cardH = 64;
 const gapX = 18;
 const gapY = 14;
 
-// ✅ Glass panel behind ALL KPI cards (fixes “not covering FDV/MCap/Top10”)
 const gridW = (cardW * 3) + (gapX * 2);
 const gridH = (cardH * 2) + gapY;
 drawKpiGlassPanel(ctx, gridX - 14, gridY - 14, gridW + 28, gridH + 28);
@@ -451,10 +448,10 @@ drawKpiGlassPanel(ctx, gridX - 14, gridY - 14, gridW + 28, gridH + 28);
 const kpis = [
 ["Price (USD)", data.priceUsd],
 ["Liquidity", data.liquidity],
-["Volume (24h)", data.volume24h],
-["FDV", data.fdv],
-["MCap", data.mcap],
 ["Top10 Holders", data.top10],
+["Fresh Wallets", data.freshPct],
+["Liquidity / FDV", data.liqRatio],
+["Whale Activity", data.whaleLabel],
 ];
 
 for (let i = 0; i < kpis.length; i++) {
@@ -465,7 +462,6 @@ const y = gridY + row * (cardH + gapY);
 drawKpiCard(ctx, x, y, cardW, cardH, kpis[i][0], kpis[i][1]);
 }
 
-// ===== Footer strip (outside panel) =====
 const footerY = 608;
 ctx.strokeStyle = "rgba(255,255,255,0.08)";
 ctx.lineWidth = 1;
@@ -477,7 +473,7 @@ ctx.stroke();
 ctx.fillStyle = "rgba(234,240,255,0.52)";
 ctx.font = "650 13px system-ui, -apple-system, Segoe UI, Roboto, Arial";
 ctx.textAlign = "left";
-ctx.fillText("Powered by MSS Protocol • Elite Security Layer", 54, footerY);
+ctx.fillText(`Powered by MSS Protocol • ${fitText(ctx, `${data.trendLabel} trend • ${data.reputationLabel} reputation`, 500)}`, 54, footerY);
 
 ctx.textAlign = "right";
 ctx.fillStyle = "rgba(234,240,255,0.38)";
@@ -486,7 +482,6 @@ ctx.fillText(data.ts, 1146, footerY);
 
 ctx.textAlign = "left";
 
-// ===== Download =====
 const fileMint = (data.mintFull || "mint").slice(0, 8);
 const filename = `mss-scan-${fileMint}.png`;
 
