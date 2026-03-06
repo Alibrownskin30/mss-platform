@@ -31,7 +31,6 @@ const NODE_ENV = process.env.NODE_ENV || "development";
 app.use(
 helmet({
 crossOriginResourcePolicy: { policy: "cross-origin" },
-// DO NOT disable CSP unless you truly need it. Helmet doesn't set CSP unless configured.
 })
 );
 
@@ -139,6 +138,18 @@ return null;
 }
 }
 
+function fmtUsdCompact(n) {
+const v = Number(n);
+if (!Number.isFinite(v)) return "—";
+const abs = Math.abs(v);
+if (abs >= 1e12) return `$${(v / 1e12).toFixed(2)}T`;
+if (abs >= 1e9) return `$${(v / 1e9).toFixed(2)}B`;
+if (abs >= 1e6) return `$${(v / 1e6).toFixed(2)}M`;
+if (abs >= 1e3) return `$${(v / 1e3).toFixed(2)}K`;
+if (abs >= 1) return `$${v.toFixed(6)}`;
+return `$${v.toFixed(8)}`;
+}
+
 // ---- Caches ----
 const holdersCache = new Map();
 const holdersInFlight = new Map();
@@ -236,9 +247,7 @@ return res.json(out);
 }
 
 const p = j.pairs[0];
-
 const mcapUsd = p.marketCap ?? p.marketcap ?? p.mcap ?? null;
-
 const pc = p.priceChange || {};
 
 const out = {
@@ -254,8 +263,6 @@ baseSymbol: p.baseToken?.symbol,
 quoteSymbol: p.quoteToken?.symbol,
 baseName: p.baseToken?.name,
 quoteName: p.quoteToken?.name,
-
-// ✅ normalized for UI/sharecard
 priceChange: {
 h1: pc.h1 ?? null,
 h24: pc.h24 ?? null,
@@ -343,8 +350,9 @@ holdersInFlight.delete(mintStr);
 return res.json(data);
 } catch (e) {
 holdersInFlight.delete(mintStr);
-if (isRateLimitError(e))
+if (isRateLimitError(e)) {
 return res.status(429).json({ error: "RPC rate limited (429). Try again shortly." });
+}
 return res.status(500).json({ error: String(e?.message || e) });
 }
 });
@@ -386,15 +394,14 @@ const intel = await getClusterIntel({ connection, rpcRetry, owners });
 clusterCache.set(mintStr, { ts: Date.now(), data: intel });
 return res.json(intel);
 } catch (e) {
-if (isRateLimitError(e))
+if (isRateLimitError(e)) {
 return res.status(429).json({ error: "RPC rate limited (429). Try again shortly." });
+}
 return res.status(500).json({ error: String(e?.message || e) });
 }
 });
 
-// ---------- MSS Security Intelligence (derived from cluster + holders + authorities) ----------
-// This endpoint is optional for now; it returns the security model only.
-// Your UI can call it later, or you can keep using the existing endpoints and compute client-side.
+// ---------- MSS Security Intelligence ----------
 app.get("/api/sol/security/:mint", async (req, res) => {
 const mintStr = req.params.mint;
 
@@ -402,7 +409,6 @@ try {
 const mint = assertMint(mintStr);
 if (!mint) return res.status(400).json({ error: "Invalid mint" });
 
-// Pull base data (reuse caches where possible)
 const [tokenJson, holdersJson, clusterJson] = await Promise.all([
 (async () => {
 const info = await rpcRetry(() => connection.getParsedAccountInfo(mint));
@@ -496,14 +502,12 @@ return out;
 const cached = clusterCache.get(mintStr);
 if (cached && Date.now() - cached.ts < CLUSTER_TTL_MS) return cached.data;
 
-// For cluster, we need owners from top holders
 const owners =
 (holdersCache.get(mintStr)?.data?.holders || [])
 .map((h) => h.owner)
 .filter(Boolean) || [];
 
 const intel = await getClusterIntel({ connection, rpcRetry, owners });
-
 clusterCache.set(mintStr, { ts: Date.now(), data: intel });
 return intel;
 })(),
@@ -511,7 +515,6 @@ return intel;
 
 if (!tokenJson || !holdersJson) return res.status(404).json({ error: "Mint not found" });
 
-// Concentration
 const holders = Array.isArray(holdersJson?.holders) ? holdersJson.holders : [];
 const pct = holders.map((h) => Number(h.pctSupply || 0));
 const sumTopN = (n) => pct.slice(0, n).reduce((a, b) => a + b, 0);
@@ -523,9 +526,7 @@ top10: sumTopN(10),
 top20: sumTopN(20),
 };
 
-// activity is whatever cluster.json returns (your existing structure)
 const activity = clusterJson || {};
-
 const securityModel = buildSecurityModel({
 concentration,
 token: tokenJson,
@@ -539,8 +540,216 @@ concentration,
 securityModel,
 });
 } catch (e) {
-if (isRateLimitError(e))
+if (isRateLimitError(e)) {
 return res.status(429).json({ error: "RPC rate limited (429). Try again shortly." });
+}
+return res.status(500).json({ error: String(e?.message || e) });
+}
+});
+
+// ---------- Share Summary ----------
+app.get("/api/sol/share-summary/:mint", async (req, res) => {
+const mintStr = req.params.mint;
+
+try {
+const mint = assertMint(mintStr);
+if (!mint) return res.status(400).json({ error: "Invalid mint" });
+
+const [tokenJson, marketJson, holdersJson, clusterJson] = await Promise.all([
+(async () => {
+const info = await rpcRetry(() => connection.getParsedAccountInfo(mint));
+if (!info.value) return null;
+
+const mintParsed = info.value.data?.parsed?.info;
+if (!mintParsed) return null;
+
+const mintAuthority = mintParsed.mintAuthority ?? null;
+const freezeAuthority = mintParsed.freezeAuthority ?? null;
+const supply = mintParsed.supply;
+const decimals = mintParsed.decimals;
+
+let metadata = null;
+try {
+const metaPDA = Metadata.getPDA(mint);
+const metaAcc = await rpcRetry(() => Metadata.load(connection, metaPDA));
+metadata = metaAcc?.data?.data || null;
+} catch {
+metadata = null;
+}
+
+return {
+mint: mint.toBase58(),
+chain: "solana",
+supply,
+decimals,
+mintAuthority,
+freezeAuthority,
+safety: {
+mintRevoked: !mintAuthority,
+freezeRevoked: !freezeAuthority,
+},
+metadata,
+};
+})(),
+
+(async () => {
+const cached = marketCache.get(mintStr);
+if (cached && Date.now() - cached.ts < MARKET_TTL_MS) return cached.data;
+
+const url = `https://api.dexscreener.com/latest/dex/tokens/${mintStr}`;
+const r = await fetch(url, { timeout: 10_000 });
+const j = await r.json();
+
+if (!j?.pairs?.length) return { found: false };
+
+const p = j.pairs[0];
+const out = {
+found: true,
+dex: p.dexId,
+pair: p.pairAddress,
+priceUsd: p.priceUsd,
+fdv: p.fdv ?? null,
+mcapUsd: p.marketCap ?? p.marketcap ?? p.mcap ?? null,
+liquidityUsd: p.liquidity?.usd || 0,
+volume24h: p.volume?.h24 || 0,
+baseSymbol: p.baseToken?.symbol,
+quoteSymbol: p.quoteToken?.symbol,
+baseName: p.baseToken?.name,
+quoteName: p.quoteToken?.name,
+priceChange: {
+h1: p.priceChange?.h1 ?? null,
+h24: p.priceChange?.h24 ?? null,
+d7: p.priceChange?.d7 ?? p.priceChange?.h168 ?? null,
+m30: p.priceChange?.m30 ?? p.priceChange?.d30 ?? null,
+},
+};
+
+marketCache.set(mintStr, { ts: Date.now(), data: out });
+return out;
+})(),
+
+(async () => {
+const cached = holdersCache.get(mintStr);
+if (cached && Date.now() - cached.ts < HOLDERS_TTL_MS) return cached.data;
+
+const [supplyResp, largest] = await Promise.all([
+rpcRetry(() => connection.getTokenSupply(mint)),
+rpcRetry(() => connection.getTokenLargestAccounts(mint)),
+]);
+
+const totalUi = supplyResp?.value?.uiAmount ?? null;
+const decimals = supplyResp?.value?.decimals ?? null;
+
+const top = (largest?.value || []).slice(0, 20);
+const tokenAccPubkeys = top.map((a) => new PublicKey(a.address));
+const accInfos = await rpcRetry(() => connection.getMultipleAccountsInfo(tokenAccPubkeys));
+
+const owners = accInfos.map((info) => {
+try {
+if (!info?.data || info.data.length !== AccountLayout.span) return null;
+const decoded = AccountLayout.decode(info.data);
+return new PublicKey(decoded.owner).toBase58();
+} catch {
+return null;
+}
+});
+
+const holders = top.map((a, i) => {
+const ui = a.uiAmount ?? null;
+const pct = totalUi && ui != null && totalUi > 0 ? (ui / totalUi) * 100 : null;
+
+return {
+rank: i + 1,
+tokenAccount: a.address,
+owner: owners[i],
+uiAmount: ui,
+amount: a.amount,
+pctSupply: pct,
+};
+});
+
+const out = {
+found: true,
+mint: mint.toBase58(),
+decimals,
+totalSupplyUi: totalUi,
+holders,
+};
+
+holdersCache.set(mintStr, { ts: Date.now(), data: out });
+return out;
+})(),
+
+(async () => {
+const cached = clusterCache.get(mintStr);
+if (cached && Date.now() - cached.ts < CLUSTER_TTL_MS) return cached.data;
+
+const owners =
+(holdersCache.get(mintStr)?.data?.holders || [])
+.map((h) => h.owner)
+.filter(Boolean) || [];
+
+const intel = await getClusterIntel({ connection, rpcRetry, owners });
+clusterCache.set(mintStr, { ts: Date.now(), data: intel });
+return intel;
+})(),
+]);
+
+if (!tokenJson || !holdersJson) {
+return res.status(404).json({ error: "Mint not found" });
+}
+
+const holders = Array.isArray(holdersJson?.holders) ? holdersJson.holders : [];
+const pct = holders.map((h) => Number(h.pctSupply || 0));
+const sumTopN = (n) => pct.slice(0, n).reduce((a, b) => a + b, 0);
+
+const concentration = {
+top1: sumTopN(1),
+top5: sumTopN(5),
+top10: sumTopN(10),
+top20: sumTopN(20),
+};
+
+const securityModel = buildSecurityModel({
+concentration,
+token: tokenJson,
+activity: clusterJson || {},
+});
+
+const name = tokenJson?.metadata?.name || marketJson?.baseName || "Unknown Token";
+const symbol = tokenJson?.metadata?.symbol || marketJson?.baseSymbol || "TOKEN";
+
+const liquidityUsd = Number(marketJson?.liquidityUsd || 0);
+const top10 = Number(concentration?.top10 || 0);
+
+return res.json({
+ok: true,
+mint: mintStr,
+name: String(name).trim(),
+symbol: String(symbol).trim().toUpperCase(),
+riskLabel: securityModel?.label?.text || "Unknown",
+riskState: securityModel?.label?.state || "warn",
+riskScore: Number(securityModel?.score ?? 0),
+liquidityUsd,
+top10Pct: top10,
+liquidityText: fmtUsdCompact(liquidityUsd),
+top10Text: `${top10.toFixed(2)}%`,
+imageUrl: `${req.protocol}://${req.get("host")}/api/sol/share-image/${mintStr}`,
+scanUrl: `https://www.mssprotocol.com/token.html?mint=${encodeURIComponent(mintStr)}`,
+});
+} catch (e) {
+if (isRateLimitError(e)) {
+return res.status(429).json({ error: "RPC rate limited (429). Try again shortly." });
+}
+return res.status(500).json({ error: String(e?.message || e) });
+}
+});
+
+// ---------- Share Image (fallback/static for now) ----------
+app.get("/api/sol/share-image/:mint", async (req, res) => {
+try {
+return res.redirect(302, "https://www.mssprotocol.com/images/mss-share-card.png");
+} catch (e) {
 return res.status(500).json({ error: String(e?.message || e) });
 }
 });
@@ -582,10 +791,10 @@ res.json({ ok: true, alerts: rows });
 
 app.post("/api/alerts", authRequired, (req, res) => {
 const { mint, type, direction, threshold } = req.body || {};
-if (!mint || !type || !direction || threshold == null)
+if (!mint || !type || !direction || threshold == null) {
 return res.status(400).json({ error: "Missing fields" });
+}
 
-// Minimal validation (keeps it robust without being annoying)
 const allowedTypes = new Set(["risk_spike", "whale", "liquidity", "authority"]);
 const allowedDirections = new Set(["above", "below"]);
 if (!allowedTypes.has(type)) return res.status(400).json({ error: "Invalid type" });

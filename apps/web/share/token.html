@@ -1,0 +1,69 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>MSS Protocol Security Scan</title>
+
+<meta property="og:title" content="MSS Protocol Security Scan" />
+<meta property="og:description" content="Live token security scan by MSS Protocol." />
+<meta property="og:image" content="https://www.mssprotocol.com/images/mss-share-card.png" />
+<meta property="og:type" content="website" />
+<meta property="og:url" content="https://www.mssprotocol.com/share/token.html" />
+
+<meta name="twitter:card" content="summary_large_image" />
+<meta name="twitter:title" content="MSS Protocol Security Scan" />
+<meta name="twitter:description" content="Live token security scan by MSS Protocol." />
+<meta name="twitter:image" content="https://www.mssprotocol.com/images/mss-share-card.png" />
+
+<script>
+(async function () {
+const params = new URLSearchParams(location.search);
+const mint = params.get("mint");
+
+if (!mint) {
+location.replace("/token.html");
+return;
+}
+
+try {
+const apiBase =
+(location.hostname === "127.0.0.1" || location.hostname === "localhost" || location.port === "3000")
+? (location.protocol + "//" + location.hostname + ":8787")
+: "https://api.mssprotocol.com";
+
+const r = await fetch(`${apiBase}/api/sol/share-summary/${encodeURIComponent(mint)}`);
+const j = await r.json();
+
+if (j?.ok) {
+const title = "MSS Protocol Security Scan";
+const desc = `$${j.symbol} • Risk: ${j.riskLabel} • Liquidity: ${j.liquidityText}`;
+
+const setMeta = (selector, attr, value) => {
+const el = document.querySelector(selector);
+if (el && value) el.setAttribute(attr, value);
+};
+
+setMeta('meta[property="og:title"]', "content", title);
+setMeta('meta[property="og:description"]', "content", desc);
+setMeta('meta[property="og:image"]', "content", j.imageUrl || "https://www.mssprotocol.com/images/mss-share-card.png");
+setMeta('meta[property="og:url"]', "content", `https://www.mssprotocol.com/share/token.html?mint=${encodeURIComponent(mint)}`);
+
+setMeta('meta[name="twitter:title"]', "content", title);
+setMeta('meta[name="twitter:description"]', "content", desc);
+setMeta('meta[name="twitter:image"]', "content", j.imageUrl || "https://www.mssprotocol.com/images/mss-share-card.png");
+
+document.title = title;
+}
+} catch {}
+
+setTimeout(() => {
+location.replace(`/token.html?mint=${encodeURIComponent(mint)}`);
+}, 300);
+})();
+</script>
+</head>
+<body style="background:#070a12;color:#fff;font-family:system-ui;padding:24px">
+Redirecting to MSS Protocol scan…
+</body>
+</html>
