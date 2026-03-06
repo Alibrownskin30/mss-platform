@@ -97,12 +97,11 @@ const riskText = risk?.label?.text || "—";
 
 return {
 name: String(name || "").trim(),
-symbol: String(symbol || "").trim(),
+symbol: String(symbol || "").trim().toUpperCase(),
 riskText: String(riskText || "—").trim(),
 };
 }
 
-// ---- Concentration / Risk ----
 function computeConcentration(holders = []) {
 const pct = holders.map((h) => Number(h.pctSupply || 0));
 const sumTopN = (n) => pct.slice(0, n).reduce((a, b) => a + b, 0);
@@ -193,7 +192,6 @@ label.state === "bad"
 return { score, label, primaryDriver, whaleScore, signal, liqFdvPct, volLiq };
 }
 
-// ---- Derived MCap fallback ----
 function getSupplyUi({ holdersJson, tokenJson }) {
 const directCandidates = [
 holdersJson?.totalSupplyUi,
@@ -229,7 +227,6 @@ if (!(supplyUi > 0)) return 0;
 return price * supplyUi;
 }
 
-// ---- Price Change UI ----
 function normalizePriceChange(marketJson) {
 const pc = marketJson?.priceChange || {};
 return {
@@ -272,7 +269,6 @@ setVisible("chip1w", hasNumber(pc.d7));
 setVisible("chip1m", hasNumber(pc.m30));
 }
 
-// ---- Render ----
 function renderMarket(marketJson, derivedMcapUsd = 0) {
 if (!marketJson?.found) {
 setText("priceUsd", "$—");
