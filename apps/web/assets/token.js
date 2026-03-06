@@ -115,7 +115,6 @@ top20: sumTopN(20),
 }
 
 function calcRisk({ tokenJson, marketJson, conc }) {
-// 0..100 (higher = riskier)
 const mintRevoked = !!tokenJson?.safety?.mintRevoked;
 const freezeRevoked = !!tokenJson?.safety?.freezeRevoked;
 
@@ -131,11 +130,9 @@ const volLiq = liq > 0 ? vol / liq : 0;
 
 let score = 0;
 
-// Authority control
 if (!mintRevoked) score += 18;
 if (!freezeRevoked) score += 18;
 
-// Liquidity depth
 if (fdv > 0 && liq > 0) {
 if (liqFdvPct < 1) score += 18;
 else if (liqFdvPct < 3) score += 14;
@@ -146,7 +143,6 @@ else score += 3;
 score += 14;
 }
 
-// Holder distribution
 if (top1 > 45) score += 16;
 else if (top1 > 35) score += 12;
 else if (top1 > 25) score += 9;
@@ -159,7 +155,6 @@ else if (top10 > 40) score += 6;
 else if (top10 > 30) score += 3;
 else score += 1;
 
-// Volume/liquidity churn
 if (volLiq > 6) score += 6;
 else if (volLiq > 3) score += 5;
 else if (volLiq > 1.5) score += 3;
@@ -217,7 +212,6 @@ if (Number.isFinite(v) && v > 0) return v;
 const raw = Number(tokenJson?.supply);
 const dec = Number(tokenJson?.decimals);
 if (Number.isFinite(raw) && raw > 0 && Number.isFinite(dec) && dec >= 0 && dec <= 18) {
-// heuristic: if raw looks like base units, convert
 if (raw > 1e10) return raw / Math.pow(10, dec);
 return raw;
 }
@@ -274,7 +268,6 @@ setPc("pc1d", pc.h24);
 setPc("pc1w", pc.d7);
 setPc("pc1m", pc.m30);
 
-// start hidden in HTML, only reveal if real data exists
 setVisible("chip1w", hasNumber(pc.d7));
 setVisible("chip1m", hasNumber(pc.m30));
 }
@@ -329,8 +322,6 @@ const freezeAuthority = tokenJson?.freezeAuthority
 setText("mintAuthority", mintAuthority);
 setText("freezeAuthority", freezeAuthority);
 setText("tokenProgram", tokenJson?.program || "SPL Token");
-
-// keep hidden label
 setText("rpcLabel", "RPC: hidden");
 }
 
@@ -465,7 +456,7 @@ liqUsd: Number(marketJson?.liquidityUsd || 0),
 fdvUsd: Number(marketJson?.fdv || 0),
 });
 } catch {
-// silent (non-critical)
+// silent
 }
 }
 
@@ -512,7 +503,6 @@ derived: { concentration: conc, activity, riskModel: rm, derivedMcapUsd },
 window.__MSS_LAST_SCAN__ = scanObj;
 renderRaw(scanObj);
 
-// keep shareable URL in sync with the current scan
 try {
 const url = new URL(window.location.href);
 url.searchParams.set("mint", mint);
@@ -524,12 +514,10 @@ window.history.replaceState({}, "", url.toString());
 setText("apiMeta", `API: ${getApiBase()}`);
 setBadge(null, "scanDot", "scanStatusText", "good", "Scan complete");
 
-// Record risk history for trends/alerts (best-effort)
 bestEffortRecordRisk({ mint, rm, conc, marketJson });
 } catch (e) {
 renderRaw({ mint, error: e?.message || String(e) });
 setBadge(null, "scanDot", "scanStatusText", "bad", "Scan error");
-// keep price change fields sane
 renderPriceChange({ priceChange: {} });
 }
 }
@@ -541,7 +529,6 @@ const demoBtn = $("demoBtn");
 
 if (!tokenInput || !scanBtn) return;
 
-// holders dropdown: re-render from last scan + recompute risk/notes
 const holdersSelect = $("holdersSelect");
 if (holdersSelect) {
 holdersSelect.addEventListener("change", () => {
@@ -594,7 +581,6 @@ scanBtn.click();
 });
 }
 
-// Save share card (download PNG)
 const saveShareBtn = $("saveShareBtn");
 if (saveShareBtn) {
 saveShareBtn.addEventListener("click", async () => {
@@ -611,7 +597,6 @@ alert(err?.message || "Failed to generate share card.");
 });
 }
 
-// Share to X (opens composer; user attaches downloaded image)
 const shareXBtn = $("shareXBtn");
 if (shareXBtn) {
 shareXBtn.addEventListener("click", async () => {
@@ -621,7 +606,6 @@ alert("Scan a token first.");
 return;
 }
 
-// Generate/download first so the image is ready in Downloads.
 try {
 await downloadShareCardPNG(scanObj);
 } catch (err) {
@@ -629,17 +613,15 @@ alert(err?.message || "Failed to generate share card.");
 return;
 }
 
-const currentUrl = new URL(window.location.href);
-currentUrl.searchParams.set("mint", scanObj.mint);
-const scanUrl = currentUrl.toString();
+const scanUrl = `${window.location.origin}/token.html?mint=${encodeURIComponent(scanObj.mint)}`;
 
 const info = getTokenDisplay(scanObj);
 const tokenLine = info.symbol
-? `$${info.symbol}${info.name ? ` (${info.name})` : ""}`
+? `${info.name || info.symbol} ($${info.symbol})`
 : (info.name || `Mint ${scanObj.mint.slice(0, 4)}…${scanObj.mint.slice(-4)}`);
 
 const text =
-`MSS Protocol Token Scan\n` +
+`MSS Protocol Security Scan\n` +
 `${tokenLine}\n` +
 `Risk: ${info.riskText}\n` +
 `Full scan:`;
@@ -652,7 +634,6 @@ window.open(intent, "_blank", "noopener,noreferrer");
 });
 }
 
-// Alerts (auth required)
 const enableAlertsBtn = $("enableAlertsBtn");
 const alertStatus = $("alertStatus");
 
@@ -673,7 +654,6 @@ return;
 try {
 alertStatus.textContent = "Saving alert…";
 
-// watcher-compatible defaults (risk_score threshold)
 const data = await apiPost(
 "/api/alerts",
 { mint, type: "risk_spike", direction: "above", threshold: 70 },
@@ -704,6 +684,9 @@ runScan(qMint);
 }
 }
 
-if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", init);
-else init();
+if (document.readyState === "loading") {
+document.addEventListener("DOMContentLoaded", init);
+} else {
+init();
+}
 })();
