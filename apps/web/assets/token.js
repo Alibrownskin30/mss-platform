@@ -166,8 +166,8 @@ const label =
 score >= 75
 ? { text: "High Risk", state: "bad" }
 : score >= 45
-? { text: "Moderate Risk", state: "warn" }
-: { text: "Lower Risk", state: "good" };
+? { text: "Elevated Risk", state: "warn" }
+: { text: "Lower Exposure", state: "good" };
 
 const primaryDriver =
 !mintRevoked || !freezeRevoked
@@ -617,7 +617,7 @@ const scanUrl = `${window.location.origin}/token.html?mint=${encodeURIComponent(
 
 const info = getTokenDisplay(scanObj);
 const tokenLine = info.symbol
-? `${info.name || info.symbol} ($${info.symbol})`
+? `$${info.symbol}`
 : (info.name || `Mint ${scanObj.mint.slice(0, 4)}…${scanObj.mint.slice(-4)}`);
 
 const text =
