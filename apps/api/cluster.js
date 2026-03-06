@@ -48,16 +48,17 @@ return { text: "Low", state: "good" };
 }
 
 function computeSyncBuckets(sigListsByOwner) {
-const bucketMap = new Map(); // bucket -> Set(owner)
+const bucketMap = new Map();
 for (const [owner, sigs] of sigListsByOwner.entries()) {
 for (const s of sigs || []) {
 const bt = Number(s?.blockTime || 0);
 if (!bt) continue;
-const bucket = Math.floor((bt * 1000) / 90_000); // 90s windows
+const bucket = Math.floor((bt * 1000) / 90_000);
 if (!bucketMap.has(bucket)) bucketMap.set(bucket, new Set());
 bucketMap.get(bucket).add(owner);
 }
 }
+
 const syncBursts = [];
 for (const [bucket, owners] of bucketMap.entries()) {
 if (owners.size >= 3) {
@@ -68,12 +69,14 @@ size: owners.size,
 });
 }
 }
+
 syncBursts.sort((a, b) => b.size - a.size);
 return syncBursts.slice(0, 10);
 }
 
 function buildLinkedGroups(perWallet) {
 const byPayer = new Map();
+
 for (const w of perWallet) {
 if (!w.payer) continue;
 if (!byPayer.has(w.payer)) byPayer.set(w.payer, []);
@@ -122,6 +125,12 @@ if (sharedFundingDetected) score += 10;
 return clamp(score, 0, 100);
 }
 
+/**
+* @param {object} args
+* @param {import("@solana/web3.js").Connection} args.connection
+* @param {function} args.rpcRetry
+* @param {string[]} args.owners
+*/
 export async function getClusterIntel({ connection, rpcRetry, owners }) {
 const uniqueOwners = [...new Set((owners || []).map(safeBase58).filter(Boolean))].slice(0, MAX_WALLETS);
 

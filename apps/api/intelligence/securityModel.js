@@ -50,7 +50,6 @@ const syncBurstSize = Number(activity?.whaleActivity?.syncBurstSize || 0);
 
 let score = 0;
 
-// Authority
 if (!mintRevoked) {
 score += 16;
 signals.push("Mint authority active");
@@ -60,7 +59,6 @@ score += 12;
 signals.push("Freeze authority active");
 }
 
-// Holder concentration
 if (top1 > 35) {
 score += 12;
 signals.push("Top holder concentration elevated");
@@ -79,7 +77,6 @@ if (top20 > 75) {
 score += 6;
 }
 
-// Hidden control
 if (hiddenControlScore >= 70) {
 score += 22;
 signals.push("Hidden control structure detected");
@@ -90,7 +87,6 @@ signals.push("Wallet linkage pattern detected");
 score += 5;
 }
 
-// Fresh wallets
 if (freshWalletPct >= 45) {
 score += 12;
 signals.push("Fresh wallet concentration elevated");
@@ -98,13 +94,11 @@ signals.push("Fresh wallet concentration elevated");
 score += 6;
 }
 
-// Developer overlap
 if (developerLinked) {
 score += 10;
 signals.push("Possible developer-linked holder overlap");
 }
 
-// Liquidity stability
 let liquidityStability = {
 score: 70,
 label: "Stable",
@@ -152,7 +146,6 @@ removableRisk: "Moderate",
 score += 4;
 }
 
-// Whale activity / coordination
 const whalePressureScore = clamp(
 Math.round((Math.max(0, syncBurstSize - 2) * 8) + Math.max(0, volLiq - 1) * 4),
 0,
@@ -188,7 +181,6 @@ pressure: "Active",
 score += 5;
 }
 
-// Trend
 const trend24 = Number(trend?.change?.["24h"] ?? 0);
 let trendLabel = "Stable";
 if (trend24 >= 10) {
