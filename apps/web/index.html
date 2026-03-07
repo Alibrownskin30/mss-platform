@@ -156,6 +156,7 @@ flex:0 0 auto;
 color:var(--text);
 border-color:rgba(255,255,255,.12);
 background:rgba(255,255,255,.04);
+box-shadow:0 0 14px rgba(57,208,200,.12);
 }
 
 .navlink.active{
@@ -711,15 +712,17 @@ align-items:flex-start;
 <nav aria-label="Primary">
 <a class="navlink active" href="./index.html">Home</a>
 <a class="navlink" href="./token.html">Scanner</a>
+<a class="navlink disabled" aria-disabled="true">Explore <span class="pill">Soon</span></a>
 <a class="navlink" href="./alerts.html">Alerts</a>
-<span class="navlink disabled" aria-disabled="true">Explore <span class="pill">Soon</span></span>
-<span class="navlink disabled" aria-disabled="true">Launches <span class="pill">Soon</span></span>
+<a class="navlink" href="./launchpad.html">Launchpad</a>
+<a class="navlink" href="./methodology.html">Methodology</a>
+<a class="navlink" href="./legal.html">Legal</a>
 </nav>
 
 <div class="authbar">
 <div class="status-pill" title="Account session">
 <span id="sessionDot" class="status-dot warn"></span>
-<span id="sessionText">Guest</span>
+<span id="sessionText">Login</span>
 </div>
 <button id="logoutBtn" class="authbtn danger" type="button" style="display:none">Logout</button>
 </div>
@@ -756,7 +759,7 @@ authority verification, market context, holder concentration, and actionable ris
 <aside class="panel side" aria-label="Status">
 <h3>Platform Status</h3>
 <p>
-Scanner is live in beta. Alerts are now account-enabled. Explore and Launches are staged next.
+Scanner is live in beta. Alerts are now account-enabled. Explore and Launchpad are staged next.
 This build prioritises accuracy, speed and professional presentation.
 </p>
 
@@ -835,7 +838,7 @@ This build prioritises accuracy, speed and professional presentation.
 <input id="registerPassword" class="input" type="password" placeholder="Create a password" autocomplete="new-password" />
 </div>
 
-<div class="helper">Use a strong password. After registration you can sign in immediately.</div>
+<div class="helper">Human verification should be added next on register/login before public scale.</div>
 
 <div class="form-actions">
 <button id="registerBtn" class="authbtn primary" type="button">Create Account</button>
@@ -924,14 +927,14 @@ if (dot) {
 dot.classList.remove("warn");
 dot.classList.add("good");
 }
-if (text) text.textContent = email ? `Logged in • ${email}` : "Logged in";
+if (text) text.textContent = email ? `Account • ${email}` : "Account";
 if (logoutBtn) logoutBtn.style.display = "inline-flex";
 } else {
 if (dot) {
 dot.classList.remove("good");
 dot.classList.add("warn");
 }
-if (text) text.textContent = "Guest";
+if (text) text.textContent = "Login";
 if (logoutBtn) logoutBtn.style.display = "none";
 }
 }

@@ -3,17 +3,16 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width,initial-scale=1" />
-<title>MSS Protocol — Methodology</title>
+<title>MSS Protocol — Launchpad</title>
 <style>
 :root{
 --bg0:#05070c;
 --bg1:#070a12;
 --text:rgba(255,255,255,.92);
---muted:rgba(255,255,255,.72);
+--muted:rgba(255,255,255,.68);
 --muted2:rgba(255,255,255,.45);
 --a:#00ffd1;
 --b:#3aa0ff;
---shadow:0 20px 60px rgba(0,0,0,.45);
 }
 *{box-sizing:border-box}
 body{
@@ -76,24 +75,35 @@ margin:10px 0 18px;color:rgba(255,255,255,.66);font-size:13px;
 .back-link:hover{color:rgba(255,255,255,.92)}
 .card{
 border:1px solid rgba(255,255,255,.10);
-background:rgba(255,255,255,.04);
-border-radius:18px;
-padding:20px;
-box-shadow:var(--shadow);
+background:linear-gradient(180deg, rgba(255,255,255,.06), rgba(255,255,255,.035));
+border-radius:22px;
+padding:28px;
+text-align:left;
+max-width:760px;
+box-shadow:0 18px 60px rgba(0,0,0,.45);
 }
-h1{margin:0 0 10px}
-h2{margin:18px 0 8px}
-p,li{line-height:1.65;color:var(--muted)}
-.muted{color:rgba(255,255,255,.60);font-size:13px}
-code{
-background:rgba(255,255,255,.06);
-padding:2px 6px;
-border-radius:8px;
+.kicker{
+display:inline-flex;align-items:center;gap:10px;padding:8px 12px;
+border-radius:999px;background:rgba(0,255,209,.08);
+border:1px solid rgba(0,255,209,.18);font-size:11px;text-transform:uppercase;letter-spacing:.16em;
+}
+.k-dot{
+width:7px;height:7px;border-radius:999px;background:var(--a);
+box-shadow:0 0 0 6px rgba(0,255,209,.10);
+}
+h1{margin:16px 0 12px;font-size:36px;line-height:1.05}
+p{color:var(--muted);line-height:1.65;font-size:15px}
+.meta{display:flex;gap:10px;flex-wrap:wrap;margin-top:16px}
+.chip{
+display:inline-flex;align-items:center;gap:8px;padding:8px 10px;
+border-radius:999px;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.10);
+font-size:12px;color:rgba(255,255,255,.80);
 }
 @media (max-width:820px){
 .topbar-inner{flex-direction:column;align-items:stretch}
 .nav{overflow-x:auto;flex-wrap:nowrap;padding-bottom:4px;scrollbar-width:none}
 .nav::-webkit-scrollbar{display:none}
+h1{font-size:30px}
 }
 </style>
 </head>
@@ -104,7 +114,7 @@ border-radius:8px;
 <div class="mark" aria-hidden="true"></div>
 <div>
 <div class="brand-title">MSS Protocol</div>
-<div class="brand-sub">Methodology</div>
+<div class="brand-sub">Launchpad</div>
 </div>
 </div>
 
@@ -113,8 +123,8 @@ border-radius:8px;
 <a href="./token.html">Scanner</a>
 <a class="disabled" aria-disabled="true">Explore</a>
 <a href="./alerts.html">Alerts</a>
-<a href="./launchpad.html">Launchpad</a>
-<a class="active" href="./methodology.html">Methodology</a>
+<a class="active" href="./launchpad.html">Launchpad</a>
+<a href="./methodology.html">Methodology</a>
 <a href="./legal.html">Legal</a>
 </div>
 </div>
@@ -123,47 +133,23 @@ border-radius:8px;
 <div class="wrap">
 <a href="./index.html" class="back-link">← Back</a>
 
-<h1>Methodology</h1>
 <div class="card">
-<p>MSS Protocol focuses on <strong>structural risk</strong> — signals that often exist <em>before</em> problems become obvious.</p>
+<div class="kicker"><span class="k-dot"></span> Coming Soon</div>
+<h1>Security-First Launchpad</h1>
+<p>
+The MSS Launchpad is being built as a security-first environment for higher-trust launches.
+The goal is not just launching tokens — it is launching with stronger controls, better intelligence,
+and tighter infrastructure around risk.
+</p>
+<p>
+This module is currently under development and will follow the core scanner and alerts stack.
+</p>
 
-<h2>Authorities</h2>
-<ul>
-<li><strong>Mint Authority</strong>: if present, supply can be changed.</li>
-<li><strong>Freeze Authority</strong>: if present, transfers may be restricted.</li>
-</ul>
-
-<h2>Concentration</h2>
-<ul>
-<li>Top1 / Top5 / Top10 / Top20 are calculated from the largest token accounts.</li>
-<li>Owner is resolved from token account data where possible.</li>
-</ul>
-
-<h2>Market Context</h2>
-<ul>
-<li>Price, liquidity, volume and FDV come from public market sources.</li>
-<li><strong>MCap</strong> is computed as <code>price × totalSupplyUi</code> when direct market cap is unavailable.</li>
-</ul>
-
-<h2>Hidden Control Risk</h2>
-<p>This layer estimates whether linked wallets may collectively control more supply than headline holder counts suggest. Shared payer fingerprints, linked wallet structures and cluster overlap inform this score.</p>
-
-<h2>Developer Activity</h2>
-<p>This layer looks for best-effort overlap between likely linked wallet structures and developer-adjacent behaviour. It is directional, not definitive attribution.</p>
-
-<h2>Fresh Wallet Risk</h2>
-<p>Recently active or low-history wallet clusters can indicate structured distribution or inorganic participation. MSS treats this as a contextual signal, not standalone proof.</p>
-
-<h2>Liquidity Stability</h2>
-<p>MSS evaluates liquidity depth relative to valuation and classifies removable-liquidity risk as a practical stability indicator.</p>
-
-<h2>Whale Activity</h2>
-<p>Whale pressure, coordination patterns and burst behaviour are used to estimate whether large-holder activity is normal, elevated or concerning.</p>
-
-<h2>Trend & Reputation Layer</h2>
-<p>Historical risk snapshots are used to estimate whether risk is stable, escalating or easing. Reputation is an MSS confidence-oriented score built from multiple structural signals rather than social sentiment.</p>
-
-<p class="muted">MSS Protocol is continuously improving its methodology as historical tracking, alerts and deeper on-chain heuristics expand.</p>
+<div class="meta">
+<span class="chip">Security-First Launches</span>
+<span class="chip">MSS Reputation Layer</span>
+<span class="chip">Higher-Trust Infrastructure</span>
+</div>
 </div>
 </div>
 </body>

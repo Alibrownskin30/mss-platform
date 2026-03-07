@@ -146,12 +146,18 @@ flex:0 0 auto;
 color:rgba(255,255,255,.92);
 border-color:rgba(255,255,255,.10);
 background:rgba(255,255,255,.04);
+box-shadow:0 0 14px rgba(0,255,209,.10);
 }
 
 .nav a.active{
 color:rgba(255,255,255,.92);
 border-color:rgba(0,255,209,.20);
 background:rgba(0,255,209,.06);
+}
+
+.nav a.disabled{
+opacity:.65;
+cursor:not-allowed;
 }
 
 .pill{
@@ -181,6 +187,24 @@ flex:0 0 auto;
 .dot.good{background:rgba(53,245,163,.95);box-shadow:0 0 0 3px rgba(53,245,163,.14)}
 .dot.warn{background:rgba(255,209,102,.95);box-shadow:0 0 0 3px rgba(255,209,102,.14)}
 .dot.bad{background:rgba(255,91,107,.95);box-shadow:0 0 0 3px rgba(255,91,107,.14)}
+
+.back-row{
+max-width:1180px;
+margin:0 auto;
+padding:14px 18px 0;
+}
+
+.back-link{
+display:inline-flex;
+align-items:center;
+gap:8px;
+color:rgba(255,255,255,.66);
+font-size:13px;
+}
+
+.back-link:hover{
+color:rgba(255,255,255,.92);
+}
 
 .hero{
 padding:22px 0 14px;
@@ -371,7 +395,7 @@ padding:9px 12px;
 border-radius:999px;
 border:1px solid rgba(255,255,255,.08);
 background:rgba(255,255,255,.045);
-box-shadow:inset 0 6px 18px rgba(0,0,0,.22);
+box-shadow:inset 0 6px 18px rgba(0,0,0,.12);
 font-size:12px;
 color:rgba(255,255,255,.78);
 max-width:100%;
@@ -481,20 +505,6 @@ margin-top:10px;
 display:flex;
 gap:10px;
 flex-wrap:wrap;
-}
-
-.trend-chart-wrap{
-margin-top:8px;
-padding:12px 14px 10px;
-border:1px solid rgba(255,255,255,.08);
-border-radius:16px;
-background:rgba(255,255,255,.03);
-}
-
-#riskTrendChart{
-display:block;
-width:100%;
-height:90px;
 }
 
 .signal-grid{
@@ -736,9 +746,9 @@ min-width:0;
 <div class="nav" role="navigation" aria-label="Main">
 <a href="./index.html">Home</a>
 <a class="active" href="./token.html">Scanner</a>
-<a href="./explore.html" title="Coming soon">Explore</a>
+<a class="disabled" aria-disabled="true">Explore</a>
 <a href="./alerts.html">Alerts</a>
-<a href="./launches.html" title="Coming soon">Launches</a>
+<a href="./launchpad.html">Launchpad</a>
 <a href="./methodology.html">Methodology</a>
 <a href="./legal.html">Legal</a>
 </div>
@@ -748,6 +758,10 @@ min-width:0;
 <span id="netText">Online</span>
 </div>
 </div>
+</div>
+
+<div class="back-row">
+<a href="./index.html" class="back-link">← Back</a>
 </div>
 
 <div class="container">
@@ -850,17 +864,6 @@ and actionable alerts — engineered for serious participants.
 <span class="chip">24h: <b id="riskTrend24h">—</b></span>
 <span class="chip">Reputation: <b id="reputationLabel">—</b> (<span id="reputationScore">—</span>)</span>
 </div>
-</div>
-
-<div class="divider"></div>
-
-<div class="section-title">
-<span>Risk Trend</span>
-<span class="small">Live history</span>
-</div>
-
-<div class="trend-chart-wrap">
-<svg id="riskTrendChart" width="100%" height="90" aria-label="Risk trend chart"></svg>
 </div>
 
 <div class="alert-box" id="alertsBox">
