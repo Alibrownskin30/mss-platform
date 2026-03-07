@@ -65,6 +65,7 @@ overflow-x:hidden;
 }
 
 a{color:inherit;text-decoration:none}
+button{font:inherit}
 .wrap{width:min(var(--max), calc(100% - 32px));margin:0 auto}
 
 header{
@@ -120,6 +121,13 @@ text-transform:uppercase;
 line-height:1.2;
 }
 
+.navwrap{
+display:flex;
+align-items:center;
+gap:12px;
+min-width:0;
+}
+
 nav{
 display:flex;
 align-items:center;
@@ -171,6 +179,77 @@ border-radius:999px;
 border:1px solid rgba(255,255,255,.12);
 color:var(--muted2);
 text-transform:uppercase;
+}
+
+.authbar{
+display:flex;
+align-items:center;
+gap:10px;
+flex-wrap:wrap;
+justify-content:flex-end;
+}
+
+.status-pill{
+display:inline-flex;
+align-items:center;
+gap:8px;
+padding:9px 12px;
+border-radius:999px;
+border:1px solid rgba(255,255,255,.10);
+background:rgba(255,255,255,.04);
+font-size:11px;
+letter-spacing:.12em;
+text-transform:uppercase;
+color:var(--muted);
+white-space:nowrap;
+}
+
+.status-dot{
+width:7px;
+height:7px;
+border-radius:999px;
+background:rgba(255,255,255,.35);
+box-shadow:0 0 0 5px rgba(255,255,255,.05);
+flex:0 0 auto;
+}
+
+.status-dot.good{background:var(--good);box-shadow:0 0 0 5px rgba(43,227,138,.10)}
+.status-dot.warn{background:var(--warn);box-shadow:0 0 0 5px rgba(255,200,87,.10)}
+
+.authbtn{
+display:inline-flex;
+align-items:center;
+justify-content:center;
+gap:8px;
+padding:10px 12px;
+border-radius:12px;
+border:1px solid rgba(255,255,255,.12);
+background:rgba(255,255,255,.05);
+color:var(--text);
+font-weight:700;
+letter-spacing:.12em;
+text-transform:uppercase;
+font-size:11px;
+transition:.18s ease;
+white-space:nowrap;
+cursor:pointer;
+}
+
+.authbtn:hover{
+transform:translateY(-1px);
+border-color:rgba(255,255,255,.18);
+background:rgba(255,255,255,.08);
+}
+
+.authbtn.primary{
+border-color:rgba(57,208,200,.30);
+background:linear-gradient(180deg, rgba(57,208,200,.18), rgba(57,208,200,.10));
+box-shadow:0 10px 28px rgba(57,208,200,.10);
+}
+
+.authbtn.danger{
+border-color:rgba(255,77,109,.20);
+background:rgba(255,77,109,.08);
 }
 
 .hero{padding:56px 0 34px}
@@ -425,6 +504,97 @@ font-size:13px;
 line-height:1.6;
 }
 
+.auth-section{
+padding:8px 0 44px;
+}
+
+.auth-grid{
+display:grid;
+grid-template-columns:1fr 1fr;
+gap:14px;
+}
+
+.auth-card{
+border-radius:var(--radius);
+background:linear-gradient(180deg, rgba(255,255,255,.05), rgba(255,255,255,.03));
+border:1px solid rgba(255,255,255,.10);
+padding:18px;
+box-shadow:0 10px 30px rgba(0,0,0,.35);
+min-width:0;
+}
+
+.auth-card h3{
+margin:0 0 8px;
+font-size:14px;
+letter-spacing:.02em;
+}
+
+.auth-card p{
+margin:0 0 14px;
+color:var(--muted);
+font-size:13px;
+line-height:1.6;
+}
+
+.form-grid{
+display:grid;
+gap:10px;
+}
+
+.field{
+display:grid;
+gap:6px;
+}
+
+.label{
+font-size:11px;
+letter-spacing:.14em;
+text-transform:uppercase;
+color:rgba(234,240,255,.74);
+}
+
+.input{
+width:100%;
+background:rgba(255,255,255,.05);
+border:1px solid rgba(255,255,255,.10);
+border-radius:14px;
+padding:12px 14px;
+color:rgba(255,255,255,.92);
+outline:none;
+transition:.18s ease;
+box-shadow:inset 0 0 0 1px rgba(0,0,0,.25);
+}
+
+.input:focus{
+border-color:rgba(0,255,209,.22);
+box-shadow:0 0 0 4px rgba(0,255,209,.10);
+}
+
+.helper{
+font-size:12px;
+color:var(--muted2);
+line-height:1.5;
+}
+
+.form-actions{
+display:flex;
+gap:10px;
+flex-wrap:wrap;
+margin-top:4px;
+}
+
+.status{
+margin-top:10px;
+font-size:12px;
+line-height:1.5;
+color:var(--muted);
+min-height:18px;
+}
+
+.status.good{color:var(--good)}
+.status.bad{color:var(--bad)}
+.status.warn{color:var(--warn)}
+
 footer{
 margin-top:22px;
 border-top:1px solid rgba(255,255,255,.08);
@@ -464,6 +634,7 @@ font-size:12px;
 @media (max-width: 980px){
 .hero-grid{grid-template-columns:1fr}
 .cards{grid-template-columns:1fr}
+.auth-grid{grid-template-columns:1fr}
 }
 
 @media (max-width: 760px){
@@ -471,6 +642,11 @@ font-size:12px;
 flex-direction:column;
 align-items:stretch;
 gap:12px;
+}
+
+.navwrap{
+flex-direction:column;
+align-items:stretch;
 }
 
 nav{
@@ -484,6 +660,10 @@ scrollbar-width:none;
 
 nav::-webkit-scrollbar{display:none}
 
+.authbar{
+justify-content:flex-start;
+}
+
 .hero{padding:34px 0 24px}
 .panel{padding:20px}
 .sub{font-size:14px}
@@ -491,6 +671,9 @@ nav::-webkit-scrollbar{display:none}
 width:100%;
 }
 .statgrid{grid-template-columns:1fr}
+.form-actions .authbtn{
+width:100%;
+}
 }
 
 @media (max-width: 520px){
@@ -524,13 +707,23 @@ align-items:flex-start;
 </div>
 </a>
 
+<div class="navwrap">
 <nav aria-label="Primary">
 <a class="navlink active" href="./index.html">Home</a>
 <a class="navlink" href="./token.html">Scanner</a>
+<a class="navlink" href="./alerts.html">Alerts</a>
 <span class="navlink disabled" aria-disabled="true">Explore <span class="pill">Soon</span></span>
-<span class="navlink disabled" aria-disabled="true">Alerts <span class="pill">Soon</span></span>
 <span class="navlink disabled" aria-disabled="true">Launches <span class="pill">Soon</span></span>
 </nav>
+
+<div class="authbar">
+<div class="status-pill" title="Account session">
+<span id="sessionDot" class="status-dot warn"></span>
+<span id="sessionText">Guest</span>
+</div>
+<button id="logoutBtn" class="authbtn danger" type="button" style="display:none">Logout</button>
+</div>
+</div>
 </div>
 </header>
 
@@ -549,6 +742,7 @@ authority verification, market context, holder concentration, and actionable ris
 <div class="cta-row">
 <a class="btn primary" href="./token.html">Launch Scanner</a>
 <a class="btn" href="#capabilities">View Capabilities</a>
+<a class="btn" href="#access">Account Access</a>
 </div>
 
 <div class="meta" aria-label="Highlights">
@@ -562,14 +756,14 @@ authority verification, market context, holder concentration, and actionable ris
 <aside class="panel side" aria-label="Status">
 <h3>Platform Status</h3>
 <p>
-Scanner is live in beta. Explore, Alerts and Launches are staged next.
+Scanner is live in beta. Alerts are now account-enabled. Explore and Launches are staged next.
 This build prioritises accuracy, speed and professional presentation.
 </p>
 
 <div class="statgrid">
 <div class="stat"><b>Scanner</b><span>Token + market + holders with risk summary.</span></div>
 <div class="stat"><b>Solana First</b><span>Optimised for Solana token analysis.</span></div>
-<div class="stat"><b>Alerts</b><span>Login-gated, expanding trigger coverage.</span></div>
+<div class="stat"><b>Alerts</b><span>Account-based alert creation and history.</span></div>
 <div class="stat"><b>Launchpad</b><span>Coming soon. Security-first launches.</span></div>
 </div>
 </aside>
@@ -617,6 +811,66 @@ This build prioritises accuracy, speed and professional presentation.
 </div>
 </div>
 </section>
+
+<section class="auth-section" id="access">
+<div class="wrap">
+<div class="section-head">
+<h2>Account Access</h2>
+<p>Create an account or sign in to manage alerts.</p>
+</div>
+
+<div class="auth-grid">
+<div class="auth-card">
+<h3>Register</h3>
+<p>Create an MSS Protocol account to enable alert creation and account-based scanner tools.</p>
+
+<div class="form-grid">
+<div class="field">
+<label class="label" for="registerEmail">Email</label>
+<input id="registerEmail" class="input" type="email" placeholder="you@example.com" autocomplete="email" />
+</div>
+
+<div class="field">
+<label class="label" for="registerPassword">Password</label>
+<input id="registerPassword" class="input" type="password" placeholder="Create a password" autocomplete="new-password" />
+</div>
+
+<div class="helper">Use a strong password. After registration you can sign in immediately.</div>
+
+<div class="form-actions">
+<button id="registerBtn" class="authbtn primary" type="button">Create Account</button>
+</div>
+
+<div id="registerStatus" class="status"></div>
+</div>
+</div>
+
+<div class="auth-card">
+<h3>Login</h3>
+<p>Sign in to create alerts, review alert history and access account-linked MSS features.</p>
+
+<div class="form-grid">
+<div class="field">
+<label class="label" for="loginEmail">Email</label>
+<input id="loginEmail" class="input" type="email" placeholder="you@example.com" autocomplete="email" />
+</div>
+
+<div class="field">
+<label class="label" for="loginPassword">Password</label>
+<input id="loginPassword" class="input" type="password" placeholder="Your password" autocomplete="current-password" />
+</div>
+
+<div class="form-actions">
+<button id="loginBtn" class="authbtn primary" type="button">Login</button>
+<a class="authbtn" href="./alerts.html">Open Alerts</a>
+</div>
+
+<div id="loginStatus" class="status"></div>
+</div>
+</div>
+</div>
+</div>
+</section>
 </main>
 
 <footer>
@@ -627,5 +881,133 @@ This build prioritises accuracy, speed and professional presentation.
 </div>
 </div>
 </footer>
+
+<script type="module">
+import { apiPost } from "./assets/api.js";
+
+const $ = (id) => document.getElementById(id);
+
+function setStatus(id, text, tone = "") {
+const el = $(id);
+if (!el) return;
+el.textContent = text || "";
+el.className = `status${tone ? ` ${tone}` : ""}`;
+}
+
+function getToken() {
+return localStorage.getItem("mssToken");
+}
+
+function getUserEmail() {
+return localStorage.getItem("mssUserEmail");
+}
+
+function saveSession(token, email) {
+localStorage.setItem("mssToken", token);
+if (email) localStorage.setItem("mssUserEmail", email);
+}
+
+function clearSession() {
+localStorage.removeItem("mssToken");
+localStorage.removeItem("mssUserEmail");
+}
+
+function renderSession() {
+const token = getToken();
+const email = getUserEmail();
+const dot = $("sessionDot");
+const text = $("sessionText");
+const logoutBtn = $("logoutBtn");
+
+if (token) {
+if (dot) {
+dot.classList.remove("warn");
+dot.classList.add("good");
+}
+if (text) text.textContent = email ? `Logged in • ${email}` : "Logged in";
+if (logoutBtn) logoutBtn.style.display = "inline-flex";
+} else {
+if (dot) {
+dot.classList.remove("good");
+dot.classList.add("warn");
+}
+if (text) text.textContent = "Guest";
+if (logoutBtn) logoutBtn.style.display = "none";
+}
+}
+
+async function handleRegister() {
+const email = ($("registerEmail")?.value || "").trim();
+const password = ($("registerPassword")?.value || "").trim();
+
+if (!email || !password) {
+setStatus("registerStatus", "Enter email and password.", "warn");
+return;
+}
+
+try {
+setStatus("registerStatus", "Creating account…");
+const data = await apiPost("/api/register", { email, password });
+
+if (data?.token) {
+saveSession(data.token, email);
+setStatus("registerStatus", "Account created. You are now logged in.", "good");
+renderSession();
+return;
+}
+
+setStatus("registerStatus", "Account created. Please log in.", "good");
+} catch (e) {
+setStatus("registerStatus", e?.message || "Registration failed.", "bad");
+}
+}
+
+async function handleLogin() {
+const email = ($("loginEmail")?.value || "").trim();
+const password = ($("loginPassword")?.value || "").trim();
+
+if (!email || !password) {
+setStatus("loginStatus", "Enter email and password.", "warn");
+return;
+}
+
+try {
+setStatus("loginStatus", "Signing in…");
+const data = await apiPost("/api/login", { email, password });
+
+if (!data?.token) {
+setStatus("loginStatus", "Login failed.", "bad");
+return;
+}
+
+saveSession(data.token, email);
+setStatus("loginStatus", "Logged in successfully.", "good");
+renderSession();
+} catch (e) {
+setStatus("loginStatus", e?.message || "Login failed.", "bad");
+}
+}
+
+function handleLogout() {
+clearSession();
+setStatus("loginStatus", "Logged out.", "good");
+setStatus("registerStatus", "");
+renderSession();
+}
+
+$("registerBtn")?.addEventListener("click", handleRegister);
+$("loginBtn")?.addEventListener("click", handleLogin);
+$("logoutBtn")?.addEventListener("click", handleLogout);
+
+$("loginPassword")?.addEventListener("keydown", (e) => {
+if (e.key === "Enter") handleLogin();
+});
+
+$("registerPassword")?.addEventListener("keydown", (e) => {
+if (e.key === "Enter") handleRegister();
+});
+
+renderSession();
+</script>
 </body>
 </html>
