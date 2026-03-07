@@ -166,6 +166,13 @@ if (c.m30 != null) parts.push(`30d ${fmtSignedPct(c.m30, 2)}`);
 return parts.length ? parts.join(" • ") : "—";
 }
 
+function compactSignal(label, score) {
+const s = Number(score);
+const base = safeText(label, "—");
+if (!Number.isFinite(s)) return base;
+return `${base} (${s}/100)`;
+}
+
 export function buildShareCardData(scan) {
 const mint = scan?.mint || scan?.token?.mint || "";
 
@@ -175,6 +182,7 @@ const derived = scan?.derived || {};
 const risk = derived?.riskModel || {};
 const conc = derived?.concentration || {};
 const activity = derived?.activity || {};
+const trend = scan?.trend || risk?.trend || {};
 
 const name = safeText(
 token?.metadata?.name || token?.meta?.name || token?.name || token?.tokenName || market?.baseName,
@@ -205,22 +213,33 @@ const mcapUsd = (Number.isFinite(mcapApi) && mcapApi > 0)
 ? mcapApi
 : (Number.isFinite(derivedMcap) && derivedMcap > 0 ? derivedMcap : NaN);
 
-const hidden = risk?.hiddenControl || {};
-const fresh = risk?.freshWalletRisk || {};
-const liq = risk?.liquidityStability || {};
-const whale = risk?.whaleActivity || {};
-const trend = risk?.trend || {};
+const hiddenControl = risk?.hiddenControl || {};
+const freshWalletRisk = risk?.freshWalletRisk || {};
+const liquidityStability = risk?.liquidityStability || {};
+const whaleActivity = risk?.whaleActivity || {};
 const reputation = risk?.reputation || {};
 
-const clustersCount = Number(activity?.clusterCount || activity?.clusters?.length || 0);
-const linkedWallets = Number(hidden?.linkedWallets || activity?.clusteredWallets || 0);
-const clusterLine = `Clusters: ${clustersCount} • Linked wallets: ${linkedWallets}`;
+const clustersCount = Number.isFinite(Number(activity?.clusterCount))
+? Number(activity.clusterCount)
+: Number.isFinite(Number(activity?.clusters?.length))
+? Number(activity.clusters.length)
+: 0;
+
+const hiddenLine = compactSignal(hiddenControl?.label, hiddenControl?.score);
+const freshLine = compactSignal(freshWalletRisk?.label, freshWalletRisk?.score);
+const liqLine = compactSignal(liquidityStability?.label, liquidityStability?.score);
+const whaleLine = compactSignal(whaleActivity?.label, whaleActivity?.score);
+
+const trendLine = [
+safeText(trend?.label || risk?.trend?.label, "Stable"),
+safeText(trend?.momentum || risk?.trend?.momentum, "Stable"),
+].join(" • ");
 
 const priceChangeLine = buildPriceChangeLine(market?.priceChange);
 
 return {
 title: "MSS Protocol",
-subtitle: "Phase 2 Intelligence",
+subtitle: "Elite Security Intelligence",
 
 mintShort: shortAddr(mint, 6, 6),
 mintFull: mint,
@@ -237,7 +256,6 @@ mcap: fmtUsdCompact(mcapUsd),
 
 top10: conc?.top10 != null ? fmtPct(conc.top10, 2) : "—",
 authLine,
-clusterLine,
 
 riskScore: risk?.score != null ? `${risk.score}/100` : "—",
 riskLabel: safeText(risk?.label?.text, "—"),
@@ -245,23 +263,16 @@ signal: safeText(risk?.signal, "—"),
 driver: safeText(risk?.primaryDriver, "—"),
 state: safeText(risk?.label?.state, "warn"),
 
-hiddenControlLabel: safeText(hidden?.label, "—"),
-hiddenControlScore: hidden?.score != null ? `${hidden.score}/100` : "—",
-hiddenControlSupply: hidden?.linkedWalletPct != null ? fmtPct(hidden.linkedWalletPct, 1) : "—",
-
-freshLabel: safeText(fresh?.label, "—"),
-freshPct: fresh?.pct != null ? fmtPct(fresh.pct, 1) : "—",
-
-liqLabel: safeText(liq?.label, "—"),
-liqRatio: liq?.liqFdvPct != null ? fmtPct(liq.liqFdvPct, 2) : "—",
-
-whaleLabel: safeText(whale?.label, "—"),
-whaleSync: whale?.syncBurstSize != null ? String(whale.syncBurstSize) : "—",
-
-trendLabel: safeText(trend?.label || trend?.momentum, "—"),
-reputationLabel: safeText(reputation?.label, "—"),
-
 priceChangeLine,
+hiddenLine,
+freshLine,
+liqLine,
+whaleLine,
+trendLine,
+reputationLine: reputation?.score != null
+? `${safeText(reputation?.label, "—")} • ${reputation.score}/100`
+: safeText(reputation?.label, "—"),
+clusterLine: `Clusters: ${clustersCount} • Linked wallets: ${safeText(hiddenControl?.linkedWallets, "—")}`,
 
 ts: new Date().toLocaleString(),
 };
@@ -313,6 +324,26 @@ ctx.fillText(fitText(ctx, safeText(value, "—"), w - 28), x + 14, y + 48);
 ctx.restore();
 }
 
+function drawMiniSignalCard(ctx, x, y, w, h, title, value) {
+ctx.save();
+roundRect(ctx, x, y, w, h, 16);
+ctx.fillStyle = "rgba(255,255,255,0.04)";
+ctx.fill();
+ctx.strokeStyle = "rgba(255,255,255,0.08)";
+ctx.lineWidth = 1;
+ctx.stroke();
+
+ctx.fillStyle = "rgba(234,240,255,0.56)";
+ctx.font = "800 11px system-ui, -apple-system, Segoe UI, Roboto, Arial";
+ctx.fillText(safeText(title, "—"), x + 12, y + 18);
+
+ctx.fillStyle = "rgba(234,240,255,0.92)";
+ctx.font = "900 14px system-ui, -apple-system, Segoe UI, Roboto, Arial";
+ctx.fillText(fitText(ctx, safeText(value, "—"), w - 24), x + 12, y + 41);
+
+ctx.restore();
+}
+
 function drawKpiGlassPanel(ctx, x, y, w, h) {
 ctx.save();
 roundRect(ctx, x, y, w, h, 22);
@@ -333,7 +364,7 @@ ctx.fill();
 ctx.restore();
 }
 
-export async function downloadShareCardPNG(scan) {
+export async function downloadShareCardPNG(scan, opts = {}) {
 const data = buildShareCardData(scan);
 
 const canvas = document.createElement("canvas");
@@ -341,6 +372,7 @@ canvas.width = 1200;
 canvas.height = 630;
 const ctx = canvas.getContext("2d");
 
+// Background
 const bg = ctx.createLinearGradient(0, 0, 1200, 630);
 bg.addColorStop(0, "#070A10");
 bg.addColorStop(1, "#0A1022");
@@ -351,7 +383,8 @@ drawSoftGlow(ctx, 260, 130, 540, "rgba(57,208,200,0.22)");
 drawSoftGlow(ctx, 980, 170, 580, "rgba(120,140,255,0.18)");
 drawSoftGlow(ctx, 720, 620, 520, "rgba(255,77,109,0.08)");
 
-const panelX = 54, panelY = 56, panelW = 1092, panelH = 500;
+// Main Panel
+const panelX = 54, panelY = 42, panelW = 1092, panelH = 540;
 roundRect(ctx, panelX, panelY, panelW, panelH, 24);
 ctx.fillStyle = "rgba(255,255,255,0.05)";
 ctx.fill();
@@ -361,8 +394,9 @@ ctx.stroke();
 
 drawShieldWatermark(ctx, panelX + panelW - 92, panelY + panelH - 86, 104);
 
+// Header
 const left = panelX + 40;
-const top = panelY + 44;
+const top = panelY + 38;
 
 ctx.fillStyle = "rgba(234,240,255,0.92)";
 ctx.font = "900 28px system-ui, -apple-system, Segoe UI, Roboto, Arial";
@@ -373,22 +407,23 @@ ctx.font = "700 15px system-ui, -apple-system, Segoe UI, Roboto, Arial";
 ctx.fillText(data.subtitle, left, top + 26);
 
 ctx.fillStyle = "rgba(234,240,255,0.96)";
-ctx.font = "900 40px system-ui, -apple-system, Segoe UI, Roboto, Arial";
-ctx.fillText("Security Scan Report", left, top + 86);
+ctx.font = "900 38px system-ui, -apple-system, Segoe UI, Roboto, Arial";
+ctx.fillText("Token Scan Report", left, top + 82);
 
 ctx.fillStyle = "rgba(234,240,255,0.78)";
 ctx.font = "750 17px system-ui, -apple-system, Segoe UI, Roboto, Arial";
-ctx.fillText(`Token: ${fitText(ctx, data.tokenLabel, 760)}`, left, top + 118);
+ctx.fillText(`Token: ${fitText(ctx, data.tokenLabel, 760)}`, left, top + 114);
 
 ctx.fillStyle = "rgba(234,240,255,0.62)";
 ctx.font = "650 14px ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace";
-ctx.fillText(`mint: ${data.mintShort}`, left, top + 142);
+ctx.fillText(`mint: ${data.mintShort}`, left, top + 138);
 
+// Risk Pill
 const badge = riskBadgeColors(data.state);
-drawSoftGlow(ctx, left + 180, top + 186, 220, badge.glow, 1);
+drawSoftGlow(ctx, left + 180, top + 182, 220, badge.glow, 1);
 
 const pillX = left;
-const pillY = top + 160;
+const pillY = top + 154;
 const pillW = 520;
 const pillH = 56;
 
@@ -414,28 +449,31 @@ ctx.font = "900 20px system-ui, -apple-system, Segoe UI, Roboto, Arial";
 ctx.fillText(data.riskScore, pillX + pillW - 22, pillY + 36);
 ctx.textAlign = "left";
 
+// Meta lines
 ctx.fillStyle = "rgba(234,240,255,0.64)";
 ctx.font = "700 14px system-ui, -apple-system, Segoe UI, Roboto, Arial";
 ctx.fillText(`Primary driver: ${fitText(ctx, data.driver, 520)}`, left, pillY + 84);
 
 ctx.fillStyle = "rgba(234,240,255,0.52)";
 ctx.font = "650 13px system-ui, -apple-system, Segoe UI, Roboto, Arial";
-ctx.fillText(`Hidden control: ${fitText(ctx, `${data.hiddenControlLabel} • ${data.hiddenControlScore}`, 520)}`, left, pillY + 104);
+ctx.fillText(`Trend: ${fitText(ctx, data.trendLine, 520)}`, left, pillY + 104);
 
 ctx.fillStyle = "rgba(234,240,255,0.52)";
 ctx.font = "650 13px system-ui, -apple-system, Segoe UI, Roboto, Arial";
 ctx.fillText(`Price change: ${fitText(ctx, data.priceChangeLine, 720)}`, left, pillY + 124);
 
+// Right-side chips
 const rightColX = panelX + panelW - 40 - 420;
-const chipY = top + 108;
+const chipY = top + 104;
 
 drawChip(ctx, rightColX, chipY, `DEX: ${data.dex}`, { maxW: 420, h: 28 });
 drawChip(ctx, rightColX, chipY + 36, `Pair: ${data.pairText}`, { maxW: 420, h: 28 });
 drawChip(ctx, rightColX, chipY + 72, `Signal: ${data.signal}`, { maxW: 420, h: 28 });
 drawChip(ctx, rightColX, chipY + 108, data.authLine, { maxW: 420, h: 28 });
 
+// KPI block
 const gridX = left;
-const gridY = top + 310;
+const gridY = top + 300;
 const cardW = 330;
 const cardH = 64;
 const gapX = 18;
@@ -448,10 +486,10 @@ drawKpiGlassPanel(ctx, gridX - 14, gridY - 14, gridW + 28, gridH + 28);
 const kpis = [
 ["Price (USD)", data.priceUsd],
 ["Liquidity", data.liquidity],
+["Volume (24h)", data.volume24h],
+["FDV", data.fdv],
+["MCap", data.mcap],
 ["Top10 Holders", data.top10],
-["Fresh Wallets", data.freshPct],
-["Liquidity / FDV", data.liqRatio],
-["Whale Activity", data.whaleLabel],
 ];
 
 for (let i = 0; i < kpis.length; i++) {
@@ -462,7 +500,26 @@ const y = gridY + row * (cardH + gapY);
 drawKpiCard(ctx, x, y, cardW, cardH, kpis[i][0], kpis[i][1]);
 }
 
-const footerY = 608;
+// Phase 2 signal strip
+const signalY = gridY + gridH + 26;
+const signalX = left;
+const signalGap = 12;
+const signalW = 201;
+const signalH = 52;
+
+drawMiniSignalCard(ctx, signalX + (signalW + signalGap) * 0, signalY, signalW, signalH, "Hidden Control", data.hiddenLine);
+drawMiniSignalCard(ctx, signalX + (signalW + signalGap) * 1, signalY, signalW, signalH, "Fresh Wallet Risk", data.freshLine);
+drawMiniSignalCard(ctx, signalX + (signalW + signalGap) * 2, signalY, signalW, signalH, "Liquidity Stability", data.liqLine);
+drawMiniSignalCard(ctx, signalX + (signalW + signalGap) * 3, signalY, signalW, signalH, "Whale Activity", data.whaleLine);
+drawMiniSignalCard(ctx, signalX + (signalW + signalGap) * 4, signalY, signalW, signalH, "Reputation", data.reputationLine);
+
+// cluster summary line
+ctx.fillStyle = "rgba(234,240,255,0.42)";
+ctx.font = "650 12px system-ui, -apple-system, Segoe UI, Roboto, Arial";
+ctx.fillText(fitText(ctx, data.clusterLine, 1020), left, signalY + signalH + 18);
+
+// Footer
+const footerY = 612;
 ctx.strokeStyle = "rgba(255,255,255,0.08)";
 ctx.lineWidth = 1;
 ctx.beginPath();
@@ -473,7 +530,7 @@ ctx.stroke();
 ctx.fillStyle = "rgba(234,240,255,0.52)";
 ctx.font = "650 13px system-ui, -apple-system, Segoe UI, Roboto, Arial";
 ctx.textAlign = "left";
-ctx.fillText(`Powered by MSS Protocol • ${fitText(ctx, `${data.trendLabel} trend • ${data.reputationLabel} reputation`, 500)}`, 54, footerY);
+ctx.fillText("Powered by MSS Protocol • Elite Security Layer", 54, footerY);
 
 ctx.textAlign = "right";
 ctx.fillStyle = "rgba(234,240,255,0.38)";
@@ -482,6 +539,7 @@ ctx.fillText(data.ts, 1146, footerY);
 
 ctx.textAlign = "left";
 
+// Download
 const fileMint = (data.mintFull || "mint").slice(0, 8);
 const filename = `mss-scan-${fileMint}.png`;
 
