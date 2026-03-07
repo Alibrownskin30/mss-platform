@@ -301,8 +301,8 @@ setText("holdersLoaded", "—");
 return { top1: 0, top5: 0, top10: 0, top20: 0 };
 }
 
-function renderClusters(activity) {
-const hidden = activity?.hiddenControl || {};
+function renderClusters(activity, rm) {
+const hidden = rm?.hiddenControl || {};
 const score = Number(hidden?.score ?? activity?.score ?? 0);
 const label = hidden?.label || activity?.label || "—";
 
@@ -310,8 +310,8 @@ setText("clusterScore", hasNumber(score) ? `${score}` : "—");
 setText("clusterLabel", label || "—");
 setText("sybilScore", hasNumber(score) ? `${score} /100` : "—");
 setText("clustersCount", String(activity?.clusterCount ?? activity?.clusters?.length ?? 0));
-setText("whaleFlow1h", activity?.whaleActivity?.syncBurstSize == null ? "—" : String(activity.whaleActivity.syncBurstSize));
-setText("whaleFlow24h", activity?.clusteredWallets == null ? "—" : String(activity.clusteredWallets));
+setText("whaleFlow1h", rm?.whaleActivity?.syncBurstSize == null ? "—" : String(rm.whaleActivity.syncBurstSize));
+setText("whaleFlow24h", hidden?.linkedWallets == null ? "—" : String(hidden.linkedWallets));
 
 const body = $("clusterTableBody");
 if (body) {
@@ -347,7 +347,7 @@ body.appendChild(tr);
 
 setText(
 "clusterMeta",
-`Analyzed: ${activity?.analyzedWallets ?? "—"} • Linked wallets: ${activity?.hiddenControl?.linkedWallets ?? activity?.clusteredWallets ?? "—"} • Fresh wallets: ${fmtPct(activity?.freshWalletRisk?.pct ?? activity?.newWalletPct ?? null, 1)}`
+`Analyzed: ${activity?.analyzedWallets ?? "—"} • Linked wallets: ${hidden?.linkedWallets ?? activity?.clusteredWallets ?? "—"} • Fresh wallets: ${fmtPct(rm?.freshWalletRisk?.pct ?? activity?.newWalletPct ?? null, 1)}`
 );
 }
 
@@ -369,7 +369,6 @@ setText("riskTrend24h", fmtSigned(rm?.trend?.delta24h, 1));
 setText("reputationLabel", rm?.reputation?.label || "—");
 setText("reputationScore", rm?.reputation?.score != null ? `${rm.reputation.score}/100` : "—");
 
-// optional secondary ids if present
 setText("riskTrendLabel2", rm?.trend?.label || "—");
 setText("reputationLabel2", rm?.reputation?.label || "—");
 setText("reputationScore2", rm?.reputation?.score != null ? `${rm.reputation.score}/100` : "—");
@@ -399,6 +398,46 @@ setText("whaleActivityLabel", rm?.whaleActivity?.label || "—");
 setText("whaleActivityScore", rm?.whaleActivity?.score != null ? `${rm.whaleActivity.score}/100` : "—");
 setText("whalePressure", rm?.whaleActivity?.pressure || "—");
 setText("whaleSync", rm?.whaleActivity?.syncBurstSize != null ? String(rm.whaleActivity.syncBurstSize) : "—");
+}
+
+function renderTrendChart(trend) {
+const svg = $("riskTrendChart");
+if (!svg) return;
+
+const points = [
+Number(trend?.latest?.risk),
+Number(trend?.latest?.risk) - Number(trend?.change?.["1h"] ?? 0),
+Number(trend?.latest?.risk) - Number(trend?.change?.["6h"] ?? 0),
+Number(trend?.latest?.risk) - Number(trend?.change?.["24h"] ?? 0),
+].filter((v) => Number.isFinite(v));
+
+if (!points.length) {
+svg.innerHTML = "";
+return;
+}
+
+const ordered = [...points].reverse();
+const width = 100;
+const height = 36;
+const min = Math.min(...ordered, 0);
+const max = Math.max(...ordered, 100);
+const range = Math.max(1, max - min);
+
+const coords = ordered.map((v, i) => {
+const x = (i / Math.max(1, ordered.length - 1)) * width;
+const y = height - ((v - min) / range) * height;
+return `${x},${y}`;
+}).join(" ");
+
+svg.setAttribute("viewBox", `0 0 ${width} ${height}`);
+svg.innerHTML = `
+<polyline
+fill="none"
+stroke="rgba(0,255,209,0.95)"
+stroke-width="2.5"
+points="${coords}"
+/>
+`;
 }
 
 function renderRaw(obj) {
@@ -440,7 +479,7 @@ if (rm?.liquidityStability?.state === "bad") {
 notes.push("Liquidity stability appears weak.");
 }
 
-if (rm?.trend?.label === "Escalating") {
+if (rm?.trend?.label === "Escalating" || rm?.trend?.momentum === "Escalating") {
 notes.push("Risk trend is increasing versus prior snapshots.");
 }
 
@@ -501,8 +540,6 @@ setText("top5", fmtPct(conc.top5));
 setText("top10", fmtPct(conc.top10));
 setText("top20", fmtPct(conc.top20));
 
-renderClusters(activity);
-
 let rm = securityJson?.securityModel || null;
 if (!rm || typeof rm.score !== "number") {
 rm = {
@@ -521,6 +558,8 @@ reputation: {},
 };
 }
 
+renderClusters(activity, rm);
+
 const derivedMcapUsd = deriveMcapUsd({ marketJson, holdersJson, tokenJson });
 renderMarket(marketJson, derivedMcapUsd);
 
@@ -531,8 +570,9 @@ setBadge("riskBadge", "riskDot", "riskText", rm?.label?.state || "warn", rm?.lab
 
 renderRiskMeter(rm);
 renderPhase2Signals(rm);
+renderTrendChart(trend);
 
-setText("notesText", buildNotes({ tokenJson, marketJson, conc, activity, rm, trend }));
+setText("notesText", buildNotes({ tokenJson, marketJson, conc, activity, rm }));
 
 const scanObj = {
 mint,
@@ -567,6 +607,8 @@ bestEffortRecordRisk({ mint, rm, conc, marketJson });
 renderRaw({ mint, error: e?.message || String(e) });
 setBadge(null, "scanDot", "scanStatusText", "bad", "Scan error");
 renderPriceChange({ priceChange: {} });
+const svg = $("riskTrendChart");
+if (svg) svg.innerHTML = "";
 }
 }
 
@@ -612,6 +654,8 @@ setBadge("riskBadge", "riskDot", "riskText", rm?.label?.state || "warn", rm?.lab
 
 renderRiskMeter(rm);
 renderPhase2Signals(rm);
+renderClusters(last.derived?.activity || {}, rm);
+renderTrendChart(last.trend || {});
 
 const notes = buildNotes({
 tokenJson: last.token,
@@ -694,9 +738,7 @@ const text =
 `Risk: ${info.riskText}\n` +
 `Full scan:`;
 
-const intent = `https://twitter.com/intent/tweet?text=${encodeURIComponent(
-text
-)}&url=${encodeURIComponent(scanUrl)}`;
+const intent = `https://twitter.com/intent/tweet?text=${encodeURIComponent(text)}&url=${encodeURIComponent(scanUrl)}`;
 
 window.open(intent, "_blank", "noopener,noreferrer");
 });

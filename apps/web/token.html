@@ -483,6 +483,20 @@ gap:10px;
 flex-wrap:wrap;
 }
 
+.trend-chart-wrap{
+margin-top:8px;
+padding:12px 14px 10px;
+border:1px solid rgba(255,255,255,.08);
+border-radius:16px;
+background:rgba(255,255,255,.03);
+}
+
+#riskTrendChart{
+display:block;
+width:100%;
+height:90px;
+}
+
 .signal-grid{
 display:grid;
 grid-template-columns:repeat(2, minmax(0,1fr));
@@ -723,7 +737,7 @@ min-width:0;
 <a href="./index.html">Home</a>
 <a class="active" href="./token.html">Scanner</a>
 <a href="./explore.html" title="Coming soon">Explore</a>
-<a href="./alerts.html" title="Coming soon">Alerts</a>
+<a href="./alerts.html">Alerts</a>
 <a href="./launches.html" title="Coming soon">Launches</a>
 <a href="./methodology.html">Methodology</a>
 <a href="./legal.html">Legal</a>
@@ -836,6 +850,17 @@ and actionable alerts — engineered for serious participants.
 <span class="chip">24h: <b id="riskTrend24h">—</b></span>
 <span class="chip">Reputation: <b id="reputationLabel">—</b> (<span id="reputationScore">—</span>)</span>
 </div>
+</div>
+
+<div class="divider"></div>
+
+<div class="section-title">
+<span>Risk Trend</span>
+<span class="small">Live history</span>
+</div>
+
+<div class="trend-chart-wrap">
+<svg id="riskTrendChart" width="100%" height="90" aria-label="Risk trend chart"></svg>
 </div>
 
 <div class="alert-box" id="alertsBox">

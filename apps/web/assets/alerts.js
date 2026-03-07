@@ -62,12 +62,20 @@ const el = document.createElement("div");
 el.className = "alert-item";
 
 const enabled = Number(a.is_enabled) === 1;
+const prettyType =
+a.type === "risk_spike" ? "Risk Spike" :
+a.type === "whale" ? "Whale Score" :
+a.type === "liquidity" ? "Liquidity USD" :
+a.type === "top10" ? "Top10 Concentration" :
+a.type === "authority" ? "Authority Risk" :
+a.type;
+
 const thresholdText = a.type === "authority" ? "Auto logic" : `${a.direction} ${a.threshold}`;
 
 el.innerHTML = `
 <div class="alert-top">
 <div>
-<div style="font-weight:900; letter-spacing:.2px">${a.type}</div>
+<div style="font-weight:900; letter-spacing:.2px">${prettyType}</div>
 <div class="muted mono" style="margin-top:4px">${shortAddr(a.mint, 8, 8)}</div>
 </div>
 <div class="row">
@@ -108,9 +116,26 @@ wrap.innerHTML = "";
 for (const ev of events) {
 const el = document.createElement("div");
 el.className = "event-item";
+
+const prettyType =
+ev.type === "risk_spike" ? "Risk Spike" :
+ev.type === "whale" ? "Whale Score" :
+ev.type === "liquidity" ? "Liquidity USD" :
+ev.type === "top10" ? "Top10 Concentration" :
+ev.type === "authority" ? "Authority Risk" :
+(ev.type || "Alert Event");
+
+const thresholdText =
+ev.type === "authority"
+? "Auto logic"
+: (ev.direction && ev.threshold != null ? `${ev.direction} ${ev.threshold}` : "—");
+
 el.innerHTML = `
-<div style="font-weight:800">${ev.type || "Alert Event"}</div>
+<div style="font-weight:800">${prettyType}</div>
 <div class="muted mono" style="margin-top:4px">${shortAddr(ev.mint, 8, 8)}</div>
+<div class="row" style="margin-top:8px">
+<span class="badge">Rule: ${thresholdText}</span>
+</div>
 <div style="margin-top:8px; line-height:1.5">${ev.message || "—"}</div>
 <div class="muted" style="margin-top:8px">${fmtDate(ev.created_at)}</div>
 `;
@@ -138,34 +163,29 @@ return [];
 }
 }
 
-async function fetchEventsFromAlerts(alerts) {
-const wrap = $("eventsList");
-if (!wrap) return;
-
-if (!Array.isArray(alerts) || !alerts.length) {
+async function fetchAlertEvents() {
+const jwt = getJwt();
+if (!jwt) {
 renderEvents([]);
-return;
+return [];
 }
 
-const items = [];
-for (const a of alerts.slice(0, 8)) {
-if (!a.last_triggered_at) continue;
-items.push({
-mint: a.mint,
-type: a.type,
-message: `${a.type} alert triggered for ${shortAddr(a.mint, 8, 8)}.`,
-created_at: a.last_triggered_at,
-});
+try {
+const data = await apiGet("/api/alert-events?limit=50", { token: jwt });
+const events = Array.isArray(data?.events) ? data.events : [];
+renderEvents(events);
+return events;
+} catch (e) {
+renderEvents([]);
+setText("createStatus", e?.message || "Failed to load alert history.");
+return [];
 }
-
-items.sort((a, b) => new Date(b.created_at + "Z") - new Date(a.created_at + "Z"));
-renderEvents(items.slice(0, 12));
 }
 
 async function refreshAll() {
 renderLoginState();
-const alerts = await fetchAlerts();
-await fetchEventsFromAlerts(alerts);
+await fetchAlerts();
+await fetchAlertEvents();
 }
 
 async function toggleAlert(id) {
