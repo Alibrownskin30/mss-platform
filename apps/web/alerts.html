@@ -1,9 +1,508 @@
-<!doctype html><html lang="en"><head>
-<meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/>
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
 <title>MSS Protocol — Alerts</title>
-<style>body{margin:0;font-family:system-ui;background:#05070c;color:rgba(255,255,255,.9)}
-.wrap{max-width:900px;margin:0 auto;padding:28px 18px}a{color:#00ffd1;text-decoration:none}
-.card{border:1px solid rgba(255,255,255,.10);background:rgba(255,255,255,.04);border-radius:18px;padding:18px}
-.muted{color:rgba(255,255,255,.62)}</style></head>
-<body><div class="wrap"><a href="./index.html">← Home</a>
-<h1>Alerts</h1><div class="card"><p class="muted">Coming soon. Alerts will support Telegram + Email with account login.</p></div></div></body></html>
+<style>
+:root{
+--bg0:#05070c;
+--bg1:#070a12;
+--line:rgba(255,255,255,.10);
+--muted:rgba(255,255,255,.60);
+--muted2:rgba(255,255,255,.45);
+--text:rgba(255,255,255,.92);
+--good:#35f5a3;
+--warn:#ffd166;
+--bad:#ff5b6b;
+--a:#00ffd1;
+--b:#3aa0ff;
+--shadow:0 22px 60px rgba(0,0,0,.55);
+--shadow2:0 10px 30px rgba(0,0,0,.35);
+--r:18px;
+--r2:14px;
+--mono:ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+--sans:ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, "Apple Color Emoji","Segoe UI Emoji";
+}
+
+*{box-sizing:border-box}
+html,body{height:100%}
+body{
+margin:0;
+font-family:var(--sans);
+color:var(--text);
+background:
+radial-gradient(1200px 700px at 15% -10%, rgba(0,255,209,.18), transparent 55%),
+radial-gradient(900px 600px at 95% 10%, rgba(58,160,255,.16), transparent 50%),
+linear-gradient(180deg, var(--bg0), var(--bg1));
+overflow-x:hidden;
+}
+
+a{color:inherit;text-decoration:none}
+.container{
+max-width:1180px;
+margin:0 auto;
+padding:28px 18px 80px;
+width:100%;
+}
+
+.topbar{
+position:sticky;
+top:0;
+z-index:50;
+backdrop-filter:blur(14px);
+background:rgba(5,7,12,.55);
+border-bottom:1px solid rgba(255,255,255,.08);
+}
+
+.topbar-inner{
+max-width:1180px;
+margin:0 auto;
+padding:14px 18px;
+display:flex;
+align-items:center;
+gap:14px;
+justify-content:space-between;
+}
+
+.brand{
+display:flex;
+align-items:center;
+gap:10px;
+min-width:0;
+flex:0 1 auto;
+}
+
+.mark{
+width:34px;
+height:34px;
+border-radius:10px;
+background:linear-gradient(135deg, rgba(0,255,209,.9), rgba(58,160,255,.9));
+box-shadow:0 10px 24px rgba(0,255,209,.18), 0 10px 24px rgba(58,160,255,.14);
+flex:0 0 auto;
+}
+
+.brand-title{font-weight:800;letter-spacing:.3px}
+.brand-sub{font-size:12px;color:var(--muted2);margin-top:2px}
+
+.nav{
+display:flex;
+gap:8px;
+align-items:center;
+margin-left:auto;
+min-width:0;
+}
+
+.nav a{
+padding:8px 12px;
+border-radius:12px;
+color:rgba(255,255,255,.72);
+border:1px solid transparent;
+transition:.18s ease;
+font-size:13px;
+white-space:nowrap;
+flex:0 0 auto;
+}
+
+.nav a:hover{
+color:rgba(255,255,255,.92);
+border-color:rgba(255,255,255,.10);
+background:rgba(255,255,255,.04);
+}
+
+.nav a.active{
+color:rgba(255,255,255,.92);
+border-color:rgba(0,255,209,.20);
+background:rgba(0,255,209,.06);
+}
+
+.pill{
+display:inline-flex;
+align-items:center;
+gap:8px;
+padding:8px 12px;
+border-radius:999px;
+border:1px solid rgba(255,255,255,.10);
+background:rgba(255,255,255,.04);
+color:rgba(255,255,255,.78);
+font-size:12px;
+box-shadow:var(--shadow2);
+white-space:nowrap;
+flex:0 0 auto;
+}
+
+.dot{
+width:8px;
+height:8px;
+border-radius:50%;
+background:rgba(255,255,255,.35);
+box-shadow:0 0 0 3px rgba(255,255,255,.06);
+flex:0 0 auto;
+}
+
+.dot.good{background:rgba(53,245,163,.95);box-shadow:0 0 0 3px rgba(53,245,163,.14)}
+.dot.warn{background:rgba(255,209,102,.95);box-shadow:0 0 0 3px rgba(255,209,102,.14)}
+.dot.bad{background:rgba(255,91,107,.95);box-shadow:0 0 0 3px rgba(255,91,107,.14)}
+
+.hero{
+padding:22px 0 14px;
+display:flex;
+gap:14px;
+flex-wrap:wrap;
+align-items:flex-end;
+}
+
+.hero h1{margin:0;font-size:26px;letter-spacing:.2px}
+.hero p{
+margin:10px 0 0;
+color:var(--muted);
+max-width:760px;
+line-height:1.45;
+font-size:14px;
+}
+
+.grid{
+margin-top:18px;
+display:grid;
+grid-template-columns:1fr 1fr;
+gap:14px;
+}
+
+.card{
+background:linear-gradient(180deg, rgba(255,255,255,.06), rgba(255,255,255,.035));
+border:1px solid rgba(255,255,255,.10);
+border-radius:var(--r);
+box-shadow:var(--shadow);
+overflow:hidden;
+position:relative;
+min-width:0;
+}
+
+.card::before{
+content:"";
+position:absolute;
+inset:-2px;
+background:
+radial-gradient(600px 240px at 20% -10%, rgba(0,255,209,.18), transparent 55%),
+radial-gradient(520px 220px at 90% 0%, rgba(58,160,255,.14), transparent 55%);
+opacity:.55;
+pointer-events:none;
+}
+
+.card-inner{position:relative;padding:16px;min-width:0}
+
+.card-head{
+display:flex;
+align-items:flex-start;
+justify-content:space-between;
+gap:10px;
+padding-bottom:12px;
+margin-bottom:12px;
+border-bottom:1px solid rgba(255,255,255,.08);
+flex-wrap:wrap;
+}
+
+.card-title{font-weight:800;letter-spacing:.2px}
+.small{font-size:12px;color:var(--muted2)}
+
+.row{display:flex;gap:10px;flex-wrap:wrap;align-items:center;min-width:0}
+
+.input, select{
+min-width:0;
+width:100%;
+background:rgba(255,255,255,.05);
+border:1px solid rgba(255,255,255,.10);
+border-radius:14px;
+padding:12px 14px;
+color:rgba(255,255,255,.90);
+outline:none;
+transition:.18s ease;
+box-shadow:inset 0 0 0 1px rgba(0,0,0,.25);
+}
+
+.input:focus, select:focus{
+border-color:rgba(0,255,209,.22);
+box-shadow:0 0 0 4px rgba(0,255,209,.10);
+}
+
+select option{
+color:#0b0f1a;
+background:#f3f5f8;
+}
+
+.form-grid{
+display:grid;
+grid-template-columns:1fr 1fr;
+gap:10px;
+}
+
+.btn{
+border:1px solid rgba(255,255,255,.12);
+background:rgba(255,255,255,.05);
+color:rgba(255,255,255,.86);
+padding:12px 14px;
+border-radius:14px;
+cursor:pointer;
+font-weight:700;
+letter-spacing:.2px;
+transition:.18s ease;
+white-space:nowrap;
+min-height:46px;
+}
+
+.btn:hover{
+transform:translateY(-1px);
+border-color:rgba(255,255,255,.18);
+background:rgba(255,255,255,.07);
+}
+
+.btn.primary{
+border-color:rgba(0,255,209,.20);
+background:linear-gradient(135deg, rgba(0,255,209,.20), rgba(58,160,255,.16));
+}
+
+.btn.ghost{background:transparent}
+.btn.small{padding:9px 12px;min-height:auto;font-size:12px}
+
+.badge{
+display:inline-flex;
+align-items:center;
+gap:8px;
+border:1px solid rgba(255,255,255,.10);
+border-radius:999px;
+padding:7px 10px;
+background:rgba(255,255,255,.04);
+color:rgba(255,255,255,.80);
+font-size:12px;
+white-space:nowrap;
+max-width:100%;
+}
+
+.stack{
+display:flex;
+flex-direction:column;
+gap:10px;
+}
+
+.alert-item, .event-item{
+border:1px solid rgba(255,255,255,.08);
+background:rgba(255,255,255,.03);
+border-radius:14px;
+padding:12px;
+}
+
+.alert-top{
+display:flex;
+justify-content:space-between;
+gap:10px;
+align-items:flex-start;
+flex-wrap:wrap;
+}
+
+.alert-meta{
+display:flex;
+gap:8px;
+flex-wrap:wrap;
+margin-top:8px;
+}
+
+.mono{font-family:var(--mono)}
+.muted{color:rgba(255,255,255,.62)}
+.empty{
+padding:18px;
+border:1px dashed rgba(255,255,255,.12);
+border-radius:14px;
+color:rgba(255,255,255,.62);
+background:rgba(255,255,255,.02);
+}
+
+.helper{
+margin-top:10px;
+font-size:12px;
+color:rgba(255,255,255,.62);
+line-height:1.5;
+}
+
+.footer{
+margin-top:18px;
+border-top:1px solid rgba(255,255,255,.08);
+padding-top:16px;
+display:flex;
+justify-content:space-between;
+gap:12px;
+flex-wrap:wrap;
+color:rgba(255,255,255,.66);
+font-size:12px;
+}
+
+.footer-left{display:flex;flex-direction:column;gap:6px;min-width:0}
+.footer-line{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.footer-sep{opacity:.35}
+
+.status-line{
+margin-top:10px;
+font-size:12px;
+color:rgba(255,255,255,.62);
+}
+
+@media (max-width: 980px){
+.grid{grid-template-columns:1fr}
+}
+
+@media (max-width: 640px){
+.container{padding:20px 12px 72px}
+.hero h1{font-size:22px}
+.hero p{font-size:14px}
+.topbar-inner{flex-direction:column;align-items:stretch}
+.nav{
+margin-left:0;
+flex-wrap:nowrap;
+overflow-x:auto;
+-webkit-overflow-scrolling:touch;
+padding-bottom:4px;
+scrollbar-width:none;
+}
+.nav::-webkit-scrollbar{display:none}
+#netPill{align-self:flex-start}
+.form-grid{grid-template-columns:1fr}
+}
+</style>
+</head>
+
+<body>
+<div class="topbar">
+<div class="topbar-inner">
+<div class="brand">
+<div class="mark" aria-hidden="true"></div>
+<div>
+<div class="brand-title">MSS Protocol</div>
+<div class="brand-sub">Alerts</div>
+</div>
+</div>
+
+<div class="nav" role="navigation" aria-label="Main">
+<a href="./index.html">Home</a>
+<a href="./token.html">Scanner</a>
+<a href="./explore.html" title="Coming soon">Explore</a>
+<a class="active" href="./alerts.html">Alerts</a>
+<a href="./launches.html" title="Coming soon">Launches</a>
+<a href="./methodology.html">Methodology</a>
+<a href="./legal.html">Legal</a>
+</div>
+
+<div class="pill" id="netPill" title="Connection status">
+<span class="dot good" id="netDot"></span>
+<span id="netText">Online</span>
+</div>
+</div>
+</div>
+
+<div class="container">
+<div class="hero">
+<div style="flex:1; min-width:0; width:100%;">
+<h1>Alert Monitoring</h1>
+<p>
+Create threshold alerts for risk spikes, whale pressure, liquidity, and holder concentration.
+Login is required to save alerts and review your monitoring set.
+</p>
+</div>
+</div>
+
+<div class="grid">
+<div class="card">
+<div class="card-inner">
+<div class="card-head">
+<div>
+<div class="card-title">Create Alert</div>
+<div class="small">Save a rule tied to a token mint.</div>
+</div>
+<span class="badge" id="loginStateBadge"><span class="dot warn" id="loginStateDot"></span><span id="loginStateText">Checking login</span></span>
+</div>
+
+<div class="stack">
+<input id="mintInput" class="input mono" placeholder="Paste token mint address..." autocomplete="off" />
+
+<div class="form-grid">
+<select id="typeSelect" aria-label="Alert type">
+<option value="risk_spike">Risk Spike</option>
+<option value="whale">Whale Score</option>
+<option value="liquidity">Liquidity USD</option>
+<option value="top10">Top10 Concentration</option>
+<option value="authority">Authority Risk</option>
+</select>
+
+<select id="directionSelect" aria-label="Direction">
+<option value="above">Above</option>
+<option value="below">Below</option>
+</select>
+</div>
+
+<input id="thresholdInput" class="input" type="number" step="0.01" placeholder="Threshold (e.g. 70)" />
+
+<div class="row">
+<button id="createAlertBtn" class="btn primary">Create Alert</button>
+<button id="refreshAlertsBtn" class="btn ghost">Refresh</button>
+</div>
+
+<div class="helper">
+Examples: Risk Spike above 70, Whale Score above 65, Liquidity below 25000, Top10 above 55.
+Authority Risk uses MSS risk escalation logic and does not require a threshold.
+</div>
+
+<div id="createStatus" class="status-line">Ready.</div>
+</div>
+</div>
+</div>
+
+<div class="card">
+<div class="card-inner">
+<div class="card-head">
+<div>
+<div class="card-title">Saved Alerts</div>
+<div class="small">Your current monitoring rules.</div>
+</div>
+<span class="badge">Live</span>
+</div>
+
+<div id="alertsList" class="stack">
+<div class="empty">No alerts loaded yet.</div>
+</div>
+</div>
+</div>
+</div>
+
+<div class="card" style="margin-top:14px;">
+<div class="card-inner">
+<div class="card-head">
+<div>
+<div class="card-title">Recent Trigger History</div>
+<div class="small">Latest alert events from your saved rules.</div>
+</div>
+<span class="badge">History</span>
+</div>
+
+<div id="eventsList" class="stack">
+<div class="empty">No alert events available yet.</div>
+</div>
+</div>
+</div>
+
+<div class="footer">
+<div class="footer-left">
+<div class="footer-line">
+<span>Powered by <strong>MSS Protocol</strong></span>
+<span class="footer-sep">•</span>
+<span>Security Layer</span>
+</div>
+<div class="footer-line small">
+<span class="mono" id="apiMeta">API: —</span>
+<span class="footer-sep">•</span>
+<span>Risk • Monitoring • Alert History</span>
+</div>
+</div>
+</div>
+</div>
+
+<script type="module" src="./assets/alerts.js?v=1"></script>
+</body>
+</html>

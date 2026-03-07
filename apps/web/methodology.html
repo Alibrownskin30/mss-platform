@@ -5,46 +5,258 @@
 <meta name="viewport" content="width=device-width,initial-scale=1" />
 <title>MSS Protocol — Methodology</title>
 <style>
-body{margin:0;font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial;background:#05070c;color:rgba(255,255,255,.9)}
-.wrap{max-width:980px;margin:0 auto;padding:28px 18px 80px}
+:root{
+--bg0:#05070c;
+--bg1:#070a12;
+--muted:rgba(255,255,255,.60);
+--muted2:rgba(255,255,255,.45);
+--text:rgba(255,255,255,.92);
+--line:rgba(255,255,255,.10);
+--a:#00ffd1;
+--b:#3aa0ff;
+--shadow:0 22px 60px rgba(0,0,0,.55);
+--r:18px;
+--sans:ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, "Apple Color Emoji","Segoe UI Emoji";
+}
+
+*{box-sizing:border-box}
+html,body{height:100%}
+body{
+margin:0;
+font-family:var(--sans);
+color:var(--text);
+background:
+radial-gradient(1200px 700px at 15% -10%, rgba(0,255,209,.18), transparent 55%),
+radial-gradient(900px 600px at 95% 10%, rgba(58,160,255,.16), transparent 50%),
+linear-gradient(180deg, var(--bg0), var(--bg1));
+overflow-x:hidden;
+}
+
 a{color:rgba(0,255,209,.9);text-decoration:none}
 a:hover{text-decoration:underline}
-.card{border:1px solid rgba(255,255,255,.10);background:rgba(255,255,255,.04);border-radius:18px;padding:18px}
-h1{margin:0 0 10px}
-h2{margin:18px 0 8px}
-p,li{line-height:1.6;color:rgba(255,255,255,.78)}
+
+.container{
+max-width:1040px;
+margin:0 auto;
+padding:28px 18px 80px;
+}
+
+.hero h1{
+margin:0 0 10px;
+font-size:30px;
+letter-spacing:.2px;
+}
+
+.hero p{
+margin:0;
+max-width:800px;
+line-height:1.6;
+color:rgba(255,255,255,.76);
+}
+
+.card{
+margin-top:18px;
+border:1px solid rgba(255,255,255,.10);
+background:linear-gradient(180deg, rgba(255,255,255,.06), rgba(255,255,255,.035));
+border-radius:18px;
+padding:18px;
+box-shadow:var(--shadow);
+}
+
+.section{
+padding:8px 0 4px;
+border-top:1px solid rgba(255,255,255,.08);
+}
+
+.section:first-child{
+border-top:0;
+padding-top:0;
+}
+
+h2{
+margin:0 0 10px;
+font-size:18px;
+letter-spacing:.2px;
+}
+
+p,li{
+line-height:1.65;
+color:rgba(255,255,255,.78);
+}
+
+ul{
+margin:8px 0 0 18px;
+padding:0;
+}
+
+.badge{
+display:inline-flex;
+align-items:center;
+gap:8px;
+border:1px solid rgba(255,255,255,.10);
+border-radius:999px;
+padding:7px 10px;
+background:rgba(255,255,255,.04);
+color:rgba(255,255,255,.80);
+font-size:12px;
+white-space:nowrap;
+max-width:100%;
+}
+
+.badges{
+display:flex;
+gap:8px;
+flex-wrap:wrap;
+margin-top:10px;
+}
+
+.note{
+margin-top:10px;
+padding:12px 14px;
+border:1px solid rgba(0,255,209,.16);
+border-radius:16px;
+background:linear-gradient(145deg, rgba(0,255,209,.06), rgba(58,160,255,.05));
+color:rgba(255,255,255,.76);
+line-height:1.6;
+}
+
 .muted{color:rgba(255,255,255,.60);font-size:13px}
+
+@media (max-width: 640px){
+.container{padding:20px 12px 72px}
+.hero h1{font-size:24px}
+}
 </style>
 </head>
 <body>
-<div class="wrap">
+<div class="container">
 <a href="./index.html">← Home</a>
-<h1>Methodology</h1>
-<div class="card">
-<p>MSS Protocol focuses on <strong>structural risk</strong> — signals that often exist <em>before</em> problems become obvious.</p>
 
+<div class="hero" style="margin-top:12px;">
+<h1>Methodology</h1>
+<p>
+MSS Protocol focuses on structural token risk. The scanner is designed to highlight authority exposure,
+holder concentration, hidden control patterns, liquidity fragility, whale behaviour, and risk trend movement.
+</p>
+</div>
+
+<div class="card">
+<div class="section">
+<h2>What MSS is measuring</h2>
+<p>
+MSS is not a promise engine. It is a security intelligence layer. The scanner combines on-chain token data,
+holder concentration, public market context, and best-effort wallet linkage heuristics to surface signals that
+often matter before a token failure becomes obvious.
+</p>
+<div class="badges">
+<span class="badge">Authorities</span>
+<span class="badge">Concentration</span>
+<span class="badge">Clusters</span>
+<span class="badge">Liquidity</span>
+<span class="badge">Whale Activity</span>
+<span class="badge">Trend</span>
+</div>
+</div>
+
+<div class="section">
 <h2>Authorities</h2>
 <ul>
-<li><strong>Mint Authority</strong>: if present, supply can be changed (risk).</li>
-<li><strong>Freeze Authority</strong>: if present, transfers may be restricted (risk).</li>
+<li><strong>Mint Authority</strong>: if still present, token supply may be increased.</li>
+<li><strong>Freeze Authority</strong>: if still present, transfers may be restricted or frozen.</li>
+<li>MSS treats active authorities as structural risk factors because they can change token behaviour after launch.</li>
 </ul>
+</div>
 
-<h2>Concentration</h2>
+<div class="section">
+<h2>Holder concentration</h2>
 <ul>
-<li>Top1 / Top5 / Top10 / Top20 are calculated from largest token accounts.</li>
-<li>Owner is resolved from token account data where possible.</li>
+<li>Top1 / Top5 / Top10 / Top20 are calculated from the largest token accounts.</li>
+<li>Where possible, token accounts are resolved to owner wallets to improve concentration context.</li>
+<li>Higher concentration does not always mean malicious intent, but it increases control, liquidity, and exit risk.</li>
 </ul>
+</div>
 
-<h2>Market Context</h2>
+<div class="section">
+<h2>Hidden control</h2>
 <ul>
-<li>Price / liquidity / volume / FDV come from public market sources.</li>
-<li><strong>MCap</strong> is computed as <code>price × totalSupplyUi</code> when direct market cap is unavailable.</li>
+<li>MSS looks for linked holder structures among major wallets.</li>
+<li>Signals include shared payer fingerprints, repeated wallet linkage, and synchronized activity patterns.</li>
+<li>A token can appear decentralized by count while still being controlled by a smaller coordinated group.</li>
 </ul>
+<div class="note">
+Hidden control is a heuristic layer. It indicates elevated likelihood of coordination or shared operator structure, not definitive attribution.
+</div>
+</div>
 
-<h2>Clusters</h2>
-<p>Beta clusters are a best-effort snapshot. “Clusters” here means repeated ownership across top token accounts, which can indicate structuring. This is not a definitive conclusion.</p>
+<div class="section">
+<h2>Developer activity overlap</h2>
+<ul>
+<li>MSS scores whether major wallets show overlap patterns consistent with a linked operator or developer-controlled cluster.</li>
+<li>This does not name a developer wallet. It measures structure, not identity.</li>
+<li>The purpose is to surface concentration that may be intentionally fragmented.</li>
+</ul>
+</div>
 
-<p class="muted">This methodology will expand as historical tracking, alerting, and deeper on-chain heuristics are enabled.</p>
+<div class="section">
+<h2>Fresh wallet risk</h2>
+<ul>
+<li>MSS estimates the proportion of recent wallets inside the analyzed holder cluster set.</li>
+<li>Heavy reliance on fresh wallets can signal manufactured distribution or coordinated early positioning.</li>
+<li>This signal is best used alongside hidden control and concentration, not in isolation.</li>
+</ul>
+</div>
+
+<div class="section">
+<h2>Liquidity stability</h2>
+<ul>
+<li>MSS compares liquidity against FDV to estimate how fragile market structure may be.</li>
+<li>Thin liquidity relative to valuation can make price action easier to distort and exits harder during stress.</li>
+<li>Liquidity strength does not eliminate risk, but weak liquidity raises it.</li>
+</ul>
+</div>
+
+<div class="section">
+<h2>Whale activity</h2>
+<ul>
+<li>MSS uses coordination and synchronization signals to estimate whether large-holder behaviour is normal, active, or elevated.</li>
+<li>Whale signals are intended to show pressure and structure, not guaranteed intent.</li>
+<li>They become more useful over repeated scans and historical collection.</li>
+</ul>
+</div>
+
+<div class="section">
+<h2>Risk trend and reputation</h2>
+<ul>
+<li>MSS stores scan history to calculate short-term trend movement such as 1h, 6h, and 24h changes.</li>
+<li>Momentum labels like Escalating, Rising, Cooling, and Stable come from historical movement in recorded risk snapshots.</li>
+<li>The reputation layer is a compact summary of how stable or unstable the token appears over time based on MSS signals.</li>
+</ul>
+</div>
+
+<div class="section">
+<h2>Market context</h2>
+<ul>
+<li>Price, liquidity, volume, and FDV come from public market sources.</li>
+<li>When direct market cap is not available, MSS can derive it from price and supply context.</li>
+<li>Market data is supportive context, not the only basis of MSS security scoring.</li>
+</ul>
+</div>
+
+<div class="section">
+<h2>What MSS does not claim</h2>
+<ul>
+<li>MSS does not claim definitive identity attribution.</li>
+<li>MSS does not guarantee that a token is safe, unsafe, or fraudulent.</li>
+<li>MSS does not replace contract audits, legal review, or independent due diligence.</li>
+</ul>
+<div class="note">
+The scanner is designed to improve decision quality by surfacing structural risk early. It is a serious signal layer, not a certainty engine.
+</div>
+</div>
+
+<p class="muted" style="margin-top:16px;">
+This methodology will continue to expand as MSS adds deeper telemetry, alert history, richer trend analysis, and future intelligence modules.
+</p>
 </div>
 </div>
 </body>
