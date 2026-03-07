@@ -9,6 +9,9 @@ const JWT_ISSUER = process.env.JWT_ISSUER || "mssprotocol";
 const JWT_AUDIENCE = process.env.JWT_AUDIENCE || "mss-users";
 const JWT_EXPIRES_IN = process.env.JWT_EXPIRES_IN || "30d";
 
+const CAPTCHA_REQUIRED = String(process.env.CAPTCHA_REQUIRED || "false").toLowerCase() === "true";
+const TURNSTILE_SECRET = String(process.env.TURNSTILE_SECRET || "").trim();
+
 function assertStrongJwtSecret() {
 if (NODE_ENV === "production") {
 const s = String(process.env.JWT_SECRET || "").trim();
@@ -24,18 +27,15 @@ throw new Error("JWT_SECRET is still default. Set a real secret.");
 assertStrongJwtSecret();
 
 function normalizeEmail(email) {
-const e = String(email || "").trim().toLowerCase();
-return e;
+return String(email || "").trim().toLowerCase();
 }
 
 function isValidEmail(email) {
-// simple + safe (not perfect RFC, but good enough)
 return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
 }
 
 function isStrongPassword(pw) {
 const s = String(pw || "");
-// baseline policy for beta
 if (s.length < 8) return false;
 if (s.length > 200) return false;
 return true;
@@ -61,8 +61,79 @@ const token = parts[1].trim();
 return token || null;
 }
 
+async function verifyTurnstileToken(token, remoteip) {
+if (!TURNSTILE_SECRET) {
+if (CAPTCHA_REQUIRED) {
+throw new Error("Captcha is required but TURNSTILE_SECRET is not configured.");
+}
+return { ok: true, skipped: true };
+}
+
+if (!token) {
+if (CAPTCHA_REQUIRED) {
+return { ok: false, error: "Missing verification token" };
+}
+return { ok: true, skipped: true };
+}
+
+try {
+const body = new URLSearchParams();
+body.set("secret", TURNSTILE_SECRET);
+body.set("response", token);
+if (remoteip) body.set("remoteip", remoteip);
+
+const resp = await fetch("https://challenges.cloudflare.com/turnstile/v0/siteverify", {
+method: "POST",
+headers: { "Content-Type": "application/x-www-form-urlencoded" },
+body: body.toString(),
+});
+
+const json = await resp.json().catch(() => null);
+
+if (!json?.success) {
+return { ok: false, error: "Human verification failed" };
+}
+
+return { ok: true };
+} catch {
+if (CAPTCHA_REQUIRED) {
+return { ok: false, error: "Human verification failed" };
+}
+return { ok: true, skipped: true };
+}
+}
+
+async function assertHuman(req) {
+const website = String(req.body?.website || "").trim(); // honeypot
+if (website) {
+return { ok: false, error: "Verification failed" };
+}
+
+const humanCheck = req.body?.humanCheck;
+const turnstileToken = String(req.body?.turnstileToken || "").trim();
+
+if (CAPTCHA_REQUIRED) {
+if (!humanCheck) {
+return { ok: false, error: "Please confirm you are human" };
+}
+
+const verified = await verifyTurnstileToken(turnstileToken, req.ip);
+if (!verified.ok) return verified;
+return { ok: true };
+}
+
+if (humanCheck === false) {
+return { ok: false, error: "Please confirm you are human" };
+}
+
+return { ok: true };
+}
+
 export async function register(req, res) {
 try {
+const human = await assertHuman(req);
+if (!human.ok) return res.status(400).json({ error: human.error });
+
 const emailRaw = req.body?.email;
 const password = req.body?.password;
 
@@ -91,6 +162,9 @@ return res.status(500).json({ error: String(e?.message || e) });
 
 export async function login(req, res) {
 try {
+const human = await assertHuman(req);
+if (!human.ok) return res.status(400).json({ error: human.error });
+
 const emailRaw = req.body?.email;
 const password = req.body?.password;
 
@@ -100,7 +174,6 @@ if (!isValidEmail(email)) return res.status(401).json({ error: "Invalid credenti
 
 const user = db.prepare(`SELECT id, email, password_hash FROM users WHERE email = ?`).get(email);
 
-// Prevent easy enumeration: same response for missing user / wrong password
 if (!user) return res.status(401).json({ error: "Invalid credentials" });
 
 const ok = await bcrypt.compare(String(password), user.password_hash);

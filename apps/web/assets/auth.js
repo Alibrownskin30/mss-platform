@@ -1,34 +1,68 @@
-// apps/web/assets/auth.js
 import { apiPost } from "./api.js";
 
-const KEY = "mssToken";
+const TOKEN_KEY = "mssToken";
+const EMAIL_KEY = "mssUserEmail";
+
+function saveSession(token, email) {
+localStorage.setItem(TOKEN_KEY, token);
+if (email) localStorage.setItem(EMAIL_KEY, email);
+}
 
 export function getToken() {
-return localStorage.getItem(KEY);
+return localStorage.getItem(TOKEN_KEY);
 }
 
-export function setToken(token) {
-localStorage.setItem(KEY, token);
+export function getUserEmail() {
+return localStorage.getItem(EMAIL_KEY);
 }
 
-export function clearToken() {
-localStorage.removeItem(KEY);
+export function logout() {
+localStorage.removeItem(TOKEN_KEY);
+localStorage.removeItem(EMAIL_KEY);
 }
 
-export async function register(email, password) {
-const out = await apiPost("/api/register", { email, password });
-if (out?.token) setToken(out.token);
-return out;
+export async function login({
+email,
+password,
+humanCheck = false,
+website = "",
+turnstileToken = "",
+}) {
+const data = await apiPost("/api/login", {
+email,
+password,
+humanCheck,
+website,
+turnstileToken,
+});
+
+if (!data?.token) {
+throw new Error(data?.error || "Login failed.");
 }
 
-export async function login(email, password) {
-const out = await apiPost("/api/login", { email, password });
-if (out?.token) setToken(out.token);
-return out;
+saveSession(data.token, data?.user?.email || email || "");
+return data;
 }
 
-export async function createAlert({ mint, type, direction, threshold }) {
-const token = getToken();
-if (!token) throw new Error("Login required");
-return apiPost("/api/alerts", { mint, type, direction, threshold }, token);
+export async function register({
+email,
+password,
+humanCheck = false,
+website = "",
+turnstileToken = "",
+}) {
+const data = await apiPost("/api/register", {
+email,
+password,
+humanCheck,
+website,
+turnstileToken,
+});
+
+if (!data?.token) {
+throw new Error(data?.error || "Registration failed.");
+}
+
+saveSession(data.token, data?.user?.email || email || "");
+return data;
 }

@@ -110,11 +110,6 @@ border-color:rgba(0,255,209,.20);
 background:rgba(0,255,209,.06);
 }
 
-.nav a.disabled{
-opacity:.65;
-cursor:not-allowed;
-}
-
 .pill{
 display:inline-flex;
 align-items:center;
@@ -158,11 +153,7 @@ flex-wrap:wrap;
 margin-bottom:18px;
 }
 
-.hero h1{
-margin:0;
-font-size:28px;
-}
-
+.hero h1{margin:0;font-size:28px}
 .hero p{
 margin:10px 0 0;
 color:var(--muted);
@@ -366,11 +357,12 @@ width:100%;
 <div class="nav" role="navigation" aria-label="Main">
 <a href="./index.html">Home</a>
 <a href="./token.html">Scanner</a>
-<a class="disabled" aria-disabled="true">Explore</a>
+<a href="./explore.html">Explore</a>
 <a class="active" href="./alerts.html">Alerts</a>
 <a href="./launchpad.html">Launchpad</a>
 <a href="./methodology.html">Methodology</a>
 <a href="./legal.html">Legal</a>
+<a href="./index.html#access">Login</a>
 </div>
 
 <div class="pill" title="Connection status">
@@ -476,6 +468,6 @@ Create alerts from the scanner or from this page. Alerts are tied to your login 
 </div>
 </div>
 
-<script type="module" src="./assets/alerts.js"></script>
+<script type="module" src="./assets/alerts.js?v=2"></script>
 </body>
 </html>

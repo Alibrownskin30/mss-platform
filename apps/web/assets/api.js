@@ -1,13 +1,10 @@
 export function getApiBase() {
-// Optional override (do NOT put keys here)
 if (window.API_BASE && typeof window.API_BASE === "string" && window.API_BASE.trim()) {
 return window.API_BASE.replace(/\/+$/, "");
 }
 
 const { protocol, hostname } = window.location;
 
-// ✅ Production domains -> use API subdomain
-// (covers mssprotocol.com and www.mssprotocol.com)
 if (
 hostname === "mssprotocol.com" ||
 hostname === "www.mssprotocol.com" ||
@@ -16,20 +13,13 @@ hostname.endsWith(".mssprotocol.com")
 return "https://api.mssprotocol.com";
 }
 
-// ✅ Codespaces / GitHub preview: web=3000, api=8787
-// Common patterns:
-// - *.app.github.dev
-// - *.githubpreview.dev
-// We replace the -3000. segment with -8787.
 if (hostname.includes("app.github.dev") || hostname.includes("githubpreview.dev")) {
 if (hostname.includes("-3000.")) {
 return `${protocol}//${hostname.replace("-3000.", "-8787.")}`;
 }
-// best-effort for non-3000 preview hosts
 return `${protocol}//${hostname.replace(/-\d+\./, "-8787.")}`;
 }
 
-// ✅ Local dev fallback
 return "http://127.0.0.1:8787";
 }
 

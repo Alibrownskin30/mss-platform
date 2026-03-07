@@ -165,11 +165,6 @@ border-color:rgba(57,208,200,.24);
 background:rgba(57,208,200,.06);
 }
 
-.navlink.disabled{
-cursor:not-allowed;
-opacity:.65;
-}
-
 .pill{
 display:inline-flex;
 align-items:center;
@@ -577,6 +572,21 @@ color:var(--muted2);
 line-height:1.5;
 }
 
+.human-check{
+display:flex;
+align-items:flex-start;
+gap:10px;
+padding:12px 14px;
+border-radius:14px;
+border:1px solid rgba(255,255,255,.10);
+background:rgba(255,255,255,.04);
+}
+
+.human-check input{
+margin-top:2px;
+accent-color:#39D0C8;
+}
+
 .form-actions{
 display:flex;
 gap:10px;
@@ -668,13 +678,9 @@ justify-content:flex-start;
 .hero{padding:34px 0 24px}
 .panel{padding:20px}
 .sub{font-size:14px}
-.cta-row .btn{
-width:100%;
-}
+.cta-row .btn{width:100%}
 .statgrid{grid-template-columns:1fr}
-.form-actions .authbtn{
-width:100%;
-}
+.form-actions .authbtn{width:100%}
 }
 
 @media (max-width: 520px){
@@ -690,9 +696,7 @@ letter-spacing:.13em;
 width:100%;
 justify-content:flex-start;
 }
-.footer-main{
-align-items:flex-start;
-}
+.footer-main{align-items:flex-start}
 }
 </style>
 </head>
@@ -712,11 +716,12 @@ align-items:flex-start;
 <nav aria-label="Primary">
 <a class="navlink active" href="./index.html">Home</a>
 <a class="navlink" href="./token.html">Scanner</a>
-<a class="navlink disabled" aria-disabled="true">Explore <span class="pill">Soon</span></a>
+<a class="navlink" href="./explore.html">Explore</a>
 <a class="navlink" href="./alerts.html">Alerts</a>
 <a class="navlink" href="./launchpad.html">Launchpad</a>
 <a class="navlink" href="./methodology.html">Methodology</a>
 <a class="navlink" href="./legal.html">Legal</a>
+<a class="navlink" href="#access">Login</a>
 </nav>
 
 <div class="authbar">
@@ -838,7 +843,10 @@ This build prioritises accuracy, speed and professional presentation.
 <input id="registerPassword" class="input" type="password" placeholder="Create a password" autocomplete="new-password" />
 </div>
 
-<div class="helper">Human verification should be added next on register/login before public scale.</div>
+<label class="human-check" for="registerHuman">
+<input id="registerHuman" type="checkbox" />
+<span class="helper">I’m human and not submitting automated account creation.</span>
+</label>
 
 <div class="form-actions">
 <button id="registerBtn" class="authbtn primary" type="button">Create Account</button>
@@ -862,6 +870,11 @@ This build prioritises accuracy, speed and professional presentation.
 <label class="label" for="loginPassword">Password</label>
 <input id="loginPassword" class="input" type="password" placeholder="Your password" autocomplete="current-password" />
 </div>
+
+<label class="human-check" for="loginHuman">
+<input id="loginHuman" type="checkbox" />
+<span class="helper">I’m human and I’m signing into my own MSS account.</span>
+</label>
 
 <div class="form-actions">
 <button id="loginBtn" class="authbtn primary" type="button">Login</button>
@@ -939,6 +952,15 @@ if (logoutBtn) logoutBtn.style.display = "none";
 }
 }
 
+function requireHuman(checkboxId, statusId) {
+const checked = !!$(checkboxId)?.checked;
+if (!checked) {
+setStatus(statusId, "Please confirm you’re human.", "warn");
+return false;
+}
+return true;
+}
+
 async function handleRegister() {
 const email = ($("registerEmail")?.value || "").trim();
 const password = ($("registerPassword")?.value || "").trim();
@@ -947,6 +969,8 @@ if (!email || !password) {
 setStatus("registerStatus", "Enter email and password.", "warn");
 return;
 }
+
+if (!requireHuman("registerHuman", "registerStatus")) return;
 
 try {
 setStatus("registerStatus", "Creating account…");
@@ -973,6 +997,8 @@ if (!email || !password) {
 setStatus("loginStatus", "Enter email and password.", "warn");
 return;
 }
+
+if (!requireHuman("loginHuman", "loginStatus")) return;
 
 try {
 setStatus("loginStatus", "Signing in…");

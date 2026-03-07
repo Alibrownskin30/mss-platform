@@ -404,11 +404,16 @@ function renderTrendChart(trend) {
 const svg = $("riskTrendChart");
 if (!svg) return;
 
+const latest = Number(trend?.latest?.risk);
+const d1 = Number(trend?.change?.["1h"]);
+const d6 = Number(trend?.change?.["6h"]);
+const d24 = Number(trend?.change?.["24h"]);
+
 const points = [
-Number(trend?.latest?.risk),
-Number(trend?.latest?.risk) - Number(trend?.change?.["1h"] ?? 0),
-Number(trend?.latest?.risk) - Number(trend?.change?.["6h"] ?? 0),
-Number(trend?.latest?.risk) - Number(trend?.change?.["24h"] ?? 0),
+Number.isFinite(latest - d24) ? latest - d24 : null,
+Number.isFinite(latest - d6) ? latest - d6 : null,
+Number.isFinite(latest - d1) ? latest - d1 : null,
+Number.isFinite(latest) ? latest : null,
 ].filter((v) => Number.isFinite(v));
 
 if (!points.length) {
@@ -416,15 +421,14 @@ svg.innerHTML = "";
 return;
 }
 
-const ordered = [...points].reverse();
 const width = 100;
 const height = 36;
-const min = Math.min(...ordered, 0);
-const max = Math.max(...ordered, 100);
+const min = Math.min(...points, 0);
+const max = Math.max(...points, 100);
 const range = Math.max(1, max - min);
 
-const coords = ordered.map((v, i) => {
-const x = (i / Math.max(1, ordered.length - 1)) * width;
+const coords = points.map((v, i) => {
+const x = (i / Math.max(1, points.length - 1)) * width;
 const y = height - ((v - min) / range) * height;
 return `${x},${y}`;
 }).join(" ");
@@ -436,8 +440,7 @@ fill="none"
 stroke="rgba(0,255,209,0.95)"
 stroke-width="2.5"
 points="${coords}"
-/>
-`;
+/>`;
 }
 
 function renderRaw(obj) {
@@ -570,7 +573,7 @@ setBadge("riskBadge", "riskDot", "riskText", rm?.label?.state || "warn", rm?.lab
 
 renderRiskMeter(rm);
 renderPhase2Signals(rm);
-renderTrendChart(trend);
+renderTrendChart(rm?.trend || trend);
 
 setText("notesText", buildNotes({ tokenJson, marketJson, conc, activity, rm }));
 
@@ -579,7 +582,7 @@ mint,
 token: tokenJson,
 market: marketJson,
 holders: holdersJson,
-trend,
+trend: rm?.trend || trend,
 derived: {
 concentration: conc,
 activity,
@@ -655,7 +658,7 @@ setBadge("riskBadge", "riskDot", "riskText", rm?.label?.state || "warn", rm?.lab
 renderRiskMeter(rm);
 renderPhase2Signals(rm);
 renderClusters(last.derived?.activity || {}, rm);
-renderTrendChart(last.trend || {});
+renderTrendChart(last.trend || rm?.trend || {});
 
 const notes = buildNotes({
 tokenJson: last.token,

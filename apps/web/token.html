@@ -155,11 +155,6 @@ border-color:rgba(0,255,209,.20);
 background:rgba(0,255,209,.06);
 }
 
-.nav a.disabled{
-opacity:.65;
-cursor:not-allowed;
-}
-
 .pill{
 display:inline-flex;
 align-items:center;
@@ -507,6 +502,25 @@ gap:10px;
 flex-wrap:wrap;
 }
 
+.trend-spark{
+margin-top:12px;
+border:1px solid rgba(255,255,255,.08);
+border-radius:14px;
+background:rgba(255,255,255,.03);
+padding:10px 12px;
+}
+
+.trend-spark .small{
+display:block;
+margin-bottom:8px;
+}
+
+.trend-spark svg{
+display:block;
+width:100%;
+height:52px;
+}
+
 .signal-grid{
 display:grid;
 grid-template-columns:repeat(2, minmax(0,1fr));
@@ -683,21 +697,10 @@ width:100%;
 padding:20px 12px 72px;
 }
 
-.hero h1{
-font-size:22px;
-}
-
-.hero p{
-font-size:14px;
-}
-
-.kpis{
-grid-template-columns:1fr;
-}
-
-.signal-grid{
-grid-template-columns:1fr;
-}
+.hero h1{font-size:22px}
+.hero p{font-size:14px}
+.kpis{grid-template-columns:1fr}
+.signal-grid{grid-template-columns:1fr}
 
 .card-head{
 flex-direction:column;
@@ -746,11 +749,12 @@ min-width:0;
 <div class="nav" role="navigation" aria-label="Main">
 <a href="./index.html">Home</a>
 <a class="active" href="./token.html">Scanner</a>
-<a class="disabled" aria-disabled="true">Explore</a>
+<a href="./explore.html">Explore</a>
 <a href="./alerts.html">Alerts</a>
 <a href="./launchpad.html">Launchpad</a>
 <a href="./methodology.html">Methodology</a>
 <a href="./legal.html">Legal</a>
+<a href="./index.html#access">Login</a>
 </div>
 
 <div class="pill" id="netPill" title="Connection status">
@@ -863,6 +867,11 @@ and actionable alerts — engineered for serious participants.
 <span class="chip">1h: <b id="riskTrend1h">—</b></span>
 <span class="chip">24h: <b id="riskTrend24h">—</b></span>
 <span class="chip">Reputation: <b id="reputationLabel">—</b> (<span id="reputationScore">—</span>)</span>
+</div>
+
+<div class="trend-spark">
+<span class="small">Risk Trend Snapshot</span>
+<svg id="riskTrendChart" viewBox="0 0 100 36" preserveAspectRatio="none" aria-label="Risk trend chart"></svg>
 </div>
 </div>
 
@@ -1092,6 +1101,6 @@ We never render RPC URLs or API keys in the interface. Debug via server logs onl
 </div>
 </div>
 
-<script type="module" src="./assets/token.js?v=10"></script>
+<script type="module" src="./assets/token.js?v=11"></script>
 </body>
 </html>

@@ -151,7 +151,9 @@ message = buildAuthorityMessage(alert, latest);
 }
 } else if (alert.type === "risk_spike") {
 value = getMetricValue(alert.type, latest);
-hit = didRiskSpike(latest, previous, alert.threshold) || isThresholdHit(alert.direction, value, alert.threshold);
+hit =
+didRiskSpike(latest, previous, alert.threshold) ||
+isThresholdHit(alert.direction, value, alert.threshold);
 if (hit) {
 message = buildThresholdMessage(alert, value, latest);
 }

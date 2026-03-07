@@ -59,10 +59,6 @@ CREATE INDEX IF NOT EXISTS idx_alert_events_alert ON alert_events(alert_id);
 CREATE INDEX IF NOT EXISTS idx_alert_events_mint_time ON alert_events(mint, created_at);
 `);
 
-function nowIso() {
-return new Date().toISOString().replace("T", " ").slice(0, 19);
-}
-
 function toNumOrNull(v) {
 if (v == null || v === "") return null;
 const n = Number(v);

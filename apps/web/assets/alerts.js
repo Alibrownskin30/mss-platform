@@ -102,18 +102,33 @@ await toggleAlert(id);
 });
 }
 
-function renderEvents(events) {
+function renderEvents(alerts) {
 const wrap = $("eventsList");
 if (!wrap) return;
 
-if (!Array.isArray(events) || !events.length) {
+const items = (Array.isArray(alerts) ? alerts : [])
+.filter((a) => a.last_triggered_at)
+.map((a) => ({
+type: a.type,
+mint: a.mint,
+direction: a.direction,
+threshold: a.threshold,
+message:
+a.type === "authority"
+? "Authority alert triggered."
+: `${a.type} ${a.direction} ${a.threshold} triggered.`,
+created_at: a.last_triggered_at,
+}))
+.sort((a, b) => new Date(`${b.created_at}Z`) - new Date(`${a.created_at}Z`));
+
+if (!items.length) {
 wrap.innerHTML = `<div class="empty">No alert events available yet.</div>`;
 return;
 }
 
 wrap.innerHTML = "";
 
-for (const ev of events) {
+for (const ev of items.slice(0, 20)) {
 const el = document.createElement("div");
 el.className = "event-item";
 
@@ -147,6 +162,7 @@ async function fetchAlerts() {
 const jwt = getJwt();
 if (!jwt) {
 renderAlerts([]);
+renderEvents([]);
 setText("createStatus", "Login required to manage alerts.");
 return [];
 }
@@ -155,29 +171,12 @@ try {
 const data = await apiGet("/api/alerts", { token: jwt });
 const alerts = Array.isArray(data?.alerts) ? data.alerts : [];
 renderAlerts(alerts);
+renderEvents(alerts);
 return alerts;
 } catch (e) {
 renderAlerts([]);
+renderEvents([]);
 setText("createStatus", e?.message || "Failed to load alerts.");
-return [];
-}
-}
-
-async function fetchAlertEvents() {
-const jwt = getJwt();
-if (!jwt) {
-renderEvents([]);
-return [];
-}
-
-try {
-const data = await apiGet("/api/alert-events?limit=50", { token: jwt });
-const events = Array.isArray(data?.events) ? data.events : [];
-renderEvents(events);
-return events;
-} catch (e) {
-renderEvents([]);
-setText("createStatus", e?.message || "Failed to load alert history.");
 return [];
 }
 }
@@ -185,7 +184,6 @@ return [];
 async function refreshAll() {
 renderLoginState();
 await fetchAlerts();
-await fetchAlertEvents();
 }
 
 async function toggleAlert(id) {

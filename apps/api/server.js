@@ -222,7 +222,8 @@ hiddenControlScore >= 70
 ? "Elevated Hidden Control"
 : "Low Hidden Control",
 linkedWallets,
-linkedWalletPct: top10 > 0 ? Math.min(top10, safeNum(activity?.maxClusterSize, 0) * (top10 / 10)) : 0,
+linkedWalletPct:
+top10 > 0 ? Math.min(top10, safeNum(activity?.maxClusterSize, 0) * (top10 / 10)) : 0,
 sharedFundingDetected: clusterCount >= 1,
 };
 
@@ -241,7 +242,7 @@ developerActivityScore >= 65
 : developerActivityScore >= 45
 ? "Possible Developer Linkage"
 : "No Strong Overlap",
-linkedWallets: linkedWallets,
+linkedWallets,
 };
 
 const freshWalletRiskScore = clamp(
