@@ -1,14 +1,18 @@
 import { PublicKey } from "@solana/web3.js";
 
 /**
-* MSS Phase 3A Cluster + Developer Network Intelligence
+* MSS Phase 3B Cluster + Developer Network Intelligence
 * Heuristic on-chain linkage model using:
 * - shared fee payer fingerprints
 * - short signature windows
 * - approximate wallet age from oldest recent sig
 * - synchronized activity buckets
 *
-* Output is designed to feed the main security model directly.
+* Output is designed to feed:
+* - hidden control scoring
+* - developer-network scoring
+* - wallet network intelligence UI
+* - future graph / control-map rendering
 */
 
 const SIG_LIMIT = 12;
@@ -45,6 +49,12 @@ function riskBand(score) {
 if (score >= 75) return { text: "High", state: "bad" };
 if (score >= 45) return { text: "Moderate", state: "warn" };
 return { text: "Low", state: "good" };
+}
+
+function confidenceLabel(score) {
+if (score >= 75) return "High";
+if (score >= 45) return "Moderate";
+return "Low";
 }
 
 function computeSyncBuckets(sigListsByOwner) {
@@ -138,7 +148,6 @@ syncBurstSize,
 groups,
 }) {
 const notes = [];
-
 let confidence = 0;
 
 if (sharedFundingDetected) {
@@ -221,6 +230,63 @@ notes,
 };
 }
 
+function buildWalletNetwork({
+groups,
+linkedWallets,
+linkedWalletPct,
+hiddenControlScore,
+developerNetwork,
+sharedFundingDetected,
+syncBurstSize,
+}) {
+const primaryGroup = groups[0] || null;
+const primaryWallet = primaryGroup?.payer || primaryGroup?.members?.[0] || null;
+const primaryClusterId = primaryGroup ? "C1" : null;
+
+let role = "Observed wallet";
+if (developerNetwork?.detected && developerNetwork?.confidence >= 75) {
+role = "Likely operator";
+} else if (developerNetwork?.detected) {
+role = "Probable linked wallet";
+} else if (sharedFundingDetected) {
+role = "Shared payer / controller";
+} else if ((primaryGroup?.size || 0) >= 2) {
+role = "Lead linked wallet";
+}
+
+const confidence = clamp(
+Math.round(
+hiddenControlScore * 0.45 +
+Number(developerNetwork?.confidence || 0) * 0.4 +
+(syncBurstSize >= 5 ? 10 : syncBurstSize >= 3 ? 5 : 0)
+),
+0,
+100
+);
+
+return {
+primaryWallet,
+primaryClusterId,
+role,
+linkedWallets,
+linkedWalletPct,
+sharedFundingDetected,
+controlEstimatePct: Number(
+developerNetwork?.likelyControlPct || linkedWalletPct || 0
+),
+confidence,
+confidenceLabel: confidenceLabel(confidence),
+clusters: groups.slice(0, 6).map((g, i) => ({
+id: `C${i + 1}`,
+payer: g.payer,
+size: g.size,
+members: g.members,
+score: clamp(42 + g.size * 10, 0, 100),
+role: i === 0 ? "Primary linked cluster" : "Linked cluster",
+})),
+};
+}
+
 /**
 * @param {object} args
 * @param {import("@solana/web3.js").Connection} args.connection
@@ -290,6 +356,7 @@ sigWindow: sigs.length,
 }
 
 const groups = buildLinkedGroups(perWallet);
+
 const linkedSet = new Set();
 for (const g of groups) {
 for (const m of g.members) linkedSet.add(m);
@@ -381,6 +448,16 @@ syncBurstSize >= 6
 : "Normal",
 };
 
+const walletNetwork = buildWalletNetwork({
+groups,
+linkedWallets,
+linkedWalletPct,
+hiddenControlScore,
+developerNetwork,
+sharedFundingDetected,
+syncBurstSize,
+});
+
 return {
 ok: true,
 analyzedWallets: perWallet.length,
@@ -391,17 +468,12 @@ newWalletPct,
 score: hiddenControlScore,
 label: hiddenControlBand.text,
 band: hiddenControlBand.state,
-clusters: groups.slice(0, 6).map((g, i) => ({
-id: `C${i + 1}`,
-payer: g.payer,
-members: g.members,
-size: g.size,
-score: clamp(40 + g.size * 10, 0, 100),
-})),
+clusters: walletNetwork.clusters,
 wallets: perWallet,
 hiddenControl,
 developer,
 developerNetwork,
+walletNetwork,
 freshWalletRisk,
 whaleActivity,
 syncBursts,
