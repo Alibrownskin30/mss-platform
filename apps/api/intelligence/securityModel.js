@@ -46,6 +46,17 @@ const freshWalletCount = Number(activity?.freshWalletRisk?.walletCount || 0);
 const developerLinked = !!activity?.developer?.overlapDetected;
 const developerLinkedWallets = Number(activity?.developer?.linkedWalletsEstimate || 0);
 
+const developerNetworkDetected = !!activity?.developerNetwork?.detected;
+const developerNetworkConfidence = Number(activity?.developerNetwork?.confidence || 0);
+const developerNetworkLinkedWallets = Number(activity?.developerNetwork?.linkedWallets || 0);
+const developerNetworkLikelyControlPct = Number(activity?.developerNetwork?.likelyControlPct || 0);
+const developerNetworkFundingShared = !!activity?.developerNetwork?.fundingSourceShared;
+const developerNetworkLabel = activity?.developerNetwork?.label || "No Clear Developer Network";
+const developerNetworkState = activity?.developerNetwork?.state || "good";
+const developerNetworkNotes = Array.isArray(activity?.developerNetwork?.notes)
+? activity.developerNetwork.notes
+: [];
+
 const syncBurstSize = Number(activity?.whaleActivity?.syncBurstSize || 0);
 
 let score = 0;
@@ -54,6 +65,7 @@ if (!mintRevoked) {
 score += 16;
 signals.push("Mint authority active");
 }
+
 if (!freezeRevoked) {
 score += 12;
 signals.push("Freeze authority active");
@@ -94,8 +106,30 @@ signals.push("Fresh wallet concentration elevated");
 score += 6;
 }
 
-if (developerLinked) {
-score += 10;
+if (developerNetworkDetected) {
+if (developerNetworkConfidence >= 75) {
+score += 18;
+signals.push("Strong developer-linked wallet network detected");
+} else if (developerNetworkConfidence >= 55) {
+score += 12;
+signals.push("Elevated developer-linked wallet network detected");
+} else {
+score += 7;
+signals.push("Weak developer linkage pattern detected");
+}
+
+if (developerNetworkLikelyControlPct >= 40) {
+score += 8;
+signals.push("Developer-linked network controls meaningful wallet share");
+} else if (developerNetworkLikelyControlPct >= 20) {
+score += 4;
+}
+
+if (developerNetworkFundingShared) {
+score += 4;
+}
+} else if (developerLinked) {
+score += 8;
 signals.push("Possible developer-linked holder overlap");
 }
 
@@ -183,6 +217,7 @@ score += 5;
 
 const trend24 = Number(trend?.change?.["24h"] ?? 0);
 let trendLabel = "Stable";
+
 if (trend24 >= 10) {
 trendLabel = "Escalating";
 score += 4;
@@ -194,15 +229,13 @@ trendLabel = "Improving";
 score = clamp(Math.round(score), 0, 100);
 
 const headline = band(score);
-
 const whaleDominance = clamp(Math.round((top10 / 80) * 100), 0, 100);
 
-const reputationBase = 100
-- Math.round(
-(score * 0.55) +
-(hiddenControlScore * 0.2) +
-(freshWalletPct * 0.12) +
-(developerLinked ? 8 : 0)
+const reputationBase = 100 - Math.round(
+(score * 0.52) +
+(hiddenControlScore * 0.18) +
+(freshWalletPct * 0.10) +
+(developerNetworkDetected ? Math.max(6, developerNetworkConfidence * 0.12) : developerLinked ? 6 : 0)
 );
 
 const reputationScore = clamp(reputationBase, 0, 100);
@@ -214,6 +247,8 @@ label: repBand(reputationScore),
 const primaryDriver =
 !mintRevoked || !freezeRevoked
 ? "Authority Control"
+: developerNetworkDetected && developerNetworkConfidence >= 55
+? "Developer Network"
 : hiddenControlScore >= 45
 ? "Hidden Control"
 : top10 >= 55
@@ -242,10 +277,32 @@ sharedFundingDetected: !!activity?.hiddenControl?.sharedFundingDetected,
 note: activity?.hiddenControl?.note || "—",
 },
 developerActivity: {
-detected: developerLinked,
-linkedWallets: developerLinkedWallets,
-label: activity?.developer?.label || "No clear overlap",
-state: developerLinked ? "warn" : "good",
+detected: developerNetworkDetected || developerLinked,
+linkedWallets: developerNetworkDetected
+? developerNetworkLinkedWallets
+: developerLinkedWallets,
+label: developerNetworkDetected
+? developerNetworkLabel
+: activity?.developer?.label || "No clear overlap",
+state: developerNetworkDetected
+? developerNetworkState
+: developerLinked
+? "warn"
+: "good",
+confidence: developerNetworkDetected ? developerNetworkConfidence : null,
+likelyControlPct: developerNetworkDetected ? developerNetworkLikelyControlPct : 0,
+fundingSourceShared: developerNetworkDetected ? developerNetworkFundingShared : false,
+notes: developerNetworkDetected ? developerNetworkNotes : [],
+},
+developerNetwork: {
+detected: developerNetworkDetected,
+confidence: developerNetworkConfidence,
+label: developerNetworkLabel,
+state: developerNetworkState,
+linkedWallets: developerNetworkLinkedWallets,
+likelyControlPct: developerNetworkLikelyControlPct,
+fundingSourceShared: developerNetworkFundingShared,
+notes: developerNetworkNotes,
 },
 freshWalletRisk: {
 walletCount: freshWalletCount,

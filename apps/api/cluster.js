@@ -1,7 +1,7 @@
 import { PublicKey } from "@solana/web3.js";
 
 /**
-* MSS Phase 2 Cluster Intelligence
+* MSS Phase 3A Cluster + Developer Network Intelligence
 * Heuristic on-chain linkage model using:
 * - shared fee payer fingerprints
 * - short signature windows
@@ -49,10 +49,12 @@ return { text: "Low", state: "good" };
 
 function computeSyncBuckets(sigListsByOwner) {
 const bucketMap = new Map();
+
 for (const [owner, sigs] of sigListsByOwner.entries()) {
 for (const s of sigs || []) {
 const bt = Number(s?.blockTime || 0);
 if (!bt) continue;
+
 const bucket = Math.floor((bt * 1000) / 90_000);
 if (!bucketMap.has(bucket)) bucketMap.set(bucket, new Set());
 bucketMap.get(bucket).add(owner);
@@ -125,6 +127,100 @@ if (sharedFundingDetected) score += 10;
 return clamp(score, 0, 100);
 }
 
+function buildDeveloperNetwork({
+totalWallets,
+linkedWallets,
+linkedWalletPct,
+largestGroupSize,
+sharedFundingDetected,
+newWalletPct,
+syncBurstSize,
+groups,
+}) {
+const notes = [];
+
+let confidence = 0;
+
+if (sharedFundingDetected) {
+confidence += 28;
+notes.push("Multiple wallets share payer fingerprint linkage.");
+}
+
+if (largestGroupSize >= 4) {
+confidence += 22;
+notes.push(`Largest linked wallet group contains ${largestGroupSize} wallets.`);
+} else if (largestGroupSize >= 3) {
+confidence += 14;
+notes.push(`A linked wallet group of ${largestGroupSize} wallets was detected.`);
+}
+
+if (linkedWalletPct >= 40) {
+confidence += 18;
+notes.push(`Linked wallets represent ${linkedWalletPct}% of analyzed wallets.`);
+} else if (linkedWalletPct >= 20) {
+confidence += 10;
+notes.push(`Linked wallets represent a meaningful share of analyzed wallets (${linkedWalletPct}%).`);
+}
+
+if (syncBurstSize >= 5) {
+confidence += 16;
+notes.push(`Synchronized activity burst detected across ${syncBurstSize} wallets.`);
+} else if (syncBurstSize >= 3) {
+confidence += 8;
+notes.push(`Moderate synchronized activity detected across ${syncBurstSize} wallets.`);
+}
+
+if (newWalletPct >= 35) {
+confidence += 10;
+notes.push(`Fresh-wallet participation is elevated at ${newWalletPct}%.`);
+} else if (newWalletPct >= 20) {
+confidence += 6;
+notes.push(`Fresh-wallet concentration is notable at ${newWalletPct}%.`);
+}
+
+confidence = clamp(Math.round(confidence), 0, 100);
+
+const detected = confidence >= 35 || (sharedFundingDetected && largestGroupSize >= 3);
+
+let label = "No Clear Developer Network";
+let state = "good";
+
+if (confidence >= 75) {
+label = "Strong Developer Network";
+state = "bad";
+} else if (confidence >= 55) {
+label = "Elevated Developer Network";
+state = "bad";
+} else if (confidence >= 35) {
+label = "Weak Developer Linkage";
+state = "warn";
+}
+
+const earlyReceiverCount = clamp(largestGroupSize, 0, totalWallets);
+const likelyControlPct = linkedWalletPct;
+
+if (!notes.length) {
+notes.push("No strong developer-linked wallet network was detected in this snapshot.");
+}
+
+return {
+detected,
+confidence,
+label,
+state,
+linkedWallets,
+fundingSourceShared: sharedFundingDetected,
+earlyReceiverCount,
+likelyControlPct,
+groups: groups.slice(0, 3).map((g) => ({
+payer: g.payer,
+size: g.size,
+members: g.members,
+})),
+notes,
+};
+}
+
 /**
 * @param {object} args
 * @param {import("@solana/web3.js").Connection} args.connection
@@ -195,7 +291,9 @@ sigWindow: sigs.length,
 
 const groups = buildLinkedGroups(perWallet);
 const linkedSet = new Set();
-for (const g of groups) for (const m of g.members) linkedSet.add(m);
+for (const g of groups) {
+for (const m of g.members) linkedSet.add(m);
+}
 
 const linkedWallets = linkedSet.size;
 const largestGroupSize = groups[0]?.size || 1;
@@ -218,13 +316,14 @@ sharedFundingDetected,
 });
 
 const hiddenControlBand = riskBand(hiddenControlScore);
+const linkedWalletPct = pct(linkedWallets, perWallet.length);
 
 const hiddenControl = {
 score: hiddenControlScore,
 label: hiddenControlBand.text,
 state: hiddenControlBand.state,
 linkedWallets,
-linkedWalletPct: pct(linkedWallets, perWallet.length),
+linkedWalletPct,
 largestGroupSize,
 sharedFundingDetected,
 syncBurstSize,
@@ -236,15 +335,22 @@ hiddenControlScore >= 70
 : "No strong hidden-control structure detected in this snapshot.",
 };
 
+const developerNetwork = buildDeveloperNetwork({
+totalWallets: perWallet.length,
+linkedWallets,
+linkedWalletPct,
+largestGroupSize,
+sharedFundingDetected,
+newWalletPct,
+syncBurstSize,
+groups,
+});
+
 const developer = {
-overlapDetected: sharedFundingDetected && largestGroupSize >= 3,
-linkedWalletsEstimate: largestGroupSize >= 2 ? largestGroupSize : 0,
-label:
-sharedFundingDetected && largestGroupSize >= 4
-? "Possible linked operator"
-: sharedFundingDetected
-? "Weak overlap signal"
-: "No clear overlap",
+overlapDetected: developerNetwork.detected,
+linkedWalletsEstimate: developerNetwork.linkedWallets,
+label: developerNetwork.label,
+confidence: developerNetwork.confidence,
 };
 
 const freshWalletRisk = {
@@ -295,6 +401,7 @@ score: clamp(40 + g.size * 10, 0, 100),
 wallets: perWallet,
 hiddenControl,
 developer,
+developerNetwork,
 freshWalletRisk,
 whaleActivity,
 syncBursts,

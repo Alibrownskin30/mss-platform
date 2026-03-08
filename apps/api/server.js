@@ -282,16 +282,69 @@ hiddenControlScore * 0.55 +
 100
 );
 
+const existingDeveloperActivity = baseModel?.developerActivity || {};
+const existingDeveloperNetwork = baseModel?.developerNetwork || {};
+
 const developerActivity = {
-detected: developerActivityScore >= 45,
+detected:
+existingDeveloperActivity?.detected != null
+? !!existingDeveloperActivity.detected
+: developerActivityScore >= 45,
 score: developerActivityScore,
+confidence:
+existingDeveloperActivity?.confidence != null
+? safeNum(existingDeveloperActivity.confidence, 0)
+: null,
 label:
-developerActivityScore >= 65
+existingDeveloperActivity?.label ||
+(developerActivityScore >= 65
 ? "Developer Overlap Elevated"
 : developerActivityScore >= 45
 ? "Possible Developer Linkage"
-: "No Strong Overlap",
-linkedWallets,
+: "No Strong Overlap"),
+state:
+existingDeveloperActivity?.state ||
+(developerActivityScore >= 45 ? "warn" : "good"),
+linkedWallets:
+existingDeveloperActivity?.linkedWallets != null
+? safeNum(existingDeveloperActivity.linkedWallets, 0)
+: linkedWallets,
+likelyControlPct:
+existingDeveloperActivity?.likelyControlPct != null
+? safeNum(existingDeveloperActivity.likelyControlPct, 0)
+: 0,
+fundingSourceShared:
+existingDeveloperActivity?.fundingSourceShared != null
+? !!existingDeveloperActivity.fundingSourceShared
+: false,
+notes: Array.isArray(existingDeveloperActivity?.notes)
+? existingDeveloperActivity.notes
+: [],
+};
+
+const developerNetwork = {
+detected:
+existingDeveloperNetwork?.detected != null
+? !!existingDeveloperNetwork.detected
+: developerActivity.detected,
+confidence: safeNum(existingDeveloperNetwork?.confidence, 0),
+label: existingDeveloperNetwork?.label || developerActivity.label,
+state: existingDeveloperNetwork?.state || developerActivity.state,
+linkedWallets:
+existingDeveloperNetwork?.linkedWallets != null
+? safeNum(existingDeveloperNetwork.linkedWallets, 0)
+: developerActivity.linkedWallets,
+likelyControlPct:
+existingDeveloperNetwork?.likelyControlPct != null
+? safeNum(existingDeveloperNetwork.likelyControlPct, 0)
+: developerActivity.likelyControlPct,
+fundingSourceShared:
+existingDeveloperNetwork?.fundingSourceShared != null
+? !!existingDeveloperNetwork.fundingSourceShared
+: developerActivity.fundingSourceShared,
+notes: Array.isArray(existingDeveloperNetwork?.notes)
+? existingDeveloperNetwork.notes
+: developerActivity.notes,
 };
 
 const freshWalletRiskScore = clamp(
@@ -394,6 +447,7 @@ return {
 signal,
 hiddenControl,
 developerActivity,
+developerNetwork,
 freshWalletRisk,
 liquidityStability,
 whaleActivity,
@@ -980,14 +1034,16 @@ return res.status(404).json({ error: "Mint not found" });
 
 const concentration = buildConcentration(holdersJson);
 const activity = clusterJson || {};
+const trend = getRiskTrend(mintStr);
 
 const baseSecurityModel = buildSecurityModel({
 concentration,
 token: tokenJson,
 activity,
+market: marketJson || {},
+trend,
 });
 
-const trend = getRiskTrend(mintStr);
 const securityModel = enrichSecurityModel({
 baseModel: baseSecurityModel,
 concentration,
@@ -1071,14 +1127,16 @@ return res.status(404).json({ error: "Mint not found" });
 }
 
 const concentration = buildConcentration(holdersJson);
+const trend = getRiskTrend(mintStr);
 
 const baseSecurityModel = buildSecurityModel({
 concentration,
 token: tokenJson,
 activity: clusterJson || {},
+market: marketJson || {},
+trend,
 });
 
-const trend = getRiskTrend(mintStr);
 const securityModel = enrichSecurityModel({
 baseModel: baseSecurityModel,
 concentration,

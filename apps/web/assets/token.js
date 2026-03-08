@@ -395,12 +395,29 @@ rm?.hiddenControl?.linkedWalletPct != null ? fmtPct(rm.hiddenControl.linkedWalle
 );
 setText("sharedFunding", rm?.hiddenControl?.sharedFundingDetected ? "Detected" : "Not detected");
 
-setText("devActivityLabel", rm?.developerActivity?.label || "—");
-setText("devActivityDetected", rm?.developerActivity?.detected ? "Yes" : "No");
-setText(
-"devActivityWallets",
-rm?.developerActivity?.linkedWallets != null ? String(rm.developerActivity.linkedWallets) : "—"
-);
+const dev = rm?.developerNetwork || rm?.developerActivity || {};
+const devLabel = dev?.label || "—";
+const devDetected =
+typeof dev?.detected === "boolean"
+? dev.detected
+: Number(dev?.confidence || 0) >= 35;
+
+const devWallets =
+dev?.linkedWallets != null
+? String(dev.linkedWallets)
+: rm?.developerActivity?.linkedWallets != null
+? String(rm.developerActivity.linkedWallets)
+: "—";
+
+let devDetectedText = "No";
+if (devDetected) {
+if (dev?.confidence != null) devDetectedText = `Yes • ${dev.confidence}%`;
+else devDetectedText = "Yes";
+}
+
+setText("devActivityLabel", devLabel);
+setText("devActivityDetected", devDetectedText);
+setText("devActivityWallets", devWallets);
 
 setText("freshWalletLabel", rm?.freshWalletRisk?.label || "—");
 setText(
@@ -485,6 +502,8 @@ pre.textContent = JSON.stringify(obj, null, 2);
 
 function buildNotes({ tokenJson, marketJson, conc, activity, rm }) {
 const notes = [];
+const devNet = rm?.developerNetwork || rm?.developerActivity || {};
+const devConfidence = Number(devNet?.confidence || 0);
 
 if (!tokenJson?.safety?.mintRevoked || !tokenJson?.safety?.freezeRevoked) {
 notes.push("Authority controls are present (mint and/or freeze).");
@@ -512,8 +531,13 @@ if (Number(rm?.freshWalletRisk?.pct || 0) >= 20) {
 notes.push("Fresh-wallet concentration is elevated.");
 }
 
-if (rm?.developerActivity?.detected) {
-notes.push("Possible developer-linked holder overlap detected.");
+if (devNet?.detected || devConfidence >= 35) {
+const devLabel = devNet?.label || "Developer-linked network";
+if (devNet?.likelyControlPct != null && Number(devNet.likelyControlPct) > 0) {
+notes.push(`${devLabel} detected with likely coordinated control around ${fmtPct(devNet.likelyControlPct, 1)}.`);
+} else {
+notes.push(`${devLabel} detected in current wallet structure.`);
+}
 }
 
 if (rm?.liquidityStability?.state === "bad") {
@@ -575,7 +599,15 @@ const clusterCount = Number(activity?.clusterCount ?? activity?.clusters?.length
 const momentum = rm?.trend?.momentum || trend?.trend?.momentum || "Stable";
 const mintRevoked = !!tokenJson?.safety?.mintRevoked;
 const freezeRevoked = !!tokenJson?.safety?.freezeRevoked;
-const devDetected = !!rm?.developerActivity?.detected;
+
+const devNet = rm?.developerNetwork || rm?.developerActivity || {};
+const devDetected =
+typeof devNet?.detected === "boolean"
+? devNet.detected
+: Number(devNet?.confidence || 0) >= 35;
+const devConfidence = Number(devNet?.confidence || 0);
+const devLikelyControlPct = Number(devNet?.likelyControlPct || 0);
+const devNotes = Array.isArray(devNet?.notes) ? devNet.notes : [];
 
 if (mintRevoked && freezeRevoked) {
 itemsSignals.push({ tone: "good", text: "Critical authorities appear revoked." });
@@ -597,6 +629,18 @@ itemsSignals.push({ tone: "bad", text: "Cassie sees strong hidden-control struct
 itemsSignals.push({ tone: "warn", text: "Cassie sees elevated linked-wallet structure risk." });
 } else {
 itemsSignals.push({ tone: "good", text: "Linked-wallet structure risk is currently low." });
+}
+
+if (devDetected) {
+if (devConfidence >= 75) {
+itemsSignals.push({ tone: "bad", text: "Cassie detects a strong developer-linked wallet network." });
+} else if (devConfidence >= 55) {
+itemsSignals.push({ tone: "warn", text: "Cassie detects elevated developer-linked wallet coordination." });
+} else {
+itemsSignals.push({ tone: "warn", text: "Cassie detects weak developer-linkage signals." });
+}
+} else {
+itemsSignals.push({ tone: "good", text: "No strong developer-linked wallet network is dominant in this snapshot." });
 }
 
 if (momentum === "Escalating" || momentum === "Rising") {
@@ -627,6 +671,18 @@ itemsSims.push({ tone: "bad", text: "Freeze-authority persistence increases tran
 itemsSims.push({ tone: "good", text: "Transfer-restriction simulation risk is lower with freeze authority revoked." });
 }
 
+if (devDetected && devLikelyControlPct >= 35) {
+itemsSims.push({
+tone: "bad",
+text: `Developer-network exit simulation suggests heavy pressure if linked wallets control ~${fmtPct(devLikelyControlPct, 1)} of analyzed structure.`,
+});
+} else if (devDetected) {
+itemsSims.push({
+tone: "warn",
+text: "Developer-linked wallet behavior should be monitored for coordinated exits.",
+});
+}
+
 if (top1 >= 25 && whaleScore >= 60) {
 itemsSims.push({ tone: "bad", text: "Whale-led dump simulation impact appears severe." });
 } else if (top1 >= 15 || whaleScore >= 45) {
@@ -648,7 +704,13 @@ if (freshPct >= 20) {
 itemsRiskFactors.push({ tone: "warn", text: "Fresh-wallet participation is elevated and may reduce trust quality." });
 }
 if (devDetected) {
-itemsRiskFactors.push({ tone: "warn", text: "Developer-linked behavior is present in the current signal mix." });
+itemsRiskFactors.push({
+tone: devConfidence >= 55 ? "bad" : "warn",
+text:
+devLikelyControlPct > 0
+? `Developer-linked network confidence is ${devConfidence || "notable"} with likely control around ${fmtPct(devLikelyControlPct, 1)}.`
+: `${devNet?.label || "Developer-linked behavior"} is present in the current signal mix.`,
+});
 }
 if (liqFdvPct < 3) {
 itemsRiskFactors.push({ tone: "bad", text: "Liquidity depth is thin relative to valuation." });
@@ -676,10 +738,28 @@ text: marketJson?.found
 : "Market context is limited for this token right now.",
 });
 
+if (devDetected && devNotes.length) {
+itemsRadar.push({
+tone: devConfidence >= 55 ? "warn" : "good",
+text: devNotes[0],
+});
+}
+
 let verdict = "Monitor";
-if (riskScore >= 75 || hiddenControlScore >= 70 || (!mintRevoked && !freezeRevoked)) {
+if (
+riskScore >= 75 ||
+hiddenControlScore >= 70 ||
+(!mintRevoked && !freezeRevoked) ||
+devConfidence >= 75
+) {
 verdict = "High Risk Structure";
-} else if (riskScore <= 35 && hiddenControlScore < 35 && mintRevoked && freezeRevoked) {
+} else if (
+riskScore <= 35 &&
+hiddenControlScore < 35 &&
+mintRevoked &&
+freezeRevoked &&
+!devDetected
+) {
 verdict = "Structurally Stronger";
 }
 
@@ -689,7 +769,8 @@ riskScore >= 75 ||
 top10 >= 60 ||
 liqFdvPct < 1 ||
 hiddenControlScore >= 70 ||
-momentum === "Escalating"
+momentum === "Escalating" ||
+devConfidence >= 75
 ) {
 threat = "Elevated";
 } else if (
@@ -697,7 +778,8 @@ riskScore <= 35 &&
 top10 < 40 &&
 liqFdvPct >= 5 &&
 mintRevoked &&
-freezeRevoked
+freezeRevoked &&
+!devDetected
 ) {
 threat = "Lower";
 }
@@ -710,7 +792,8 @@ Math.min(
 (marketJson?.found ? 8 : 0) +
 (Array.isArray(activity?.clusters) ? 6 : 0) +
 (trend?.found ? 10 : 0) +
-(Array.isArray(itemsRiskFactors) ? Math.min(itemsRiskFactors.length * 3, 12) : 0)
+(Array.isArray(itemsRiskFactors) ? Math.min(itemsRiskFactors.length * 3, 12) : 0) +
+Math.min(Math.round(devConfidence * 0.1), 8)
 )
 );
 
@@ -726,6 +809,9 @@ top10 >= 55
 hiddenControlScore >= 40
 ? "Linked-wallet structure contributes meaningfully to the read."
 : "Linked-wallet structure is not the dominant driver at this time.",
+devDetected
+? "Developer-network signals contribute to the current read."
+: "Developer-network signals are not dominant right now.",
 ].join(" ");
 
 return {
@@ -826,6 +912,7 @@ primaryDriver: "—",
 whaleScore: 0,
 hiddenControl: {},
 developerActivity: {},
+developerNetwork: {},
 freshWalletRisk: {},
 liquidityStability: {},
 whaleActivity: {},
@@ -930,6 +1017,7 @@ score: 0,
 label: { text: "Unknown", state: "warn" },
 signal: "—",
 whaleScore: 0,
+developerNetwork: {},
 };
 
 setText("riskScore", `${rm.score ?? "—"}`);
