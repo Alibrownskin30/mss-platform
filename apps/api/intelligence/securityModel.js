@@ -57,6 +57,15 @@ const developerNetworkNotes = Array.isArray(activity?.developerNetwork?.notes)
 ? activity.developerNetwork.notes
 : [];
 
+const walletNetwork = activity?.walletNetwork || {};
+const walletNetworkConfidence = Number(walletNetwork?.confidence || 0);
+const walletNetworkConfidenceLabel = walletNetwork?.confidenceLabel || "Low";
+const walletNetworkControlEstimatePct = Number(walletNetwork?.controlEstimatePct || 0);
+const walletNetworkPrimaryWallet = walletNetwork?.primaryWallet || null;
+const walletNetworkPrimaryClusterId = walletNetwork?.primaryClusterId || null;
+const walletNetworkRole = walletNetwork?.role || "Observed wallet";
+const walletNetworkSharedFundingDetected = !!walletNetwork?.sharedFundingDetected;
+
 const syncBurstSize = Number(activity?.whaleActivity?.syncBurstSize || 0);
 
 let score = 0;
@@ -131,6 +140,25 @@ score += 4;
 } else if (developerLinked) {
 score += 8;
 signals.push("Possible developer-linked holder overlap");
+}
+
+if (walletNetworkConfidence >= 75) {
+score += 10;
+signals.push("Wallet network control confidence is high");
+} else if (walletNetworkConfidence >= 45) {
+score += 5;
+signals.push("Wallet network control structure detected");
+}
+
+if (walletNetworkControlEstimatePct >= 45) {
+score += 8;
+signals.push("Wallet network suggests concentrated coordinated influence");
+} else if (walletNetworkControlEstimatePct >= 25) {
+score += 4;
+}
+
+if (walletNetworkSharedFundingDetected && !developerNetworkFundingShared) {
+score += 3;
 }
 
 let liquidityStability = {
@@ -235,7 +263,8 @@ const reputationBase = 100 - Math.round(
 (score * 0.52) +
 (hiddenControlScore * 0.18) +
 (freshWalletPct * 0.10) +
-(developerNetworkDetected ? Math.max(6, developerNetworkConfidence * 0.12) : developerLinked ? 6 : 0)
+(developerNetworkDetected ? Math.max(6, developerNetworkConfidence * 0.12) : developerLinked ? 6 : 0) +
+(walletNetworkConfidence >= 45 ? Math.max(4, walletNetworkConfidence * 0.08) : 0)
 );
 
 const reputationScore = clamp(reputationBase, 0, 100);
@@ -249,6 +278,8 @@ const primaryDriver =
 ? "Authority Control"
 : developerNetworkDetected && developerNetworkConfidence >= 55
 ? "Developer Network"
+: walletNetworkConfidence >= 60
+? "Wallet Network"
 : hiddenControlScore >= 45
 ? "Hidden Control"
 : top10 >= 55
@@ -303,6 +334,15 @@ linkedWallets: developerNetworkLinkedWallets,
 likelyControlPct: developerNetworkLikelyControlPct,
 fundingSourceShared: developerNetworkFundingShared,
 notes: developerNetworkNotes,
+},
+walletNetwork: {
+primaryWallet: walletNetworkPrimaryWallet,
+primaryClusterId: walletNetworkPrimaryClusterId,
+role: walletNetworkRole,
+confidence: walletNetworkConfidence,
+confidenceLabel: walletNetworkConfidenceLabel,
+controlEstimatePct: walletNetworkControlEstimatePct,
+sharedFundingDetected: walletNetworkSharedFundingDetected,
 },
 freshWalletRisk: {
 walletCount: freshWalletCount,
