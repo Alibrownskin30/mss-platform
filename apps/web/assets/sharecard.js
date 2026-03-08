@@ -1,4 +1,6 @@
-function clamp(n, a, b) { return Math.max(a, Math.min(b, n)); }
+function clamp(n, a, b) {
+return Math.max(a, Math.min(b, n));
+}
 
 function safeText(s, fallback = "—") {
 if (s == null) return fallback;
@@ -45,37 +47,43 @@ if (ctx.measureText(s).width <= maxWidth) return s;
 const ell = "…";
 let lo = 0;
 let hi = s.length;
+
 while (lo < hi) {
 const mid = Math.ceil((lo + hi) / 2);
 const candidate = s.slice(0, mid) + ell;
 if (ctx.measureText(candidate).width <= maxWidth) lo = mid;
 else hi = mid - 1;
 }
+
 return s.slice(0, lo) + ell;
 }
 
 function riskBadgeColors(state) {
 const s = String(state || "warn");
-if (s === "good") return {
+if (s === "good") {
+return {
 bg: "rgba(43,227,138,0.14)",
 stroke: "rgba(43,227,138,0.34)",
 glow: "rgba(43,227,138,0.20)",
 text: "rgba(234,240,255,0.95)",
-dot: "rgba(43,227,138,0.95)"
+dot: "rgba(43,227,138,0.95)",
 };
-if (s === "bad") return {
+}
+if (s === "bad") {
+return {
 bg: "rgba(255,77,109,0.14)",
 stroke: "rgba(255,77,109,0.34)",
 glow: "rgba(255,77,109,0.18)",
 text: "rgba(234,240,255,0.95)",
-dot: "rgba(255,77,109,0.95)"
+dot: "rgba(255,77,109,0.95)",
 };
+}
 return {
 bg: "rgba(255,200,87,0.14)",
 stroke: "rgba(255,200,87,0.34)",
 glow: "rgba(255,200,87,0.18)",
 text: "rgba(234,240,255,0.95)",
-dot: "rgba(255,200,87,0.95)"
+dot: "rgba(255,200,87,0.95)",
 };
 }
 
@@ -103,7 +111,7 @@ ctx.restore();
 
 function drawShieldWatermark(ctx, x, y, size = 92) {
 ctx.save();
-ctx.globalAlpha = 0.12;
+ctx.globalAlpha = 0.1;
 
 const g = ctx.createRadialGradient(x, y, 8, x, y, size * 0.95);
 g.addColorStop(0, "rgba(79,209,255,0.65)");
@@ -133,7 +141,7 @@ ctx.lineTo(sx + w * 0.08, sy + h * 0.18);
 ctx.closePath();
 ctx.fill();
 
-ctx.globalAlpha = 0.18;
+ctx.globalAlpha = 0.16;
 ctx.strokeStyle = "rgba(234,240,255,0.95)";
 ctx.lineWidth = Math.max(2, Math.round(size / 18));
 ctx.lineCap = "round";
@@ -197,21 +205,24 @@ const tokenLabel = symbol ? `${name} (${symbol})` : name;
 const dex = safeText(market?.dex, "—");
 const base = safeText(market?.baseSymbol, "");
 const quote = safeText(market?.quoteSymbol, "");
-const pairText = (base && quote) ? `${base}/${quote}` : safeText(market?.pair, "—");
+const pairText = base && quote ? `${base}/${quote}` : safeText(market?.pair, "—");
 
 const mintRevoked = !!token?.safety?.mintRevoked;
 const freezeRevoked = !!token?.safety?.freezeRevoked;
 
-const mintAuthText = mintRevoked ? "Mint: Revoked" : "Mint: Present";
-const freezeAuthText = freezeRevoked ? "Freeze: Revoked" : "Freeze: Present";
+const mintAuthText = mintRevoked ? "Mint Revoked" : "Mint Present";
+const freezeAuthText = freezeRevoked ? "Freeze Revoked" : "Freeze Present";
 const authLine = `${mintAuthText} • ${freezeAuthText}`;
 
 const price = Number(market?.priceUsd);
 const mcapApi = Number(market?.mcapUsd);
 const derivedMcap = Number(derived?.derivedMcapUsd);
-const mcapUsd = (Number.isFinite(mcapApi) && mcapApi > 0)
+const mcapUsd =
+Number.isFinite(mcapApi) && mcapApi > 0
 ? mcapApi
-: (Number.isFinite(derivedMcap) && derivedMcap > 0 ? derivedMcap : NaN);
+: Number.isFinite(derivedMcap) && derivedMcap > 0
+? derivedMcap
+: NaN;
 
 const hiddenControl = risk?.hiddenControl || {};
 const freshWalletRisk = risk?.freshWalletRisk || {};
@@ -224,18 +235,6 @@ const clustersCount = Number.isFinite(Number(activity?.clusterCount))
 : Number.isFinite(Number(activity?.clusters?.length))
 ? Number(activity.clusters.length)
 : 0;
-
-const hiddenLine = compactSignal(hiddenControl?.label, hiddenControl?.score);
-const freshLine = compactSignal(freshWalletRisk?.label, freshWalletRisk?.score);
-const liqLine = compactSignal(liquidityStability?.label, liquidityStability?.score);
-const whaleLine = compactSignal(whaleActivity?.label, whaleActivity?.score);
-
-const trendLine = [
-safeText(trend?.label || risk?.trend?.label, "Stable"),
-safeText(trend?.momentum || risk?.trend?.momentum, "Stable"),
-].join(" • ");
-
-const priceChangeLine = buildPriceChangeLine(market?.priceChange);
 
 return {
 title: "MSS Protocol",
@@ -263,13 +262,17 @@ signal: safeText(risk?.signal, "—"),
 driver: safeText(risk?.primaryDriver, "—"),
 state: safeText(risk?.label?.state, "warn"),
 
-priceChangeLine,
-hiddenLine,
-freshLine,
-liqLine,
-whaleLine,
-trendLine,
-reputationLine: reputation?.score != null
+priceChangeLine: buildPriceChangeLine(market?.priceChange),
+hiddenLine: compactSignal(hiddenControl?.label, hiddenControl?.score),
+freshLine: compactSignal(freshWalletRisk?.label, freshWalletRisk?.score),
+liqLine: compactSignal(liquidityStability?.label, liquidityStability?.score),
+whaleLine: compactSignal(whaleActivity?.label, whaleActivity?.score),
+trendLine: [
+safeText(trend?.label || risk?.trend?.label, "Stable"),
+safeText(trend?.momentum || risk?.trend?.momentum, "Stable"),
+].join(" • "),
+reputationLine:
+reputation?.score != null
 ? `${safeText(reputation?.label, "—")} • ${reputation.score}/100`
 : safeText(reputation?.label, "—"),
 clusterLine: `Clusters: ${clustersCount} • Linked wallets: ${safeText(hiddenControl?.linkedWallets, "—")}`,
@@ -280,15 +283,14 @@ ts: new Date().toLocaleString(),
 
 function drawChip(ctx, x, y, text, opts = {}) {
 const padX = opts.padX ?? 10;
-const h = opts.h ?? 26;
+const h = opts.h ?? 28;
 const r = opts.r ?? 999;
 const maxW = opts.maxW ?? 9999;
 
 ctx.save();
 ctx.font = opts.font ?? "700 12px system-ui, -apple-system, Segoe UI, Roboto, Arial";
-const t = safeText(text, "—");
-const wText = Math.min(maxW - padX * 2, ctx.measureText(t).width);
-const w = Math.ceil(wText + padX * 2);
+const t = fitText(ctx, safeText(text, "—"), maxW - padX * 2);
+const w = Math.ceil(ctx.measureText(t).width + padX * 2);
 
 roundRect(ctx, x, y, w, h, r);
 ctx.fillStyle = opts.bg ?? "rgba(255,255,255,0.06)";
@@ -298,7 +300,7 @@ ctx.lineWidth = 1;
 ctx.stroke();
 
 ctx.fillStyle = opts.color ?? "rgba(234,240,255,0.78)";
-ctx.fillText(fitText(ctx, t, w - padX * 2), x + padX, y + Math.floor(h * 0.68));
+ctx.fillText(t, x + padX, y + Math.floor(h * 0.68));
 ctx.restore();
 
 return w;
@@ -307,7 +309,7 @@ return w;
 function drawKpiCard(ctx, x, y, w, h, label, value) {
 ctx.save();
 roundRect(ctx, x, y, w, h, 16);
-ctx.fillStyle = "rgba(0,0,0,0.20)";
+ctx.fillStyle = "rgba(0,0,0,0.18)";
 ctx.fill();
 ctx.strokeStyle = "rgba(255,255,255,0.10)";
 ctx.lineWidth = 1;
@@ -315,18 +317,18 @@ ctx.stroke();
 
 ctx.fillStyle = "rgba(234,240,255,0.58)";
 ctx.font = "800 12px system-ui, -apple-system, Segoe UI, Roboto, Arial";
-ctx.fillText(safeText(label, "—"), x + 14, y + 22);
+ctx.fillText(safeText(label, "—"), x + 14, y + 21);
 
 ctx.fillStyle = "rgba(234,240,255,0.94)";
-ctx.font = "900 18px system-ui, -apple-system, Segoe UI, Roboto, Arial";
-ctx.fillText(fitText(ctx, safeText(value, "—"), w - 28), x + 14, y + 48);
+ctx.font = "900 17px system-ui, -apple-system, Segoe UI, Roboto, Arial";
+ctx.fillText(fitText(ctx, safeText(value, "—"), w - 28), x + 14, y + 47);
 
 ctx.restore();
 }
 
 function drawMiniSignalCard(ctx, x, y, w, h, title, value) {
 ctx.save();
-roundRect(ctx, x, y, w, h, 16);
+roundRect(ctx, x, y, w, h, 14);
 ctx.fillStyle = "rgba(255,255,255,0.04)";
 ctx.fill();
 ctx.strokeStyle = "rgba(255,255,255,0.08)";
@@ -334,12 +336,12 @@ ctx.lineWidth = 1;
 ctx.stroke();
 
 ctx.fillStyle = "rgba(234,240,255,0.56)";
-ctx.font = "800 11px system-ui, -apple-system, Segoe UI, Roboto, Arial";
-ctx.fillText(safeText(title, "—"), x + 12, y + 18);
+ctx.font = "800 10px system-ui, -apple-system, Segoe UI, Roboto, Arial";
+ctx.fillText(fitText(ctx, safeText(title, "—"), w - 24), x + 12, y + 16);
 
 ctx.fillStyle = "rgba(234,240,255,0.92)";
-ctx.font = "900 14px system-ui, -apple-system, Segoe UI, Roboto, Arial";
-ctx.fillText(fitText(ctx, safeText(value, "—"), w - 24), x + 12, y + 41);
+ctx.font = "900 12px system-ui, -apple-system, Segoe UI, Roboto, Arial";
+ctx.fillText(fitText(ctx, safeText(value, "—"), w - 24), x + 12, y + 37);
 
 ctx.restore();
 }
@@ -372,7 +374,6 @@ canvas.width = 1200;
 canvas.height = 630;
 const ctx = canvas.getContext("2d");
 
-// Background
 const bg = ctx.createLinearGradient(0, 0, 1200, 630);
 bg.addColorStop(0, "#070A10");
 bg.addColorStop(1, "#0A1022");
@@ -383,8 +384,11 @@ drawSoftGlow(ctx, 260, 130, 540, "rgba(57,208,200,0.22)");
 drawSoftGlow(ctx, 980, 170, 580, "rgba(120,140,255,0.18)");
 drawSoftGlow(ctx, 720, 620, 520, "rgba(255,77,109,0.08)");
 
-// Main Panel
-const panelX = 54, panelY = 42, panelW = 1092, panelH = 540;
+const panelX = 54;
+const panelY = 42;
+const panelW = 1092;
+const panelH = 540;
+
 roundRect(ctx, panelX, panelY, panelW, panelH, 24);
 ctx.fillStyle = "rgba(255,255,255,0.05)";
 ctx.fill();
@@ -392,11 +396,10 @@ ctx.strokeStyle = "rgba(255,255,255,0.10)";
 ctx.lineWidth = 2;
 ctx.stroke();
 
-drawShieldWatermark(ctx, panelX + panelW - 92, panelY + panelH - 86, 104);
+drawShieldWatermark(ctx, panelX + panelW - 92, panelY + panelH - 90, 92);
 
-// Header
-const left = panelX + 40;
-const top = panelY + 38;
+const left = panelX + 38;
+const top = panelY + 36;
 
 ctx.fillStyle = "rgba(234,240,255,0.92)";
 ctx.font = "900 28px system-ui, -apple-system, Segoe UI, Roboto, Arial";
@@ -412,18 +415,17 @@ ctx.fillText("Token Scan Report", left, top + 82);
 
 ctx.fillStyle = "rgba(234,240,255,0.78)";
 ctx.font = "750 17px system-ui, -apple-system, Segoe UI, Roboto, Arial";
-ctx.fillText(`Token: ${fitText(ctx, data.tokenLabel, 760)}`, left, top + 114);
+ctx.fillText(`Token: ${fitText(ctx, data.tokenLabel, 700)}`, left, top + 114);
 
 ctx.fillStyle = "rgba(234,240,255,0.62)";
 ctx.font = "650 14px ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace";
-ctx.fillText(`mint: ${data.mintShort}`, left, top + 138);
+ctx.fillText(`mint: ${data.mintShort}`, left, top + 140);
 
-// Risk Pill
 const badge = riskBadgeColors(data.state);
-drawSoftGlow(ctx, left + 180, top + 182, 220, badge.glow, 1);
+drawSoftGlow(ctx, left + 180, top + 184, 220, badge.glow, 1);
 
 const pillX = left;
-const pillY = top + 154;
+const pillY = top + 156;
 const pillW = 520;
 const pillH = 56;
 
@@ -449,7 +451,6 @@ ctx.font = "900 20px system-ui, -apple-system, Segoe UI, Roboto, Arial";
 ctx.fillText(data.riskScore, pillX + pillW - 22, pillY + 36);
 ctx.textAlign = "left";
 
-// Meta lines
 ctx.fillStyle = "rgba(234,240,255,0.64)";
 ctx.font = "700 14px system-ui, -apple-system, Segoe UI, Roboto, Arial";
 ctx.fillText(`Primary driver: ${fitText(ctx, data.driver, 520)}`, left, pillY + 84);
@@ -462,25 +463,23 @@ ctx.fillStyle = "rgba(234,240,255,0.52)";
 ctx.font = "650 13px system-ui, -apple-system, Segoe UI, Roboto, Arial";
 ctx.fillText(`Price change: ${fitText(ctx, data.priceChangeLine, 720)}`, left, pillY + 124);
 
-// Right-side chips
-const rightColX = panelX + panelW - 40 - 420;
-const chipY = top + 104;
+const rightColX = panelX + panelW - 380;
+const chipY = top + 102;
 
-drawChip(ctx, rightColX, chipY, `DEX: ${data.dex}`, { maxW: 420, h: 28 });
-drawChip(ctx, rightColX, chipY + 36, `Pair: ${data.pairText}`, { maxW: 420, h: 28 });
-drawChip(ctx, rightColX, chipY + 72, `Signal: ${data.signal}`, { maxW: 420, h: 28 });
-drawChip(ctx, rightColX, chipY + 108, data.authLine, { maxW: 420, h: 28 });
+drawChip(ctx, rightColX, chipY, `DEX: ${data.dex}`, { maxW: 320, h: 28 });
+drawChip(ctx, rightColX, chipY + 38, `Pair: ${data.pairText}`, { maxW: 320, h: 28 });
+drawChip(ctx, rightColX, chipY + 76, `Signal: ${data.signal}`, { maxW: 320, h: 28 });
+drawChip(ctx, rightColX, chipY + 114, data.authLine, { maxW: 320, h: 28 });
 
-// KPI block
 const gridX = left;
-const gridY = top + 300;
-const cardW = 330;
-const cardH = 64;
-const gapX = 18;
-const gapY = 14;
+const gridY = top + 292;
+const cardW = 320;
+const cardH = 62;
+const gapX = 16;
+const gapY = 12;
 
-const gridW = (cardW * 3) + (gapX * 2);
-const gridH = (cardH * 2) + gapY;
+const gridW = cardW * 3 + gapX * 2;
+const gridH = cardH * 2 + gapY;
 drawKpiGlassPanel(ctx, gridX - 14, gridY - 14, gridW + 28, gridH + 28);
 
 const kpis = [
@@ -500,12 +499,11 @@ const y = gridY + row * (cardH + gapY);
 drawKpiCard(ctx, x, y, cardW, cardH, kpis[i][0], kpis[i][1]);
 }
 
-// Phase 2 signal strip
-const signalY = gridY + gridH + 26;
+const signalY = gridY + gridH + 20;
 const signalX = left;
-const signalGap = 12;
-const signalW = 201;
-const signalH = 52;
+const signalGap = 10;
+const signalW = 190;
+const signalH = 48;
 
 drawMiniSignalCard(ctx, signalX + (signalW + signalGap) * 0, signalY, signalW, signalH, "Hidden Control", data.hiddenLine);
 drawMiniSignalCard(ctx, signalX + (signalW + signalGap) * 1, signalY, signalW, signalH, "Fresh Wallet Risk", data.freshLine);
@@ -513,13 +511,11 @@ drawMiniSignalCard(ctx, signalX + (signalW + signalGap) * 2, signalY, signalW, s
 drawMiniSignalCard(ctx, signalX + (signalW + signalGap) * 3, signalY, signalW, signalH, "Whale Activity", data.whaleLine);
 drawMiniSignalCard(ctx, signalX + (signalW + signalGap) * 4, signalY, signalW, signalH, "Reputation", data.reputationLine);
 
-// cluster summary line
 ctx.fillStyle = "rgba(234,240,255,0.42)";
-ctx.font = "650 12px system-ui, -apple-system, Segoe UI, Roboto, Arial";
-ctx.fillText(fitText(ctx, data.clusterLine, 1020), left, signalY + signalH + 18);
+ctx.font = "650 11px system-ui, -apple-system, Segoe UI, Roboto, Arial";
+ctx.fillText(fitText(ctx, data.clusterLine, 1000), left, signalY + signalH + 16);
 
-// Footer
-const footerY = 612;
+const footerY = 602;
 ctx.strokeStyle = "rgba(255,255,255,0.08)";
 ctx.lineWidth = 1;
 ctx.beginPath();
@@ -539,7 +535,6 @@ ctx.fillText(data.ts, 1146, footerY);
 
 ctx.textAlign = "left";
 
-// Download
 const fileMint = (data.mintFull || "mint").slice(0, 8);
 const filename = `mss-scan-${fileMint}.png`;
 

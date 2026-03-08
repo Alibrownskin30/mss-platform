@@ -97,16 +97,53 @@ delayMs: () => Number(process.env.AUTH_SLOWDOWN_DELAY_MS || 500),
 validate: { delayMs: false },
 });
 
-// ---- Cassie (middleware sits in front of API) ----
-const { cassie, cassieApi } = createCassie();
+// ---- Cassie (middleware + intel layer) ----
+const { cassie, cassieApi, cassieIntel } = createCassie();
 app.use(cassie);
 
 // Honeypots
 app.get("/api/_cassie/diag", (req, res) => res.status(404).end());
 app.post("/api/admin/_sync", (req, res) => res.status(401).end());
 
-// Optional Cassie status endpoint
+// Cassie status + memory endpoints
 app.get("/api/cassie/status", authRequired, (req, res) => cassieApi.status(req, res));
+
+app.get("/api/cassie/memory", authRequired, (req, res) => {
+try {
+const limit = clamp(Number(req.query.limit || 50), 1, 200);
+const out =
+typeof cassieIntel?.memorySnapshot === "function"
+? cassieIntel.memorySnapshot(limit)
+: [];
+return res.json({ ok: true, items: out });
+} catch (e) {
+return res.status(500).json({ error: String(e?.message || e) });
+}
+});
+
+app.get("/api/cassie/memory/mint/:mint", authRequired, (req, res) => {
+try {
+const out =
+typeof cassieIntel?.memoryByMint === "function"
+? cassieIntel.memoryByMint(req.params.mint)
+: null;
+return res.json({ ok: true, item: out || null });
+} catch (e) {
+return res.status(500).json({ error: String(e?.message || e) });
+}
+});
+
+app.get("/api/cassie/memory/signature/:signature", authRequired, (req, res) => {
+try {
+const out =
+typeof cassieIntel?.memoryBySignature === "function"
+? cassieIntel.memoryBySignature(req.params.signature)
+: null;
+return res.json({ ok: true, item: out || null });
+} catch (e) {
+return res.status(500).json({ error: String(e?.message || e) });
+}
+});
 
 // ---- Solana RPC ----
 const RPC = process.env.SOLANA_RPC || "https://api.mainnet-beta.solana.com";
@@ -163,6 +200,14 @@ return Number.isFinite(n) ? n : fallback;
 
 function clamp(n, min, max) {
 return Math.max(min, Math.min(max, n));
+}
+
+function titleCase(s) {
+return String(s || "")
+.replace(/[_-]+/g, " ")
+.replace(/\s+/g, " ")
+.trim()
+.replace(/\b\w/g, (m) => m.toUpperCase());
 }
 
 function getReputationFromTrend(trend, latestRisk) {
@@ -228,7 +273,11 @@ sharedFundingDetected: clusterCount >= 1,
 };
 
 const developerActivityScore = clamp(
-Math.round(hiddenControlScore * 0.55 + (clusterCount >= 2 ? 18 : 0) + (newWalletPct >= 20 ? 12 : 0)),
+Math.round(
+hiddenControlScore * 0.55 +
+(clusterCount >= 2 ? 18 : 0) +
+(newWalletPct >= 20 ? 12 : 0)
+),
 0,
 100
 );
@@ -353,6 +402,292 @@ reputation,
 };
 }
 
+function buildCassieIntelFallback({
+token,
+market,
+concentration,
+activity,
+trend,
+securityModel,
+}) {
+const riskScore = safeNum(securityModel?.score, 0);
+const top10 = safeNum(concentration?.top10, 0);
+const top1 = safeNum(concentration?.top1, 0);
+const liqUsd = safeNum(market?.liquidityUsd, 0);
+const liqFdvPct = safeNum(securityModel?.liquidityStability?.liqFdvPct, 0);
+const hiddenControlScore = safeNum(securityModel?.hiddenControl?.score, 0);
+const freshWalletPct = safeNum(securityModel?.freshWalletRisk?.pct, 0);
+const whaleActivityScore = safeNum(securityModel?.whaleActivity?.score, 0);
+const linkedWallets = safeNum(securityModel?.hiddenControl?.linkedWallets, 0);
+const clusterCount = safeNum(activity?.clusterCount, 0);
+const hasMintAuthority = !!token?.mintAuthority;
+const hasFreezeAuthority = !!token?.freezeAuthority;
+const momentum = securityModel?.trend?.momentum || trend?.trend?.momentum || "Stable";
+
+const riskFactors = [];
+
+if (hasMintAuthority) {
+riskFactors.push({
+code: "mint_authority_present",
+label: "Mint authority still present",
+severity: "high",
+});
+}
+
+if (hasFreezeAuthority) {
+riskFactors.push({
+code: "freeze_authority_present",
+label: "Freeze authority still present",
+severity: "high",
+});
+}
+
+if (top1 >= 35) {
+riskFactors.push({
+code: "top1_concentration",
+label: `Top1 concentration elevated (${top1.toFixed(2)}%)`,
+severity: top1 >= 50 ? "high" : "medium",
+});
+}
+
+if (top10 >= 55) {
+riskFactors.push({
+code: "top10_concentration",
+label: `Top10 concentration elevated (${top10.toFixed(2)}%)`,
+severity: top10 >= 75 ? "high" : "medium",
+});
+}
+
+if (hiddenControlScore >= 40) {
+riskFactors.push({
+code: "hidden_control",
+label: `Hidden control pressure detected (${hiddenControlScore}/100)`,
+severity: hiddenControlScore >= 70 ? "high" : "medium",
+});
+}
+
+if (linkedWallets >= 3 || clusterCount >= 2) {
+riskFactors.push({
+code: "linked_wallet_pattern",
+label: `Linked wallet pattern detected (${linkedWallets} linked / ${clusterCount} clusters)`,
+severity: linkedWallets >= 6 ? "high" : "medium",
+});
+}
+
+if (freshWalletPct >= 20) {
+riskFactors.push({
+code: "fresh_wallet_risk",
+label: `Fresh-wallet concentration elevated (${freshWalletPct.toFixed(1)}%)`,
+severity: freshWalletPct >= 35 ? "high" : "medium",
+});
+}
+
+if (liqFdvPct > 0 && liqFdvPct < 3) {
+riskFactors.push({
+code: "thin_liquidity",
+label: `Liquidity thin relative to FDV (${liqFdvPct.toFixed(2)}%)`,
+severity: liqFdvPct < 1 ? "high" : "medium",
+});
+}
+
+if (liqUsd > 0 && liqUsd < 25000) {
+riskFactors.push({
+code: "low_liquidity",
+label: `Low visible liquidity (${fmtUsdCompact(liqUsd)})`,
+severity: liqUsd < 10000 ? "high" : "medium",
+});
+}
+
+if (whaleActivityScore >= 40) {
+riskFactors.push({
+code: "whale_coordination",
+label: `Whale coordination pressure elevated (${whaleActivityScore}/100)`,
+severity: whaleActivityScore >= 70 ? "high" : "medium",
+});
+}
+
+if (momentum === "Escalating" || momentum === "Rising") {
+riskFactors.push({
+code: "risk_trend_up",
+label: `Risk trend ${momentum.toLowerCase()}`,
+severity: momentum === "Escalating" ? "high" : "medium",
+});
+}
+
+const radarSignals = [
+{
+key: "structural_control",
+label: "Structural Control",
+value: clamp(Math.round((hiddenControlScore + top10) / 2), 0, 100),
+},
+{
+key: "wallet_coordination",
+label: "Wallet Coordination",
+value: clamp(Math.round((safeNum(activity?.score, 0) + whaleActivityScore) / 2), 0, 100),
+},
+{
+key: "liquidity_fragility",
+label: "Liquidity Fragility",
+value: clamp(100 - safeNum(securityModel?.liquidityStability?.score, 0), 0, 100),
+},
+{
+key: "fresh_wallet_pressure",
+label: "Fresh Wallet Pressure",
+value: clamp(Math.round(freshWalletPct * 2), 0, 100),
+},
+{
+key: "trend_escalation",
+label: "Trend Escalation",
+value:
+momentum === "Escalating"
+? 90
+: momentum === "Rising"
+? 65
+: momentum === "Softening" || momentum === "Cooling"
+? 20
+: 35,
+},
+];
+
+const memoryHits = [];
+if (hasMintAuthority || hasFreezeAuthority) {
+memoryHits.push({
+tag: "Authority-Controlled Launch Pattern",
+confidence: hasMintAuthority && hasFreezeAuthority ? 86 : 72,
+note: "Authority permissions remain active and preserve post-launch control surface.",
+});
+}
+
+if (hiddenControlScore >= 55 && top10 >= 55) {
+memoryHits.push({
+tag: "Structured Holder Control Pattern",
+confidence: 84,
+note: "High concentration combined with linked-wallet behavior suggests coordinated supply control.",
+});
+}
+
+if (freshWalletPct >= 20 && clusterCount >= 2) {
+memoryHits.push({
+tag: "Fresh Wallet Distribution Pattern",
+confidence: 74,
+note: "Fresh-wallet participation appears elevated alongside clustering signals.",
+});
+}
+
+const simulations = [
+{
+name: "Authority Abuse Simulation",
+result:
+hasMintAuthority || hasFreezeAuthority
+? "Exposure present"
+: "No live authority exposure detected",
+severity: hasMintAuthority || hasFreezeAuthority ? "high" : "low",
+},
+{
+name: "Liquidity Shock Simulation",
+result:
+liqUsd <= 0
+? "Market liquidity unavailable"
+: liqFdvPct < 3
+? "High slippage / fragility profile"
+: liqFdvPct < 7
+? "Moderate fragility profile"
+: "More resilient liquidity profile",
+severity: liqFdvPct < 3 ? "high" : liqFdvPct < 7 ? "medium" : "low",
+},
+{
+name: "Concentration Exit Simulation",
+result:
+top10 >= 70
+? "Large-holder exit could heavily distort price"
+: top10 >= 50
+? "Moderate-to-high concentration exit risk"
+: "Lower concentrated exit pressure",
+severity: top10 >= 70 ? "high" : top10 >= 50 ? "medium" : "low",
+},
+{
+name: "Coordination Stress Simulation",
+result:
+hiddenControlScore >= 70
+? "Coordinated wallet behavior highly concerning"
+: hiddenControlScore >= 40
+? "Coordinated behavior should be monitored"
+: "Low coordination stress detected",
+severity: hiddenControlScore >= 70 ? "high" : hiddenControlScore >= 40 ? "medium" : "low",
+},
+];
+
+let cassieScore = 0;
+cassieScore += riskScore * 0.3;
+cassieScore += hiddenControlScore * 0.2;
+cassieScore += safeNum(activity?.score, 0) * 0.15;
+cassieScore += Math.min(top10, 100) * 0.15;
+cassieScore += Math.min(freshWalletPct * 2, 100) * 0.1;
+cassieScore += (100 - safeNum(securityModel?.liquidityStability?.score, 0)) * 0.1;
+cassieScore = clamp(Math.round(cassieScore), 0, 100);
+
+let threatLevel = "Low";
+let status = "Clear";
+let action = "Continue monitoring";
+let state = "good";
+
+if (cassieScore >= 75) {
+threatLevel = "High";
+status = "Hostile Structure";
+action = "Avoid / escalate review";
+state = "bad";
+} else if (cassieScore >= 50) {
+threatLevel = "Elevated";
+status = "Caution";
+action = "Monitor closely";
+state = "warn";
+}
+
+const pattern =
+memoryHits[0]?.tag ||
+(hiddenControlScore >= 40
+? "Linked control pattern"
+: top10 >= 55
+? "Concentrated holder pattern"
+: "No dominant hostile pattern");
+
+const summaryParts = [];
+if (hasMintAuthority || hasFreezeAuthority) summaryParts.push("authority exposure remains live");
+if (top10 >= 55) summaryParts.push("holder concentration is elevated");
+if (hiddenControlScore >= 40) summaryParts.push("linked-wallet behavior is visible");
+if (freshWalletPct >= 20) summaryParts.push("fresh-wallet participation is elevated");
+if (liqFdvPct > 0 && liqFdvPct < 3) summaryParts.push("liquidity appears thin versus valuation");
+if (momentum === "Escalating" || momentum === "Rising") {
+summaryParts.push(`risk trend is ${momentum.toLowerCase()}`);
+}
+
+const summary = summaryParts.length
+? `Cassie identifies ${summaryParts.join(", ")}.`
+: "Cassie does not currently see a dominant hostile structure in this snapshot.";
+
+return {
+enabled: true,
+score: cassieScore,
+confidence: clamp(Math.round(58 + riskFactors.length * 6 + memoryHits.length * 5), 0, 99),
+threatLevel,
+status,
+state,
+pattern,
+recommendedAction: action,
+summary,
+riskFactors,
+memoryHits,
+simulations,
+radarSignals,
+verdict:
+cassieScore >= 75
+? "Hostile Structure"
+: cassieScore >= 50
+? "Caution"
+: "Clear",
+};
+}
+
 // ---- Caches ----
 const holdersCache = new Map();
 const holdersInFlight = new Map();
@@ -364,36 +699,13 @@ const CLUSTER_TTL_MS = 180_000;
 const marketCache = new Map();
 const MARKET_TTL_MS = 30_000;
 
-// ---- Health ----
-app.get("/health", (req, res) => {
-res.json({
-ok: true,
-service: "mss-api",
-env: NODE_ENV,
-port: Number(PORT),
-rpcLabel: "Solana Mainnet (Live)",
-});
-});
-
-app.get("/", (req, res) => {
-res.json({ ok: true, service: "mss-api" });
-});
-
-// ---- Auth ----
-app.post("/api/register", authLimiter, authSlow, register);
-app.post("/api/login", authLimiter, authSlow, login);
-
-// ---------- Token Safety + metadata ----------
-app.get("/api/sol/token/:mint", async (req, res) => {
-try {
-const mint = assertMint(req.params.mint);
-if (!mint) return res.status(400).json({ error: "Invalid mint" });
-
+// ---- Shared data loaders ----
+async function fetchTokenData(mint) {
 const info = await rpcRetry(() => connection.getParsedAccountInfo(mint));
-if (!info.value) return res.status(404).json({ error: "Mint not found" });
+if (!info.value) return null;
 
 const mintParsed = info.value.data?.parsed?.info;
-if (!mintParsed) return res.status(500).json({ error: "Unable to parse mint" });
+if (!mintParsed) return null;
 
 const mintAuthority = mintParsed.mintAuthority ?? null;
 const freezeAuthority = mintParsed.freezeAuthority ?? null;
@@ -409,7 +721,7 @@ metadata = metaAcc?.data?.data || null;
 metadata = null;
 }
 
-return res.json({
+return {
 mint: mint.toBase58(),
 chain: "solana",
 supply,
@@ -423,43 +735,31 @@ freezeRevoked: !freezeAuthority,
 metadata,
 rpcLabel: "Solana Mainnet (Live)",
 source: "onchain",
-});
-} catch (e) {
-return res.status(500).json({ error: String(e?.message || e) });
+};
 }
-});
 
-// ---------- Market ----------
-app.get("/api/sol/market/:mint", async (req, res) => {
-try {
-const mint = req.params.mint;
-const mintPk = assertMint(mint);
-if (!mintPk) return res.status(400).json({ error: "Invalid mint" });
+async function fetchMarketData(mintStr) {
+const cached = marketCache.get(mintStr);
+if (cached && Date.now() - cached.ts < MARKET_TTL_MS) return cached.data;
 
-const cached = marketCache.get(mint);
-if (cached && Date.now() - cached.ts < MARKET_TTL_MS) return res.json(cached.data);
-
-const url = `https://api.dexscreener.com/latest/dex/tokens/${mint}`;
+const url = `https://api.dexscreener.com/latest/dex/tokens/${mintStr}`;
 const r = await fetch(url, { timeout: 10_000 });
 const j = await r.json();
 
 if (!j?.pairs?.length) {
 const out = { found: false };
-marketCache.set(mint, { ts: Date.now(), data: out });
-return res.json(out);
+marketCache.set(mintStr, { ts: Date.now(), data: out });
+return out;
 }
 
 const p = j.pairs[0];
-const mcapUsd = p.marketCap ?? p.marketcap ?? p.mcap ?? null;
-const pc = p.priceChange || {};
-
 const out = {
 found: true,
 dex: p.dexId,
 pair: p.pairAddress,
 priceUsd: p.priceUsd,
 fdv: p.fdv ?? null,
-mcapUsd: mcapUsd ?? null,
+mcapUsd: p.marketCap ?? p.marketcap ?? p.mcap ?? null,
 liquidityUsd: p.liquidity?.usd || 0,
 volume24h: p.volume?.h24 || 0,
 baseSymbol: p.baseToken?.symbol,
@@ -467,34 +767,23 @@ quoteSymbol: p.quoteToken?.symbol,
 baseName: p.baseToken?.name,
 quoteName: p.quoteToken?.name,
 priceChange: {
-h1: pc.h1 ?? null,
-h24: pc.h24 ?? null,
-d7: pc.d7 ?? pc.h168 ?? null,
-m30: pc.m30 ?? pc.d30 ?? null,
+h1: p.priceChange?.h1 ?? null,
+h24: p.priceChange?.h24 ?? null,
+d7: p.priceChange?.d7 ?? p.priceChange?.h168 ?? null,
+m30: p.priceChange?.m30 ?? p.priceChange?.d30 ?? null,
 },
 };
 
-marketCache.set(mint, { ts: Date.now(), data: out });
-return res.json(out);
-} catch (e) {
-return res.status(500).json({ error: String(e?.message || e) });
+marketCache.set(mintStr, { ts: Date.now(), data: out });
+return out;
 }
-});
 
-// ---------- Holders ----------
-app.get("/api/sol/holders/:mint", async (req, res) => {
-const mintStr = req.params.mint;
-
-try {
-const mint = assertMint(mintStr);
-if (!mint) return res.status(400).json({ error: "Invalid mint" });
-
+async function fetchHoldersData(mint, mintStr) {
 const cached = holdersCache.get(mintStr);
-if (cached && Date.now() - cached.ts < HOLDERS_TTL_MS) return res.json(cached.data);
+if (cached && Date.now() - cached.ts < HOLDERS_TTL_MS) return cached.data;
 
 if (holdersInFlight.has(mintStr)) {
-const data = await holdersInFlight.get(mintStr);
-return res.json(data);
+return holdersInFlight.get(mintStr);
 }
 
 const task = (async () => {
@@ -508,7 +797,6 @@ const decimals = supplyResp?.value?.decimals ?? null;
 
 const top = (largest?.value || []).slice(0, 20);
 const tokenAccPubkeys = top.map((a) => new PublicKey(a.address));
-
 const accInfos = await rpcRetry(() => connection.getMultipleAccountsInfo(tokenAccPubkeys));
 
 const owners = accInfos.map((info) => {
@@ -548,11 +836,104 @@ return out;
 })();
 
 holdersInFlight.set(mintStr, task);
-const data = await task;
+
+try {
+const out = await task;
 holdersInFlight.delete(mintStr);
-return res.json(data);
+return out;
 } catch (e) {
 holdersInFlight.delete(mintStr);
+throw e;
+}
+}
+
+async function fetchClusterData(mint, mintStr) {
+const cached = clusterCache.get(mintStr);
+if (cached && Date.now() - cached.ts < CLUSTER_TTL_MS) return cached.data;
+
+let holdersData = holdersCache.get(mintStr)?.data;
+if (!holdersData) {
+holdersData = await fetchHoldersData(mint, mintStr);
+}
+
+const owners = (holdersData?.holders || []).map((h) => h.owner).filter(Boolean);
+const intel = await getClusterIntel({ connection, rpcRetry, owners });
+clusterCache.set(mintStr, { ts: Date.now(), data: intel });
+return intel;
+}
+
+function buildConcentration(holdersJson) {
+const holders = Array.isArray(holdersJson?.holders) ? holdersJson.holders : [];
+const pct = holders.map((h) => Number(h.pctSupply || 0));
+const sumTopN = (n) => pct.slice(0, n).reduce((a, b) => a + b, 0);
+
+return {
+top1: sumTopN(1),
+top5: sumTopN(5),
+top10: sumTopN(10),
+top20: sumTopN(20),
+};
+}
+
+// ---- Health ----
+app.get("/health", (req, res) => {
+res.json({
+ok: true,
+service: "mss-api",
+env: NODE_ENV,
+port: Number(PORT),
+rpcLabel: "Solana Mainnet (Live)",
+});
+});
+
+app.get("/", (req, res) => {
+res.json({ ok: true, service: "mss-api" });
+});
+
+// ---- Auth ----
+app.post("/api/register", authLimiter, authSlow, register);
+app.post("/api/login", authLimiter, authSlow, login);
+
+// ---------- Token Safety + metadata ----------
+app.get("/api/sol/token/:mint", async (req, res) => {
+try {
+const mint = assertMint(req.params.mint);
+if (!mint) return res.status(400).json({ error: "Invalid mint" });
+
+const tokenJson = await fetchTokenData(mint);
+if (!tokenJson) return res.status(404).json({ error: "Mint not found" });
+
+return res.json(tokenJson);
+} catch (e) {
+return res.status(500).json({ error: String(e?.message || e) });
+}
+});
+
+// ---------- Market ----------
+app.get("/api/sol/market/:mint", async (req, res) => {
+try {
+const mintStr = req.params.mint;
+const mint = assertMint(mintStr);
+if (!mint) return res.status(400).json({ error: "Invalid mint" });
+
+const out = await fetchMarketData(mintStr);
+return res.json(out);
+} catch (e) {
+return res.status(500).json({ error: String(e?.message || e) });
+}
+});
+
+// ---------- Holders ----------
+app.get("/api/sol/holders/:mint", async (req, res) => {
+const mintStr = req.params.mint;
+
+try {
+const mint = assertMint(mintStr);
+if (!mint) return res.status(400).json({ error: "Invalid mint" });
+
+const data = await fetchHoldersData(mint, mintStr);
+return res.json(data);
+} catch (e) {
 if (isRateLimitError(e)) {
 return res.status(429).json({ error: "RPC rate limited (429). Try again shortly." });
 }
@@ -563,38 +944,12 @@ return res.status(500).json({ error: String(e?.message || e) });
 // ---------- Cluster Intelligence ----------
 app.get("/api/sol/cluster/:mint", async (req, res) => {
 const mintStr = req.params.mint;
+
 try {
 const mint = assertMint(mintStr);
 if (!mint) return res.status(400).json({ error: "Invalid mint" });
 
-const cached = clusterCache.get(mintStr);
-if (cached && Date.now() - cached.ts < CLUSTER_TTL_MS) return res.json(cached.data);
-
-let holdersData = holdersCache.get(mintStr)?.data;
-
-if (!holdersData) {
-const largest = await rpcRetry(() => connection.getTokenLargestAccounts(mint));
-const top = (largest?.value || []).slice(0, 20);
-const tokenAccPubkeys = top.map((a) => new PublicKey(a.address));
-const accInfos = await rpcRetry(() => connection.getMultipleAccountsInfo(tokenAccPubkeys));
-
-const owners = accInfos.map((info) => {
-try {
-if (!info?.data || info.data.length !== AccountLayout.span) return null;
-const decoded = AccountLayout.decode(info.data);
-return new PublicKey(decoded.owner).toBase58();
-} catch {
-return null;
-}
-});
-
-holdersData = { holders: top.map((a, i) => ({ owner: owners[i] })) };
-}
-
-const owners = (holdersData?.holders || []).map((h) => h.owner).filter(Boolean);
-const intel = await getClusterIntel({ connection, rpcRetry, owners });
-
-clusterCache.set(mintStr, { ts: Date.now(), data: intel });
+const intel = await fetchClusterData(mint, mintStr);
 return res.json(intel);
 } catch (e) {
 if (isRateLimitError(e)) {
@@ -613,162 +968,19 @@ const mint = assertMint(mintStr);
 if (!mint) return res.status(400).json({ error: "Invalid mint" });
 
 const [tokenJson, marketJson, holdersJson, clusterJson] = await Promise.all([
-(async () => {
-const info = await rpcRetry(() => connection.getParsedAccountInfo(mint));
-if (!info.value) return null;
-
-const mintParsed = info.value.data?.parsed?.info;
-if (!mintParsed) return null;
-
-const mintAuthority = mintParsed.mintAuthority ?? null;
-const freezeAuthority = mintParsed.freezeAuthority ?? null;
-const supply = mintParsed.supply;
-const decimals = mintParsed.decimals;
-
-let metadata = null;
-try {
-const metaPDA = Metadata.getPDA(mint);
-const metaAcc = await rpcRetry(() => Metadata.load(connection, metaPDA));
-metadata = metaAcc?.data?.data || null;
-} catch {
-metadata = null;
-}
-
-return {
-mint: mint.toBase58(),
-chain: "solana",
-supply,
-decimals,
-mintAuthority,
-freezeAuthority,
-safety: {
-mintRevoked: !mintAuthority,
-freezeRevoked: !freezeAuthority,
-},
-metadata,
-rpcLabel: "Solana Mainnet (Live)",
-source: "onchain",
-};
-})(),
-
-(async () => {
-const cached = marketCache.get(mintStr);
-if (cached && Date.now() - cached.ts < MARKET_TTL_MS) return cached.data;
-
-const url = `https://api.dexscreener.com/latest/dex/tokens/${mintStr}`;
-const r = await fetch(url, { timeout: 10_000 });
-const j = await r.json();
-
-if (!j?.pairs?.length) return { found: false };
-
-const p = j.pairs[0];
-const out = {
-found: true,
-dex: p.dexId,
-pair: p.pairAddress,
-priceUsd: p.priceUsd,
-fdv: p.fdv ?? null,
-mcapUsd: p.marketCap ?? p.marketcap ?? p.mcap ?? null,
-liquidityUsd: p.liquidity?.usd || 0,
-volume24h: p.volume?.h24 || 0,
-baseSymbol: p.baseToken?.symbol,
-quoteSymbol: p.quoteToken?.symbol,
-baseName: p.baseToken?.name,
-quoteName: p.quoteToken?.name,
-priceChange: {
-h1: p.priceChange?.h1 ?? null,
-h24: p.priceChange?.h24 ?? null,
-d7: p.priceChange?.d7 ?? p.priceChange?.h168 ?? null,
-m30: p.priceChange?.m30 ?? p.priceChange?.d30 ?? null,
-},
-};
-
-marketCache.set(mintStr, { ts: Date.now(), data: out });
-return out;
-})(),
-
-(async () => {
-const cached = holdersCache.get(mintStr);
-if (cached && Date.now() - cached.ts < HOLDERS_TTL_MS) return cached.data;
-
-const [supplyResp, largest] = await Promise.all([
-rpcRetry(() => connection.getTokenSupply(mint)),
-rpcRetry(() => connection.getTokenLargestAccounts(mint)),
-]);
-
-const totalUi = supplyResp?.value?.uiAmount ?? null;
-const decimals = supplyResp?.value?.decimals ?? null;
-
-const top = (largest?.value || []).slice(0, 20);
-const tokenAccPubkeys = top.map((a) => new PublicKey(a.address));
-const accInfos = await rpcRetry(() => connection.getMultipleAccountsInfo(tokenAccPubkeys));
-
-const owners = accInfos.map((info) => {
-try {
-if (!info?.data || info.data.length !== AccountLayout.span) return null;
-const decoded = AccountLayout.decode(info.data);
-return new PublicKey(decoded.owner).toBase58();
-} catch {
-return null;
-}
-});
-
-const holders = top.map((a, i) => {
-const ui = a.uiAmount ?? null;
-const pct = totalUi && ui != null && totalUi > 0 ? (ui / totalUi) * 100 : null;
-
-return {
-rank: i + 1,
-tokenAccount: a.address,
-owner: owners[i],
-uiAmount: ui,
-amount: a.amount,
-pctSupply: pct,
-};
-});
-
-const out = {
-found: true,
-mint: mint.toBase58(),
-decimals,
-totalSupplyUi: totalUi,
-holders,
-};
-
-holdersCache.set(mintStr, { ts: Date.now(), data: out });
-return out;
-})(),
-
-(async () => {
-const cached = clusterCache.get(mintStr);
-if (cached && Date.now() - cached.ts < CLUSTER_TTL_MS) return cached.data;
-
-const owners = (holdersCache.get(mintStr)?.data?.holders || [])
-.map((h) => h.owner)
-.filter(Boolean);
-
-const intel = await getClusterIntel({ connection, rpcRetry, owners });
-clusterCache.set(mintStr, { ts: Date.now(), data: intel });
-return intel;
-})(),
+fetchTokenData(mint),
+fetchMarketData(mintStr),
+fetchHoldersData(mint, mintStr),
+fetchClusterData(mint, mintStr),
 ]);
 
 if (!tokenJson || !holdersJson) {
 return res.status(404).json({ error: "Mint not found" });
 }
 
-const holders = Array.isArray(holdersJson?.holders) ? holdersJson.holders : [];
-const pct = holders.map((h) => Number(h.pctSupply || 0));
-const sumTopN = (n) => pct.slice(0, n).reduce((a, b) => a + b, 0);
-
-const concentration = {
-top1: sumTopN(1),
-top5: sumTopN(5),
-top10: sumTopN(10),
-top20: sumTopN(20),
-};
-
+const concentration = buildConcentration(holdersJson);
 const activity = clusterJson || {};
+
 const baseSecurityModel = buildSecurityModel({
 concentration,
 token: tokenJson,
@@ -785,6 +997,40 @@ activity,
 trend,
 });
 
+let cassieIntelResult = null;
+
+try {
+if (typeof cassieIntel?.analyze === "function") {
+cassieIntelResult = cassieIntel.analyze({
+mint: mintStr,
+token: tokenJson,
+market: marketJson || {},
+concentration,
+activity,
+securityModel,
+trend,
+});
+} else {
+cassieIntelResult = buildCassieIntelFallback({
+token: tokenJson,
+market: marketJson || {},
+concentration,
+activity,
+trend,
+securityModel,
+});
+}
+} catch {
+cassieIntelResult = buildCassieIntelFallback({
+token: tokenJson,
+market: marketJson || {},
+concentration,
+activity,
+trend,
+securityModel,
+});
+}
+
 return res.json({
 ok: true,
 mint: mintStr,
@@ -795,6 +1041,7 @@ concentration,
 activity,
 trend,
 securityModel,
+cassie: cassieIntelResult,
 });
 } catch (e) {
 if (isRateLimitError(e)) {
@@ -813,158 +1060,17 @@ const mint = assertMint(mintStr);
 if (!mint) return res.status(400).json({ error: "Invalid mint" });
 
 const [tokenJson, marketJson, holdersJson, clusterJson] = await Promise.all([
-(async () => {
-const info = await rpcRetry(() => connection.getParsedAccountInfo(mint));
-if (!info.value) return null;
-
-const mintParsed = info.value.data?.parsed?.info;
-if (!mintParsed) return null;
-
-const mintAuthority = mintParsed.mintAuthority ?? null;
-const freezeAuthority = mintParsed.freezeAuthority ?? null;
-const supply = mintParsed.supply;
-const decimals = mintParsed.decimals;
-
-let metadata = null;
-try {
-const metaPDA = Metadata.getPDA(mint);
-const metaAcc = await rpcRetry(() => Metadata.load(connection, metaPDA));
-metadata = metaAcc?.data?.data || null;
-} catch {
-metadata = null;
-}
-
-return {
-mint: mint.toBase58(),
-chain: "solana",
-supply,
-decimals,
-mintAuthority,
-freezeAuthority,
-safety: {
-mintRevoked: !mintAuthority,
-freezeRevoked: !freezeAuthority,
-},
-metadata,
-};
-})(),
-
-(async () => {
-const cached = marketCache.get(mintStr);
-if (cached && Date.now() - cached.ts < MARKET_TTL_MS) return cached.data;
-
-const url = `https://api.dexscreener.com/latest/dex/tokens/${mintStr}`;
-const r = await fetch(url, { timeout: 10_000 });
-const j = await r.json();
-
-if (!j?.pairs?.length) return { found: false };
-
-const p = j.pairs[0];
-const out = {
-found: true,
-dex: p.dexId,
-pair: p.pairAddress,
-priceUsd: p.priceUsd,
-fdv: p.fdv ?? null,
-mcapUsd: p.marketCap ?? p.marketcap ?? p.mcap ?? null,
-liquidityUsd: p.liquidity?.usd || 0,
-volume24h: p.volume?.h24 || 0,
-baseSymbol: p.baseToken?.symbol,
-quoteSymbol: p.quoteToken?.symbol,
-baseName: p.baseToken?.name,
-quoteName: p.quoteToken?.name,
-priceChange: {
-h1: p.priceChange?.h1 ?? null,
-h24: p.priceChange?.h24 ?? null,
-d7: p.priceChange?.d7 ?? p.priceChange?.h168 ?? null,
-m30: p.priceChange?.m30 ?? p.priceChange?.d30 ?? null,
-},
-};
-
-marketCache.set(mintStr, { ts: Date.now(), data: out });
-return out;
-})(),
-
-(async () => {
-const cached = holdersCache.get(mintStr);
-if (cached && Date.now() - cached.ts < HOLDERS_TTL_MS) return cached.data;
-
-const [supplyResp, largest] = await Promise.all([
-rpcRetry(() => connection.getTokenSupply(mint)),
-rpcRetry(() => connection.getTokenLargestAccounts(mint)),
-]);
-
-const totalUi = supplyResp?.value?.uiAmount ?? null;
-const decimals = supplyResp?.value?.decimals ?? null;
-
-const top = (largest?.value || []).slice(0, 20);
-const tokenAccPubkeys = top.map((a) => new PublicKey(a.address));
-const accInfos = await rpcRetry(() => connection.getMultipleAccountsInfo(tokenAccPubkeys));
-
-const owners = accInfos.map((info) => {
-try {
-if (!info?.data || info.data.length !== AccountLayout.span) return null;
-const decoded = AccountLayout.decode(info.data);
-return new PublicKey(decoded.owner).toBase58();
-} catch {
-return null;
-}
-});
-
-const holders = top.map((a, i) => {
-const ui = a.uiAmount ?? null;
-const pct = totalUi && ui != null && totalUi > 0 ? (ui / totalUi) * 100 : null;
-
-return {
-rank: i + 1,
-tokenAccount: a.address,
-owner: owners[i],
-uiAmount: ui,
-amount: a.amount,
-pctSupply: pct,
-};
-});
-
-const out = {
-found: true,
-mint: mint.toBase58(),
-decimals,
-totalSupplyUi: totalUi,
-holders,
-};
-
-holdersCache.set(mintStr, { ts: Date.now(), data: out });
-return out;
-})(),
-
-(async () => {
-const cached = clusterCache.get(mintStr);
-if (cached && Date.now() - cached.ts < CLUSTER_TTL_MS) return cached.data;
-
-const owners = (holdersCache.get(mintStr)?.data?.holders || [])
-.map((h) => h.owner)
-.filter(Boolean);
-
-const intel = await getClusterIntel({ connection, rpcRetry, owners });
-clusterCache.set(mintStr, { ts: Date.now(), data: intel });
-return intel;
-})(),
+fetchTokenData(mint),
+fetchMarketData(mintStr),
+fetchHoldersData(mint, mintStr),
+fetchClusterData(mint, mintStr),
 ]);
 
 if (!tokenJson || !holdersJson) {
 return res.status(404).json({ error: "Mint not found" });
 }
 
-const holders = Array.isArray(holdersJson?.holders) ? holdersJson.holders : [];
-const pct = holders.map((h) => Number(h.pctSupply || 0));
-const sumTopN = (n) => pct.slice(0, n).reduce((a, b) => a + b, 0);
-
-const concentration = {
-top1: sumTopN(1),
-top5: sumTopN(5),
-top10: sumTopN(10),
-top20: sumTopN(20),
-};
+const concentration = buildConcentration(holdersJson);
 
 const baseSecurityModel = buildSecurityModel({
 concentration,
@@ -982,6 +1088,26 @@ activity: clusterJson || {},
 trend,
 });
 
+const cassie =
+typeof cassieIntel?.analyze === "function"
+? cassieIntel.analyze({
+mint: mintStr,
+token: tokenJson,
+market: marketJson || {},
+concentration,
+activity: clusterJson || {},
+securityModel,
+trend,
+})
+: buildCassieIntelFallback({
+token: tokenJson,
+market: marketJson || {},
+concentration,
+activity: clusterJson || {},
+trend,
+securityModel,
+});
+
 const name = tokenJson?.metadata?.name || marketJson?.baseName || "Unknown Token";
 const symbol = tokenJson?.metadata?.symbol || marketJson?.baseSymbol || "TOKEN";
 
@@ -996,6 +1122,9 @@ symbol: String(symbol).trim().toUpperCase(),
 riskLabel: securityModel?.label?.text || "Unknown",
 riskState: securityModel?.label?.state || "warn",
 riskScore: Number(securityModel?.score ?? 0),
+cassieVerdict: cassie?.verdict || titleCase(cassie?.status || "Unknown"),
+cassieThreat: cassie?.threatLevel || "Unknown",
+cassieScore: Number(cassie?.score ?? 0),
 liquidityUsd,
 top10Pct: top10,
 liquidityText: fmtUsdCompact(liquidityUsd),
@@ -1065,8 +1194,11 @@ return res.status(400).json({ error: "Missing fields" });
 
 const allowedTypes = new Set(["risk_spike", "whale", "liquidity", "authority", "top10"]);
 const allowedDirections = new Set(["above", "below"]);
+
 if (!allowedTypes.has(type)) return res.status(400).json({ error: "Invalid type" });
-if (!allowedDirections.has(direction)) return res.status(400).json({ error: "Invalid direction" });
+if (!allowedDirections.has(direction)) {
+return res.status(400).json({ error: "Invalid direction" });
+}
 
 const info = db
 .prepare(`
@@ -1135,7 +1267,7 @@ return res.status(500).json({ error: String(e?.message || e) });
 app.listen(PORT, "0.0.0.0", () => {
 console.log(`✅ MSS API running on http://0.0.0.0:${PORT}`);
 console.log(`🔒 RPC hidden (label only)`);
-console.log(`🛡️ Cassie: enabled (defensive middleware)`);
+console.log(`🛡️ Cassie: enabled (defensive middleware + intel layer)`);
 });
 
 startWatcher();

@@ -310,7 +310,10 @@ setText("clusterScore", hasNumber(score) ? `${score}` : "—");
 setText("clusterLabel", label || "—");
 setText("sybilScore", hasNumber(score) ? `${score} /100` : "—");
 setText("clustersCount", String(activity?.clusterCount ?? activity?.clusters?.length ?? 0));
-setText("whaleFlow1h", rm?.whaleActivity?.syncBurstSize == null ? "—" : String(rm.whaleActivity.syncBurstSize));
+setText(
+"whaleFlow1h",
+rm?.whaleActivity?.syncBurstSize == null ? "—" : String(rm.whaleActivity.syncBurstSize)
+);
 setText("whaleFlow24h", hidden?.linkedWallets == null ? "—" : String(hidden.linkedWallets));
 
 const body = $("clusterTableBody");
@@ -347,7 +350,9 @@ body.appendChild(tr);
 
 setText(
 "clusterMeta",
-`Analyzed: ${activity?.analyzedWallets ?? "—"} • Linked wallets: ${hidden?.linkedWallets ?? activity?.clusteredWallets ?? "—"} • Fresh wallets: ${fmtPct(rm?.freshWalletRisk?.pct ?? activity?.newWalletPct ?? null, 1)}`
+`Analyzed: ${activity?.analyzedWallets ?? "—"} • Linked wallets: ${
+hidden?.linkedWallets ?? activity?.clusteredWallets ?? "—"
+} • Fresh wallets: ${fmtPct(rm?.freshWalletRisk?.pct ?? activity?.newWalletPct ?? null, 1)}`
 );
 }
 
@@ -376,28 +381,55 @@ setText("reputationScore2", rm?.reputation?.score != null ? `${rm.reputation.sco
 
 function renderPhase2Signals(rm) {
 setText("hiddenControlLabel", rm?.hiddenControl?.label || "—");
-setText("hiddenControlScore", rm?.hiddenControl?.score != null ? `${rm.hiddenControl.score}/100` : "—");
-setText("hiddenControlLinked", rm?.hiddenControl?.linkedWallets != null ? String(rm.hiddenControl.linkedWallets) : "—");
-setText("hiddenControlSupply", rm?.hiddenControl?.linkedWalletPct != null ? fmtPct(rm.hiddenControl.linkedWalletPct, 1) : "—");
+setText(
+"hiddenControlScore",
+rm?.hiddenControl?.score != null ? `${rm.hiddenControl.score}/100` : "—"
+);
+setText(
+"hiddenControlLinked",
+rm?.hiddenControl?.linkedWallets != null ? String(rm.hiddenControl.linkedWallets) : "—"
+);
+setText(
+"hiddenControlSupply",
+rm?.hiddenControl?.linkedWalletPct != null ? fmtPct(rm.hiddenControl.linkedWalletPct, 1) : "—"
+);
 setText("sharedFunding", rm?.hiddenControl?.sharedFundingDetected ? "Detected" : "Not detected");
 
 setText("devActivityLabel", rm?.developerActivity?.label || "—");
 setText("devActivityDetected", rm?.developerActivity?.detected ? "Yes" : "No");
-setText("devActivityWallets", rm?.developerActivity?.linkedWallets != null ? String(rm.developerActivity.linkedWallets) : "—");
+setText(
+"devActivityWallets",
+rm?.developerActivity?.linkedWallets != null ? String(rm.developerActivity.linkedWallets) : "—"
+);
 
 setText("freshWalletLabel", rm?.freshWalletRisk?.label || "—");
-setText("freshWalletCount", rm?.freshWalletRisk?.walletCount != null ? String(rm.freshWalletRisk.walletCount) : "—");
+setText(
+"freshWalletCount",
+rm?.freshWalletRisk?.walletCount != null ? String(rm.freshWalletRisk.walletCount) : "—"
+);
 setText("freshWalletPct", rm?.freshWalletRisk?.pct != null ? fmtPct(rm.freshWalletRisk.pct, 1) : "—");
 
 setText("liqStabilityLabel", rm?.liquidityStability?.label || "—");
-setText("liqStabilityScore", rm?.liquidityStability?.score != null ? `${rm.liquidityStability.score}/100` : "—");
-setText("liqFdvPct", rm?.liquidityStability?.liqFdvPct != null ? fmtPct(rm.liquidityStability.liqFdvPct, 2) : "—");
+setText(
+"liqStabilityScore",
+rm?.liquidityStability?.score != null ? `${rm.liquidityStability.score}/100` : "—"
+);
+setText(
+"liqFdvPct",
+rm?.liquidityStability?.liqFdvPct != null ? fmtPct(rm.liquidityStability.liqFdvPct, 2) : "—"
+);
 setText("liqRemovable", rm?.liquidityStability?.removableRisk || "—");
 
 setText("whaleActivityLabel", rm?.whaleActivity?.label || "—");
-setText("whaleActivityScore", rm?.whaleActivity?.score != null ? `${rm.whaleActivity.score}/100` : "—");
+setText(
+"whaleActivityScore",
+rm?.whaleActivity?.score != null ? `${rm.whaleActivity.score}/100` : "—"
+);
 setText("whalePressure", rm?.whaleActivity?.pressure || "—");
-setText("whaleSync", rm?.whaleActivity?.syncBurstSize != null ? String(rm.whaleActivity.syncBurstSize) : "—");
+setText(
+"whaleSync",
+rm?.whaleActivity?.syncBurstSize != null ? String(rm.whaleActivity.syncBurstSize) : "—"
+);
 }
 
 function renderTrendChart(trend) {
@@ -427,11 +459,13 @@ const min = Math.min(...points, 0);
 const max = Math.max(...points, 100);
 const range = Math.max(1, max - min);
 
-const coords = points.map((v, i) => {
+const coords = points
+.map((v, i) => {
 const x = (i / Math.max(1, points.length - 1)) * width;
 const y = height - ((v - min) / range) * height;
 return `${x},${y}`;
-}).join(" ");
+})
+.join(" ");
 
 svg.setAttribute("viewBox", `0 0 ${width} ${height}`);
 svg.innerHTML = `
@@ -461,7 +495,11 @@ notes.push("Mint & freeze authority appear revoked.");
 if (Number(conc?.top1 || 0) > 35) notes.push("Top1 concentration is high — watch for control risk.");
 if (Number(conc?.top10 || 0) > 55) notes.push("Top10 concentration suggests whale dominance.");
 
-if (marketJson?.found && Number(marketJson?.liquidityUsd || 0) > 0 && Number(marketJson?.fdv || 0) > 0) {
+if (
+marketJson?.found &&
+Number(marketJson?.liquidityUsd || 0) > 0 &&
+Number(marketJson?.fdv || 0) > 0
+) {
 const liqFdv = (Number(marketJson.liquidityUsd) / Number(marketJson.fdv)) * 100;
 if (liqFdv < 3) notes.push("Liquidity depth is thin relative to valuation.");
 }
@@ -493,6 +531,241 @@ notes.push("Distribution shows structuring/coordinated patterns (best-effort).")
 notes.push(`Primary driver: ${rm?.primaryDriver || "—"}.`);
 
 return notes.join(" ");
+}
+
+function cassieToneByState(state) {
+if (state === "good") return "good";
+if (state === "bad") return "bad";
+return "warn";
+}
+
+function renderCassieList(id, items) {
+const el = $(id);
+if (!el) return;
+
+if (!Array.isArray(items) || !items.length) {
+el.innerHTML = `<li class="warn">No output available yet.</li>`;
+return;
+}
+
+el.innerHTML = items
+.map(
+(item) => `<li class="${item.tone || "warn"}">${String(item.text || "").trim()}</li>`
+)
+.join("");
+}
+
+function buildCassieModel({ tokenJson, marketJson, conc, activity, rm, trend }) {
+const itemsSignals = [];
+const itemsSims = [];
+const itemsRiskFactors = [];
+const itemsRadar = [];
+
+const riskScore = Number(rm?.score || 0);
+const whaleScore = Number(rm?.whaleScore || 0);
+const top10 = Number(conc?.top10 || 0);
+const top1 = Number(conc?.top1 || 0);
+const liquidityUsd = Number(marketJson?.liquidityUsd || 0);
+const fdvUsd = Number(marketJson?.fdv || 0);
+const liqFdvPct = fdvUsd > 0 ? (liquidityUsd / fdvUsd) * 100 : 0;
+const hiddenControlScore = Number(rm?.hiddenControl?.score || 0);
+const freshPct = Number(rm?.freshWalletRisk?.pct || 0);
+const linkedWallets = Number(rm?.hiddenControl?.linkedWallets || 0);
+const clusterCount = Number(activity?.clusterCount ?? activity?.clusters?.length ?? 0);
+const momentum = rm?.trend?.momentum || trend?.trend?.momentum || "Stable";
+const mintRevoked = !!tokenJson?.safety?.mintRevoked;
+const freezeRevoked = !!tokenJson?.safety?.freezeRevoked;
+const devDetected = !!rm?.developerActivity?.detected;
+
+if (mintRevoked && freezeRevoked) {
+itemsSignals.push({ tone: "good", text: "Critical authorities appear revoked." });
+} else {
+itemsSignals.push({ tone: "bad", text: "Authority controls remain present." });
+}
+
+if (top10 >= 55) {
+itemsSignals.push({ tone: "bad", text: `Top10 concentration is elevated at ${fmtPct(top10)}.` });
+} else if (top10 >= 35) {
+itemsSignals.push({ tone: "warn", text: `Top10 concentration is moderate at ${fmtPct(top10)}.` });
+} else {
+itemsSignals.push({ tone: "good", text: `Top10 concentration is relatively contained at ${fmtPct(top10)}.` });
+}
+
+if (hiddenControlScore >= 70) {
+itemsSignals.push({ tone: "bad", text: "Cassie sees strong hidden-control structure risk." });
+} else if (hiddenControlScore >= 40) {
+itemsSignals.push({ tone: "warn", text: "Cassie sees elevated linked-wallet structure risk." });
+} else {
+itemsSignals.push({ tone: "good", text: "Linked-wallet structure risk is currently low." });
+}
+
+if (momentum === "Escalating" || momentum === "Rising") {
+itemsSignals.push({ tone: "bad", text: `Risk momentum is ${momentum.toLowerCase()}.` });
+} else if (momentum === "Cooling" || momentum === "Softening" || momentum === "Stabilising") {
+itemsSignals.push({ tone: "good", text: `Risk momentum is ${momentum.toLowerCase()}.` });
+} else {
+itemsSignals.push({ tone: "warn", text: "Risk momentum is stable but should continue to be monitored." });
+}
+
+if (liqFdvPct < 1) {
+itemsSims.push({ tone: "bad", text: "Low liquidity depth suggests fast slippage under exit pressure." });
+} else if (liqFdvPct < 3) {
+itemsSims.push({ tone: "warn", text: "Liquidity depth looks fragile under concentrated selling." });
+} else {
+itemsSims.push({ tone: "good", text: "Liquidity depth appears more resilient to moderate pressure." });
+}
+
+if (!mintRevoked) {
+itemsSims.push({ tone: "bad", text: "Mint-authority persistence increases supply-expansion simulation risk." });
+} else {
+itemsSims.push({ tone: "good", text: "Supply-expansion simulation risk is lower with mint authority revoked." });
+}
+
+if (!freezeRevoked) {
+itemsSims.push({ tone: "bad", text: "Freeze-authority persistence increases transfer-control simulation risk." });
+} else {
+itemsSims.push({ tone: "good", text: "Transfer-restriction simulation risk is lower with freeze authority revoked." });
+}
+
+if (top1 >= 25 && whaleScore >= 60) {
+itemsSims.push({ tone: "bad", text: "Whale-led dump simulation impact appears severe." });
+} else if (top1 >= 15 || whaleScore >= 45) {
+itemsSims.push({ tone: "warn", text: "Whale-led dump simulation impact appears moderate." });
+} else {
+itemsSims.push({ tone: "good", text: "Whale-led dump simulation impact appears more contained." });
+}
+
+if (!mintRevoked || !freezeRevoked) {
+itemsRiskFactors.push({ tone: "bad", text: "Authority persistence remains a primary structural risk." });
+}
+if (top10 >= 55) {
+itemsRiskFactors.push({ tone: "bad", text: "Holder concentration is high enough to influence market behavior materially." });
+}
+if (hiddenControlScore >= 40 || linkedWallets >= 3 || clusterCount >= 2) {
+itemsRiskFactors.push({ tone: "warn", text: "Wallet clustering suggests potential coordinated control or distribution structuring." });
+}
+if (freshPct >= 20) {
+itemsRiskFactors.push({ tone: "warn", text: "Fresh-wallet participation is elevated and may reduce trust quality." });
+}
+if (devDetected) {
+itemsRiskFactors.push({ tone: "warn", text: "Developer-linked behavior is present in the current signal mix." });
+}
+if (liqFdvPct < 3) {
+itemsRiskFactors.push({ tone: "bad", text: "Liquidity depth is thin relative to valuation." });
+}
+if (!itemsRiskFactors.length) {
+itemsRiskFactors.push({ tone: "good", text: "No major structural red flags dominate the current snapshot." });
+}
+
+itemsRadar.push({
+tone: cassieToneByState(rm?.reputation?.state),
+text: `Reputation layer reads ${String(rm?.reputation?.label || "unknown").toLowerCase()} at ${rm?.reputation?.score ?? "—"}/100.`,
+});
+itemsRadar.push({
+tone: riskScore >= 70 ? "bad" : riskScore >= 45 ? "warn" : "good",
+text: `Composite risk score is ${riskScore}/100 with signal "${rm?.signal || "—"}".`,
+});
+itemsRadar.push({
+tone: linkedWallets >= 3 ? "warn" : "good",
+text: `Cassie mapped ${linkedWallets} linked wallets across ${clusterCount} detected cluster group(s).`,
+});
+itemsRadar.push({
+tone: marketJson?.found ? "good" : "warn",
+text: marketJson?.found
+? `Live market context loaded from ${marketJson?.dex || "market source"}.`
+: "Market context is limited for this token right now.",
+});
+
+let verdict = "Monitor";
+if (riskScore >= 75 || hiddenControlScore >= 70 || (!mintRevoked && !freezeRevoked)) {
+verdict = "High Risk Structure";
+} else if (riskScore <= 35 && hiddenControlScore < 35 && mintRevoked && freezeRevoked) {
+verdict = "Structurally Stronger";
+}
+
+let threat = "Moderate";
+if (
+riskScore >= 75 ||
+top10 >= 60 ||
+liqFdvPct < 1 ||
+hiddenControlScore >= 70 ||
+momentum === "Escalating"
+) {
+threat = "Elevated";
+} else if (
+riskScore <= 35 &&
+top10 < 40 &&
+liqFdvPct >= 5 &&
+mintRevoked &&
+freezeRevoked
+) {
+threat = "Lower";
+}
+
+const confidenceNum = Math.max(
+35,
+Math.min(
+95,
+55 +
+(marketJson?.found ? 8 : 0) +
+(Array.isArray(activity?.clusters) ? 6 : 0) +
+(trend?.found ? 10 : 0) +
+(Array.isArray(itemsRiskFactors) ? Math.min(itemsRiskFactors.length * 3, 12) : 0)
+)
+);
+
+const summary = [
+`Cassie synthesises this token as ${verdict.toLowerCase()}.`,
+`Current threat outlook is ${threat.toLowerCase()}.`,
+mintRevoked && freezeRevoked
+? "Authority posture is cleaner."
+: "Authority persistence remains a material concern.",
+top10 >= 55
+? "Concentration is materially elevated."
+: "Concentration is not the dominant driver right now.",
+hiddenControlScore >= 40
+? "Linked-wallet structure contributes meaningfully to the read."
+: "Linked-wallet structure is not the dominant driver at this time.",
+].join(" ");
+
+return {
+verdict,
+threat,
+confidenceText: `${confidenceNum}%`,
+summary,
+itemsSignals,
+itemsSims,
+itemsRiskFactors,
+itemsRadar,
+};
+}
+
+function renderCassie(scanObj) {
+const tokenJson = scanObj?.token || {};
+const marketJson = scanObj?.market || {};
+const conc = scanObj?.derived?.concentration || {};
+const activity = scanObj?.derived?.activity || {};
+const rm = scanObj?.derived?.riskModel || {};
+const trend = scanObj?.trend || rm?.trend || {};
+
+const cassie = buildCassieModel({
+tokenJson,
+marketJson,
+conc,
+activity,
+rm,
+trend,
+});
+
+setText("cassieVerdict", cassie.verdict);
+setText("cassieThreat", cassie.threat);
+setText("cassieConfidence", cassie.confidenceText);
+setText("cassieSummary", cassie.summary);
+
+renderCassieList("cassieSignalsList", cassie.itemsSignals);
+renderCassieList("cassieSimList", cassie.itemsSims);
+renderCassieList("cassieRiskFactorsList", cassie.itemsRiskFactors);
+renderCassieList("cassieRadarList", cassie.itemsRadar);
 }
 
 async function bestEffortRecordRisk({ mint, rm, conc, marketJson }) {
@@ -592,6 +865,7 @@ derivedMcapUsd,
 };
 
 window.__MSS_LAST_SCAN__ = scanObj;
+renderCassie(scanObj);
 renderRaw(scanObj);
 
 try {
@@ -612,6 +886,14 @@ setBadge(null, "scanDot", "scanStatusText", "bad", "Scan error");
 renderPriceChange({ priceChange: {} });
 const svg = $("riskTrendChart");
 if (svg) svg.innerHTML = "";
+setText("cassieVerdict", "Unavailable");
+setText("cassieThreat", "Unavailable");
+setText("cassieConfidence", "—");
+setText("cassieSummary", "Cassie could not complete synthesis because the token scan failed.");
+renderCassieList("cassieSignalsList", [{ tone: "bad", text: "Cassie scan unavailable." }]);
+renderCassieList("cassieSimList", [{ tone: "warn", text: "No simulation outlook available." }]);
+renderCassieList("cassieRiskFactorsList", [{ tone: "warn", text: "No risk-factor synthesis available." }]);
+renderCassieList("cassieRadarList", [{ tone: "warn", text: "No operational notes available." }]);
 }
 }
 
@@ -672,6 +954,7 @@ setText("notesText", notes);
 last.derived = last.derived || {};
 last.derived.concentration = conc;
 window.__MSS_LAST_SCAN__ = last;
+renderCassie(last);
 renderRaw(last);
 });
 }
@@ -788,6 +1071,11 @@ alertStatus.textContent = err?.message || "Failed to save alert.";
 setBadge(null, "netDot", "netText", "good", "Online");
 setBadge(null, "scanDot", "scanStatusText", null, "Ready");
 setText("apiMeta", `API: ${getApiBase()}`);
+
+renderCassieList("cassieSignalsList", [{ tone: "warn", text: "No scan loaded yet." }]);
+renderCassieList("cassieSimList", [{ tone: "warn", text: "No simulation outlook yet." }]);
+renderCassieList("cassieRiskFactorsList", [{ tone: "warn", text: "No risk factors yet." }]);
+renderCassieList("cassieRadarList", [{ tone: "warn", text: "No operational notes yet." }]);
 
 const params = new URLSearchParams(window.location.search);
 const qMint = params.get("mint");

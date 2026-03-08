@@ -24,6 +24,10 @@
 }
 
 *{box-sizing:border-box}
+html,body{
+max-width:100%;
+overflow-x:hidden;
+}
 body{
 margin:0;
 font-family:var(--sans);
@@ -32,6 +36,7 @@ background:
 radial-gradient(1200px 700px at 15% -10%, rgba(0,255,209,.18), transparent 55%),
 radial-gradient(900px 600px at 95% 10%, rgba(58,160,255,.16), transparent 50%),
 linear-gradient(180deg, var(--bg0), var(--bg1));
+overflow-x:hidden;
 }
 
 a{color:inherit;text-decoration:none}
@@ -39,6 +44,7 @@ a{color:inherit;text-decoration:none}
 max-width:1180px;
 margin:0 auto;
 padding:28px 18px 80px;
+width:100%;
 }
 
 .topbar{
@@ -48,6 +54,8 @@ z-index:50;
 backdrop-filter:blur(14px);
 background:rgba(5,7,12,.55);
 border-bottom:1px solid rgba(255,255,255,.08);
+max-width:100%;
+overflow-x:hidden;
 }
 
 .topbar-inner{
@@ -58,6 +66,7 @@ display:flex;
 align-items:center;
 gap:14px;
 justify-content:space-between;
+max-width:100%;
 }
 
 .brand{
@@ -65,6 +74,7 @@ display:flex;
 align-items:center;
 gap:10px;
 min-width:0;
+max-width:100%;
 }
 
 .mark{
@@ -76,15 +86,39 @@ box-shadow:0 10px 24px rgba(0,255,209,.18), 0 10px 24px rgba(58,160,255,.14);
 flex:0 0 auto;
 }
 
-.brand-title{font-weight:800;letter-spacing:.3px}
-.brand-sub{font-size:12px;color:var(--muted2);margin-top:2px}
+.brand-title{
+font-weight:800;
+letter-spacing:.3px;
+overflow:hidden;
+text-overflow:ellipsis;
+white-space:nowrap;
+}
+.brand-sub{
+font-size:12px;
+color:var(--muted2);
+margin-top:2px;
+overflow:hidden;
+text-overflow:ellipsis;
+white-space:nowrap;
+}
+
+.navwrap{
+display:flex;
+align-items:center;
+gap:12px;
+min-width:0;
+margin-left:auto;
+max-width:100%;
+overflow:hidden;
+}
 
 .nav{
 display:flex;
 gap:8px;
 align-items:center;
-margin-left:auto;
 min-width:0;
+max-width:100%;
+flex-wrap:wrap;
 }
 
 .nav a{
@@ -95,6 +129,7 @@ border:1px solid transparent;
 transition:.18s ease;
 font-size:13px;
 white-space:nowrap;
+flex:0 0 auto;
 }
 
 .nav a:hover{
@@ -110,6 +145,63 @@ border-color:rgba(0,255,209,.20);
 background:rgba(0,255,209,.06);
 }
 
+.authbar{
+display:flex;
+align-items:center;
+gap:10px;
+flex:0 1 auto;
+min-width:0;
+max-width:100%;
+}
+
+.session-pill{
+display:inline-flex;
+align-items:center;
+gap:8px;
+padding:8px 12px;
+border-radius:999px;
+border:1px solid rgba(255,255,255,.10);
+background:rgba(255,255,255,.04);
+color:rgba(255,255,255,.78);
+font-size:12px;
+white-space:nowrap;
+cursor:pointer;
+max-width:100%;
+min-width:0;
+}
+
+.session-pill:hover{
+border-color:rgba(255,255,255,.16);
+background:rgba(255,255,255,.06);
+}
+
+.authbtn{
+display:inline-flex;
+align-items:center;
+justify-content:center;
+gap:8px;
+padding:10px 12px;
+border-radius:12px;
+border:1px solid rgba(255,255,255,.12);
+background:rgba(255,255,255,.05);
+color:var(--text);
+font-weight:700;
+letter-spacing:.08em;
+text-transform:uppercase;
+font-size:11px;
+cursor:pointer;
+max-width:100%;
+}
+
+.authbtn:hover{
+background:rgba(255,255,255,.08);
+}
+
+.authbtn.danger{
+border-color:rgba(255,77,109,.20);
+background:rgba(255,77,109,.08);
+}
+
 .pill{
 display:inline-flex;
 align-items:center;
@@ -121,6 +213,7 @@ background:rgba(255,255,255,.04);
 color:rgba(255,255,255,.78);
 font-size:12px;
 white-space:nowrap;
+max-width:100%;
 }
 
 .dot{
@@ -129,6 +222,7 @@ height:8px;
 border-radius:50%;
 background:rgba(255,255,255,.35);
 box-shadow:0 0 0 3px rgba(255,255,255,.06);
+flex:0 0 auto;
 }
 .dot.good{background:rgba(53,245,163,.95)}
 .dot.warn{background:rgba(255,209,102,.95)}
@@ -151,6 +245,7 @@ gap:12px;
 align-items:flex-end;
 flex-wrap:wrap;
 margin-bottom:18px;
+max-width:100%;
 }
 
 .hero h1{margin:0;font-size:28px}
@@ -165,6 +260,7 @@ line-height:1.55;
 display:grid;
 grid-template-columns:1fr 1fr;
 gap:14px;
+max-width:100%;
 }
 
 .card{
@@ -173,6 +269,7 @@ border:1px solid rgba(255,255,255,.10);
 border-radius:var(--r);
 box-shadow:var(--shadow);
 padding:18px;
+min-width:0;
 }
 
 .card h2{
@@ -210,6 +307,7 @@ border-radius:14px;
 padding:12px 14px;
 color:rgba(255,255,255,.92);
 outline:none;
+max-width:100%;
 }
 
 .input:focus{
@@ -237,6 +335,7 @@ color:var(--text);
 font-weight:700;
 font-size:12px;
 cursor:pointer;
+max-width:100%;
 }
 
 .btn:hover{
@@ -277,6 +376,7 @@ border:1px solid rgba(255,255,255,.08);
 background:rgba(255,255,255,.035);
 border-radius:14px;
 padding:14px;
+min-width:0;
 }
 
 .alert-top{
@@ -304,6 +404,7 @@ border:1px solid rgba(255,255,255,.10);
 background:rgba(255,255,255,.04);
 font-size:12px;
 color:rgba(255,255,255,.80);
+max-width:100%;
 }
 
 .foot{
@@ -323,14 +424,30 @@ color:var(--muted);
 flex-direction:column;
 align-items:stretch;
 }
+.navwrap{
+flex-direction:column;
+align-items:stretch;
+max-width:100%;
+}
 .nav{
 margin-left:0;
 overflow-x:auto;
+overflow-y:hidden;
 flex-wrap:nowrap;
 padding-bottom:4px;
 scrollbar-width:none;
 }
 .nav::-webkit-scrollbar{display:none}
+.authbar{
+justify-content:flex-start;
+flex-wrap:wrap;
+min-width:0;
+max-width:100%;
+}
+.session-pill,
+.authbtn{
+max-width:100%;
+}
 }
 
 @media (max-width: 640px){
@@ -354,6 +471,7 @@ width:100%;
 </div>
 </div>
 
+<div class="navwrap">
 <div class="nav" role="navigation" aria-label="Main">
 <a href="./index.html">Home</a>
 <a href="./token.html">Scanner</a>
@@ -362,12 +480,15 @@ width:100%;
 <a href="./launchpad.html">Launchpad</a>
 <a href="./methodology.html">Methodology</a>
 <a href="./legal.html">Legal</a>
-<a href="./index.html#access">Login</a>
 </div>
 
-<div class="pill" title="Connection status">
-<span class="dot good" id="netDot"></span>
-<span id="netText">Online</span>
+<div class="authbar">
+<button id="sessionPill" class="session-pill" type="button" title="Login">
+<span id="sessionDot" class="dot warn"></span>
+<span id="sessionText">Login</span>
+</button>
+<button id="logoutBtn" class="authbtn danger" type="button" style="display:none">Logout</button>
+</div>
 </div>
 </div>
 </div>
@@ -467,6 +588,22 @@ Create alerts from the scanner or from this page. Alerts are tied to your login 
 </div>
 </div>
 </div>
+
+<script type="module">
+import { bindSessionUi } from "./assets/auth.js";
+
+bindSessionUi({
+sessionPillId: "sessionPill",
+sessionDotId: "sessionDot",
+sessionTextId: "sessionText",
+logoutBtnId: "logoutBtn",
+loggedOutHref: "./login.html",
+loggedInHref: "./index.html#access",
+onLogout() {
+window.location.reload();
+},
+});
+</script>
 
 <script type="module" src="./assets/alerts.js?v=2"></script>
 </body>

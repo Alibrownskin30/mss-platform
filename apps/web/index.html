@@ -50,7 +50,11 @@ content="Institutional-grade token scanning: authority checks, market KPIs, hold
 }
 
 *{box-sizing:border-box}
-html,body{height:100%}
+html,body{
+height:100%;
+max-width:100%;
+overflow-x:hidden;
+}
 body{
 margin:0;
 color:var(--text);
@@ -66,7 +70,11 @@ overflow-x:hidden;
 
 a{color:inherit;text-decoration:none}
 button{font:inherit}
-.wrap{width:min(var(--max), calc(100% - 32px));margin:0 auto}
+.wrap{
+width:min(var(--max), calc(100% - 32px));
+margin:0 auto;
+max-width:100%;
+}
 
 header{
 position:sticky;
@@ -75,6 +83,8 @@ z-index:50;
 background:rgba(7,10,16,.72);
 backdrop-filter:blur(14px);
 border-bottom:1px solid rgba(255,255,255,.08);
+max-width:100%;
+overflow-x:hidden;
 }
 
 .topbar{
@@ -83,6 +93,7 @@ align-items:center;
 justify-content:space-between;
 gap:16px;
 padding:14px 0;
+max-width:100%;
 }
 
 .brand{
@@ -91,6 +102,7 @@ align-items:center;
 gap:10px;
 min-width:0;
 flex:0 1 auto;
+max-width:100%;
 }
 
 .mark{
@@ -109,6 +121,9 @@ letter-spacing:.18em;
 text-transform:uppercase;
 display:block;
 line-height:1.15;
+overflow:hidden;
+text-overflow:ellipsis;
+white-space:nowrap;
 }
 
 .brand span{
@@ -119,6 +134,9 @@ margin-top:2px;
 letter-spacing:.12em;
 text-transform:uppercase;
 line-height:1.2;
+overflow:hidden;
+text-overflow:ellipsis;
+white-space:nowrap;
 }
 
 .navwrap{
@@ -126,6 +144,9 @@ display:flex;
 align-items:center;
 gap:12px;
 min-width:0;
+margin-left:auto;
+max-width:100%;
+overflow:hidden;
 }
 
 nav{
@@ -134,6 +155,8 @@ align-items:center;
 justify-content:flex-end;
 gap:10px;
 flex-wrap:wrap;
+max-width:100%;
+min-width:0;
 }
 
 .navlink{
@@ -165,27 +188,16 @@ border-color:rgba(57,208,200,.24);
 background:rgba(57,208,200,.06);
 }
 
-.pill{
-display:inline-flex;
-align-items:center;
-padding:3px 8px;
-font-size:10px;
-letter-spacing:.12em;
-border-radius:999px;
-border:1px solid rgba(255,255,255,.12);
-color:var(--muted2);
-text-transform:uppercase;
-}
-
 .authbar{
 display:flex;
 align-items:center;
 gap:10px;
-flex-wrap:wrap;
-justify-content:flex-end;
+flex:0 1 auto;
+min-width:0;
+max-width:100%;
 }
 
-.status-pill{
+.session-pill{
 display:inline-flex;
 align-items:center;
 gap:8px;
@@ -198,6 +210,14 @@ letter-spacing:.12em;
 text-transform:uppercase;
 color:var(--muted);
 white-space:nowrap;
+cursor:pointer;
+max-width:100%;
+min-width:0;
+}
+
+.session-pill:hover{
+border-color:rgba(255,255,255,.16);
+background:rgba(255,255,255,.06);
 }
 
 .status-dot{
@@ -208,7 +228,6 @@ background:rgba(255,255,255,.35);
 box-shadow:0 0 0 5px rgba(255,255,255,.05);
 flex:0 0 auto;
 }
-
 .status-dot.good{background:var(--good);box-shadow:0 0 0 5px rgba(43,227,138,.10)}
 .status-dot.warn{background:var(--warn);box-shadow:0 0 0 5px rgba(255,200,87,.10)}
 
@@ -229,18 +248,13 @@ font-size:11px;
 transition:.18s ease;
 white-space:nowrap;
 cursor:pointer;
+max-width:100%;
 }
 
 .authbtn:hover{
 transform:translateY(-1px);
 border-color:rgba(255,255,255,.18);
 background:rgba(255,255,255,.08);
-}
-
-.authbtn.primary{
-border-color:rgba(57,208,200,.30);
-background:linear-gradient(180deg, rgba(57,208,200,.18), rgba(57,208,200,.10));
-box-shadow:0 10px 28px rgba(57,208,200,.10);
 }
 
 .authbtn.danger{
@@ -255,6 +269,7 @@ display:grid;
 grid-template-columns:1.25fr .75fr;
 gap:16px;
 align-items:stretch;
+max-width:100%;
 }
 
 .panel{
@@ -348,6 +363,7 @@ transition:.18s ease;
 user-select:none;
 white-space:nowrap;
 min-height:46px;
+max-width:100%;
 }
 
 .btn:hover{
@@ -380,6 +396,7 @@ border-radius:999px;
 background:rgba(255,255,255,.04);
 border:1px solid rgba(255,255,255,.10);
 min-width:0;
+max-width:100%;
 }
 
 .mini-dot{
@@ -559,6 +576,7 @@ color:rgba(255,255,255,.92);
 outline:none;
 transition:.18s ease;
 box-shadow:inset 0 0 0 1px rgba(0,0,0,.25);
+max-width:100%;
 }
 
 .input:focus{
@@ -610,6 +628,7 @@ footer{
 margin-top:22px;
 border-top:1px solid rgba(255,255,255,.08);
 background:rgba(0,0,0,.14);
+max-width:100%;
 }
 
 .footer-main{
@@ -658,12 +677,14 @@ gap:12px;
 .navwrap{
 flex-direction:column;
 align-items:stretch;
+max-width:100%;
 }
 
 nav{
 flex-wrap:nowrap;
 justify-content:flex-start;
 overflow-x:auto;
+overflow-y:hidden;
 -webkit-overflow-scrolling:touch;
 padding-bottom:4px;
 scrollbar-width:none;
@@ -673,6 +694,14 @@ nav::-webkit-scrollbar{display:none}
 
 .authbar{
 justify-content:flex-start;
+flex-wrap:wrap;
+min-width:0;
+max-width:100%;
+}
+
+.session-pill,
+.authbtn{
+max-width:100%;
 }
 
 .hero{padding:34px 0 24px}
@@ -721,14 +750,13 @@ justify-content:flex-start;
 <a class="navlink" href="./launchpad.html">Launchpad</a>
 <a class="navlink" href="./methodology.html">Methodology</a>
 <a class="navlink" href="./legal.html">Legal</a>
-<a class="navlink" href="#access">Login</a>
 </nav>
 
 <div class="authbar">
-<div class="status-pill" title="Account session">
+<button id="sessionPill" class="session-pill" type="button" title="Login">
 <span id="sessionDot" class="status-dot warn"></span>
 <span id="sessionText">Login</span>
-</div>
+</button>
 <button id="logoutBtn" class="authbtn danger" type="button" style="display:none">Logout</button>
 </div>
 </div>
@@ -900,6 +928,7 @@ This build prioritises accuracy, speed and professional presentation.
 
 <script type="module">
 import { apiPost } from "./assets/api.js";
+import { bindSessionUi, logout as doLogout } from "./assets/auth.js";
 
 const $ = (id) => document.getElementById(id);
 
@@ -910,46 +939,9 @@ el.textContent = text || "";
 el.className = `status${tone ? ` ${tone}` : ""}`;
 }
 
-function getToken() {
-return localStorage.getItem("mssToken");
-}
-
-function getUserEmail() {
-return localStorage.getItem("mssUserEmail");
-}
-
 function saveSession(token, email) {
 localStorage.setItem("mssToken", token);
 if (email) localStorage.setItem("mssUserEmail", email);
-}
-
-function clearSession() {
-localStorage.removeItem("mssToken");
-localStorage.removeItem("mssUserEmail");
-}
-
-function renderSession() {
-const token = getToken();
-const email = getUserEmail();
-const dot = $("sessionDot");
-const text = $("sessionText");
-const logoutBtn = $("logoutBtn");
-
-if (token) {
-if (dot) {
-dot.classList.remove("warn");
-dot.classList.add("good");
-}
-if (text) text.textContent = email ? `Account • ${email}` : "Account";
-if (logoutBtn) logoutBtn.style.display = "inline-flex";
-} else {
-if (dot) {
-dot.classList.remove("good");
-dot.classList.add("warn");
-}
-if (text) text.textContent = "Login";
-if (logoutBtn) logoutBtn.style.display = "none";
-}
 }
 
 function requireHuman(checkboxId, statusId) {
@@ -979,7 +971,7 @@ const data = await apiPost("/api/register", { email, password });
 if (data?.token) {
 saveSession(data.token, email);
 setStatus("registerStatus", "Account created. You are now logged in.", "good");
-renderSession();
+initSession();
 return;
 }
 
@@ -1011,22 +1003,30 @@ return;
 
 saveSession(data.token, email);
 setStatus("loginStatus", "Logged in successfully.", "good");
-renderSession();
+initSession();
 } catch (e) {
 setStatus("loginStatus", e?.message || "Login failed.", "bad");
 }
 }
 
-function handleLogout() {
-clearSession();
+function initSession() {
+bindSessionUi({
+sessionPillId: "sessionPill",
+sessionDotId: "sessionDot",
+sessionTextId: "sessionText",
+logoutBtnId: "logoutBtn",
+loggedOutHref: "./login.html",
+loggedInHref: "./index.html#access",
+onLogout() {
+doLogout();
 setStatus("loginStatus", "Logged out.", "good");
 setStatus("registerStatus", "");
-renderSession();
+},
+});
 }
 
 $("registerBtn")?.addEventListener("click", handleRegister);
 $("loginBtn")?.addEventListener("click", handleLogin);
-$("logoutBtn")?.addEventListener("click", handleLogout);
 
 $("loginPassword")?.addEventListener("keydown", (e) => {
 if (e.key === "Enter") handleLogin();
@@ -1036,7 +1036,7 @@ $("registerPassword")?.addEventListener("keydown", (e) => {
 if (e.key === "Enter") handleRegister();
 });
 
-renderSession();
+initSession();
 </script>
 </body>
 </html>
