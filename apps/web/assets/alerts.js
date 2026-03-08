@@ -36,6 +36,40 @@ function isLoggedIn() {
 return !!getJwt();
 }
 
+function prettyAlertType(type) {
+return (
+{
+risk_spike: "Risk Score",
+hidden_control: "Hidden Control",
+developer_network: "Developer Network",
+wallet_network: "Wallet Network",
+network_control: "Network Control",
+whale: "Whale Activity",
+liquidity: "Liquidity",
+top10: "Top10 Concentration",
+authority: "Authority Exposure",
+}[type] || type
+);
+}
+
+function thresholdTextForAlert(type, direction, threshold) {
+if (type === "authority") return "Auto logic";
+if (threshold == null || threshold === "") return "—";
+return `${direction} ${threshold}`;
+}
+
+function placeholderForType(type) {
+if (type === "risk_spike") return "Threshold (e.g. 70)";
+if (type === "hidden_control") return "Threshold (e.g. 60)";
+if (type === "developer_network") return "Threshold (e.g. 55)";
+if (type === "wallet_network") return "Threshold (e.g. 55)";
+if (type === "network_control") return "Threshold (e.g. 30)";
+if (type === "whale") return "Threshold (e.g. 65)";
+if (type === "liquidity") return "Threshold (e.g. 25000)";
+if (type === "top10") return "Threshold (e.g. 55)";
+return "Threshold";
+}
+
 function renderLoginState() {
 if (isLoggedIn()) {
 setDot("loginStateDot", "good");
@@ -62,15 +96,8 @@ const el = document.createElement("div");
 el.className = "alert-item";
 
 const enabled = Number(a.is_enabled) === 1;
-const prettyType =
-a.type === "risk_spike" ? "Risk Spike" :
-a.type === "whale" ? "Whale Score" :
-a.type === "liquidity" ? "Liquidity USD" :
-a.type === "top10" ? "Top10 Concentration" :
-a.type === "authority" ? "Authority Risk" :
-a.type;
-
-const thresholdText = a.type === "authority" ? "Auto logic" : `${a.direction} ${a.threshold}`;
+const prettyType = prettyAlertType(a.type);
+const thresholdText = thresholdTextForAlert(a.type, a.direction, a.threshold);
 
 el.innerHTML = `
 <div class="alert-top">
@@ -102,24 +129,11 @@ await toggleAlert(id);
 });
 }
 
-function renderEvents(alerts) {
+function renderEvents(events) {
 const wrap = $("eventsList");
 if (!wrap) return;
 
-const items = (Array.isArray(alerts) ? alerts : [])
-.filter((a) => a.last_triggered_at)
-.map((a) => ({
-type: a.type,
-mint: a.mint,
-direction: a.direction,
-threshold: a.threshold,
-message:
-a.type === "authority"
-? "Authority alert triggered."
-: `${a.type} ${a.direction} ${a.threshold} triggered.`,
-created_at: a.last_triggered_at,
-}))
-.sort((a, b) => new Date(`${b.created_at}Z`) - new Date(`${a.created_at}Z`));
+const items = Array.isArray(events) ? events : [];
 
 if (!items.length) {
 wrap.innerHTML = `<div class="empty">No alert events available yet.</div>`;
@@ -132,18 +146,8 @@ for (const ev of items.slice(0, 20)) {
 const el = document.createElement("div");
 el.className = "event-item";
 
-const prettyType =
-ev.type === "risk_spike" ? "Risk Spike" :
-ev.type === "whale" ? "Whale Score" :
-ev.type === "liquidity" ? "Liquidity USD" :
-ev.type === "top10" ? "Top10 Concentration" :
-ev.type === "authority" ? "Authority Risk" :
-(ev.type || "Alert Event");
-
-const thresholdText =
-ev.type === "authority"
-? "Auto logic"
-: (ev.direction && ev.threshold != null ? `${ev.direction} ${ev.threshold}` : "—");
+const prettyType = prettyAlertType(ev.type || "event");
+const thresholdText = thresholdTextForAlert(ev.type, ev.direction, ev.threshold);
 
 el.innerHTML = `
 <div style="font-weight:800">${prettyType}</div>
@@ -154,6 +158,7 @@ el.innerHTML = `
 <div style="margin-top:8px; line-height:1.5">${ev.message || "—"}</div>
 <div class="muted" style="margin-top:8px">${fmtDate(ev.created_at)}</div>
 `;
+
 wrap.appendChild(el);
 }
 }
@@ -162,7 +167,6 @@ async function fetchAlerts() {
 const jwt = getJwt();
 if (!jwt) {
 renderAlerts([]);
-renderEvents([]);
 setText("createStatus", "Login required to manage alerts.");
 return [];
 }
@@ -171,19 +175,35 @@ try {
 const data = await apiGet("/api/alerts", { token: jwt });
 const alerts = Array.isArray(data?.alerts) ? data.alerts : [];
 renderAlerts(alerts);
-renderEvents(alerts);
 return alerts;
 } catch (e) {
 renderAlerts([]);
-renderEvents([]);
 setText("createStatus", e?.message || "Failed to load alerts.");
+return [];
+}
+}
+
+async function fetchEvents() {
+const jwt = getJwt();
+if (!jwt) {
+renderEvents([]);
+return [];
+}
+
+try {
+const data = await apiGet("/api/alert-events?limit=50", { token: jwt });
+const events = Array.isArray(data?.events) ? data.events : [];
+renderEvents(events);
+return events;
+} catch (e) {
+renderEvents([]);
 return [];
 }
 }
 
 async function refreshAll() {
 renderLoginState();
-await fetchAlerts();
+await Promise.all([fetchAlerts(), fetchEvents()]);
 }
 
 async function toggleAlert(id) {
@@ -237,11 +257,7 @@ setText("createStatus", e?.message || "Failed to create alert.");
 }
 }
 
-function bindUi() {
-$("createAlertBtn")?.addEventListener("click", createAlert);
-$("refreshAlertsBtn")?.addEventListener("click", refreshAll);
-
-$("typeSelect")?.addEventListener("change", () => {
+function syncThresholdUi() {
 const type = $("typeSelect")?.value;
 const threshold = $("thresholdInput");
 if (!threshold) return;
@@ -250,21 +266,23 @@ if (type === "authority") {
 threshold.value = "";
 threshold.placeholder = "Not required for authority alerts";
 threshold.disabled = true;
-} else {
-threshold.disabled = false;
-if (type === "risk_spike") threshold.placeholder = "Threshold (e.g. 70)";
-else if (type === "whale") threshold.placeholder = "Threshold (e.g. 65)";
-else if (type === "liquidity") threshold.placeholder = "Threshold (e.g. 25000)";
-else if (type === "top10") threshold.placeholder = "Threshold (e.g. 55)";
-else threshold.placeholder = "Threshold";
+return;
 }
-});
+
+threshold.disabled = false;
+threshold.placeholder = placeholderForType(type);
+}
+
+function bindUi() {
+$("createAlertBtn")?.addEventListener("click", createAlert);
+$("refreshAlertsBtn")?.addEventListener("click", refreshAll);
+
+$("typeSelect")?.addEventListener("change", syncThresholdUi);
+syncThresholdUi();
 }
 
 function init() {
 setText("apiMeta", `API: ${getApiBase()}`);
-setDot("netDot", "good");
-setText("netText", "Online");
 bindUi();
 refreshAll();
 }

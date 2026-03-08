@@ -125,7 +125,8 @@ return await fn();
 } catch (e) {
 lastErr = e;
 const delay =
-Math.min(8000, baseDelayMs * Math.pow(2, i)) + Math.floor(Math.random() * 200);
+Math.min(8000, baseDelayMs * Math.pow(2, i)) +
+Math.floor(Math.random() * 200);
 if (isRateLimitError(e)) await sleep(delay);
 else await sleep(150);
 }
@@ -220,11 +221,17 @@ id: "C1",
 payer: developerNetwork.groups[0]?.payer || null,
 members: developerNetwork.groups[0]?.members || [],
 size: developerNetwork.groups[0]?.size || 0,
-score: clamp(40 + (developerNetwork.groups[0]?.size || 0) * 10, 0, 100),
+score: clamp(
+40 + (developerNetwork.groups[0]?.size || 0) * 10,
+0,
+100
+),
 }
 : null);
 
-const primaryMembers = Array.isArray(primaryCluster?.members) ? primaryCluster.members : [];
+const primaryMembers = Array.isArray(primaryCluster?.members)
+? primaryCluster.members
+: [];
 const primaryWallet =
 primaryCluster?.payer ||
 developerNetwork?.groups?.[0]?.payer ||
@@ -294,7 +301,11 @@ Math.max(0, safeNum(concentration?.top10, 0) - 35) * 0.35
 );
 
 const riskLabel =
-riskScore >= 75 ? "High Control Risk" : riskScore >= 45 ? "Moderate Control Risk" : "Low Control Risk";
+riskScore >= 75
+? "High Control Risk"
+: riskScore >= 45
+? "Moderate Control Risk"
+: "Low Control Risk";
 const riskState = riskScore >= 75 ? "bad" : riskScore >= 45 ? "warn" : "good";
 
 return {
@@ -337,7 +348,11 @@ const linkedWallets = safeNum(activity?.clusteredWallets, 0);
 const newWalletPct = safeNum(activity?.newWalletPct, 0);
 
 const hiddenControlScore = clamp(
-Math.round(clusterScore * 0.65 + linkedWallets * 3 + Math.max(0, top10 - 35) * 0.35),
+Math.round(
+clusterScore * 0.65 +
+linkedWallets * 3 +
+Math.max(0, top10 - 35) * 0.35
+),
 0,
 100
 );
@@ -358,7 +373,9 @@ hiddenControlScore >= 70
 : "good",
 linkedWallets,
 linkedWalletPct:
-top10 > 0 ? Math.min(top10, safeNum(activity?.maxClusterSize, 0) * (top10 / 10)) : 0,
+top10 > 0
+? Math.min(top10, safeNum(activity?.maxClusterSize, 0) * (top10 / 10))
+: 0,
 sharedFundingDetected: clusterCount >= 1,
 };
 
@@ -460,14 +477,24 @@ freshWalletRiskScore >= 65
 : freshWalletRiskScore >= 35
 ? "warn"
 : "good",
-walletCount: Math.round((safeNum(activity?.analyzedWallets, 0) * newWalletPct) / 100),
+walletCount: Math.round(
+(safeNum(activity?.analyzedWallets, 0) * newWalletPct) / 100
+),
 pct: Number(newWalletPct.toFixed(1)),
 };
 
 const liquidityStabilityScore = clamp(
 Math.round(
 100 -
-(liqFdvPct < 1 ? 80 : liqFdvPct < 3 ? 60 : liqFdvPct < 5 ? 40 : liqFdvPct < 10 ? 20 : 8)
+(liqFdvPct < 1
+? 80
+: liqFdvPct < 3
+? 60
+: liqFdvPct < 5
+? 40
+: liqFdvPct < 10
+? 20
+: 8)
 ),
 0,
 100
@@ -595,7 +622,8 @@ const linkedWallets = safeNum(securityModel?.hiddenControl?.linkedWallets, 0);
 const clusterCount = safeNum(activity?.clusterCount, 0);
 const hasMintAuthority = !!token?.mintAuthority;
 const hasFreezeAuthority = !!token?.freezeAuthority;
-const momentum = securityModel?.trend?.momentum || trend?.trend?.momentum || "Stable";
+const momentum =
+securityModel?.trend?.momentum || trend?.trend?.momentum || "Stable";
 const devConfidence = safeNum(
 securityModel?.developerNetwork?.confidence ||
 securityModel?.developerActivity?.confidence,
@@ -606,8 +634,14 @@ securityModel?.developerNetwork?.likelyControlPct ||
 securityModel?.developerActivity?.likelyControlPct,
 0
 );
-const walletNetConfidence = safeNum(securityModel?.walletNetwork?.confidence, 0);
-const walletNetControlPct = safeNum(securityModel?.walletNetwork?.controlEstimatePct, 0);
+const walletNetConfidence = safeNum(
+securityModel?.walletNetwork?.confidence,
+0
+);
+const walletNetControlPct = safeNum(
+securityModel?.walletNetwork?.controlEstimatePct,
+0
+);
 
 const riskFactors = [];
 
@@ -731,7 +765,9 @@ value: clamp(Math.round((hiddenControlScore + top10) / 2), 0, 100),
 key: "wallet_coordination",
 label: "Wallet Coordination",
 value: clamp(
-Math.round((safeNum(activity?.score, 0) + whaleActivityScore + walletNetConfidence) / 3),
+Math.round(
+(safeNum(activity?.score, 0) + whaleActivityScore + walletNetConfidence) / 3
+),
 0,
 100
 ),
@@ -739,7 +775,11 @@ Math.round((safeNum(activity?.score, 0) + whaleActivityScore + walletNetConfiden
 {
 key: "liquidity_fragility",
 label: "Liquidity Fragility",
-value: clamp(100 - safeNum(securityModel?.liquidityStability?.score, 0), 0, 100),
+value: clamp(
+100 - safeNum(securityModel?.liquidityStability?.score, 0),
+0,
+100
+),
 },
 {
 key: "fresh_wallet_pressure",
@@ -754,7 +794,11 @@ value: clamp(Math.round(devConfidence), 0, 100),
 {
 key: "network_control",
 label: "Network Control",
-value: clamp(Math.round(walletNetConfidence * 0.6 + walletNetControlPct * 0.4), 0, 100),
+value: clamp(
+Math.round(walletNetConfidence * 0.6 + walletNetControlPct * 0.4),
+0,
+100
+),
 },
 {
 key: "trend_escalation",
@@ -856,7 +900,12 @@ hiddenControlScore >= 70
 : hiddenControlScore >= 40
 ? "Coordinated behavior should be monitored"
 : "Low coordination stress detected",
-severity: hiddenControlScore >= 70 ? "high" : hiddenControlScore >= 40 ? "medium" : "low",
+severity:
+hiddenControlScore >= 70
+? "high"
+: hiddenControlScore >= 40
+? "medium"
+: "low",
 },
 {
 name: "Developer Exit Simulation",
@@ -876,7 +925,12 @@ walletNetConfidence >= 75
 : walletNetConfidence >= 45
 ? "Wallet control map indicates moderate coordinated influence risk"
 : "Wallet control map does not currently indicate dominant coordinated influence",
-severity: walletNetConfidence >= 75 ? "high" : walletNetConfidence >= 45 ? "medium" : "low",
+severity:
+walletNetConfidence >= 75
+? "high"
+: walletNetConfidence >= 45
+? "medium"
+: "low",
 },
 ];
 
@@ -939,7 +993,11 @@ const summary = summaryParts.length
 return {
 enabled: true,
 score: cassieScore,
-confidence: clamp(Math.round(58 + riskFactors.length * 5 + memoryHits.length * 4), 0, 99),
+confidence: clamp(
+Math.round(58 + riskFactors.length * 5 + memoryHits.length * 4),
+0,
+99
+),
 threatLevel,
 status,
 state,
@@ -960,7 +1018,9 @@ cassieScore >= 75
 }
 
 // ---- Cassie status + memory endpoints ----
-app.get("/api/cassie/status", authRequired, (req, res) => cassieApi.status(req, res));
+app.get("/api/cassie/status", authRequired, (req, res) =>
+cassieApi.status(req, res)
+);
 
 app.get("/api/cassie/memory", authRequired, (req, res) => {
 try {
@@ -1108,7 +1168,9 @@ const decimals = supplyResp?.value?.decimals ?? null;
 
 const top = (largest?.value || []).slice(0, 20);
 const tokenAccPubkeys = top.map((a) => new PublicKey(a.address));
-const accInfos = await rpcRetry(() => connection.getMultipleAccountsInfo(tokenAccPubkeys));
+const accInfos = await rpcRetry(() =>
+connection.getMultipleAccountsInfo(tokenAccPubkeys)
+);
 
 const owners = accInfos.map((info) => {
 try {
@@ -1470,7 +1532,9 @@ return res.status(500).json({ error: String(e?.message || e) });
 app.post("/api/sol/risk-record", (req, res) => {
 try {
 const { mint, risk, whale, top10, liqUsd, fdvUsd } = req.body || {};
-if (!mint || risk == null) return res.status(400).json({ error: "Missing mint/risk" });
+if (!mint || risk == null) {
+return res.status(400).json({ error: "Missing mint/risk" });
+}
 
 insertRiskPoint({ mint, risk, whale, top10, liqUsd, fdvUsd });
 return res.json({ ok: true });
@@ -1509,10 +1573,28 @@ if (!mint || !type || !direction || threshold == null) {
 return res.status(400).json({ error: "Missing fields" });
 }
 
-const allowedTypes = new Set(["risk_spike", "whale", "liquidity", "authority", "top10"]);
+const allowedTypes = new Set([
+"risk_spike",
+"whale",
+"liquidity",
+"authority",
+"top10",
+"hidden_control",
+"fresh_wallets",
+"developer_network",
+"wallet_network",
+"network_control",
+"cluster_growth",
+"linked_wallets",
+"whale_sync",
+"trend_24h",
+]);
+
 const allowedDirections = new Set(["above", "below"]);
 
-if (!allowedTypes.has(type)) return res.status(400).json({ error: "Invalid type" });
+if (!allowedTypes.has(type)) {
+return res.status(400).json({ error: "Invalid type" });
+}
 if (!allowedDirections.has(direction)) {
 return res.status(400).json({ error: "Invalid direction" });
 }
@@ -1529,7 +1611,10 @@ return res.json({ ok: true, id: info.lastInsertRowid });
 
 app.post("/api/alerts/:id/toggle", authRequired, (req, res) => {
 const id = Number(req.params.id);
-const row = db.prepare(`SELECT * FROM alerts WHERE id = ? AND user_id = ?`).get(id, req.user.id);
+const row = db
+.prepare(`SELECT * FROM alerts WHERE id = ? AND user_id = ?`)
+.get(id, req.user.id);
+
 if (!row) return res.status(404).json({ error: "Not found" });
 
 const next = row.is_enabled ? 0 : 1;
@@ -1570,7 +1655,10 @@ return res.status(500).json({ error: String(e?.message || e) });
 app.get("/api/alerts/:id/events", authRequired, (req, res) => {
 try {
 const id = Number(req.params.id);
-const row = db.prepare(`SELECT * FROM alerts WHERE id = ? AND user_id = ?`).get(id, req.user.id);
+const row = db
+.prepare(`SELECT * FROM alerts WHERE id = ? AND user_id = ?`)
+.get(id, req.user.id);
+
 if (!row) return res.status(404).json({ error: "Not found" });
 
 const events = getAlertEvents(id, 100);

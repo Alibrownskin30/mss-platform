@@ -103,10 +103,13 @@ safeNum(activity?.clusteredWallets, 0),
 safeNum(primaryCluster?.size, 0)
 );
 
+const clusterCount = safeNum(activity?.clusterCount, clusters.length);
+
 return {
 confidence,
 controlEstimatePct,
 linkedWallets,
+clusterCount,
 };
 }
 
@@ -203,17 +206,27 @@ latestRiskRow?.top10_pct,
 concentration?.top10
 );
 
+const freshWalletRisk = securityModel?.freshWalletRisk || activity?.freshWalletRisk || {};
+const whaleActivity = securityModel?.whaleActivity || activity?.whaleActivity || {};
+const trendBlock = securityModel?.trend || {};
+
 return {
 risk: latestRisk,
 whale: whaleScore,
 liquidity: liqUsd,
 fdv: fdvUsd,
 top10: top10Pct,
+
 authorityActive:
 !token?.safety?.mintRevoked || !token?.safety?.freezeRevoked,
+
 hiddenControlScore: safeNum(hiddenControl?.score, 0),
 linkedWallets: safeNum(hiddenControl?.linkedWallets, 0),
 linkedWalletPct: safeNum(hiddenControl?.linkedWalletPct, 0),
+
+freshWalletPct: safeNum(freshWalletRisk?.pct, 0),
+freshWalletCount: safeNum(freshWalletRisk?.walletCount, 0),
+
 developerNetworkDetected: !!developerNetwork?.detected,
 developerNetworkConfidence: safeNum(developerNetwork?.confidence, 0),
 developerNetworkLinkedWallets: safeNum(developerNetwork?.linkedWallets, 0),
@@ -221,12 +234,23 @@ developerNetworkLikelyControlPct: safeNum(
 developerNetwork?.likelyControlPct,
 0
 ),
+
 walletNetworkConfidence: safeNum(walletNetwork?.confidence, 0),
 walletNetworkControlEstimatePct: safeNum(
 walletNetwork?.controlEstimatePct,
 0
 ),
 walletNetworkLinkedWallets: safeNum(walletNetwork?.linkedWallets, 0),
+
+clusterCount: safeNum(
+activity?.clusterCount,
+safeNum(walletNetwork?.clusterCount, 0)
+),
+
+whaleSyncBurstSize: safeNum(whaleActivity?.syncBurstSize, 0),
+
+trendDelta24: safeNum(trendBlock?.delta24h, 0),
+trendMomentum: String(trendBlock?.momentum || "Stable"),
 };
 }
 
@@ -244,12 +268,22 @@ case "top10":
 return metrics.top10;
 case "hidden_control":
 return metrics.hiddenControlScore;
+case "fresh_wallets":
+return metrics.freshWalletPct;
 case "developer_network":
 return metrics.developerNetworkConfidence;
 case "wallet_network":
 return metrics.walletNetworkConfidence;
 case "network_control":
 return metrics.walletNetworkControlEstimatePct;
+case "cluster_growth":
+return metrics.clusterCount;
+case "linked_wallets":
+return metrics.linkedWallets;
+case "whale_sync":
+return metrics.whaleSyncBurstSize;
+case "trend_24h":
+return metrics.trendDelta24;
 default:
 return null;
 }
@@ -281,12 +315,22 @@ case "top10":
 return `Top10 holder concentration ${alert.direction} ${alert.threshold} triggered. Current=${toFixedNum(value, 2)}%`;
 case "hidden_control":
 return `Hidden control score ${alert.direction} ${alert.threshold} triggered. Current=${toFixedNum(value, 0)}`;
+case "fresh_wallets":
+return `Fresh-wallet concentration ${alert.direction} ${alert.threshold} triggered. Current=${toFixedNum(value, 1)}%`;
 case "developer_network":
 return `Developer network confidence ${alert.direction} ${alert.threshold} triggered. Current=${toFixedNum(value, 0)}%`;
 case "wallet_network":
 return `Wallet network confidence ${alert.direction} ${alert.threshold} triggered. Current=${toFixedNum(value, 0)}%`;
 case "network_control":
 return `Wallet network control estimate ${alert.direction} ${alert.threshold} triggered. Current=${toFixedNum(value, 1)}%`;
+case "cluster_growth":
+return `Cluster count ${alert.direction} ${alert.threshold} triggered. Current=${toFixedNum(value, 0)}`;
+case "linked_wallets":
+return `Linked wallets ${alert.direction} ${alert.threshold} triggered. Current=${toFixedNum(value, 0)}`;
+case "whale_sync":
+return `Whale sync burst ${alert.direction} ${alert.threshold} triggered. Current=${toFixedNum(value, 0)}`;
+case "trend_24h":
+return `24h risk trend ${alert.direction} ${alert.threshold} triggered. Current=${toFixedNum(value, 1)}`;
 default:
 return `${alert.type} ${alert.direction} ${alert.threshold} triggered. Current=${toFixedNum(value, 2)}`;
 }
@@ -326,10 +370,14 @@ value,
 threshold: Number(alert.threshold),
 direction: alert.direction,
 type: alert.type,
+metrics,
 },
 });
 
-db.prepare(`UPDATE alerts SET last_triggered_at = ? WHERE id = ?`).run(nowIso(), alert.id);
+db.prepare(`UPDATE alerts SET last_triggered_at = ? WHERE id = ?`).run(
+nowIso(),
+alert.id
+);
 }
 } catch (e) {
 console.warn("Watcher error:", e?.message || e);
