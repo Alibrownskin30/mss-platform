@@ -19,8 +19,8 @@ CREATE TABLE IF NOT EXISTS alerts (
 id INTEGER PRIMARY KEY AUTOINCREMENT,
 user_id INTEGER NOT NULL,
 mint TEXT NOT NULL,
-type TEXT NOT NULL, -- risk_spike | whale | liquidity | authority | top10
-direction TEXT NOT NULL, -- above | below
+type TEXT NOT NULL,
+direction TEXT NOT NULL,
 threshold REAL NOT NULL,
 is_enabled INTEGER NOT NULL DEFAULT 1,
 created_at TEXT NOT NULL DEFAULT (datetime('now')),
@@ -57,6 +57,21 @@ FOREIGN KEY(alert_id) REFERENCES alerts(id)
 
 CREATE INDEX IF NOT EXISTS idx_alert_events_alert ON alert_events(alert_id);
 CREATE INDEX IF NOT EXISTS idx_alert_events_mint_time ON alert_events(mint, created_at);
+
+CREATE TABLE IF NOT EXISTS scan_cache (
+id INTEGER PRIMARY KEY AUTOINCREMENT,
+mint TEXT NOT NULL,
+token_json TEXT,
+market_json TEXT,
+holders_json TEXT,
+cluster_json TEXT,
+security_json TEXT,
+cassie_json TEXT,
+created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_scan_cache_mint_time ON scan_cache(mint, created_at);
+CREATE INDEX IF NOT EXISTS idx_scan_cache_created_at ON scan_cache(created_at);
 `);
 
 function toNumOrNull(v) {
@@ -116,6 +131,39 @@ toNumOrNull(whale),
 toNumOrNull(top10),
 toNumOrNull(liqUsd),
 toNumOrNull(fdvUsd)
+);
+}
+
+export function upsertScanCache({
+mint,
+token = {},
+market = {},
+holders = {},
+activity = {},
+securityModel = {},
+cassie = {},
+}) {
+if (!mint) return;
+
+db.prepare(`
+INSERT INTO scan_cache (
+mint,
+token_json,
+market_json,
+holders_json,
+cluster_json,
+security_json,
+cassie_json
+)
+VALUES (?, ?, ?, ?, ?, ?, ?)
+`).run(
+String(mint),
+JSON.stringify(token ?? {}),
+JSON.stringify(market ?? {}),
+JSON.stringify(holders ?? {}),
+JSON.stringify(activity ?? {}),
+JSON.stringify(securityModel ?? {}),
+JSON.stringify(cassie ?? {})
 );
 }
 
@@ -197,6 +245,38 @@ DELETE FROM risk_history
 WHERE id IN (
 SELECT id
 FROM risk_history
+WHERE mint = ?
+ORDER BY datetime(created_at) DESC
+LIMIT -1 OFFSET ?
+)
+`).run(row.mint, Number(keepPerMint));
+}
+}
+
+export function pruneScanCache({ keepPerMint = 500, maxAgeDays = 30 } = {}) {
+const cutoff = new Date(Date.now() - maxAgeDays * 24 * 60 * 60 * 1000)
+.toISOString()
+.replace("T", " ")
+.slice(0, 19);
+
+db.prepare(`
+DELETE FROM scan_cache
+WHERE created_at < ?
+`).run(cutoff);
+
+const mints = db.prepare(`
+SELECT mint, COUNT(*) AS cnt
+FROM scan_cache
+GROUP BY mint
+HAVING COUNT(*) > ?
+`).all(Number(keepPerMint));
+
+for (const row of mints) {
+db.prepare(`
+DELETE FROM scan_cache
+WHERE id IN (
+SELECT id
+FROM scan_cache
 WHERE mint = ?
 ORDER BY datetime(created_at) DESC
 LIMIT -1 OFFSET ?

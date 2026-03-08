@@ -15,6 +15,7 @@ db,
 insertRiskPoint,
 getRiskTrend,
 getAlertEvents,
+upsertScanCache,
 } from "./db.js";
 import { register, login, authRequired } from "./auth.js";
 import { startWatcher } from "./watcher.js";
@@ -940,7 +941,8 @@ cassieScore += hiddenControlScore * 0.16;
 cassieScore += safeNum(activity?.score, 0) * 0.12;
 cassieScore += Math.min(top10, 100) * 0.12;
 cassieScore += Math.min(freshWalletPct * 2, 100) * 0.08;
-cassieScore += (100 - safeNum(securityModel?.liquidityStability?.score, 0)) * 0.09;
+cassieScore +=
+(100 - safeNum(securityModel?.liquidityStability?.score, 0)) * 0.09;
 cassieScore += devConfidence * 0.09;
 cassieScore += walletNetConfidence * 0.09;
 cassieScore = clamp(Math.round(cassieScore), 0, 100);
@@ -975,13 +977,19 @@ memoryHits[0]?.tag ||
 : "No dominant hostile pattern");
 
 const summaryParts = [];
-if (hasMintAuthority || hasFreezeAuthority) summaryParts.push("authority exposure remains live");
+if (hasMintAuthority || hasFreezeAuthority)
+summaryParts.push("authority exposure remains live");
 if (top10 >= 55) summaryParts.push("holder concentration is elevated");
-if (hiddenControlScore >= 40) summaryParts.push("linked-wallet behavior is visible");
-if (freshWalletPct >= 20) summaryParts.push("fresh-wallet participation is elevated");
-if (liqFdvPct > 0 && liqFdvPct < 3) summaryParts.push("liquidity appears thin versus valuation");
-if (devConfidence >= 45) summaryParts.push("developer-network confidence is elevated");
-if (walletNetConfidence >= 45) summaryParts.push("wallet control-map confidence is elevated");
+if (hiddenControlScore >= 40)
+summaryParts.push("linked-wallet behavior is visible");
+if (freshWalletPct >= 20)
+summaryParts.push("fresh-wallet participation is elevated");
+if (liqFdvPct > 0 && liqFdvPct < 3)
+summaryParts.push("liquidity appears thin versus valuation");
+if (devConfidence >= 45)
+summaryParts.push("developer-network confidence is elevated");
+if (walletNetConfidence >= 45)
+summaryParts.push("wallet control-map confidence is elevated");
 if (momentum === "Escalating" || momentum === "Rising") {
 summaryParts.push(`risk trend is ${momentum.toLowerCase()}`);
 }
@@ -1184,7 +1192,8 @@ return null;
 
 const holders = top.map((a, i) => {
 const ui = a.uiAmount ?? null;
-const pct = totalUi && ui != null && totalUi > 0 ? (ui / totalUi) * 100 : null;
+const pct =
+totalUi && ui != null && totalUi > 0 ? (ui / totalUi) * 100 : null;
 
 return {
 rank: i + 1,
@@ -1406,6 +1415,16 @@ trend,
 securityModel,
 });
 }
+
+upsertScanCache({
+mint: mintStr,
+token: tokenJson,
+market: marketJson || { found: false },
+holders: holdersJson,
+activity,
+securityModel,
+cassie: cassieIntelResult,
+});
 
 return res.json({
 ok: true,
