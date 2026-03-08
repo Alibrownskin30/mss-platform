@@ -15,6 +15,12 @@ if (score >= 45) return "Developing";
 return "Unproven";
 }
 
+function avg(values) {
+const nums = values.map((v) => Number(v)).filter((v) => Number.isFinite(v));
+if (!nums.length) return 0;
+return nums.reduce((a, b) => a + b, 0) / nums.length;
+}
+
 export function buildSecurityModel({
 concentration,
 token,
@@ -23,6 +29,7 @@ market,
 trend,
 }) {
 const signals = [];
+
 const top1 = Number(concentration?.top1 || 0);
 const top10 = Number(concentration?.top10 || 0);
 const top20 = Number(concentration?.top20 || 0);
@@ -56,15 +63,80 @@ const developerNetworkState = activity?.developerNetwork?.state || "good";
 const developerNetworkNotes = Array.isArray(activity?.developerNetwork?.notes)
 ? activity.developerNetwork.notes
 : [];
+const developerNetworkGroups = Array.isArray(activity?.developerNetwork?.groups)
+? activity.developerNetwork.groups
+: [];
 
-const walletNetwork = activity?.walletNetwork || {};
-const walletNetworkConfidence = Number(walletNetwork?.confidence || 0);
-const walletNetworkConfidenceLabel = walletNetwork?.confidenceLabel || "Low";
-const walletNetworkControlEstimatePct = Number(walletNetwork?.controlEstimatePct || 0);
-const walletNetworkPrimaryWallet = walletNetwork?.primaryWallet || null;
-const walletNetworkPrimaryClusterId = walletNetwork?.primaryClusterId || null;
-const walletNetworkRole = walletNetwork?.role || "Observed wallet";
-const walletNetworkSharedFundingDetected = !!walletNetwork?.sharedFundingDetected;
+const rawWalletNetwork = activity?.walletNetwork || {};
+const clusterList = Array.isArray(activity?.clusters) ? activity.clusters : [];
+const primaryCluster =
+clusterList.find((c) => c?.id === rawWalletNetwork?.primaryClusterId) ||
+clusterList[0] ||
+null;
+
+const fallbackWalletConfidence = clamp(
+Math.round(
+avg([
+hiddenControlScore,
+developerNetworkConfidence,
+primaryCluster?.score || 0,
+activity?.score || 0,
+])
+),
+0,
+100
+);
+
+const fallbackWalletControlEstimatePct = clamp(
+Math.max(
+Number(rawWalletNetwork?.controlEstimatePct || 0),
+developerNetworkLikelyControlPct,
+linkedWalletPct,
+primaryCluster?.size && top10 > 0 ? (primaryCluster.size * (top10 / 10)) : 0
+),
+0,
+100
+);
+
+const fallbackWalletLinkedWallets = Math.max(
+Number(rawWalletNetwork?.linkedWallets || 0),
+developerNetworkLinkedWallets,
+linkedWallets,
+primaryCluster?.size || 0
+);
+
+const walletNetworkConfidence = Number(rawWalletNetwork?.confidence || fallbackWalletConfidence || 0);
+const walletNetworkConfidenceLabel =
+rawWalletNetwork?.confidenceLabel ||
+(walletNetworkConfidence >= 75 ? "High" : walletNetworkConfidence >= 45 ? "Moderate" : "Low");
+const walletNetworkControlEstimatePct = Number(
+rawWalletNetwork?.controlEstimatePct || fallbackWalletControlEstimatePct || 0
+);
+const walletNetworkPrimaryWallet =
+rawWalletNetwork?.primaryWallet ||
+primaryCluster?.payer ||
+primaryCluster?.members?.[0] ||
+null;
+const walletNetworkPrimaryClusterId =
+rawWalletNetwork?.primaryClusterId ||
+primaryCluster?.id ||
+null;
+const walletNetworkRole =
+rawWalletNetwork?.role ||
+(developerNetworkDetected && developerNetworkConfidence >= 75
+? "Likely operator"
+: developerNetworkDetected
+? "Probable linked wallet"
+: primaryCluster?.payer
+? "Shared payer / controller"
+: primaryCluster?.members?.length >= 2
+? "Lead linked wallet"
+: "Observed wallet");
+const walletNetworkSharedFundingDetected =
+rawWalletNetwork?.sharedFundingDetected != null
+? !!rawWalletNetwork.sharedFundingDetected
+: !!activity?.hiddenControl?.sharedFundingDetected;
+const walletNetworkLinkedWallets = fallbackWalletLinkedWallets;
 
 const syncBurstSize = Number(activity?.whaleActivity?.syncBurstSize || 0);
 
@@ -259,11 +331,17 @@ score = clamp(Math.round(score), 0, 100);
 const headline = band(score);
 const whaleDominance = clamp(Math.round((top10 / 80) * 100), 0, 100);
 
-const reputationBase = 100 - Math.round(
+const reputationBase =
+100 -
+Math.round(
 (score * 0.52) +
 (hiddenControlScore * 0.18) +
 (freshWalletPct * 0.10) +
-(developerNetworkDetected ? Math.max(6, developerNetworkConfidence * 0.12) : developerLinked ? 6 : 0) +
+(developerNetworkDetected
+? Math.max(6, developerNetworkConfidence * 0.12)
+: developerLinked
+? 6
+: 0) +
 (walletNetworkConfidence >= 45 ? Math.max(4, walletNetworkConfidence * 0.08) : 0)
 );
 
@@ -334,6 +412,7 @@ linkedWallets: developerNetworkLinkedWallets,
 likelyControlPct: developerNetworkLikelyControlPct,
 fundingSourceShared: developerNetworkFundingShared,
 notes: developerNetworkNotes,
+groups: developerNetworkGroups,
 },
 walletNetwork: {
 primaryWallet: walletNetworkPrimaryWallet,
@@ -343,6 +422,33 @@ confidence: walletNetworkConfidence,
 confidenceLabel: walletNetworkConfidenceLabel,
 controlEstimatePct: walletNetworkControlEstimatePct,
 sharedFundingDetected: walletNetworkSharedFundingDetected,
+linkedWallets: walletNetworkLinkedWallets,
+riskScore: clamp(
+Math.round(
+(walletNetworkConfidence * 0.6) +
+(walletNetworkControlEstimatePct * 0.4)
+),
+0,
+100
+),
+riskLabel:
+walletNetworkConfidence >= 75
+? "High Control Risk"
+: walletNetworkConfidence >= 45
+? "Moderate Control Risk"
+: "Low Control Risk",
+riskState:
+walletNetworkConfidence >= 75
+? "bad"
+: walletNetworkConfidence >= 45
+? "warn"
+: "good",
+note:
+walletNetworkConfidence >= 75
+? "Wallet control map indicates high-confidence coordinated influence."
+: walletNetworkConfidence >= 45
+? "Wallet control map indicates moderate coordinated influence."
+: "Wallet control map does not currently indicate dominant coordinated influence.",
 },
 freshWalletRisk: {
 walletCount: freshWalletCount,

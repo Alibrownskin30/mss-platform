@@ -57,6 +57,11 @@ const el = $(id);
 if (el) el.textContent = v;
 }
 
+function setHtml(id, v) {
+const el = $(id);
+if (el) el.innerHTML = v;
+}
+
 function setDot(dotId, state) {
 const dot = $(dotId);
 if (!dot) return;
@@ -77,6 +82,12 @@ el.style.display = visible ? "" : "none";
 
 function hasNumber(v) {
 return v != null && v !== "" && !Number.isNaN(Number(v));
+}
+
+function pctBand(score) {
+if (score >= 75) return { label: "High", state: "bad" };
+if (score >= 45) return { label: "Moderate", state: "warn" };
+return { label: "Low", state: "good" };
 }
 
 function getTokenDisplay(scanObj) {
@@ -364,11 +375,16 @@ const holders = Array.isArray(scanObj?.holders?.holders) ? scanObj.holders.holde
 
 const hidden = rm?.hiddenControl || {};
 const devNet = rm?.developerNetwork || rm?.developerActivity || {};
+const walletNet = rm?.walletNetwork || activity?.walletNetwork || {};
 const clusters = Array.isArray(activity?.clusters) ? activity.clusters : [];
 
-const primaryCluster = clusters[0] || null;
+const primaryCluster =
+clusters.find((c) => c?.id === walletNet?.primaryClusterId) ||
+clusters[0] ||
+null;
+
 const primaryMembers = Array.isArray(primaryCluster?.members) ? primaryCluster.members : [];
-const primaryWallet = primaryCluster?.payer || primaryMembers[0] || null;
+const primaryWallet = walletNet?.primaryWallet || primaryCluster?.payer || primaryMembers[0] || null;
 
 let holderControlledPct = 0;
 if (primaryMembers.length && holders.length) {
@@ -379,42 +395,126 @@ holderControlledPct = holders
 }
 
 const likelyControlPct =
+Number(walletNet?.controlEstimatePct || 0) ||
 Number(devNet?.likelyControlPct || 0) ||
 Number(hidden?.linkedWalletPct || 0) ||
 Number(holderControlledPct || 0) ||
 Number(conc?.top10 || 0);
 
 const linkedWallets =
+Number(walletNet?.linkedWallets || 0) ||
 Number(devNet?.linkedWallets || 0) ||
 Number(hidden?.linkedWallets || 0) ||
 Number(activity?.clusteredWallets || 0) ||
 primaryMembers.length;
 
 const confidenceScore =
+Number(walletNet?.confidence || 0) ||
 Number(devNet?.confidence || 0) ||
 Number(primaryCluster?.score || 0) ||
 Number(hidden?.score || 0) ||
 Number(activity?.score || 0) ||
 0;
 
-let confidenceLabel = "Low";
-if (confidenceScore >= 75) confidenceLabel = "High";
-else if (confidenceScore >= 45) confidenceLabel = "Moderate";
+const confidenceLabel =
+walletNet?.confidenceLabel ||
+(confidenceScore >= 75 ? "High" : confidenceScore >= 45 ? "Moderate" : "Low");
 
-let role = "Observed wallet";
-if (devNet?.detected && confidenceScore >= 75) role = "Likely operator";
-else if (devNet?.detected) role = "Probable linked wallet";
-else if (primaryCluster?.payer) role = "Shared payer / controller";
-else if (primaryMembers.length >= 2) role = "Lead linked wallet";
+const role =
+walletNet?.role ||
+(devNet?.detected && confidenceScore >= 75
+? "Likely operator"
+: devNet?.detected
+? "Probable linked wallet"
+: primaryCluster?.payer
+? "Shared payer / controller"
+: primaryMembers.length >= 2
+? "Lead linked wallet"
+: "Observed wallet");
 
 setText("netPrimary", primaryWallet ? shortAddr(primaryWallet, 6, 6) : "—");
-setText("netCluster", primaryCluster?.id || "—");
+setText("netCluster", walletNet?.primaryClusterId || primaryCluster?.id || "—");
 setText("netRole", role);
 setText("netLinkedCount", linkedWallets > 0 ? `${linkedWallets} Wallets` : "—");
 setText("netLinked", linkedWallets > 0 ? String(linkedWallets) : "—");
-setText("netFunding", hidden?.sharedFundingDetected ? "Detected" : "Not detected");
+setText(
+"netFunding",
+walletNet?.sharedFundingDetected || hidden?.sharedFundingDetected ? "Detected" : "Not detected"
+);
 setText("netControlPct", likelyControlPct > 0 ? fmtPct(likelyControlPct, 1) : "—");
 setText("netConfidence", confidenceScore > 0 ? `${confidenceLabel} (${confidenceScore}%)` : "—");
+}
+
+function renderWalletGraph(scanObj) {
+const root = $("walletGraph");
+if (!root) return;
+
+const activity = scanObj?.derived?.activity || {};
+const rm = scanObj?.derived?.riskModel || {};
+const walletNet = rm?.walletNetwork || activity?.walletNetwork || {};
+const clusters = Array.isArray(activity?.clusters) ? activity.clusters : [];
+
+const primaryCluster =
+clusters.find((c) => c?.id === walletNet?.primaryClusterId) ||
+clusters[0] ||
+null;
+
+const primaryWallet =
+walletNet?.primaryWallet ||
+primaryCluster?.payer ||
+primaryCluster?.members?.[0] ||
+null;
+
+const role = walletNet?.role || "Observed wallet";
+const confidence = Number(walletNet?.confidence || 0);
+const confidenceLabel = walletNet?.confidenceLabel || (confidence >= 75 ? "High" : confidence >= 45 ? "Moderate" : "Low");
+
+if (!primaryWallet) {
+root.innerHTML = `
+<div class="wallet-graph-center">
+<div class="title">Primary Wallet</div>
+<div class="value">No graph yet</div>
+<div class="meta">Scan a token to render the wallet control map.</div>
+</div>`;
+return;
+}
+
+const cards = clusters.slice(0, 6).map((c) => {
+const memberCount = Array.isArray(c?.members) ? c.members.length : Number(c?.size || 0);
+const walletLabel = c?.payer ? shortAddr(c.payer, 6, 6) : "No payer";
+const score = Number(c?.score || 0);
+const sub = c?.id === (walletNet?.primaryClusterId || primaryCluster?.id)
+? `${memberCount} wallets • primary linked cluster`
+: `${memberCount} wallets • linked cluster`;
+
+return `
+<div class="wallet-node">
+<div class="node-top">
+<div class="node-id">${c?.id || "Cluster"}</div>
+<div class="node-score">${score}/100</div>
+</div>
+<div class="node-wallet mono">${walletLabel}</div>
+<div class="node-sub">${sub}</div>
+</div>`;
+}).join("");
+
+root.innerHTML = `
+<div class="wallet-graph-center">
+<div class="title">Primary Wallet</div>
+<div class="value mono">${shortAddr(primaryWallet, 6, 6)}</div>
+<div class="meta">${role} • ${confidenceLabel} confidence ${confidence ? `(${confidence}%)` : ""}</div>
+</div>
+<div class="wallet-graph-links">
+${cards || `
+<div class="wallet-node">
+<div class="node-top">
+<div class="node-id">Cluster</div>
+<div class="node-score">—</div>
+</div>
+<div class="node-wallet">No linked clusters</div>
+<div class="node-sub">No graphable wallet structure in this snapshot.</div>
+</div>`}
+</div>`;
 }
 
 function renderRiskMeter(rm) {
@@ -565,6 +665,7 @@ function buildNotes({ tokenJson, marketJson, conc, activity, rm }) {
 const notes = [];
 const devNet = rm?.developerNetwork || rm?.developerActivity || {};
 const devConfidence = Number(devNet?.confidence || 0);
+const walletNet = rm?.walletNetwork || activity?.walletNetwork || {};
 
 if (!tokenJson?.safety?.mintRevoked || !tokenJson?.safety?.freezeRevoked) {
 notes.push("Authority controls are present (mint and/or freeze).");
@@ -599,6 +700,15 @@ notes.push(`${devLabel} detected with likely coordinated control around ${fmtPct
 } else {
 notes.push(`${devLabel} detected in current wallet structure.`);
 }
+}
+
+if (Number(walletNet?.confidence || 0) >= 45) {
+const controlPct = Number(walletNet?.controlEstimatePct || 0);
+notes.push(
+controlPct > 0
+? `Wallet network control confidence is elevated with estimated influence around ${fmtPct(controlPct, 1)}.`
+: "Wallet network control confidence is elevated."
+);
 }
 
 if (rm?.liquidityStability?.state === "bad") {
@@ -662,6 +772,7 @@ const mintRevoked = !!tokenJson?.safety?.mintRevoked;
 const freezeRevoked = !!tokenJson?.safety?.freezeRevoked;
 
 const devNet = rm?.developerNetwork || rm?.developerActivity || {};
+const walletNet = rm?.walletNetwork || activity?.walletNetwork || {};
 const devDetected =
 typeof devNet?.detected === "boolean"
 ? devNet.detected
@@ -669,6 +780,8 @@ typeof devNet?.detected === "boolean"
 const devConfidence = Number(devNet?.confidence || 0);
 const devLikelyControlPct = Number(devNet?.likelyControlPct || 0);
 const devNotes = Array.isArray(devNet?.notes) ? devNet.notes : [];
+const walletNetConfidence = Number(walletNet?.confidence || 0);
+const walletNetControlPct = Number(walletNet?.controlEstimatePct || 0);
 
 if (mintRevoked && freezeRevoked) {
 itemsSignals.push({ tone: "good", text: "Critical authorities appear revoked." });
@@ -702,6 +815,14 @@ itemsSignals.push({ tone: "warn", text: "Cassie detects weak developer-linkage s
 }
 } else {
 itemsSignals.push({ tone: "good", text: "No strong developer-linked wallet network is dominant in this snapshot." });
+}
+
+if (walletNetConfidence >= 75) {
+itemsSignals.push({ tone: "bad", text: "Wallet control map shows high-confidence coordinated influence." });
+} else if (walletNetConfidence >= 45) {
+itemsSignals.push({ tone: "warn", text: "Wallet control map shows moderate coordinated influence." });
+} else {
+itemsSignals.push({ tone: "good", text: "Wallet control map does not show dominant coordinated influence." });
 }
 
 if (momentum === "Escalating" || momentum === "Rising") {
@@ -744,6 +865,18 @@ text: "Developer-linked wallet behavior should be monitored for coordinated exit
 });
 }
 
+if (walletNetControlPct >= 35) {
+itemsSims.push({
+tone: "bad",
+text: `Wallet-network exit simulation indicates meaningful pressure if the mapped network unwinds ~${fmtPct(walletNetControlPct, 1)} of supply influence.`,
+});
+} else if (walletNetConfidence >= 45) {
+itemsSims.push({
+tone: "warn",
+text: "Mapped wallet network should be monitored for synchronized selling pressure.",
+});
+}
+
 if (top1 >= 25 && whaleScore >= 60) {
 itemsSims.push({ tone: "bad", text: "Whale-led dump simulation impact appears severe." });
 } else if (top1 >= 15 || whaleScore >= 45) {
@@ -771,6 +904,15 @@ text:
 devLikelyControlPct > 0
 ? `Developer-linked network confidence is ${devConfidence || "notable"} with likely control around ${fmtPct(devLikelyControlPct, 1)}.`
 : `${devNet?.label || "Developer-linked behavior"} is present in the current signal mix.`,
+});
+}
+if (walletNetConfidence >= 45) {
+itemsRiskFactors.push({
+tone: walletNetConfidence >= 75 ? "bad" : "warn",
+text:
+walletNetControlPct > 0
+? `Wallet control map confidence is ${walletNetConfidence}% with estimated influence around ${fmtPct(walletNetControlPct, 1)}.`
+: "Wallet control map shows meaningful coordinated influence.",
 });
 }
 if (liqFdvPct < 3) {
@@ -806,12 +948,20 @@ text: devNotes[0],
 });
 }
 
+if (walletNetConfidence >= 45) {
+itemsRadar.push({
+tone: walletNetConfidence >= 75 ? "warn" : "good",
+text: `Wallet control map confidence is ${walletNetConfidence}% with role "${walletNet?.role || "Observed wallet"}".`,
+});
+}
+
 let verdict = "Monitor";
 if (
 riskScore >= 75 ||
 hiddenControlScore >= 70 ||
 (!mintRevoked && !freezeRevoked) ||
-devConfidence >= 75
+devConfidence >= 75 ||
+walletNetConfidence >= 80
 ) {
 verdict = "High Risk Structure";
 } else if (
@@ -819,7 +969,8 @@ riskScore <= 35 &&
 hiddenControlScore < 35 &&
 mintRevoked &&
 freezeRevoked &&
-!devDetected
+!devDetected &&
+walletNetConfidence < 45
 ) {
 verdict = "Structurally Stronger";
 }
@@ -831,7 +982,8 @@ top10 >= 60 ||
 liqFdvPct < 1 ||
 hiddenControlScore >= 70 ||
 momentum === "Escalating" ||
-devConfidence >= 75
+devConfidence >= 75 ||
+walletNetConfidence >= 75
 ) {
 threat = "Elevated";
 } else if (
@@ -840,7 +992,8 @@ top10 < 40 &&
 liqFdvPct >= 5 &&
 mintRevoked &&
 freezeRevoked &&
-!devDetected
+!devDetected &&
+walletNetConfidence < 45
 ) {
 threat = "Lower";
 }
@@ -854,7 +1007,8 @@ Math.min(
 (Array.isArray(activity?.clusters) ? 6 : 0) +
 (trend?.found ? 10 : 0) +
 (Array.isArray(itemsRiskFactors) ? Math.min(itemsRiskFactors.length * 3, 12) : 0) +
-Math.min(Math.round(devConfidence * 0.1), 8)
+Math.min(Math.round(devConfidence * 0.1), 8) +
+Math.min(Math.round(walletNetConfidence * 0.08), 6)
 )
 );
 
@@ -873,6 +1027,9 @@ hiddenControlScore >= 40
 devDetected
 ? "Developer-network signals contribute to the current read."
 : "Developer-network signals are not dominant right now.",
+walletNetConfidence >= 45
+? "Wallet control map increases structural confidence in the read."
+: "Wallet control map is not yet a dominant driver.",
 ].join(" ");
 
 return {
@@ -913,6 +1070,248 @@ renderCassieList("cassieSignalsList", cassie.itemsSignals);
 renderCassieList("cassieSimList", cassie.itemsSims);
 renderCassieList("cassieRiskFactorsList", cassie.itemsRiskFactors);
 renderCassieList("cassieRadarList", cassie.itemsRadar);
+}
+
+function renderThreatRadar(scanObj) {
+const token = scanObj?.token || {};
+const market = scanObj?.market || {};
+const rm = scanObj?.derived?.riskModel || {};
+const conc = scanObj?.derived?.concentration || {};
+
+const top10 = Number(conc?.top10 || 0);
+const hiddenControlScore = Number(rm?.hiddenControl?.score || 0);
+const devConfidence = Number(rm?.developerNetwork?.confidence || rm?.developerActivity?.confidence || 0);
+const walletNetConfidence = Number(rm?.walletNetwork?.confidence || 0);
+const walletNetControlPct = Number(rm?.walletNetwork?.controlEstimatePct || 0);
+const whaleScore = Number(rm?.whaleActivity?.score || rm?.whaleScore || 0);
+const freshPct = Number(rm?.freshWalletRisk?.pct || 0);
+
+const liqUsd = Number(market?.liquidityUsd || 0);
+const fdv = Number(market?.fdv || 0);
+const liqFdvPct = fdv > 0 ? (liqUsd / fdv) * 100 : 0;
+
+const mintRevoked = !!token?.safety?.mintRevoked;
+const freezeRevoked = !!token?.safety?.freezeRevoked;
+
+const devExitRisk = Math.max(
+0,
+Math.min(100, Math.round(devConfidence * 0.55 + hiddenControlScore * 0.2 + walletNetControlPct * 0.45))
+);
+
+const liquidityPullRisk = Math.max(
+0,
+Math.min(
+100,
+Math.round(
+(mintRevoked ? 0 : 28) +
+(freezeRevoked ? 0 : 16) +
+(liqFdvPct < 1 ? 42 : liqFdvPct < 3 ? 28 : liqFdvPct < 6 ? 16 : 6) +
+(devConfidence >= 55 ? 10 : 0)
+)
+)
+);
+
+const whaleDumpRisk = Math.max(
+0,
+Math.min(100, Math.round(whaleScore * 0.55 + top10 * 0.4 + walletNetConfidence * 0.15))
+);
+
+const authorityAbuseRisk = Math.max(
+0,
+Math.min(100, Math.round((mintRevoked ? 8 : 58) + (freezeRevoked ? 4 : 28)))
+);
+
+const freshWalletSwarmRisk = Math.max(
+0,
+Math.min(100, Math.round(freshPct * 1.65 + (hiddenControlScore >= 45 ? 10 : 0)))
+);
+
+const networkControlRisk = Math.max(
+0,
+Math.min(100, Math.round(walletNetConfidence * 0.6 + walletNetControlPct * 0.65 + hiddenControlScore * 0.2))
+);
+
+const paintRadar = (mainId, subId, score, lowText, midText, highText) => {
+const el = $(mainId);
+if (!el) return;
+const band = pctBand(score);
+el.classList.remove("good", "warn", "bad");
+el.classList.add(band.state);
+el.textContent = `${band.label} (${score}%)`;
+setText(
+subId,
+band.state === "good" ? lowText : band.state === "warn" ? midText : highText
+);
+};
+
+paintRadar(
+"radarDevExit",
+"radarDevExitSub",
+devExitRisk,
+"Developer-exit profile currently looks lower risk.",
+"Developer-exit profile should be watched.",
+"Developer-exit profile looks elevated."
+);
+
+paintRadar(
+"radarLiquidityPull",
+"radarLiquidityPullSub",
+liquidityPullRisk,
+"Liquidity-pull profile currently looks lower risk.",
+"Liquidity-pull profile should be watched.",
+"Liquidity-pull profile looks elevated."
+);
+
+paintRadar(
+"radarWhaleDump",
+"radarWhaleDumpSub",
+whaleDumpRisk,
+"Coordinated dump profile currently looks lower risk.",
+"Coordinated dump profile should be watched.",
+"Coordinated dump profile looks elevated."
+);
+
+paintRadar(
+"radarAuthorityAbuse",
+"radarAuthorityAbuseSub",
+authorityAbuseRisk,
+"Authority-abuse surface currently looks lower risk.",
+"Authority-abuse surface should be watched.",
+"Authority-abuse surface looks elevated."
+);
+
+paintRadar(
+"radarFreshSwarm",
+"radarFreshSwarmSub",
+freshWalletSwarmRisk,
+"Fresh-wallet swarm risk currently looks lower.",
+"Fresh-wallet swarm risk is notable.",
+"Fresh-wallet swarm risk looks elevated."
+);
+
+paintRadar(
+"radarNetworkControl",
+"radarNetworkControlSub",
+networkControlRisk,
+"Network-control profile currently looks lower risk.",
+"Network-control profile should be watched.",
+"Network-control profile looks elevated."
+);
+}
+
+function renderSimulationOutlook(scanObj) {
+const token = scanObj?.token || {};
+const market = scanObj?.market || {};
+const rm = scanObj?.derived?.riskModel || {};
+const conc = scanObj?.derived?.concentration || {};
+
+const devConfidence = Number(rm?.developerNetwork?.confidence || rm?.developerActivity?.confidence || 0);
+const devControl = Number(rm?.developerNetwork?.likelyControlPct || 0);
+const walletNetControl = Number(rm?.walletNetwork?.controlEstimatePct || 0);
+const whaleScore = Number(rm?.whaleActivity?.score || rm?.whaleScore || 0);
+const top10 = Number(conc?.top10 || 0);
+const liqUsd = Number(market?.liquidityUsd || 0);
+const fdv = Number(market?.fdv || 0);
+const liqFdvPct = fdv > 0 ? (liqUsd / fdv) * 100 : 0;
+const mintRevoked = !!token?.safety?.mintRevoked;
+const freezeRevoked = !!token?.safety?.freezeRevoked;
+
+const devExitImpact = Math.max(
+0,
+Math.min(95, Math.round(devConfidence * 0.38 + devControl * 0.9 + walletNetControl * 0.35))
+);
+const liquidityShock = Math.max(
+0,
+Math.min(95, Math.round((liqFdvPct < 1 ? 78 : liqFdvPct < 3 ? 58 : liqFdvPct < 6 ? 34 : 16)))
+);
+const coordinatedDump = Math.max(
+0,
+Math.min(95, Math.round(whaleScore * 0.45 + top10 * 0.42 + walletNetControl * 0.25))
+);
+const authorityAbuse = Math.max(
+0,
+Math.min(95, Math.round((mintRevoked ? 6 : 58) + (freezeRevoked ? 4 : 22)))
+);
+
+setText("simDevExitImpact", devExitImpact ? `-${devExitImpact}%` : "—");
+setText(
+"simDevExitSub",
+devExitImpact
+? `Estimated pressure if mapped developer/network wallets unwind coordinated exposure.`
+: "No simulation loaded yet."
+);
+
+setText("simLiquidityShock", liquidityShock ? `-${liquidityShock}%` : "—");
+setText(
+"simLiquidityShockSub",
+liquidityShock
+? `Estimated impact under a sharp liquidity fragility event based on current depth.`
+: "No simulation loaded yet."
+);
+
+setText("simCoordinatedDump", coordinatedDump ? `-${coordinatedDump}%` : "—");
+setText(
+"simCoordinatedDumpSub",
+coordinatedDump
+? `Estimated impact under synchronized whale or linked-network selling pressure.`
+: "No simulation loaded yet."
+);
+
+setText("simAuthorityAbuse", authorityAbuse ? `${authorityAbuse}%` : "—");
+setText(
+"simAuthorityAbuseSub",
+authorityAbuse
+? `Authority abuse exposure if mint/freeze permissions are used against holders.`
+: "No simulation loaded yet."
+);
+}
+
+function resetPhase4() {
+setText("netPrimary", "—");
+setText("netCluster", "—");
+setText("netRole", "—");
+setText("netLinkedCount", "—");
+setText("netLinked", "—");
+setText("netFunding", "—");
+setText("netControlPct", "—");
+setText("netConfidence", "—");
+
+setHtml(
+"walletGraph",
+`<div class="wallet-graph-center">
+<div class="title">Primary Wallet</div>
+<div class="value">No graph yet</div>
+<div class="meta">Scan a token to render the wallet control map.</div>
+</div>`
+);
+
+const radarIds = [
+["radarDevExit", "radarDevExitSub"],
+["radarLiquidityPull", "radarLiquidityPullSub"],
+["radarWhaleDump", "radarWhaleDumpSub"],
+["radarAuthorityAbuse", "radarAuthorityAbuseSub"],
+["radarFreshSwarm", "radarFreshSwarmSub"],
+["radarNetworkControl", "radarNetworkControlSub"],
+];
+
+for (const [mainId, subId] of radarIds) {
+const el = $(mainId);
+if (el) {
+el.classList.remove("good", "warn", "bad");
+el.classList.add("warn");
+el.textContent = "—";
+}
+setText(subId, "No radar data yet.");
+}
+
+setText("simDevExitImpact", "—");
+setText("simDevExitSub", "No simulation loaded yet.");
+setText("simLiquidityShock", "—");
+setText("simLiquidityShockSub", "No simulation loaded yet.");
+setText("simCoordinatedDump", "—");
+setText("simCoordinatedDumpSub", "No simulation loaded yet.");
+setText("simAuthorityAbuse", "—");
+setText("simAuthorityAbuseSub", "No simulation loaded yet.");
 }
 
 async function bestEffortRecordRisk({ mint, rm, conc, marketJson }) {
@@ -974,6 +1373,7 @@ whaleScore: 0,
 hiddenControl: {},
 developerActivity: {},
 developerNetwork: {},
+walletNetwork: {},
 freshWalletRisk: {},
 liquidityStability: {},
 whaleActivity: {},
@@ -1000,6 +1400,7 @@ derivedMcapUsd,
 
 renderClusters(activity, rm);
 renderWalletNetwork(scanObj);
+renderWalletGraph(scanObj);
 renderMarket(marketJson, derivedMcapUsd);
 
 setText("riskScore", `${rm.score ?? "—"}`);
@@ -1010,6 +1411,8 @@ setBadge("riskBadge", "riskDot", "riskText", rm?.label?.state || "warn", rm?.lab
 renderRiskMeter(rm);
 renderPhase2Signals(rm);
 renderTrendChart(rm?.trend || trend);
+renderThreatRadar(scanObj);
+renderSimulationOutlook(scanObj);
 
 setText("notesText", buildNotes({ tokenJson, marketJson, conc, activity, rm }));
 
@@ -1036,14 +1439,7 @@ renderPriceChange({ priceChange: {} });
 const svg = $("riskTrendChart");
 if (svg) svg.innerHTML = "";
 
-setText("netPrimary", "—");
-setText("netCluster", "—");
-setText("netRole", "—");
-setText("netLinkedCount", "—");
-setText("netLinked", "—");
-setText("netFunding", "—");
-setText("netControlPct", "—");
-setText("netConfidence", "—");
+resetPhase4();
 
 setText("cassieVerdict", "Unavailable");
 setText("cassieThreat", "Unavailable");
@@ -1090,6 +1486,7 @@ label: { text: "Unknown", state: "warn" },
 signal: "—",
 whaleScore: 0,
 developerNetwork: {},
+walletNetwork: {},
 };
 
 setText("riskScore", `${rm.score ?? "—"}`);
@@ -1101,7 +1498,10 @@ renderRiskMeter(rm);
 renderPhase2Signals(rm);
 renderClusters(last.derived?.activity || {}, rm);
 renderWalletNetwork(last);
+renderWalletGraph(last);
 renderTrendChart(last.trend || rm?.trend || {});
+renderThreatRadar(last);
+renderSimulationOutlook(last);
 
 const notes = buildNotes({
 tokenJson: last.token,
@@ -1233,14 +1633,7 @@ setBadge(null, "netDot", "netText", "good", "Online");
 setBadge(null, "scanDot", "scanStatusText", null, "Ready");
 setText("apiMeta", `API: ${getApiBase()}`);
 
-setText("netPrimary", "—");
-setText("netCluster", "—");
-setText("netRole", "—");
-setText("netLinkedCount", "—");
-setText("netLinked", "—");
-setText("netFunding", "—");
-setText("netControlPct", "—");
-setText("netConfidence", "—");
+resetPhase4();
 
 renderCassieList("cassieSignalsList", [{ tone: "warn", text: "No scan loaded yet." }]);
 renderCassieList("cassieSimList", [{ tone: "warn", text: "No simulation outlook yet." }]);

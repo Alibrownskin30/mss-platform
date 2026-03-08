@@ -6,13 +6,13 @@
 <title>MSS Protocol — Token Scan</title>
 <meta
 name="description"
-content="MSS Protocol Token Scan — Elite security intelligence: contract authorities, holder concentration, market signals, alerts, and Cassie intelligence."
+content="MSS Protocol Token Scan — Elite security intelligence: contract authorities, holder concentration, market signals, alerts, Cassie intelligence, wallet network intelligence, and threat radar."
 />
 
 <meta property="og:title" content="MSS Protocol — Token Scan" />
 <meta
 property="og:description"
-content="Elite security intelligence: contract authorities, holder concentration, market signals, alerts, and Cassie intelligence."
+content="Elite security intelligence: contract authorities, holder concentration, market signals, alerts, Cassie intelligence, wallet network intelligence, and threat radar."
 />
 <meta property="og:type" content="website" />
 <meta property="og:url" content="https://www.mssprotocol.com/token" />
@@ -22,7 +22,7 @@ content="Elite security intelligence: contract authorities, holder concentration
 <meta name="twitter:title" content="MSS Protocol — Token Scan" />
 <meta
 name="twitter:description"
-content="Elite security intelligence: contract authorities, holder concentration, market signals, alerts, and Cassie intelligence."
+content="Elite security intelligence: contract authorities, holder concentration, market signals, alerts, Cassie intelligence, wallet network intelligence, and threat radar."
 />
 <meta name="twitter:image" content="https://www.mssprotocol.com/images/mss-sharecard-v3.jpg" />
 
@@ -211,9 +211,7 @@ flex:0 0 auto;
 max-width:100%;
 }
 
-.pill.buttonish{
-cursor:pointer;
-}
+.pill.buttonish{cursor:pointer}
 
 .pill.buttonish:hover{
 border-color:rgba(255,255,255,.16);
@@ -753,6 +751,183 @@ color:rgba(255,255,255,.56);
 font-size:12px;
 }
 
+/* Phase 4 */
+.graph-panel{
+margin-top:10px;
+border:1px solid rgba(255,255,255,.08);
+border-radius:16px;
+background:rgba(255,255,255,.03);
+padding:14px;
+min-width:0;
+}
+
+.wallet-graph{
+display:flex;
+flex-direction:column;
+align-items:center;
+gap:14px;
+min-height:180px;
+}
+
+.wallet-graph-center{
+min-width:210px;
+max-width:100%;
+padding:14px 16px;
+border-radius:16px;
+border:1px solid rgba(0,255,209,.22);
+background:linear-gradient(145deg, rgba(0,255,209,.10), rgba(58,160,255,.08));
+box-shadow:0 12px 24px rgba(0,0,0,.22);
+text-align:center;
+}
+
+.wallet-graph-center .title{
+font-size:12px;
+color:var(--muted2);
+font-weight:800;
+letter-spacing:.12em;
+text-transform:uppercase;
+}
+
+.wallet-graph-center .value{
+margin-top:8px;
+font-size:18px;
+font-weight:900;
+word-break:break-word;
+}
+
+.wallet-graph-center .meta{
+margin-top:6px;
+font-size:12px;
+color:rgba(255,255,255,.68);
+line-height:1.45;
+}
+
+.wallet-graph-links{
+width:100%;
+display:grid;
+grid-template-columns:repeat(auto-fit, minmax(150px, 1fr));
+gap:10px;
+}
+
+.wallet-node{
+border:1px solid rgba(255,255,255,.08);
+background:rgba(255,255,255,.035);
+border-radius:14px;
+padding:12px;
+min-width:0;
+}
+
+.wallet-node .node-top{
+display:flex;
+align-items:center;
+justify-content:space-between;
+gap:8px;
+margin-bottom:8px;
+}
+
+.wallet-node .node-id{
+font-size:11px;
+color:var(--muted2);
+letter-spacing:.12em;
+text-transform:uppercase;
+font-weight:800;
+}
+
+.wallet-node .node-score{
+font-size:11px;
+color:rgba(255,255,255,.76);
+}
+
+.wallet-node .node-wallet{
+font-size:15px;
+font-weight:900;
+word-break:break-word;
+}
+
+.wallet-node .node-sub{
+margin-top:6px;
+font-size:12px;
+color:rgba(255,255,255,.66);
+line-height:1.45;
+}
+
+.radar-grid{
+display:grid;
+grid-template-columns:repeat(2, minmax(0,1fr));
+gap:10px;
+margin-top:10px;
+}
+
+.radar-card{
+border:1px solid rgba(255,255,255,.08);
+background:rgba(255,255,255,.035);
+border-radius:14px;
+padding:12px;
+min-width:0;
+}
+
+.radar-card .radar-title{
+font-size:12px;
+color:var(--muted2);
+font-weight:800;
+letter-spacing:.12em;
+text-transform:uppercase;
+}
+
+.radar-card .radar-main{
+margin-top:8px;
+font-size:18px;
+font-weight:900;
+}
+
+.radar-card .radar-sub{
+margin-top:6px;
+font-size:12px;
+color:rgba(255,255,255,.66);
+line-height:1.45;
+}
+
+.radar-main.good{color:var(--good)}
+.radar-main.warn{color:var(--warn)}
+.radar-main.bad{color:var(--bad)}
+
+.sim-grid{
+display:grid;
+grid-template-columns:repeat(2, minmax(0,1fr));
+gap:10px;
+margin-top:10px;
+}
+
+.sim-card{
+border:1px solid rgba(255,255,255,.08);
+background:rgba(255,255,255,.035);
+border-radius:14px;
+padding:12px;
+min-width:0;
+}
+
+.sim-card .sim-title{
+font-size:12px;
+color:var(--muted2);
+font-weight:800;
+letter-spacing:.12em;
+text-transform:uppercase;
+}
+
+.sim-card .sim-main{
+margin-top:8px;
+font-size:18px;
+font-weight:900;
+word-break:break-word;
+}
+
+.sim-card .sim-sub{
+margin-top:6px;
+font-size:12px;
+color:rgba(255,255,255,.66);
+line-height:1.45;
+}
+
 table{
 width:100%;
 border-collapse:collapse;
@@ -846,6 +1021,8 @@ background:#f3f5f8;
 .kpis{grid-template-columns:repeat(2, minmax(0,1fr))}
 .signal-grid{grid-template-columns:1fr 1fr}
 .cassie-grid{grid-template-columns:1fr}
+.radar-grid{grid-template-columns:1fr 1fr}
+.sim-grid{grid-template-columns:1fr 1fr}
 }
 
 @media (max-width: 820px){
@@ -907,6 +1084,9 @@ padding:20px 12px 72px;
 .hero p{font-size:14px}
 .kpis{grid-template-columns:1fr}
 .signal-grid{grid-template-columns:1fr}
+.radar-grid{grid-template-columns:1fr}
+.sim-grid{grid-template-columns:1fr}
+.wallet-graph-links{grid-template-columns:1fr}
 
 .card-head{
 flex-direction:column;
@@ -1180,7 +1360,7 @@ Platform confidence score: <span id="reputationScore2">—</span>
 <span class="cassie-orb" aria-hidden="true"></span>
 <span>Cassie Verdict Engine</span>
 </div>
-<div class="small" style="margin-top:8px">Pattern synthesis across authorities, liquidity, concentration, cluster intelligence, and simulation heuristics.</div>
+<div class="small" style="margin-top:8px">Pattern synthesis across authorities, liquidity, concentration, cluster intelligence, simulation heuristics, and threat radar.</div>
 </div>
 
 <div class="cassie-verdict">
@@ -1192,7 +1372,7 @@ Platform confidence score: <span id="reputationScore2">—</span>
 
 <div class="cassie-body">
 <div class="cassie-summary" id="cassieSummary">
-Scan a token to generate Cassie’s synthesis, risk factors, and simulation view.
+Scan a token to generate Cassie’s synthesis, risk factors, simulation view, and threat radar.
 </div>
 
 <div class="cassie-grid">
@@ -1273,7 +1453,6 @@ Scan a token to generate Cassie’s synthesis, risk factors, and simulation view
 </div>
 
 <div class="signal-grid">
-
 <div class="signal-card">
 <div class="signal-title">Primary Control Wallet</div>
 <div class="signal-main" id="netPrimary">—</div>
@@ -1307,7 +1486,101 @@ Estimated supply influence across linked wallets
 Confidence based on payer reuse, timing patterns, and cluster structure
 </div>
 </div>
+</div>
 
+<div class="divider"></div>
+
+<div class="section-title">
+<span>Wallet Control Map</span>
+<span class="small">Phase 4</span>
+</div>
+
+<div class="graph-panel">
+<div id="walletGraph" class="wallet-graph">
+<div class="wallet-graph-center">
+<div class="title">Primary Wallet</div>
+<div class="value">No graph yet</div>
+<div class="meta">Scan a token to render the wallet control map.</div>
+</div>
+</div>
+</div>
+
+<div class="divider"></div>
+
+<div class="section-title">
+<span>Cassie Threat Radar</span>
+<span class="small">Launch Layer</span>
+</div>
+
+<div class="radar-grid">
+<div class="radar-card">
+<div class="radar-title">Dev Exit Risk</div>
+<div class="radar-main warn" id="radarDevExit">—</div>
+<div class="radar-sub" id="radarDevExitSub">No radar data yet.</div>
+</div>
+
+<div class="radar-card">
+<div class="radar-title">Liquidity Pull Risk</div>
+<div class="radar-main warn" id="radarLiquidityPull">—</div>
+<div class="radar-sub" id="radarLiquidityPullSub">No radar data yet.</div>
+</div>
+
+<div class="radar-card">
+<div class="radar-title">Coordinated Dump Risk</div>
+<div class="radar-main warn" id="radarWhaleDump">—</div>
+<div class="radar-sub" id="radarWhaleDumpSub">No radar data yet.</div>
+</div>
+
+<div class="radar-card">
+<div class="radar-title">Authority Abuse Risk</div>
+<div class="radar-main warn" id="radarAuthorityAbuse">—</div>
+<div class="radar-sub" id="radarAuthorityAbuseSub">No radar data yet.</div>
+</div>
+
+<div class="radar-card">
+<div class="radar-title">Fresh Wallet Swarm Risk</div>
+<div class="radar-main warn" id="radarFreshSwarm">—</div>
+<div class="radar-sub" id="radarFreshSwarmSub">No radar data yet.</div>
+</div>
+
+<div class="radar-card">
+<div class="radar-title">Network Control Risk</div>
+<div class="radar-main warn" id="radarNetworkControl">—</div>
+<div class="radar-sub" id="radarNetworkControlSub">No radar data yet.</div>
+</div>
+</div>
+
+<div class="divider"></div>
+
+<div class="section-title">
+<span>Attack Simulation Outlook</span>
+<span class="small">Cassie Sim</span>
+</div>
+
+<div class="sim-grid">
+<div class="sim-card">
+<div class="sim-title">Developer Exit Scenario</div>
+<div class="sim-main" id="simDevExitImpact">—</div>
+<div class="sim-sub" id="simDevExitSub">No simulation loaded yet.</div>
+</div>
+
+<div class="sim-card">
+<div class="sim-title">Liquidity Shock Scenario</div>
+<div class="sim-main" id="simLiquidityShock">—</div>
+<div class="sim-sub" id="simLiquidityShockSub">No simulation loaded yet.</div>
+</div>
+
+<div class="sim-card">
+<div class="sim-title">Coordinated Dump Scenario</div>
+<div class="sim-main" id="simCoordinatedDump">—</div>
+<div class="sim-sub" id="simCoordinatedDumpSub">No simulation loaded yet.</div>
+</div>
+
+<div class="sim-card">
+<div class="sim-title">Authority Abuse Scenario</div>
+<div class="sim-main" id="simAuthorityAbuse">—</div>
+<div class="sim-sub" id="simAuthorityAbuseSub">No simulation loaded yet.</div>
+</div>
 </div>
 
 <div class="divider"></div>
@@ -1412,7 +1685,7 @@ We never render RPC URLs or API keys in the interface. Debug via server logs onl
 <div class="footer-line small">
 <span class="mono" id="apiMeta">API: —</span>
 <span class="footer-sep">•</span>
-<span>Risk • Market • Holder Intelligence • Alerts • Cassie</span>
+<span>Risk • Market • Holder Intelligence • Alerts • Cassie • Threat Radar</span>
 </div>
 </div>
 
@@ -1439,6 +1712,6 @@ window.location.reload();
 });
 </script>
 
-<script type="module" src="./assets/token.js?v=12"></script>
+<script type="module" src="./assets/token.js?v=13"></script>
 </body>
 </html>

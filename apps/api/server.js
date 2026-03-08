@@ -105,46 +105,6 @@ app.use(cassie);
 app.get("/api/_cassie/diag", (req, res) => res.status(404).end());
 app.post("/api/admin/_sync", (req, res) => res.status(401).end());
 
-// Cassie status + memory endpoints
-app.get("/api/cassie/status", authRequired, (req, res) => cassieApi.status(req, res));
-
-app.get("/api/cassie/memory", authRequired, (req, res) => {
-try {
-const limit = clamp(Number(req.query.limit || 50), 1, 200);
-const out =
-typeof cassieIntel?.memorySnapshot === "function"
-? cassieIntel.memorySnapshot(limit)
-: [];
-return res.json({ ok: true, items: out });
-} catch (e) {
-return res.status(500).json({ error: String(e?.message || e) });
-}
-});
-
-app.get("/api/cassie/memory/mint/:mint", authRequired, (req, res) => {
-try {
-const out =
-typeof cassieIntel?.memoryByMint === "function"
-? cassieIntel.memoryByMint(req.params.mint)
-: null;
-return res.json({ ok: true, item: out || null });
-} catch (e) {
-return res.status(500).json({ error: String(e?.message || e) });
-}
-});
-
-app.get("/api/cassie/memory/signature/:signature", authRequired, (req, res) => {
-try {
-const out =
-typeof cassieIntel?.memoryBySignature === "function"
-? cassieIntel.memoryBySignature(req.params.signature)
-: null;
-return res.json({ ok: true, item: out || null });
-} catch (e) {
-return res.status(500).json({ error: String(e?.message || e) });
-}
-});
-
 // ---- Solana RPC ----
 const RPC = process.env.SOLANA_RPC || "https://api.mainnet-beta.solana.com";
 const connection = new Connection(RPC, "confirmed");
@@ -210,6 +170,12 @@ return String(s || "")
 .replace(/\b\w/g, (m) => m.toUpperCase());
 }
 
+function toPct(n, dp = 1) {
+const v = Number(n);
+if (!Number.isFinite(v)) return 0;
+return Number(v.toFixed(dp));
+}
+
 function getReputationFromTrend(trend, latestRisk) {
 const risk = safeNum(latestRisk, 0);
 const momentum = trend?.trend?.momentum || "Stable";
@@ -235,6 +201,123 @@ state = "warn";
 return { score, label, state };
 }
 
+function buildWalletNetwork({
+activity,
+holdersJson,
+concentration,
+securityModel,
+}) {
+const clusters = Array.isArray(activity?.clusters) ? activity.clusters : [];
+const holders = Array.isArray(holdersJson?.holders) ? holdersJson.holders : [];
+const hiddenControl = securityModel?.hiddenControl || {};
+const developerNetwork = securityModel?.developerNetwork || {};
+
+const primaryCluster =
+clusters[0] ||
+(developerNetwork?.groups?.length
+? {
+id: "C1",
+payer: developerNetwork.groups[0]?.payer || null,
+members: developerNetwork.groups[0]?.members || [],
+size: developerNetwork.groups[0]?.size || 0,
+score: clamp(40 + (developerNetwork.groups[0]?.size || 0) * 10, 0, 100),
+}
+: null);
+
+const primaryMembers = Array.isArray(primaryCluster?.members) ? primaryCluster.members : [];
+const primaryWallet =
+primaryCluster?.payer ||
+developerNetwork?.groups?.[0]?.payer ||
+primaryMembers[0] ||
+null;
+
+let memberSupplyPct = 0;
+if (primaryMembers.length && holders.length) {
+const memberSet = new Set(primaryMembers);
+memberSupplyPct = holders
+.filter((h) => h?.owner && memberSet.has(h.owner))
+.reduce((sum, h) => sum + safeNum(h?.pctSupply, 0), 0);
+}
+
+const linkedWallets =
+safeNum(developerNetwork?.linkedWallets, 0) ||
+safeNum(hiddenControl?.linkedWallets, 0) ||
+safeNum(activity?.clusteredWallets, 0) ||
+primaryMembers.length;
+
+const controlEstimatePct = clamp(
+Math.max(
+safeNum(developerNetwork?.likelyControlPct, 0),
+safeNum(hiddenControl?.linkedWalletPct, 0),
+memberSupplyPct,
+0
+),
+0,
+100
+);
+
+const confidence = clamp(
+Math.round(
+Math.max(
+safeNum(developerNetwork?.confidence, 0),
+safeNum(primaryCluster?.score, 0),
+safeNum(hiddenControl?.score, 0),
+safeNum(activity?.score, 0)
+)
+),
+0,
+100
+);
+
+const confidenceLabel =
+confidence >= 75 ? "High" : confidence >= 45 ? "Moderate" : "Low";
+
+const role =
+developerNetwork?.detected && confidence >= 75
+? "Likely operator"
+: developerNetwork?.detected
+? "Probable linked wallet"
+: primaryCluster?.payer
+? "Shared payer / controller"
+: primaryMembers.length >= 2
+? "Lead linked wallet"
+: "Observed wallet";
+
+const riskScore = clamp(
+Math.round(
+confidence * 0.55 +
+controlEstimatePct * 0.45 +
+Math.max(0, safeNum(concentration?.top10, 0) - 35) * 0.35
+),
+0,
+100
+);
+
+const riskLabel =
+riskScore >= 75 ? "High Control Risk" : riskScore >= 45 ? "Moderate Control Risk" : "Low Control Risk";
+const riskState = riskScore >= 75 ? "bad" : riskScore >= 45 ? "warn" : "good";
+
+return {
+primaryWallet,
+primaryClusterId: primaryCluster?.id || "—",
+role,
+linkedWallets,
+sharedFundingDetected: !!hiddenControl?.sharedFundingDetected,
+controlEstimatePct: toPct(controlEstimatePct, 1),
+confidence,
+confidenceLabel,
+riskScore,
+riskLabel,
+riskState,
+note:
+confidence >= 75
+? "Wallet control map indicates high-confidence coordinated influence."
+: confidence >= 45
+? "Wallet control map indicates moderate coordinated influence."
+: "Wallet control map does not currently indicate dominant coordinated influence.",
+};
+}
+
 function enrichSecurityModel({
 baseModel,
 concentration,
@@ -242,6 +325,7 @@ token,
 market,
 activity,
 trend,
+holdersJson,
 }) {
 const top10 = safeNum(concentration?.top10, 0);
 const liqUsd = safeNum(market?.liquidityUsd, 0);
@@ -266,6 +350,12 @@ hiddenControlScore >= 70
 : hiddenControlScore >= 40
 ? "Elevated Hidden Control"
 : "Low Hidden Control",
+state:
+hiddenControlScore >= 70
+? "bad"
+: hiddenControlScore >= 40
+? "warn"
+: "good",
 linkedWallets,
 linkedWalletPct:
 top10 > 0 ? Math.min(top10, safeNum(activity?.maxClusterSize, 0) * (top10 / 10)) : 0,
@@ -345,6 +435,9 @@ existingDeveloperNetwork?.fundingSourceShared != null
 notes: Array.isArray(existingDeveloperNetwork?.notes)
 ? existingDeveloperNetwork.notes
 : developerActivity.notes,
+groups: Array.isArray(existingDeveloperNetwork?.groups)
+? existingDeveloperNetwork.groups
+: [],
 };
 
 const freshWalletRiskScore = clamp(
@@ -361,6 +454,12 @@ freshWalletRiskScore >= 65
 : freshWalletRiskScore >= 35
 ? "Moderate Fresh Wallet Risk"
 : "Low Fresh Wallet Risk",
+state:
+freshWalletRiskScore >= 65
+? "bad"
+: freshWalletRiskScore >= 35
+? "warn"
+: "good",
 walletCount: Math.round((safeNum(activity?.analyzedWallets, 0) * newWalletPct) / 100),
 pct: Number(newWalletPct.toFixed(1)),
 };
@@ -415,6 +514,12 @@ whaleActivityScore >= 70
 : whaleActivityScore >= 40
 ? "Elevated Whale Activity"
 : "Normal Whale Activity",
+state:
+whaleActivityScore >= 70
+? "bad"
+: whaleActivityScore >= 40
+? "warn"
+: "good",
 pressure:
 whaleActivityScore >= 70
 ? "High"
@@ -424,15 +529,28 @@ whaleActivityScore >= 70
 syncBurstSize: safeNum(activity?.maxClusterSize, 0),
 };
 
+const walletNetwork = buildWalletNetwork({
+activity,
+holdersJson,
+concentration,
+securityModel: {
+...baseModel,
+hiddenControl,
+developerNetwork,
+},
+});
+
 const reputation = getReputationFromTrend(trend, baseModel?.score);
 
 const trendBlock = {
 label: trend?.trend?.label || "Stable",
 state: trend?.trend?.state || "warn",
 momentum: trend?.trend?.momentum || "Stable",
+latest: safeNum(trend?.latest?.risk, safeNum(baseModel?.score, 0)),
 delta1h: trend?.change?.["1h"] ?? null,
 delta6h: trend?.change?.["6h"] ?? null,
 delta24h: trend?.change?.["24h"] ?? null,
+found: !!trend?.found,
 };
 
 const signal =
@@ -448,6 +566,7 @@ signal,
 hiddenControl,
 developerActivity,
 developerNetwork,
+walletNetwork,
 freshWalletRisk,
 liquidityStability,
 whaleActivity,
@@ -477,6 +596,18 @@ const clusterCount = safeNum(activity?.clusterCount, 0);
 const hasMintAuthority = !!token?.mintAuthority;
 const hasFreezeAuthority = !!token?.freezeAuthority;
 const momentum = securityModel?.trend?.momentum || trend?.trend?.momentum || "Stable";
+const devConfidence = safeNum(
+securityModel?.developerNetwork?.confidence ||
+securityModel?.developerActivity?.confidence,
+0
+);
+const devLikelyControlPct = safeNum(
+securityModel?.developerNetwork?.likelyControlPct ||
+securityModel?.developerActivity?.likelyControlPct,
+0
+);
+const walletNetConfidence = safeNum(securityModel?.walletNetwork?.confidence, 0);
+const walletNetControlPct = safeNum(securityModel?.walletNetwork?.controlEstimatePct, 0);
 
 const riskFactors = [];
 
@@ -560,6 +691,28 @@ severity: whaleActivityScore >= 70 ? "high" : "medium",
 });
 }
 
+if (devConfidence >= 35) {
+riskFactors.push({
+code: "developer_network",
+label:
+devLikelyControlPct > 0
+? `Developer-linked network confidence ${devConfidence}/100 with likely control around ${devLikelyControlPct.toFixed(1)}%`
+: `Developer-linked network detected (${devConfidence}/100)`,
+severity: devConfidence >= 75 ? "high" : "medium",
+});
+}
+
+if (walletNetConfidence >= 45) {
+riskFactors.push({
+code: "wallet_network",
+label:
+walletNetControlPct > 0
+? `Wallet control map confidence ${walletNetConfidence}/100 with estimated influence around ${walletNetControlPct.toFixed(1)}%`
+: `Wallet control map shows coordinated influence (${walletNetConfidence}/100)`,
+severity: walletNetConfidence >= 75 ? "high" : "medium",
+});
+}
+
 if (momentum === "Escalating" || momentum === "Rising") {
 riskFactors.push({
 code: "risk_trend_up",
@@ -577,7 +730,11 @@ value: clamp(Math.round((hiddenControlScore + top10) / 2), 0, 100),
 {
 key: "wallet_coordination",
 label: "Wallet Coordination",
-value: clamp(Math.round((safeNum(activity?.score, 0) + whaleActivityScore) / 2), 0, 100),
+value: clamp(
+Math.round((safeNum(activity?.score, 0) + whaleActivityScore + walletNetConfidence) / 3),
+0,
+100
+),
 },
 {
 key: "liquidity_fragility",
@@ -588,6 +745,16 @@ value: clamp(100 - safeNum(securityModel?.liquidityStability?.score, 0), 0, 100)
 key: "fresh_wallet_pressure",
 label: "Fresh Wallet Pressure",
 value: clamp(Math.round(freshWalletPct * 2), 0, 100),
+},
+{
+key: "developer_network",
+label: "Developer Network",
+value: clamp(Math.round(devConfidence), 0, 100),
+},
+{
+key: "network_control",
+label: "Network Control",
+value: clamp(Math.round(walletNetConfidence * 0.6 + walletNetControlPct * 0.4), 0, 100),
 },
 {
 key: "trend_escalation",
@@ -625,6 +792,28 @@ memoryHits.push({
 tag: "Fresh Wallet Distribution Pattern",
 confidence: 74,
 note: "Fresh-wallet participation appears elevated alongside clustering signals.",
+});
+}
+
+if (devConfidence >= 55) {
+memoryHits.push({
+tag: "Developer Network Control Pattern",
+confidence: clamp(Math.round(devConfidence), 0, 99),
+note:
+devLikelyControlPct > 0
+? `Developer-linked network appears meaningful, with likely control around ${devLikelyControlPct.toFixed(1)}%.`
+: "Developer-linked network confidence is elevated in this snapshot.",
+});
+}
+
+if (walletNetConfidence >= 55) {
+memoryHits.push({
+tag: "Wallet Network Influence Pattern",
+confidence: clamp(Math.round(walletNetConfidence), 0, 99),
+note:
+walletNetControlPct > 0
+? `Wallet control map indicates coordinated influence around ${walletNetControlPct.toFixed(1)}%.`
+: "Wallet control map indicates elevated coordinated influence.",
 });
 }
 
@@ -669,15 +858,37 @@ hiddenControlScore >= 70
 : "Low coordination stress detected",
 severity: hiddenControlScore >= 70 ? "high" : hiddenControlScore >= 40 ? "medium" : "low",
 },
+{
+name: "Developer Exit Simulation",
+result:
+devConfidence >= 75
+? "Developer-linked network unwind could trigger severe pressure"
+: devConfidence >= 45
+? "Developer-linked network unwind could trigger moderate pressure"
+: "No strong developer-exit stress detected",
+severity: devConfidence >= 75 ? "high" : devConfidence >= 45 ? "medium" : "low",
+},
+{
+name: "Wallet Network Control Simulation",
+result:
+walletNetConfidence >= 75
+? "Wallet control map indicates severe coordinated influence risk"
+: walletNetConfidence >= 45
+? "Wallet control map indicates moderate coordinated influence risk"
+: "Wallet control map does not currently indicate dominant coordinated influence",
+severity: walletNetConfidence >= 75 ? "high" : walletNetConfidence >= 45 ? "medium" : "low",
+},
 ];
 
 let cassieScore = 0;
-cassieScore += riskScore * 0.3;
-cassieScore += hiddenControlScore * 0.2;
-cassieScore += safeNum(activity?.score, 0) * 0.15;
-cassieScore += Math.min(top10, 100) * 0.15;
-cassieScore += Math.min(freshWalletPct * 2, 100) * 0.1;
-cassieScore += (100 - safeNum(securityModel?.liquidityStability?.score, 0)) * 0.1;
+cassieScore += riskScore * 0.25;
+cassieScore += hiddenControlScore * 0.16;
+cassieScore += safeNum(activity?.score, 0) * 0.12;
+cassieScore += Math.min(top10, 100) * 0.12;
+cassieScore += Math.min(freshWalletPct * 2, 100) * 0.08;
+cassieScore += (100 - safeNum(securityModel?.liquidityStability?.score, 0)) * 0.09;
+cassieScore += devConfidence * 0.09;
+cassieScore += walletNetConfidence * 0.09;
 cassieScore = clamp(Math.round(cassieScore), 0, 100);
 
 let threatLevel = "Low";
@@ -699,7 +910,11 @@ state = "warn";
 
 const pattern =
 memoryHits[0]?.tag ||
-(hiddenControlScore >= 40
+(walletNetConfidence >= 55
+? "Wallet network influence pattern"
+: devConfidence >= 55
+? "Developer-linked control pattern"
+: hiddenControlScore >= 40
 ? "Linked control pattern"
 : top10 >= 55
 ? "Concentrated holder pattern"
@@ -711,6 +926,8 @@ if (top10 >= 55) summaryParts.push("holder concentration is elevated");
 if (hiddenControlScore >= 40) summaryParts.push("linked-wallet behavior is visible");
 if (freshWalletPct >= 20) summaryParts.push("fresh-wallet participation is elevated");
 if (liqFdvPct > 0 && liqFdvPct < 3) summaryParts.push("liquidity appears thin versus valuation");
+if (devConfidence >= 45) summaryParts.push("developer-network confidence is elevated");
+if (walletNetConfidence >= 45) summaryParts.push("wallet control-map confidence is elevated");
 if (momentum === "Escalating" || momentum === "Rising") {
 summaryParts.push(`risk trend is ${momentum.toLowerCase()}`);
 }
@@ -722,7 +939,7 @@ const summary = summaryParts.length
 return {
 enabled: true,
 score: cassieScore,
-confidence: clamp(Math.round(58 + riskFactors.length * 6 + memoryHits.length * 5), 0, 99),
+confidence: clamp(Math.round(58 + riskFactors.length * 5 + memoryHits.length * 4), 0, 99),
 threatLevel,
 status,
 state,
@@ -741,6 +958,46 @@ cassieScore >= 75
 : "Clear",
 };
 }
+
+// ---- Cassie status + memory endpoints ----
+app.get("/api/cassie/status", authRequired, (req, res) => cassieApi.status(req, res));
+
+app.get("/api/cassie/memory", authRequired, (req, res) => {
+try {
+const limit = clamp(Number(req.query.limit || 50), 1, 200);
+const out =
+typeof cassieIntel?.memorySnapshot === "function"
+? cassieIntel.memorySnapshot(limit)
+: [];
+return res.json({ ok: true, items: out });
+} catch (e) {
+return res.status(500).json({ error: String(e?.message || e) });
+}
+});
+
+app.get("/api/cassie/memory/mint/:mint", authRequired, (req, res) => {
+try {
+const out =
+typeof cassieIntel?.memoryByMint === "function"
+? cassieIntel.memoryByMint(req.params.mint)
+: null;
+return res.json({ ok: true, item: out || null });
+} catch (e) {
+return res.status(500).json({ error: String(e?.message || e) });
+}
+});
+
+app.get("/api/cassie/memory/signature/:signature", authRequired, (req, res) => {
+try {
+const out =
+typeof cassieIntel?.memoryBySignature === "function"
+? cassieIntel.memoryBySignature(req.params.signature)
+: null;
+return res.json({ ok: true, item: out || null });
+} catch (e) {
+return res.status(500).json({ error: String(e?.message || e) });
+}
+});
 
 // ---- Caches ----
 const holdersCache = new Map();
@@ -1051,6 +1308,7 @@ token: tokenJson,
 market: marketJson || {},
 activity,
 trend,
+holdersJson,
 });
 
 let cassieIntelResult = null;
@@ -1144,6 +1402,7 @@ token: tokenJson,
 market: marketJson || {},
 activity: clusterJson || {},
 trend,
+holdersJson,
 });
 
 const cassie =
