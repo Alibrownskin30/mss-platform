@@ -467,7 +467,9 @@ null;
 
 const role = walletNet?.role || "Observed wallet";
 const confidence = Number(walletNet?.confidence || 0);
-const confidenceLabel = walletNet?.confidenceLabel || (confidence >= 75 ? "High" : confidence >= 45 ? "Moderate" : "Low");
+const confidenceLabel =
+walletNet?.confidenceLabel ||
+(confidence >= 75 ? "High" : confidence >= 45 ? "Moderate" : "Low");
 
 if (!primaryWallet) {
 root.innerHTML = `
@@ -479,7 +481,23 @@ root.innerHTML = `
 return;
 }
 
-const cards = clusters.slice(0, 6).map((c) => {
+const primaryMembers = Array.isArray(primaryCluster?.members) ? primaryCluster.members : [];
+
+const memberCards = primaryMembers.slice(0, 8).map((wallet, i) => {
+const isPrimary = wallet === primaryWallet;
+
+return `
+<div class="wallet-node">
+<div class="node-top">
+<div class="node-id">${isPrimary ? "Primary" : `Linked ${i + 1}`}</div>
+<div class="node-score">${confidence || "—"}%</div>
+</div>
+<div class="node-wallet mono">${shortAddr(wallet, 6, 6)}</div>
+<div class="node-sub">${isPrimary ? role : "Linked wallet in primary cluster"}</div>
+</div>`;
+}).join("");
+
+const fallbackClusterCards = clusters.slice(0, 6).map((c) => {
 const memberCount = Array.isArray(c?.members) ? c.members.length : Number(c?.size || 0);
 const walletLabel = c?.payer ? shortAddr(c.payer, 6, 6) : "No payer";
 const score = Number(c?.score || 0);
@@ -505,7 +523,7 @@ root.innerHTML = `
 <div class="meta">${role} • ${confidenceLabel} confidence ${confidence ? `(${confidence}%)` : ""}</div>
 </div>
 <div class="wallet-graph-links">
-${cards || `
+${memberCards || fallbackClusterCards || `
 <div class="wallet-node">
 <div class="node-top">
 <div class="node-id">Cluster</div>
@@ -1389,6 +1407,7 @@ mint,
 token: tokenJson,
 market: marketJson,
 holders: holdersJson,
+rawTrend: trend,
 trend: rm?.trend || trend,
 derived: {
 concentration: conc,
@@ -1410,7 +1429,7 @@ setBadge("riskBadge", "riskDot", "riskText", rm?.label?.state || "warn", rm?.lab
 
 renderRiskMeter(rm);
 renderPhase2Signals(rm);
-renderTrendChart(rm?.trend || trend);
+renderTrendChart(trend);
 renderThreatRadar(scanObj);
 renderSimulationOutlook(scanObj);
 
@@ -1499,7 +1518,7 @@ renderPhase2Signals(rm);
 renderClusters(last.derived?.activity || {}, rm);
 renderWalletNetwork(last);
 renderWalletGraph(last);
-renderTrendChart(last.trend || rm?.trend || {});
+renderTrendChart(last.rawTrend || last.trend || {});
 renderThreatRadar(last);
 renderSimulationOutlook(last);
 
