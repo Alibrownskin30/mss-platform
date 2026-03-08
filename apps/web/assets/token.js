@@ -356,6 +356,67 @@ hidden?.linkedWallets ?? activity?.clusteredWallets ?? "—"
 );
 }
 
+function renderWalletNetwork(scanObj) {
+const activity = scanObj?.derived?.activity || {};
+const rm = scanObj?.derived?.riskModel || {};
+const conc = scanObj?.derived?.concentration || {};
+const holders = Array.isArray(scanObj?.holders?.holders) ? scanObj.holders.holders : [];
+
+const hidden = rm?.hiddenControl || {};
+const devNet = rm?.developerNetwork || rm?.developerActivity || {};
+const clusters = Array.isArray(activity?.clusters) ? activity.clusters : [];
+
+const primaryCluster = clusters[0] || null;
+const primaryMembers = Array.isArray(primaryCluster?.members) ? primaryCluster.members : [];
+const primaryWallet = primaryCluster?.payer || primaryMembers[0] || null;
+
+let holderControlledPct = 0;
+if (primaryMembers.length && holders.length) {
+const memberSet = new Set(primaryMembers);
+holderControlledPct = holders
+.filter((h) => h?.owner && memberSet.has(h.owner))
+.reduce((sum, h) => sum + Number(h?.pctSupply || 0), 0);
+}
+
+const likelyControlPct =
+Number(devNet?.likelyControlPct || 0) ||
+Number(hidden?.linkedWalletPct || 0) ||
+Number(holderControlledPct || 0) ||
+Number(conc?.top10 || 0);
+
+const linkedWallets =
+Number(devNet?.linkedWallets || 0) ||
+Number(hidden?.linkedWallets || 0) ||
+Number(activity?.clusteredWallets || 0) ||
+primaryMembers.length;
+
+const confidenceScore =
+Number(devNet?.confidence || 0) ||
+Number(primaryCluster?.score || 0) ||
+Number(hidden?.score || 0) ||
+Number(activity?.score || 0) ||
+0;
+
+let confidenceLabel = "Low";
+if (confidenceScore >= 75) confidenceLabel = "High";
+else if (confidenceScore >= 45) confidenceLabel = "Moderate";
+
+let role = "Observed wallet";
+if (devNet?.detected && confidenceScore >= 75) role = "Likely operator";
+else if (devNet?.detected) role = "Probable linked wallet";
+else if (primaryCluster?.payer) role = "Shared payer / controller";
+else if (primaryMembers.length >= 2) role = "Lead linked wallet";
+
+setText("netPrimary", primaryWallet ? shortAddr(primaryWallet, 6, 6) : "—");
+setText("netCluster", primaryCluster?.id || "—");
+setText("netRole", role);
+setText("netLinkedCount", linkedWallets > 0 ? `${linkedWallets} Wallets` : "—");
+setText("netLinked", linkedWallets > 0 ? String(linkedWallets) : "—");
+setText("netFunding", hidden?.sharedFundingDetected ? "Detected" : "Not detected");
+setText("netControlPct", likelyControlPct > 0 ? fmtPct(likelyControlPct, 1) : "—");
+setText("netConfidence", confidenceScore > 0 ? `${confidenceLabel} (${confidenceScore}%)` : "—");
+}
+
 function renderRiskMeter(rm) {
 const fill = $("riskMeterFill");
 const score = Number(rm?.score ?? 0);
@@ -921,21 +982,7 @@ reputation: {},
 };
 }
 
-renderClusters(activity, rm);
-
 const derivedMcapUsd = deriveMcapUsd({ marketJson, holdersJson, tokenJson });
-renderMarket(marketJson, derivedMcapUsd);
-
-setText("riskScore", `${rm.score ?? "—"}`);
-setText("whaleScore", `${rm.whaleScore ?? "—"}`);
-setText("riskSignal", rm.signal || "—");
-setBadge("riskBadge", "riskDot", "riskText", rm?.label?.state || "warn", rm?.label?.text || "—");
-
-renderRiskMeter(rm);
-renderPhase2Signals(rm);
-renderTrendChart(rm?.trend || trend);
-
-setText("notesText", buildNotes({ tokenJson, marketJson, conc, activity, rm }));
 
 const scanObj = {
 mint,
@@ -950,6 +997,21 @@ riskModel: rm,
 derivedMcapUsd,
 },
 };
+
+renderClusters(activity, rm);
+renderWalletNetwork(scanObj);
+renderMarket(marketJson, derivedMcapUsd);
+
+setText("riskScore", `${rm.score ?? "—"}`);
+setText("whaleScore", `${rm.whaleScore ?? "—"}`);
+setText("riskSignal", rm.signal || "—");
+setBadge("riskBadge", "riskDot", "riskText", rm?.label?.state || "warn", rm?.label?.text || "—");
+
+renderRiskMeter(rm);
+renderPhase2Signals(rm);
+renderTrendChart(rm?.trend || trend);
+
+setText("notesText", buildNotes({ tokenJson, marketJson, conc, activity, rm }));
 
 window.__MSS_LAST_SCAN__ = scanObj;
 renderCassie(scanObj);
@@ -973,6 +1035,16 @@ setBadge(null, "scanDot", "scanStatusText", "bad", "Scan error");
 renderPriceChange({ priceChange: {} });
 const svg = $("riskTrendChart");
 if (svg) svg.innerHTML = "";
+
+setText("netPrimary", "—");
+setText("netCluster", "—");
+setText("netRole", "—");
+setText("netLinkedCount", "—");
+setText("netLinked", "—");
+setText("netFunding", "—");
+setText("netControlPct", "—");
+setText("netConfidence", "—");
+
 setText("cassieVerdict", "Unavailable");
 setText("cassieThreat", "Unavailable");
 setText("cassieConfidence", "—");
@@ -1028,6 +1100,7 @@ setBadge("riskBadge", "riskDot", "riskText", rm?.label?.state || "warn", rm?.lab
 renderRiskMeter(rm);
 renderPhase2Signals(rm);
 renderClusters(last.derived?.activity || {}, rm);
+renderWalletNetwork(last);
 renderTrendChart(last.trend || rm?.trend || {});
 
 const notes = buildNotes({
@@ -1159,6 +1232,15 @@ alertStatus.textContent = err?.message || "Failed to save alert.";
 setBadge(null, "netDot", "netText", "good", "Online");
 setBadge(null, "scanDot", "scanStatusText", null, "Ready");
 setText("apiMeta", `API: ${getApiBase()}`);
+
+setText("netPrimary", "—");
+setText("netCluster", "—");
+setText("netRole", "—");
+setText("netLinkedCount", "—");
+setText("netLinked", "—");
+setText("netFunding", "—");
+setText("netControlPct", "—");
+setText("netConfidence", "—");
 
 renderCassieList("cassieSignalsList", [{ tone: "warn", text: "No scan loaded yet." }]);
 renderCassieList("cassieSimList", [{ tone: "warn", text: "No simulation outlook yet." }]);
