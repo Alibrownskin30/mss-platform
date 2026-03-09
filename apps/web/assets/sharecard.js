@@ -499,7 +499,7 @@ const y = gridY + row * (cardH + gapY);
 drawKpiCard(ctx, x, y, cardW, cardH, kpis[i][0], kpis[i][1]);
 }
 
-const signalY = gridY + gridH + 20;
+const signalY = gridY + gridH + 14;
 const signalX = left;
 const signalGap = 10;
 const signalW = 190;
@@ -511,27 +511,32 @@ drawMiniSignalCard(ctx, signalX + (signalW + signalGap) * 2, signalY, signalW, s
 drawMiniSignalCard(ctx, signalX + (signalW + signalGap) * 3, signalY, signalW, signalH, "Whale Activity", data.whaleLine);
 drawMiniSignalCard(ctx, signalX + (signalW + signalGap) * 4, signalY, signalW, signalH, "Reputation", data.reputationLine);
 
+const clusterY = signalY + signalH + 12;
+
 ctx.fillStyle = "rgba(234,240,255,0.42)";
 ctx.font = "650 11px system-ui, -apple-system, Segoe UI, Roboto, Arial";
-ctx.fillText(fitText(ctx, data.clusterLine, 1000), left, signalY + signalH + 16);
+ctx.textAlign = "left";
+ctx.fillText(fitText(ctx, data.clusterLine, 760), left, clusterY);
 
-const footerY = 602;
+const footerLineY = 578;
+const footerTextY = 598;
+
 ctx.strokeStyle = "rgba(255,255,255,0.08)";
 ctx.lineWidth = 1;
 ctx.beginPath();
-ctx.moveTo(54, footerY - 18);
-ctx.lineTo(1146, footerY - 18);
+ctx.moveTo(54, footerLineY);
+ctx.lineTo(1146, footerLineY);
 ctx.stroke();
 
 ctx.fillStyle = "rgba(234,240,255,0.52)";
 ctx.font = "650 13px system-ui, -apple-system, Segoe UI, Roboto, Arial";
 ctx.textAlign = "left";
-ctx.fillText("Powered by MSS Protocol • Elite Security Layer", 54, footerY);
+ctx.fillText("Powered by MSS Protocol • Elite Security Layer", 54, footerTextY);
 
 ctx.textAlign = "right";
 ctx.fillStyle = "rgba(234,240,255,0.38)";
 ctx.font = "650 12px system-ui, -apple-system, Segoe UI, Roboto, Arial";
-ctx.fillText(data.ts, 1146, footerY);
+ctx.fillText(data.ts, 1146, footerTextY);
 
 ctx.textAlign = "left";
 
