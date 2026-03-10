@@ -54,7 +54,9 @@ builder_pct: 10,
 return configs[template] || null;
 }
 
-// Create launch
+//
+// CREATE LAUNCH
+//
 router.post("/create", async (req, res) => {
 try {
 const wallet = cleanText(req.body.wallet, 100);
@@ -140,13 +142,16 @@ result.lastID,
 ]);
 
 return res.json({ ok: true, launch });
+
 } catch (err) {
 console.error("POST /api/launcher/create failed:", err);
 return res.status(500).json({ ok: false, error: "internal server error" });
 }
 });
 
-// Get launch by id
+//
+// GET LAUNCH BY ID
+//
 router.get("/:id", async (req, res) => {
 try {
 const id = Number(req.params.id);
@@ -170,8 +175,75 @@ return res.status(404).json({ ok: false, error: "launch not found" });
 }
 
 return res.json({ ok: true, launch });
+
 } catch (err) {
 console.error("GET /api/launcher/:id failed:", err);
+return res.status(500).json({ ok: false, error: "internal server error" });
+}
+});
+
+//
+// COMMIT TO LAUNCH
+//
+router.post("/commit", async (req, res) => {
+try {
+const launchId = Number(req.body.launch_id);
+const wallet = String(req.body.wallet || "").trim();
+const solAmount = Number(req.body.sol_amount);
+
+if (!launchId || !wallet || !solAmount) {
+return res.status(400).json({ ok: false, error: "missing fields" });
+}
+
+const launch = await db.get(
+`SELECT * FROM launches WHERE id = ?`,
+[launchId]
+);
+
+if (!launch) {
+return res.status(404).json({ ok: false, error: "launch not found" });
+}
+
+if (launch.status !== "queued" && launch.status !== "committing") {
+return res.status(400).json({ ok: false, error: "launch not accepting commits" });
+}
+
+const newTotal = launch.committed_sol + solAmount;
+
+if (newTotal > launch.hard_cap_sol) {
+return res.status(400).json({ ok: false, error: "hard cap exceeded" });
+}
+
+await db.run(
+`
+INSERT INTO commitments (launch_id, wallet, sol_amount)
+VALUES (?, ?, ?)
+`,
+[launchId, wallet, solAmount]
+);
+
+await db.run(
+`
+UPDATE launches
+SET
+committed_sol = ?,
+participants_count = participants_count + 1,
+status = 'committing',
+updated_at = CURRENT_TIMESTAMP
+WHERE id = ?
+`,
+[newTotal, launchId]
+);
+
+const updatedLaunch = await db.get(
+`SELECT * FROM launches WHERE id = ?`,
+[launchId]
+);
+
+return res.json({ ok: true, launch: updatedLaunch });
+
+} catch (err) {
+console.error("POST /api/launcher/commit failed:", err);
 return res.status(500).json({ ok: false, error: "internal server error" });
 }
 });
