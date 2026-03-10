@@ -5,6 +5,7 @@ import fetch from "node-fetch";
 import helmet from "helmet";
 import rateLimit from "express-rate-limit";
 import slowDown from "express-slow-down";
+import builderRoutes from "./routes/builders.js";
 
 import { Connection, PublicKey } from "@solana/web3.js";
 import pkg from "@metaplex-foundation/mpl-token-metadata";
@@ -62,6 +63,8 @@ credentials: false,
 };
 
 app.use(cors(corsOptions));
+
+app.use("/api/builders", builderRoutes);
 
 // ---- Baseline abuse protection (global) ----
 const limiter = rateLimit({
