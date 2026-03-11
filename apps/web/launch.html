@@ -1,0 +1,688 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>MSS Protocol — Launch</title>
+<style>
+:root{
+--bg0:#05070c;
+--bg1:#070a12;
+--text:rgba(255,255,255,.92);
+--muted:rgba(255,255,255,.68);
+--muted2:rgba(255,255,255,.45);
+--line:rgba(255,255,255,.10);
+--line2:rgba(255,255,255,.08);
+--a:#00ffd1;
+--b:#3aa0ff;
+--good:#35f5a3;
+--warn:#ffd166;
+--bad:#ff5b6b;
+--card:linear-gradient(180deg, rgba(255,255,255,.06), rgba(255,255,255,.035));
+}
+
+*{ box-sizing:border-box; }
+html,body{ max-width:100%; overflow-x:hidden; }
+body{
+margin:0;
+font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial;
+color:var(--text);
+background:
+radial-gradient(1200px 700px at 15% -10%, rgba(0,255,209,.18), transparent 55%),
+radial-gradient(900px 600px at 95% 10%, rgba(58,160,255,.16), transparent 50%),
+linear-gradient(180deg, var(--bg0), var(--bg1));
+overflow-x:hidden;
+}
+
+a{ color:inherit; text-decoration:none; }
+
+.topbar{
+position:sticky;
+top:0;
+z-index:50;
+backdrop-filter:blur(14px);
+background:rgba(5,7,12,.55);
+border-bottom:1px solid var(--line2);
+}
+.topbar-inner{
+max-width:1120px;
+margin:0 auto;
+padding:14px 18px;
+display:flex;
+align-items:center;
+justify-content:space-between;
+gap:14px;
+}
+.brand{
+display:flex;
+align-items:center;
+gap:10px;
+min-width:0;
+}
+.mark{
+width:34px;height:34px;border-radius:10px;
+background:linear-gradient(135deg, rgba(0,255,209,.9), rgba(58,160,255,.9));
+box-shadow:0 10px 24px rgba(0,255,209,.18), 0 10px 24px rgba(58,160,255,.14);
+flex:0 0 auto;
+}
+.brand-title{ font-weight:800; }
+.brand-sub{
+font-size:12px;
+color:var(--muted2);
+white-space:nowrap;
+overflow:hidden;
+text-overflow:ellipsis;
+}
+
+.nav{
+display:flex;
+gap:8px;
+align-items:center;
+flex-wrap:wrap;
+}
+.nav a{
+padding:8px 12px;
+border-radius:12px;
+color:rgba(255,255,255,.72);
+border:1px solid transparent;
+transition:.18s ease;
+font-size:13px;
+white-space:nowrap;
+}
+.nav a:hover{
+color:rgba(255,255,255,.92);
+border-color:rgba(255,255,255,.10);
+background:rgba(255,255,255,.04);
+}
+.nav a.active{
+color:rgba(255,255,255,.92);
+border-color:rgba(0,255,209,.20);
+background:rgba(0,255,209,.06);
+}
+
+.wrap{
+max-width:1120px;
+margin:0 auto;
+padding:28px 18px 80px;
+}
+
+.back-link{
+display:inline-flex;
+align-items:center;
+gap:8px;
+margin-bottom:18px;
+color:rgba(255,255,255,.66);
+font-size:13px;
+}
+.back-link:hover{ color:rgba(255,255,255,.92); }
+
+.layout{
+display:grid;
+grid-template-columns:1.15fr .85fr;
+gap:18px;
+}
+
+.panel{
+border:1px solid var(--line);
+background:var(--card);
+border-radius:22px;
+padding:22px;
+box-shadow:0 18px 60px rgba(0,0,0,.32);
+}
+
+.hero{
+display:grid;
+grid-template-columns:112px 1fr;
+gap:18px;
+align-items:start;
+}
+
+.logo{
+width:112px;
+height:112px;
+border-radius:22px;
+border:1px solid rgba(255,255,255,.10);
+background:rgba(255,255,255,.04);
+overflow:hidden;
+display:flex;
+align-items:center;
+justify-content:center;
+color:var(--muted2);
+font-size:12px;
+text-align:center;
+padding:8px;
+}
+.logo img{
+width:100%;
+height:100%;
+object-fit:cover;
+display:block;
+}
+
+.eyebrow{
+display:inline-flex;
+align-items:center;
+gap:10px;
+padding:8px 12px;
+border-radius:999px;
+background:rgba(0,255,209,.08);
+border:1px solid rgba(0,255,209,.18);
+font-size:11px;
+text-transform:uppercase;
+letter-spacing:.16em;
+}
+
+h1{
+margin:14px 0 8px;
+font-size:38px;
+line-height:1.04;
+}
+
+.subline{
+color:var(--muted2);
+font-size:13px;
+letter-spacing:.10em;
+text-transform:uppercase;
+}
+
+.desc{
+margin-top:14px;
+color:var(--muted);
+line-height:1.65;
+font-size:15px;
+}
+
+.meta{
+display:flex;
+flex-wrap:wrap;
+gap:10px;
+margin-top:14px;
+}
+
+.chip{
+display:inline-flex;
+align-items:center;
+gap:8px;
+padding:8px 10px;
+border-radius:999px;
+background:rgba(255,255,255,.04);
+border:1px solid rgba(255,255,255,.10);
+font-size:12px;
+color:rgba(255,255,255,.80);
+}
+
+.section-title{
+font-size:14px;
+letter-spacing:.14em;
+text-transform:uppercase;
+color:var(--muted2);
+margin-bottom:14px;
+}
+
+.phase-box{
+margin-top:18px;
+padding:16px 18px;
+border-radius:18px;
+border:1px solid rgba(255,255,255,.10);
+background:rgba(255,255,255,.03);
+}
+
+.phase-top{
+display:flex;
+justify-content:space-between;
+align-items:center;
+gap:10px;
+flex-wrap:wrap;
+}
+
+.phase-label{
+font-size:12px;
+color:var(--muted2);
+text-transform:uppercase;
+letter-spacing:.14em;
+}
+
+.phase-value{
+font-size:22px;
+font-weight:800;
+}
+
+.phase-note{
+margin-top:10px;
+color:var(--muted);
+font-size:14px;
+line-height:1.55;
+}
+
+.status-pill{
+display:inline-flex;
+align-items:center;
+justify-content:center;
+min-width:58px;
+height:32px;
+padding:0 12px;
+border-radius:999px;
+font-size:11px;
+font-weight:800;
+letter-spacing:.12em;
+border:1px solid rgba(255,255,255,.10);
+background:rgba(255,255,255,.05);
+color:rgba(255,255,255,.90);
+text-transform:uppercase;
+}
+.status-pill.commit{
+border-color:rgba(58,160,255,.22);
+background:rgba(58,160,255,.10);
+}
+.status-pill.countdown{
+border-color:rgba(255,209,102,.22);
+background:rgba(255,209,102,.10);
+}
+.status-pill.live{
+border-color:rgba(53,245,163,.22);
+background:rgba(53,245,163,.10);
+}
+.status-pill.failed,
+.status-pill.graduated{
+border-color:rgba(255,255,255,.14);
+background:rgba(255,255,255,.06);
+}
+
+.progress-wrap{
+display:flex;
+flex-direction:column;
+gap:8px;
+}
+.progress-top{
+display:flex;
+justify-content:space-between;
+gap:8px;
+align-items:center;
+font-size:12px;
+color:var(--muted);
+}
+.progress{
+width:100%;
+height:14px;
+background:rgba(255,255,255,.06);
+border-radius:999px;
+overflow:hidden;
+border:1px solid rgba(255,255,255,.08);
+}
+.progress-fill{
+height:100%;
+width:0%;
+background:linear-gradient(90deg, rgba(0,255,209,.95), rgba(58,160,255,.95));
+box-shadow:0 0 20px rgba(0,255,209,.18);
+transition:width .25s ease;
+}
+
+.stats{
+display:grid;
+grid-template-columns:1fr 1fr;
+gap:12px;
+margin-top:18px;
+}
+.stat{
+border:1px solid rgba(255,255,255,.10);
+background:rgba(255,255,255,.03);
+border-radius:16px;
+padding:14px;
+}
+.stat .k{
+font-size:11px;
+color:var(--muted2);
+text-transform:uppercase;
+letter-spacing:.12em;
+}
+.stat .v{
+margin-top:8px;
+font-size:24px;
+font-weight:800;
+}
+
+.allocation-grid{
+display:grid;
+grid-template-columns:1fr 1fr;
+gap:12px;
+margin-top:14px;
+}
+
+.commit-form{
+display:flex;
+flex-direction:column;
+gap:14px;
+}
+
+.field{
+display:flex;
+flex-direction:column;
+gap:8px;
+}
+
+label{
+font-size:12px;
+letter-spacing:.10em;
+text-transform:uppercase;
+color:var(--muted2);
+}
+
+input{
+width:100%;
+border:1px solid rgba(255,255,255,.10);
+background:rgba(255,255,255,.05);
+color:var(--text);
+border-radius:14px;
+padding:12px 14px;
+outline:none;
+font:inherit;
+}
+input:focus{
+border-color:rgba(0,255,209,.28);
+box-shadow:0 0 0 3px rgba(0,255,209,.08);
+}
+
+.quick{
+display:flex;
+gap:10px;
+flex-wrap:wrap;
+}
+.quick button{
+min-height:40px;
+padding:0 14px;
+border-radius:12px;
+border:1px solid rgba(255,255,255,.12);
+background:rgba(255,255,255,.05);
+color:var(--text);
+cursor:pointer;
+font-weight:700;
+font-size:12px;
+letter-spacing:.08em;
+text-transform:uppercase;
+}
+.quick button:hover{
+background:rgba(255,255,255,.08);
+}
+
+.action-stack{
+display:flex;
+flex-direction:column;
+gap:10px;
+}
+
+.btn{
+display:inline-flex;
+align-items:center;
+justify-content:center;
+gap:8px;
+min-height:46px;
+padding:0 16px;
+border-radius:14px;
+border:1px solid rgba(255,255,255,.12);
+background:rgba(255,255,255,.05);
+color:var(--text);
+cursor:pointer;
+font-weight:800;
+font-size:12px;
+letter-spacing:.08em;
+text-transform:uppercase;
+}
+.btn.primary{
+border-color:rgba(0,255,209,.22);
+background:rgba(0,255,209,.08);
+}
+.btn.warn{
+border-color:rgba(255,209,102,.20);
+background:rgba(255,209,102,.10);
+}
+.btn:hover{
+background:rgba(255,255,255,.08);
+}
+.btn.primary:hover{
+background:rgba(0,255,209,.12);
+}
+.btn.warn:hover{
+background:rgba(255,209,102,.14);
+}
+.btn:disabled{
+opacity:.55;
+cursor:not-allowed;
+}
+
+.status{
+margin-top:14px;
+padding:14px 16px;
+border-radius:16px;
+border:1px solid rgba(255,255,255,.10);
+background:rgba(255,255,255,.03);
+color:var(--muted);
+display:none;
+white-space:pre-wrap;
+}
+.status.good{
+display:block;
+border-color:rgba(53,245,163,.18);
+background:rgba(53,245,163,.08);
+color:rgba(255,255,255,.90);
+}
+.status.bad{
+display:block;
+border-color:rgba(255,91,107,.20);
+background:rgba(255,91,107,.08);
+color:rgba(255,255,255,.90);
+}
+
+.recent{
+margin-top:14px;
+display:flex;
+flex-direction:column;
+gap:10px;
+}
+.recent-item{
+border:1px solid rgba(255,255,255,.10);
+background:rgba(255,255,255,.03);
+border-radius:14px;
+padding:12px 14px;
+display:flex;
+justify-content:space-between;
+gap:10px;
+align-items:center;
+flex-wrap:wrap;
+}
+.recent-wallet{
+font-weight:700;
+font-size:14px;
+}
+.recent-meta{
+color:var(--muted);
+font-size:12px;
+}
+
+@media (max-width:920px){
+.layout{
+grid-template-columns:1fr;
+}
+.hero{
+grid-template-columns:1fr;
+}
+.logo{
+width:96px;
+height:96px;
+}
+}
+
+@media (max-width:620px){
+h1{ font-size:32px; }
+.stats,
+.allocation-grid{
+grid-template-columns:1fr 1fr;
+}
+}
+
+@media (max-width:500px){
+.stats,
+.allocation-grid{
+grid-template-columns:1fr;
+}
+}
+</style>
+</head>
+<body>
+<div class="topbar">
+<div class="topbar-inner">
+<div class="brand">
+<div class="mark" aria-hidden="true"></div>
+<div>
+<div class="brand-title">MSS Protocol</div>
+<div class="brand-sub">Launch Detail</div>
+</div>
+</div>
+
+<div class="nav" role="navigation" aria-label="Main">
+<a href="./index.html">Home</a>
+<a href="./token.html">Scanner</a>
+<a href="./explore.html">Explore</a>
+<a href="./alerts.html">Alerts</a>
+<a class="active" href="./launchpad.html">Launchpad</a>
+<a href="./methodology.html">Methodology</a>
+<a href="./legal.html">Legal</a>
+</div>
+</div>
+</div>
+
+<div class="wrap">
+<a class="back-link" href="./launchpad.html">← Back to Launchpad</a>
+
+<div class="layout">
+<section class="panel">
+<div class="hero">
+<div id="launchLogo" class="logo">No Image</div>
+
+<div>
+<div class="eyebrow">Launch Detail</div>
+<h1 id="launchName">Loading launch…</h1>
+<div class="subline" id="launchSubline">—</div>
+<div class="desc" id="launchDesc">Loading launch description…</div>
+
+<div class="meta">
+<span class="chip">Builder: <strong id="builderAlias" style="margin-left:6px;">—</strong></span>
+<span class="chip">Status: <strong id="launchStatusText" style="margin-left:6px;">—</strong></span>
+<span class="chip">Builder Score: <strong id="builderScore" style="margin-left:6px;">—</strong></span>
+</div>
+</div>
+</div>
+
+<div class="phase-box">
+<div class="phase-top">
+<div>
+<div class="phase-label">Launch Phase</div>
+<div id="phaseValue" class="phase-value">—</div>
+</div>
+<div id="phasePill" class="status-pill">—</div>
+</div>
+<div id="phaseNote" class="phase-note">Loading launch state…</div>
+</div>
+
+<div style="margin-top:22px;">
+<div class="section-title">Commit Progress</div>
+
+<div class="progress-wrap">
+<div class="progress-top">
+<span id="progressText">0 / 0 SOL committed</span>
+<strong id="progressPct">0%</strong>
+</div>
+<div class="progress">
+<div id="progressFill" class="progress-fill"></div>
+</div>
+</div>
+
+<div class="stats">
+<div class="stat">
+<div class="k">Participants</div>
+<div class="v" id="participantsStat">0</div>
+</div>
+<div class="stat">
+<div class="k">Minimum Raise</div>
+<div class="v" id="minRaiseStat">0 SOL</div>
+</div>
+<div class="stat">
+<div class="k">Hard Cap</div>
+<div class="v" id="hardCapStat">0 SOL</div>
+</div>
+<div class="stat">
+<div class="k">Countdown / Live</div>
+<div class="v" id="timeStat">—</div>
+</div>
+</div>
+</div>
+
+<div style="margin-top:22px;">
+<div class="section-title">Allocation Structure</div>
+<div class="allocation-grid">
+<div class="stat">
+<div class="k">Participants</div>
+<div class="v" id="participantsPctStat">—</div>
+</div>
+<div class="stat">
+<div class="k">Liquidity</div>
+<div class="v" id="liquidityPctStat">—</div>
+</div>
+<div class="stat">
+<div class="k">Reserve</div>
+<div class="v" id="reservePctStat">—</div>
+</div>
+<div class="stat">
+<div class="k">Builder</div>
+<div class="v" id="builderPctStat">—</div>
+</div>
+</div>
+</div>
+
+<div style="margin-top:22px;">
+<div class="section-title">Recent Commits</div>
+<div id="recentList" class="recent"></div>
+</div>
+</section>
+
+<aside class="panel">
+<div class="section-title">Launch Actions</div>
+
+<form id="commitForm" class="commit-form">
+<div class="field">
+<label for="commitWallet">Wallet</label>
+<input id="commitWallet" type="text" placeholder="walletA" />
+</div>
+
+<div class="field">
+<label for="commitAmount">SOL Amount</label>
+<input id="commitAmount" type="number" step="0.01" min="0.01" placeholder="0.50" />
+</div>
+
+<div class="quick">
+<button type="button" data-amount="0.1">0.1 SOL</button>
+<button type="button" data-amount="0.25">0.25 SOL</button>
+<button type="button" data-amount="0.5">0.5 SOL</button>
+<button type="button" data-amount="1">1 SOL</button>
+</div>
+
+<div class="action-stack">
+<button id="commitBtn" type="submit" class="btn primary">Commit SOL</button>
+<button id="refundBtn" type="button" class="btn">Refund SOL</button>
+<button id="startCountdownBtn" type="button" class="btn warn">Start Countdown</button>
+</div>
+</form>
+
+<div id="commitStatus" class="status"></div>
+
+<div style="margin-top:22px;" class="section-title">Launch Notes</div>
+<div class="desc" style="margin-top:0;">
+MSS launches enforce structured commit logic, capped wallet participation, minimum raise checks,
+countdown-based go-live transitions, and refund protection that disables the moment countdown begins.
+</div>
+</aside>
+</div>
+</div>
+
+<script type="module" src="./assets/pages/launch.js"></script>
+</body>
+</html>

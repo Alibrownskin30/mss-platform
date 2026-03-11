@@ -405,7 +405,7 @@ return res.status(500).json({ ok: false, error: "commit failed" });
 
 //
 // REFUND FULL WALLET COMMIT
-// 100% refundable before live launch
+// refunds allowed ONLY during commit phase
 //
 router.post("/refund", async (req, res) => {
 try {
@@ -424,10 +424,10 @@ if (!launch) {
 return res.status(404).json({ ok: false, error: "launch not found" });
 }
 
-if (!["commit", "countdown"].includes(launch.status)) {
+if (launch.status !== "commit") {
 return res.status(400).json({
 ok: false,
-error: "refunds are only allowed before launch goes live",
+error: "refunds are only allowed during commit phase",
 });
 }
 
@@ -455,23 +455,7 @@ WHERE launch_id = ? AND wallet = ?
 );
 
 const stats = await syncLaunchStats(launchId);
-let updatedLaunch = await getLaunchById(launchId);
-
-if (updatedLaunch.status === "countdown") {
-await db.run(
-`
-UPDATE launches
-SET status = 'commit',
-countdown_started_at = NULL,
-countdown_ends_at = NULL,
-updated_at = CURRENT_TIMESTAMP
-WHERE id = ?
-`,
-[launchId]
-);
-
-updatedLaunch = await getLaunchById(launchId);
-}
+const updatedLaunch = await getLaunchById(launchId);
 
 return res.json({
 ok: true,

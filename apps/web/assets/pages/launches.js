@@ -127,7 +127,7 @@ return `
 <span>Template: ${template.replaceAll("_", " ")}</span>
 </div>
 
-<a class="btn primary" href="./token.html">View</a>
+<a class="btn primary" href="./launch.html?id=${encodeURIComponent(launch.id)}">View</a>
 </div>
 </div>
 `;

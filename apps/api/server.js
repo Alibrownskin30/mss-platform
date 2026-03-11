@@ -69,12 +69,6 @@ credentials: false,
 
 app.use(cors(corsOptions));
 
-app.use("/api/builders", builderRoutes);
-
-app.use("/api/launcher", launcherRoutes);
-
-app.use("/api/token", tokenRoutes);
-
 // ---- Baseline abuse protection (global) ----
 const limiter = rateLimit({
 windowMs: 60 * 1000,
@@ -114,6 +108,10 @@ validate: { delayMs: false },
 const { cassie, cassieApi, cassieIntel } = createCassie();
 app.use(cassie);
 
+// ---- Route mounts (after protection middleware) ----
+app.use("/api/builders", builderRoutes);
+app.use("/api/launcher", launcherRoutes);
+app.use("/api/token", tokenRoutes);
 app.use("/api/market", marketRoutes);
 
 // Honeypots
