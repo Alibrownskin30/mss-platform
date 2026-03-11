@@ -7,6 +7,10 @@ import rateLimit from "express-rate-limit";
 import slowDown from "express-slow-down";
 import builderRoutes from "./routes/builders.js";
 import launcherRoutes from "./routes/launcher.js";
+import { checkLaunchCountdowns } from "./services/launchWatcher.js";
+import marketRoutes from "./routes/market.js";
+import tokenRoutes from "./routes/token.js";
+import { startGraduationWatcher } from "./services/launcher/graduationWatcher.js";
 
 import { Connection, PublicKey } from "@solana/web3.js";
 import pkg from "@metaplex-foundation/mpl-token-metadata";
@@ -69,6 +73,8 @@ app.use("/api/builders", builderRoutes);
 
 app.use("/api/launcher", launcherRoutes);
 
+app.use("/api/token", tokenRoutes);
+
 // ---- Baseline abuse protection (global) ----
 const limiter = rateLimit({
 windowMs: 60 * 1000,
@@ -107,6 +113,8 @@ validate: { delayMs: false },
 // ---- Cassie (middleware + intel layer) ----
 const { cassie, cassieApi, cassieIntel } = createCassie();
 app.use(cassie);
+
+app.use("/api/market", marketRoutes);
 
 // Honeypots
 app.get("/api/_cassie/diag", (req, res) => res.status(404).end());
@@ -1701,3 +1709,9 @@ console.log(`🛡️ Cassie: enabled (defensive middleware + intel layer)`);
 });
 
 startWatcher();
+
+setInterval(() => {
+checkLaunchCountdowns();
+}, 5000);
+
+startGraduationWatcher();

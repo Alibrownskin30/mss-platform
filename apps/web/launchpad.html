@@ -11,14 +11,18 @@
 --text:rgba(255,255,255,.92);
 --muted:rgba(255,255,255,.68);
 --muted2:rgba(255,255,255,.45);
+--line:rgba(255,255,255,.10);
+--line2:rgba(255,255,255,.08);
 --a:#00ffd1;
 --b:#3aa0ff;
+--good:#35f5a3;
+--warn:#ffd166;
+--bad:#ff5b6b;
+--card:linear-gradient(180deg, rgba(255,255,255,.06), rgba(255,255,255,.035));
 }
-*{box-sizing:border-box}
-html,body{
-max-width:100%;
-overflow-x:hidden;
-}
+
+*{ box-sizing:border-box; }
+html,body{ max-width:100%; overflow-x:hidden; }
 body{
 margin:0;
 font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial;
@@ -29,13 +33,8 @@ radial-gradient(900px 600px at 95% 10%, rgba(58,160,255,.16), transparent 50%),
 linear-gradient(180deg, var(--bg0), var(--bg1));
 overflow-x:hidden;
 }
-a{color:inherit;text-decoration:none}
-.wrap{
-max-width:1040px;
-margin:0 auto;
-padding:28px 18px 80px;
-max-width:100%;
-}
+
+a{ color:inherit; text-decoration:none; }
 
 .topbar{
 position:sticky;
@@ -43,26 +42,22 @@ top:0;
 z-index:50;
 backdrop-filter:blur(14px);
 background:rgba(5,7,12,.55);
-border-bottom:1px solid rgba(255,255,255,.08);
-max-width:100%;
-overflow-x:hidden;
+border-bottom:1px solid var(--line2);
 }
 .topbar-inner{
-max-width:1040px;
+max-width:1180px;
 margin:0 auto;
 padding:14px 18px;
 display:flex;
 align-items:center;
 justify-content:space-between;
 gap:14px;
-max-width:100%;
 }
 .brand{
 display:flex;
 align-items:center;
 gap:10px;
 min-width:0;
-max-width:100%;
 }
 .mark{
 width:34px;height:34px;border-radius:10px;
@@ -70,7 +65,7 @@ background:linear-gradient(135deg, rgba(0,255,209,.9), rgba(58,160,255,.9));
 box-shadow:0 10px 24px rgba(0,255,209,.18), 0 10px 24px rgba(58,160,255,.14);
 flex:0 0 auto;
 }
-.brand-title{font-weight:800}
+.brand-title{ font-weight:800; }
 .brand-sub{
 font-size:12px;
 color:var(--muted2);
@@ -98,8 +93,13 @@ min-width:0;
 max-width:100%;
 }
 .nav a{
-padding:8px 12px;border-radius:12px;color:rgba(255,255,255,.72);
-border:1px solid transparent;transition:.18s ease;font-size:13px;white-space:nowrap;
+padding:8px 12px;
+border-radius:12px;
+color:rgba(255,255,255,.72);
+border:1px solid transparent;
+transition:.18s ease;
+font-size:13px;
+white-space:nowrap;
 flex:0 0 auto;
 }
 .nav a:hover{
@@ -162,9 +162,7 @@ cursor:pointer;
 max-width:100%;
 }
 
-.authbtn:hover{
-background:rgba(255,255,255,.08);
-}
+.authbtn:hover{ background:rgba(255,255,255,.08); }
 
 .authbtn.danger{
 border-color:rgba(255,77,109,.20);
@@ -179,50 +177,390 @@ background:rgba(255,255,255,.35);
 box-shadow:0 0 0 3px rgba(255,255,255,.06);
 flex:0 0 auto;
 }
-.dot.good{background:rgba(53,245,163,.95)}
-.dot.warn{background:rgba(255,209,102,.95)}
-.dot.bad{background:rgba(255,91,107,.95)}
+.dot.good{ background:rgba(53,245,163,.95); }
+.dot.warn{ background:rgba(255,209,102,.95); }
+.dot.bad{ background:rgba(255,91,107,.95); }
 
-.back-link{
-display:inline-flex;align-items:center;gap:8px;
-margin:10px 0 18px;color:rgba(255,255,255,.66);font-size:13px;
+.wrap{
+max-width:1180px;
+margin:0 auto;
+padding:28px 18px 80px;
 }
-.back-link:hover{color:rgba(255,255,255,.92)}
 
-.card{
-border:1px solid rgba(255,255,255,.10);
-background:linear-gradient(180deg, rgba(255,255,255,.06), rgba(255,255,255,.035));
+.hero{
+display:grid;
+grid-template-columns:1.2fr .8fr;
+gap:18px;
+margin-bottom:18px;
+}
+
+.hero-card,
+.panel,
+.token-card{
+border:1px solid var(--line);
+background:var(--card);
 border-radius:22px;
-padding:28px;
-text-align:left;
-max-width:760px;
-box-shadow:0 18px 60px rgba(0,0,0,.45);
-min-width:0;
+box-shadow:0 18px 60px rgba(0,0,0,.35);
 }
-.kicker{
-display:inline-flex;align-items:center;gap:10px;padding:8px 12px;
-border-radius:999px;background:rgba(0,255,209,.08);
-border:1px solid rgba(0,255,209,.18);font-size:11px;text-transform:uppercase;letter-spacing:.16em;
-max-width:100%;
+
+.hero-card{ padding:28px; }
+
+.eyebrow{
+display:inline-flex;
+align-items:center;
+gap:10px;
+padding:8px 12px;
+border-radius:999px;
+background:rgba(0,255,209,.08);
+border:1px solid rgba(0,255,209,.18);
+font-size:11px;
+text-transform:uppercase;
+letter-spacing:.16em;
 }
-.k-dot{
-width:7px;height:7px;border-radius:999px;background:var(--a);
+
+.eyebrow-dot{
+width:7px;
+height:7px;
+border-radius:999px;
+background:var(--a);
 box-shadow:0 0 0 6px rgba(0,255,209,.10);
 }
-h1{margin:16px 0 12px;font-size:36px;line-height:1.05;word-break:break-word}
-p{color:var(--muted);line-height:1.65;font-size:15px}
-.meta{display:flex;gap:10px;flex-wrap:wrap;margin-top:16px}
-.chip{
-display:inline-flex;align-items:center;gap:8px;padding:8px 10px;
-border-radius:999px;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.10);
-font-size:12px;color:rgba(255,255,255,.80);max-width:100%;
+
+h1{
+margin:16px 0 10px;
+font-size:40px;
+line-height:1.02;
 }
-@media (max-width:820px){
-.topbar-inner{flex-direction:column;align-items:stretch}
+
+.hero p{
+margin:0;
+color:var(--muted);
+line-height:1.65;
+font-size:15px;
+max-width:680px;
+}
+
+.hero-meta{
+display:flex;
+gap:10px;
+flex-wrap:wrap;
+margin-top:18px;
+}
+
+.chip{
+display:inline-flex;
+align-items:center;
+gap:8px;
+padding:8px 10px;
+border-radius:999px;
+background:rgba(255,255,255,.04);
+border:1px solid rgba(255,255,255,.10);
+font-size:12px;
+color:rgba(255,255,255,.80);
+}
+
+.hero-actions{
+display:flex;
+gap:12px;
+flex-wrap:wrap;
+margin-top:18px;
+}
+
+.cta{
+display:inline-flex;
+align-items:center;
+justify-content:center;
+min-height:44px;
+padding:0 16px;
+border-radius:14px;
+border:1px solid rgba(255,255,255,.12);
+background:rgba(255,255,255,.05);
+color:var(--text);
+font-weight:800;
+letter-spacing:.08em;
+text-transform:uppercase;
+font-size:12px;
+}
+.cta.primary{
+border-color:rgba(0,255,209,.22);
+background:rgba(0,255,209,.08);
+}
+.cta:hover{
+background:rgba(255,255,255,.08);
+}
+.cta.primary:hover{
+background:rgba(0,255,209,.12);
+}
+
+.stats{
+display:grid;
+grid-template-columns:1fr 1fr;
+gap:12px;
+}
+
+.stat{
+padding:18px;
+border:1px solid var(--line);
+border-radius:18px;
+background:rgba(255,255,255,.03);
+min-height:108px;
+}
+
+.stat .k{
+color:var(--muted2);
+font-size:12px;
+text-transform:uppercase;
+letter-spacing:.12em;
+}
+.stat .v{
+margin-top:8px;
+font-size:30px;
+font-weight:800;
+line-height:1;
+}
+.stat .s{
+margin-top:8px;
+color:var(--muted);
+font-size:13px;
+}
+
+.toolbar{
+display:flex;
+justify-content:space-between;
+gap:14px;
+margin:18px 0;
+flex-wrap:wrap;
+}
+
+.toolbar-left,
+.toolbar-right{
+display:flex;
+gap:12px;
+flex-wrap:wrap;
+align-items:center;
+}
+
+.input,
+.select{
+height:44px;
+border-radius:14px;
+border:1px solid rgba(255,255,255,.10);
+background:rgba(255,255,255,.05);
+color:var(--text);
+padding:0 14px;
+outline:none;
+}
+
+.input{ min-width:260px; }
+.select{ min-width:170px; }
+
+.panel{ padding:18px; }
+
+.section-head{
+display:flex;
+justify-content:space-between;
+align-items:center;
+gap:12px;
+margin-bottom:14px;
+}
+
+.section-title{
+font-size:14px;
+letter-spacing:.14em;
+text-transform:uppercase;
+color:var(--muted2);
+}
+
+.section-note{
+font-size:12px;
+color:var(--muted2);
+}
+
+.token-grid{
+display:grid;
+grid-template-columns:repeat(3, minmax(0,1fr));
+gap:16px;
+}
+
+.token-card{
+padding:18px;
+display:flex;
+flex-direction:column;
+gap:16px;
+}
+
+.token-head{
+display:flex;
+justify-content:space-between;
+gap:12px;
+align-items:flex-start;
+}
+
+.token-name{
+font-size:20px;
+font-weight:800;
+line-height:1.1;
+}
+
+.token-symbol{
+margin-top:6px;
+font-size:12px;
+color:var(--muted2);
+letter-spacing:.08em;
+text-transform:uppercase;
+}
+
+.badge{
+display:inline-flex;
+align-items:center;
+justify-content:center;
+min-width:52px;
+height:30px;
+padding:0 10px;
+border-radius:999px;
+font-size:11px;
+font-weight:800;
+letter-spacing:.12em;
+border:1px solid rgba(255,255,255,.10);
+background:rgba(255,255,255,.05);
+color:rgba(255,255,255,.90);
+text-transform:uppercase;
+}
+.badge.commit{
+border-color:rgba(58,160,255,.22);
+background:rgba(58,160,255,.10);
+}
+.badge.countdown{
+border-color:rgba(255,209,102,.22);
+background:rgba(255,209,102,.10);
+}
+.badge.live{
+border-color:rgba(53,245,163,.22);
+background:rgba(53,245,163,.10);
+}
+
+.kv{
+display:grid;
+grid-template-columns:1fr 1fr;
+gap:12px;
+}
+
+.k{
+color:var(--muted2);
+font-size:12px;
+text-transform:uppercase;
+letter-spacing:.12em;
+}
+
+.v{
+margin-top:6px;
+font-size:18px;
+font-weight:800;
+}
+
+.progress-wrap{
+display:flex;
+flex-direction:column;
+gap:8px;
+}
+
+.progress-top{
+display:flex;
+justify-content:space-between;
+gap:8px;
+align-items:center;
+font-size:12px;
+color:var(--muted);
+}
+
+.progress{
+width:100%;
+height:12px;
+background:rgba(255,255,255,.06);
+border-radius:999px;
+overflow:hidden;
+border:1px solid rgba(255,255,255,.08);
+}
+
+.progress-fill{
+height:100%;
+width:0%;
+background:linear-gradient(90deg, rgba(0,255,209,.95), rgba(58,160,255,.95));
+box-shadow:0 0 20px rgba(0,255,209,.18);
+transition:width .25s ease;
+}
+
+.token-footer{
+display:flex;
+justify-content:space-between;
+align-items:center;
+gap:12px;
+margin-top:auto;
+flex-wrap:wrap;
+}
+
+.meta-line{
+display:flex;
+gap:10px;
+flex-wrap:wrap;
+color:var(--muted);
+font-size:12px;
+}
+
+.btn{
+display:inline-flex;
+align-items:center;
+justify-content:center;
+gap:8px;
+min-height:40px;
+padding:0 14px;
+border-radius:12px;
+border:1px solid rgba(255,255,255,.12);
+background:rgba(255,255,255,.05);
+color:var(--text);
+cursor:pointer;
+font-weight:700;
+font-size:12px;
+letter-spacing:.08em;
+text-transform:uppercase;
+}
+
+.btn:hover{ background:rgba(255,255,255,.08); }
+
+.btn.primary{
+border-color:rgba(0,255,209,.22);
+background:rgba(0,255,209,.08);
+}
+
+.empty{
+padding:28px;
+border:1px dashed rgba(255,255,255,.12);
+border-radius:18px;
+color:var(--muted);
+text-align:center;
+background:rgba(255,255,255,.03);
+}
+
+.launch-builder-note{
+margin-top:16px;
+color:var(--muted2);
+font-size:13px;
+}
+
+@media (max-width:980px){
+.hero{
+grid-template-columns:1fr;
+}
+.token-grid{
+grid-template-columns:repeat(2, minmax(0,1fr));
+}
+.topbar-inner{
+flex-direction:column;
+align-items:stretch;
+}
 .navwrap{
 flex-direction:column;
 align-items:stretch;
-max-width:100%;
 }
 .nav{
 overflow-x:auto;
@@ -233,17 +571,18 @@ scrollbar-width:none;
 -webkit-overflow-scrolling:touch;
 }
 .nav::-webkit-scrollbar{display:none}
-.authbar{
-justify-content:flex-start;
-flex-wrap:wrap;
-min-width:0;
-max-width:100%;
 }
-.session-pill,
-.authbtn{
-max-width:100%;
+
+@media (max-width:720px){
+h1{ font-size:32px; }
+.token-grid{ grid-template-columns:1fr; }
+.stats{ grid-template-columns:1fr 1fr; }
+.input{ min-width:100%; }
 }
-h1{font-size:30px}
+
+@media (max-width:520px){
+.stats{ grid-template-columns:1fr; }
+.kv{ grid-template-columns:1fr 1fr; }
 }
 </style>
 </head>
@@ -281,30 +620,91 @@ h1{font-size:30px}
 </div>
 
 <div class="wrap">
-<a href="./index.html" class="back-link">← Back</a>
-
-<div class="card">
-<div class="kicker"><span class="k-dot"></span> Coming Soon</div>
+<section class="hero">
+<div class="hero-card">
+<div class="eyebrow"><span class="eyebrow-dot"></span> Launchpad</div>
 <h1>Security-First Launchpad</h1>
 <p>
-The MSS Launchpad is being built as a security-first environment for higher-trust launches.
-The goal is not just launching tokens - it is launching with stronger controls, better intelligence,
-and tighter infrastructure around risk.
-</p>
-<p>
-This module is currently under development and will follow the core scanner and alerts stack.
+Create launches, track commit momentum, monitor countdown phases, and follow live MSS token releases from one place.
 </p>
 
-<div class="meta">
-<span class="chip">Security-First Launches</span>
-<span class="chip">MSS Reputation Layer</span>
-<span class="chip">Higher-Trust Infrastructure</span>
+<div class="hero-meta">
+<span class="chip">Minimum Raise Enforcement</span>
+<span class="chip">Hard Cap Enforcement</span>
+<span class="chip">Countdown Protection</span>
+<span class="chip">Builder Profiles</span>
+</div>
+
+<div class="hero-actions">
+<a class="cta primary" href="./launch-create.html">Create Launch</a>
+<a class="cta" href="./methodology.html">Launch Rules</a>
+</div>
+
+<div class="launch-builder-note">
+Before public launch, builder creation should support logo upload, token metadata, and launch branding.
 </div>
 </div>
+
+<div class="panel">
+<div class="stats">
+<div class="stat">
+<div class="k">Commit</div>
+<div class="v" id="statCommit">0</div>
+<div class="s">Launches accepting commits</div>
+</div>
+<div class="stat">
+<div class="k">Countdown</div>
+<div class="v" id="statCountdown">0</div>
+<div class="s">Launches approaching go-live</div>
+</div>
+<div class="stat">
+<div class="k">Live</div>
+<div class="v" id="statLive">0</div>
+<div class="s">Active launched tokens</div>
+</div>
+<div class="stat">
+<div class="k">Next Launch</div>
+<div class="v" id="statNext">—</div>
+<div class="s">Closest countdown end</div>
+</div>
+</div>
+</div>
+</section>
+
+<div class="toolbar">
+<div class="toolbar-left">
+<input id="lSearch" class="input" type="text" placeholder="Search token name, symbol, or builder" />
+</div>
+<div class="toolbar-right">
+<select id="lStatus" class="select">
+<option value="all">All Statuses</option>
+<option value="commit">Commit</option>
+<option value="countdown">Countdown</option>
+<option value="live">Live</option>
+</select>
+
+<select id="lSort" class="select">
+<option value="newest">Newest</option>
+<option value="progress">Highest Progress</option>
+<option value="participants">Most Participants</option>
+<option value="ending">Ending Soon</option>
+</select>
+</div>
+</div>
+
+<section class="panel">
+<div class="section-head">
+<div class="section-title">Launch Activity</div>
+<div class="section-note" id="listMeta">Loading launch data…</div>
+</div>
+
+<div id="launchGrid" class="token-grid"></div>
+</section>
 </div>
 
 <script type="module">
 import { bindSessionUi } from "./assets/auth.js";
+import "./assets/pages/launches.js";
 
 bindSessionUi({
 sessionPillId: "sessionPill",

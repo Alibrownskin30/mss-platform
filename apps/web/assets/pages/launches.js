@@ -1,125 +1,261 @@
-// Upcoming Launches (Demo)
-// Renders a launch list with countdowns + links to token profile & join.
-
-function $(id){ return document.getElementById(id); }
-function clamp(n,min,max){ return Math.max(min, Math.min(max,n)); }
-
-function rankKey(rank){
-if(rank === "AAA") return 4;
-if(rank === "AA") return 3;
-if(rank === "A") return 2;
-return 1;
+function $(id) {
+return document.getElementById(id);
 }
-function badgeClass(rank){
-const r = (rank || "").toLowerCase();
-if(r === "aaa") return "aaa";
-if(r === "aa") return "aa";
-if(r === "a") return "a";
-return "risky";
+
+function clamp(n, min, max) {
+return Math.max(min, Math.min(max, n));
 }
-function fmtTime(ms){
-if(ms <= 0) return "LIVE";
-const s = Math.floor(ms/1000);
-const m = Math.floor(s/60);
+
+function fmtTime(ms) {
+if (!Number.isFinite(ms)) return "—";
+if (ms <= 0) return "LIVE";
+
+const s = Math.floor(ms / 1000);
+const h = Math.floor(s / 3600);
+const m = Math.floor((s % 3600) / 60);
 const r = s % 60;
-const hh = Math.floor(m/60);
-const mm = m % 60;
-if(hh > 0) return `${String(hh).padStart(2,"0")}:${String(mm).padStart(2,"0")}:${String(r).padStart(2,"0")}`;
-return `${String(mm).padStart(2,"0")}:${String(r).padStart(2,"0")}`;
+
+if (h > 0) {
+return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}:${String(r).padStart(2, "0")}`;
+}
+return `${String(m).padStart(2, "0")}:${String(r).padStart(2, "0")}`;
 }
 
-const LAUNCHES = [
-{ id:"examplecoin", name:"ExampleCoin", symbol:"EXM", rank:"AAA", stage:"Stage 1", startAt: Date.now() + 18*60*1000, minJoin: 100 },
-{ id:"safedog", name:"SafeDog", symbol:"SDOG", rank:"AA", stage:"Stage 2", startAt: Date.now() + 42*60*1000, minJoin: 100 },
-{ id:"alphacat", name:"AlphaCat", symbol:"ACAT", rank:"AA", stage:"Stage 1", startAt: Date.now() + 75*60*1000, minJoin: 100 },
-{ id:"mssrocket", name:"MSS Rocket", symbol:"ROKT", rank:"A", stage:"Stage 3", startAt: Date.now() + 140*60*1000, minJoin: 100 },
-];
-
-function getJoinState(tokenId){
-const raw = localStorage.getItem(`mss-join-${tokenId}`);
-if(!raw) return null;
-try { return JSON.parse(raw); } catch(e){ return null; }
+function escapeHtml(str) {
+return String(str ?? "")
+.replaceAll("&", "&amp;")
+.replaceAll("<", "&lt;")
+.replaceAll(">", "&gt;")
+.replaceAll('"', "&quot;")
+.replaceAll("'", "&#039;");
 }
 
-function render(){
-const grid = $("launchGrid");
-if(!grid) return;
-
-const q = ($("lSearch")?.value || "").trim().toLowerCase();
-const sort = ($("lSort")?.value || "soonest");
-
-let items = LAUNCHES.slice();
-
-if(q){
-items = items.filter(x => x.name.toLowerCase().includes(q) || x.symbol.toLowerCase().includes(q));
+function stageLabel(status) {
+if (status === "commit") return "Commit";
+if (status === "countdown") return "Countdown";
+if (status === "live") return "Live";
+return "Unknown";
 }
 
-// decorate with join counts (from localStorage demo state)
-items = items.map(x => {
-const st = getJoinState(x.id);
-const joined = st?.joinedCount ?? Math.floor(Math.random()*60)+10;
-return { ...x, joined };
-});
-
-if(sort === "soonest"){
-items.sort((a,b) => a.startAt - b.startAt);
-} else if(sort === "mostJoined"){
-items.sort((a,b) => b.joined - a.joined);
-} else if(sort === "rank"){
-items.sort((a,b) => rankKey(b.rank) - rankKey(a.rank));
+function badgeClass(status) {
+if (status === "countdown") return "countdown";
+if (status === "live") return "live";
+return "commit";
 }
 
-// stats
-$("lActive").textContent = String(items.length);
-const next = items[0];
-$("lNext").textContent = next ? `${next.symbol}` : "—";
+function safeNum(v, fallback = 0) {
+const n = Number(v);
+return Number.isFinite(n) ? n : fallback;
+}
 
-grid.innerHTML = items.map(x => {
-const remaining = x.startAt - Date.now();
-const pct = clamp((x.joined / x.minJoin) * 100, 0, 100);
-const ready = x.joined >= x.minJoin;
+function parseTs(v) {
+if (!v) return null;
+const ms = Date.parse(String(v).replace(" ", "T") + "Z");
+return Number.isFinite(ms) ? ms : null;
+}
+
+function buildCard(launch) {
+const name = escapeHtml(launch.token_name || "Untitled Launch");
+const symbol = escapeHtml(launch.symbol || "N/A");
+const template = escapeHtml(launch.template || "—");
+const status = launch.status || "commit";
+const builder = escapeHtml(launch.builder_alias || launch.builder_wallet || "Unknown Builder");
+const committed = safeNum(launch.committed_sol);
+const hardCap = safeNum(launch.hard_cap_sol);
+const minRaise = safeNum(launch.min_raise_sol);
+const participants = safeNum(launch.participants_count);
+const percent = clamp(safeNum(launch.commitPercent), 0, 100);
+
+const countdownEndsAt = parseTs(launch.countdown_ends_at);
+const remaining = countdownEndsAt ? countdownEndsAt - Date.now() : null;
+
+let timeLabel = "—";
+if (status === "countdown") {
+timeLabel = fmtTime(remaining);
+} else if (status === "live") {
+timeLabel = "LIVE";
+} else {
+timeLabel = `${committed} / ${hardCap} SOL`;
+}
 
 return `
 <div class="token-card">
 <div class="token-head">
 <div>
-<div class="token-name">${x.name}</div>
-<div class="token-symbol">${x.symbol} • ${x.stage}</div>
+<div class="token-name">${name}</div>
+<div class="token-symbol">${symbol} • ${template.replaceAll("_", " ")}</div>
 </div>
-<div class="badge ${badgeClass(x.rank)}">${x.rank}</div>
+<div class="badge ${badgeClass(status)}">${stageLabel(status)}</div>
 </div>
 
-<div class="kv" style="margin-top:12px;">
+<div class="kv">
 <div>
-<div class="k">Starts In</div>
-<div class="v">${fmtTime(remaining)}</div>
+<div class="k">Builder</div>
+<div class="v" style="font-size:16px;">${builder}</div>
 </div>
 <div>
-<div class="k">Joined</div>
-<div class="v">${x.joined}/${x.minJoin} ${ready ? "✅" : ""}</div>
-</div>
-<div style="grid-column:1/3;">
-<div class="progress" style="margin-top:8px;">
-<div class="progress-fill" style="width:${pct}%;"></div>
-</div>
+<div class="k">${status === "countdown" ? "Time Left" : status === "live" ? "Status" : "Committed"}</div>
+<div class="v">${escapeHtml(timeLabel)}</div>
 </div>
 </div>
 
-<div class="token-actions">
-<a class="btn small primary" href="./token.html?id=${encodeURIComponent(x.id)}">View</a>
-<a class="btn small" href="./alerts.html">Alerts</a>
+<div class="progress-wrap">
+<div class="progress-top">
+<span>${committed} / ${hardCap} SOL committed</span>
+<strong>${percent}%</strong>
+</div>
+<div class="progress">
+<div class="progress-fill" style="width:${percent}%;"></div>
+</div>
+</div>
+
+<div class="kv">
+<div>
+<div class="k">Participants</div>
+<div class="v">${participants}</div>
+</div>
+<div>
+<div class="k">Minimum Raise</div>
+<div class="v">${minRaise} SOL</div>
+</div>
+</div>
+
+<div class="token-footer">
+<div class="meta-line">
+<span>Hard Cap: ${hardCap} SOL</span>
+<span>•</span>
+<span>Template: ${template.replaceAll("_", " ")}</span>
+</div>
+
+<a class="btn primary" href="./token.html">View</a>
 </div>
 </div>
 `;
-}).join("");
 }
 
-function init(){
-if(!$("launchGrid")) return;
-$("lSearch")?.addEventListener("input", render);
-$("lSort")?.addEventListener("change", render);
+let ALL_LAUNCHES = [];
+
+async function loadLaunches() {
+const meta = $("listMeta");
+try {
+if (meta) meta.textContent = "Loading launch data…";
+
+const res = await fetch("http://127.0.0.1:8787/api/launcher/list", {
+method: "GET",
+headers: { "Content-Type": "application/json" },
+});
+
+if (!res.ok) {
+throw new Error(`HTTP ${res.status}`);
+}
+
+const data = await res.json();
+ALL_LAUNCHES = Array.isArray(data?.all) ? data.all : [];
+
+if (meta) {
+meta.textContent = `${ALL_LAUNCHES.length} launch${ALL_LAUNCHES.length === 1 ? "" : "es"} loaded`;
+}
+} catch (err) {
+console.error("Failed to load launches:", err);
+ALL_LAUNCHES = [];
+if (meta) {
+meta.textContent = "Unable to load launch data";
+}
+}
+
 render();
-setInterval(render, 1000); // live countdown
+}
+
+function renderStats(items) {
+const commitCount = items.filter((x) => x.status === "commit").length;
+const countdownCount = items.filter((x) => x.status === "countdown").length;
+const liveCount = items.filter((x) => x.status === "live").length;
+
+$("statCommit").textContent = String(commitCount);
+$("statCountdown").textContent = String(countdownCount);
+$("statLive").textContent = String(liveCount);
+
+const countdowns = items
+.filter((x) => x.status === "countdown" && x.countdown_ends_at)
+.map((x) => ({
+symbol: x.symbol || x.token_name || "—",
+endsAt: parseTs(x.countdown_ends_at),
+}))
+.filter((x) => Number.isFinite(x.endsAt))
+.sort((a, b) => a.endsAt - b.endsAt);
+
+$("statNext").textContent = countdowns[0]?.symbol || "—";
+}
+
+function render() {
+const grid = $("launchGrid");
+if (!grid) return;
+
+const q = ($("lSearch")?.value || "").trim().toLowerCase();
+const statusFilter = $("lStatus")?.value || "all";
+const sort = $("lSort")?.value || "newest";
+
+let items = ALL_LAUNCHES.slice();
+
+if (q) {
+items = items.filter((x) => {
+const hay = [
+x.token_name,
+x.symbol,
+x.builder_alias,
+x.builder_wallet,
+x.template,
+]
+.filter(Boolean)
+.join(" ")
+.toLowerCase();
+
+return hay.includes(q);
+});
+}
+
+if (statusFilter !== "all") {
+items = items.filter((x) => x.status === statusFilter);
+}
+
+if (sort === "progress") {
+items.sort((a, b) => safeNum(b.commitPercent) - safeNum(a.commitPercent));
+} else if (sort === "participants") {
+items.sort((a, b) => safeNum(b.participants_count) - safeNum(a.participants_count));
+} else if (sort === "ending") {
+items.sort((a, b) => {
+const aEnd = parseTs(a.countdown_ends_at) ?? Number.MAX_SAFE_INTEGER;
+const bEnd = parseTs(b.countdown_ends_at) ?? Number.MAX_SAFE_INTEGER;
+return aEnd - bEnd;
+});
+} else {
+items.sort((a, b) => safeNum(b.id) - safeNum(a.id));
+}
+
+renderStats(ALL_LAUNCHES);
+
+if (!items.length) {
+grid.innerHTML = `
+<div class="empty" style="grid-column:1/-1;">
+No launches found.
+</div>
+`;
+return;
+}
+
+grid.innerHTML = items.map(buildCard).join("");
+}
+
+function init() {
+if (!$("launchGrid")) return;
+
+$("lSearch")?.addEventListener("input", render);
+$("lStatus")?.addEventListener("change", render);
+$("lSort")?.addEventListener("change", render);
+
+loadLaunches();
+setInterval(render, 1000);
+setInterval(loadLaunches, 15000);
 }
 
 init();
