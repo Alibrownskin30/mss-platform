@@ -1,0 +1,481 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>MSS Protocol — Builder Profile</title>
+<style>
+:root{
+--bg0:#05070c;
+--bg1:#070a12;
+--text:rgba(255,255,255,.92);
+--muted:rgba(255,255,255,.68);
+--muted2:rgba(255,255,255,.45);
+--line:rgba(255,255,255,.10);
+--line2:rgba(255,255,255,.08);
+--a:#00ffd1;
+--b:#3aa0ff;
+--good:#35f5a3;
+--warn:#ffd166;
+--bad:#ff5b6b;
+--card:linear-gradient(180deg, rgba(255,255,255,.06), rgba(255,255,255,.035));
+}
+
+*{box-sizing:border-box}
+html,body{max-width:100%;overflow-x:hidden}
+body{
+margin:0;
+font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial;
+color:var(--text);
+background:
+radial-gradient(1200px 700px at 15% -10%, rgba(0,255,209,.18), transparent 55%),
+radial-gradient(900px 600px at 95% 10%, rgba(58,160,255,.16), transparent 50%),
+linear-gradient(180deg, var(--bg0), var(--bg1));
+overflow-x:hidden;
+}
+
+a{color:inherit;text-decoration:none}
+
+.topbar{
+position:sticky;
+top:0;
+z-index:50;
+backdrop-filter:blur(14px);
+background:rgba(5,7,12,.55);
+border-bottom:1px solid var(--line2);
+}
+
+.topbar-inner{
+max-width:1160px;
+margin:0 auto;
+padding:14px 18px;
+display:flex;
+align-items:center;
+justify-content:space-between;
+gap:14px;
+}
+
+.brand{
+display:flex;
+align-items:center;
+gap:10px;
+min-width:0;
+}
+
+.mark{
+width:34px;height:34px;border-radius:10px;
+background:linear-gradient(135deg, rgba(0,255,209,.9), rgba(58,160,255,.9));
+box-shadow:0 10px 24px rgba(0,255,209,.18), 0 10px 24px rgba(58,160,255,.14);
+flex:0 0 auto;
+}
+
+.brand-title{font-weight:800}
+.brand-sub{
+font-size:12px;
+color:var(--muted2);
+white-space:nowrap;
+overflow:hidden;
+text-overflow:ellipsis;
+}
+
+.nav{
+display:flex;
+gap:8px;
+align-items:center;
+flex-wrap:wrap;
+}
+
+.nav a{
+padding:8px 12px;
+border-radius:12px;
+color:rgba(255,255,255,.72);
+border:1px solid transparent;
+transition:.18s ease;
+font-size:13px;
+white-space:nowrap;
+}
+
+.nav a:hover{
+color:rgba(255,255,255,.92);
+border-color:rgba(255,255,255,.10);
+background:rgba(255,255,255,.04);
+}
+
+.nav a.active{
+color:rgba(255,255,255,.92);
+border-color:rgba(0,255,209,.20);
+background:rgba(0,255,209,.06);
+}
+
+.wrap{
+max-width:1160px;
+margin:0 auto;
+padding:28px 18px 80px;
+}
+
+.back-link{
+display:inline-flex;
+align-items:center;
+gap:8px;
+margin-bottom:18px;
+color:rgba(255,255,255,.66);
+font-size:13px;
+}
+
+.back-link:hover{color:rgba(255,255,255,.92)}
+
+.hero{
+display:grid;
+grid-template-columns:1.1fr .9fr;
+gap:18px;
+margin-bottom:18px;
+}
+
+.card{
+border:1px solid var(--line);
+background:var(--card);
+border-radius:22px;
+padding:22px;
+box-shadow:0 18px 60px rgba(0,0,0,.35);
+}
+
+.kicker{
+display:inline-flex;
+align-items:center;
+gap:10px;
+padding:8px 12px;
+border-radius:999px;
+background:rgba(0,255,209,.08);
+border:1px solid rgba(0,255,209,.18);
+font-size:11px;
+text-transform:uppercase;
+letter-spacing:.16em;
+}
+
+.k-dot{
+width:7px;height:7px;border-radius:999px;
+background:var(--a);
+box-shadow:0 0 0 6px rgba(0,255,209,.10);
+}
+
+h1{
+margin:14px 0 10px;
+font-size:40px;
+line-height:1.04;
+letter-spacing:-.03em;
+word-break:break-word;
+}
+
+p{
+margin:0;
+color:var(--muted);
+line-height:1.65;
+font-size:15px;
+}
+
+.meta{
+display:flex;
+gap:10px;
+flex-wrap:wrap;
+margin-top:16px;
+}
+
+.chip{
+display:inline-flex;
+align-items:center;
+gap:8px;
+padding:8px 10px;
+border-radius:999px;
+background:rgba(255,255,255,.04);
+border:1px solid rgba(255,255,255,.10);
+font-size:12px;
+color:rgba(255,255,255,.80);
+overflow-wrap:anywhere;
+}
+
+.stats{
+display:grid;
+grid-template-columns:1fr 1fr 1fr;
+gap:12px;
+}
+
+.stat{
+border:1px solid rgba(255,255,255,.10);
+background:rgba(255,255,255,.03);
+border-radius:18px;
+padding:16px;
+}
+
+.stat .k{
+color:var(--muted2);
+font-size:11px;
+text-transform:uppercase;
+letter-spacing:.14em;
+}
+
+.stat .v{
+margin-top:8px;
+font-size:24px;
+font-weight:800;
+}
+
+.section-title{
+margin:0 0 14px;
+font-size:18px;
+font-weight:800;
+letter-spacing:-.02em;
+}
+
+.launch-list{
+display:grid;
+gap:12px;
+}
+
+.launch-row{
+border:1px solid rgba(255,255,255,.10);
+background:rgba(255,255,255,.03);
+border-radius:18px;
+padding:16px;
+display:grid;
+gap:12px;
+}
+
+.launch-top{
+display:flex;
+justify-content:space-between;
+align-items:flex-start;
+gap:12px;
+flex-wrap:wrap;
+}
+
+.launch-name{
+font-size:20px;
+font-weight:800;
+line-height:1.08;
+}
+
+.launch-sub{
+margin-top:4px;
+font-size:12px;
+color:var(--muted2);
+letter-spacing:.10em;
+text-transform:uppercase;
+}
+
+.badge{
+display:inline-flex;
+align-items:center;
+justify-content:center;
+min-width:58px;
+height:32px;
+padding:0 12px;
+border-radius:999px;
+font-size:11px;
+font-weight:800;
+letter-spacing:.12em;
+border:1px solid rgba(255,255,255,.10);
+background:rgba(255,255,255,.05);
+color:rgba(255,255,255,.90);
+text-transform:uppercase;
+}
+
+.badge.commit{
+border-color:rgba(58,160,255,.22);
+background:rgba(58,160,255,.10);
+}
+.badge.countdown{
+border-color:rgba(255,209,102,.22);
+background:rgba(255,209,102,.10);
+}
+.badge.live{
+border-color:rgba(53,245,163,.22);
+background:rgba(53,245,163,.10);
+}
+
+.row-kv{
+display:grid;
+grid-template-columns:1fr 1fr 1fr;
+gap:12px;
+}
+
+.row-box{
+border:1px solid rgba(255,255,255,.10);
+border-radius:14px;
+padding:12px 14px;
+background:rgba(255,255,255,.03);
+}
+
+.row-box .k{
+color:var(--muted2);
+font-size:11px;
+text-transform:uppercase;
+letter-spacing:.14em;
+}
+
+.row-box .v{
+margin-top:6px;
+font-size:16px;
+font-weight:800;
+overflow-wrap:anywhere;
+}
+
+.btn{
+display:inline-flex;
+align-items:center;
+justify-content:center;
+gap:8px;
+min-height:42px;
+padding:0 14px;
+border-radius:12px;
+border:1px solid rgba(255,255,255,.12);
+background:rgba(255,255,255,.05);
+color:var(--text);
+cursor:pointer;
+font-weight:700;
+font-size:12px;
+letter-spacing:.08em;
+text-transform:uppercase;
+}
+
+.btn.primary{
+border-color:rgba(0,255,209,.22);
+background:rgba(0,255,209,.08);
+}
+
+.empty{
+border:1px dashed rgba(255,255,255,.12);
+border-radius:18px;
+padding:22px;
+text-align:center;
+color:var(--muted);
+background:rgba(255,255,255,.03);
+}
+
+.status{
+display:none;
+margin-top:14px;
+padding:13px 14px;
+border-radius:16px;
+border:1px solid rgba(255,255,255,.10);
+background:rgba(255,255,255,.04);
+font-size:14px;
+line-height:1.5;
+}
+
+.status.show{display:block}
+.status.bad{
+border-color:rgba(255,91,107,.18);
+background:rgba(255,91,107,.08);
+color:rgba(255,232,236,.96);
+}
+
+@media (max-width:980px){
+.hero{
+grid-template-columns:1fr;
+}
+.stats{
+grid-template-columns:1fr 1fr 1fr;
+}
+.row-kv{
+grid-template-columns:1fr;
+}
+}
+
+@media (max-width:700px){
+.topbar-inner{flex-direction:column;align-items:stretch}
+.nav{
+overflow-x:auto;
+overflow-y:hidden;
+flex-wrap:nowrap;
+padding-bottom:4px;
+scrollbar-width:none;
+-webkit-overflow-scrolling:touch;
+}
+.nav::-webkit-scrollbar{display:none}
+.stats{
+grid-template-columns:1fr;
+}
+h1{font-size:32px}
+}
+</style>
+</head>
+<body>
+<div class="topbar">
+<div class="topbar-inner">
+<div class="brand">
+<div class="mark" aria-hidden="true"></div>
+<div>
+<div class="brand-title">MSS Protocol</div>
+<div class="brand-sub">Builder Profile</div>
+</div>
+</div>
+
+<div class="nav" role="navigation" aria-label="Main">
+<a href="./index.html">Home</a>
+<a href="./token.html">Scanner</a>
+<a href="./explore.html">Explore</a>
+<a href="./alerts.html">Alerts</a>
+<a class="active" href="./launchpad.html">Launchpad</a>
+<a href="./methodology.html">Methodology</a>
+<a href="./legal.html">Legal</a>
+</div>
+</div>
+</div>
+
+<div class="wrap">
+<a class="back-link" href="./launchpad.html">← Back to Launchpad</a>
+
+<div class="hero">
+<section class="card">
+<div class="kicker"><span class="k-dot"></span> Builder Identity</div>
+<h1 id="builderAlias">Loading builder…</h1>
+<p id="builderTrustNote">Loading builder trust profile…</p>
+
+<div class="meta">
+<span class="chip">Wallet: <strong id="builderWallet" style="margin-left:6px;">—</strong></span>
+<span class="chip">Score: <strong id="builderScore" style="margin-left:6px;">—</strong></span>
+<span class="chip">Trust: <strong id="builderTrust" style="margin-left:6px;">—</strong></span>
+</div>
+</section>
+
+<section class="card">
+<div class="section-title">Launch Overview</div>
+<div class="stats">
+<div class="stat">
+<div class="k">All Launches</div>
+<div class="v" id="statAll">0</div>
+</div>
+<div class="stat">
+<div class="k">Live</div>
+<div class="v" id="statLive">0</div>
+</div>
+<div class="stat">
+<div class="k">Graduated</div>
+<div class="v" id="statGraduated">0</div>
+</div>
+<div class="stat">
+<div class="k">Commit</div>
+<div class="v" id="statCommit">0</div>
+</div>
+<div class="stat">
+<div class="k">Countdown</div>
+<div class="v" id="statCountdown">0</div>
+</div>
+<div class="stat">
+<div class="k">Failed</div>
+<div class="v" id="statFailed">0</div>
+</div>
+</div>
+</section>
+</div>
+
+<section class="card">
+<h2 class="section-title">Builder Launches</h2>
+<div id="builderStatus" class="status"></div>
+<div id="launchList" class="launch-list"></div>
+</section>
+</div>
+
+<script type="module" src="./assets/pages/builder.js"></script>
+</body>
+</html>
