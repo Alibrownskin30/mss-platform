@@ -34,12 +34,15 @@ function stageLabel(status) {
 if (status === "commit") return "Commit";
 if (status === "countdown") return "Countdown";
 if (status === "live") return "Live";
+if (status === "graduated") return "Graduated";
+if (status === "failed") return "Failed";
 return "Unknown";
 }
 
 function badgeClass(status) {
 if (status === "countdown") return "countdown";
 if (status === "live") return "live";
+if (status === "graduated") return "live";
 return "commit";
 }
 
@@ -54,12 +57,28 @@ const ms = Date.parse(String(v).replace(" ", "T") + "Z");
 return Number.isFinite(ms) ? ms : null;
 }
 
+function getBuilderTrust(score) {
+const n = safeNum(score, 0);
+
+if (n >= 80) {
+return { label: "Strong", state: "strong" };
+}
+if (n >= 55) {
+return { label: "Moderate", state: "moderate" };
+}
+return { label: "Early", state: "early" };
+}
+
 function buildCard(launch) {
 const name = escapeHtml(launch.token_name || "Untitled Launch");
 const symbol = escapeHtml(launch.symbol || "N/A");
 const template = escapeHtml(launch.template || "—");
 const status = launch.status || "commit";
-const builder = escapeHtml(launch.builder_alias || launch.builder_wallet || "Unknown Builder");
+const builderName = escapeHtml(launch.builder_alias || launch.builder_wallet || "Unknown Builder");
+const builderWallet = String(launch.builder_wallet || "").trim();
+const builderScore = safeNum(launch.builder_score, 0);
+const trust = getBuilderTrust(builderScore);
+
 const committed = safeNum(launch.committed_sol);
 const hardCap = safeNum(launch.hard_cap_sol);
 const minRaise = safeNum(launch.min_raise_sol);
@@ -74,16 +93,32 @@ if (status === "countdown") {
 timeLabel = fmtTime(remaining);
 } else if (status === "live") {
 timeLabel = "LIVE";
+} else if (status === "graduated") {
+timeLabel = "GRADUATED";
+} else if (status === "failed") {
+timeLabel = "FAILED";
 } else {
 timeLabel = `${committed} / ${hardCap} SOL`;
 }
 
+const imageUrl = String(launch.image_url || "").trim();
+const logoHtml = imageUrl
+? `<img src="${escapeHtml(imageUrl)}" alt="${name} logo" style="width:52px;height:52px;border-radius:14px;object-fit:cover;border:1px solid rgba(255,255,255,.10);background:rgba(255,255,255,.04);" />`
+: `<div style="width:52px;height:52px;border-radius:14px;border:1px solid rgba(255,255,255,.10);display:grid;place-items:center;background:rgba(255,255,255,.04);color:rgba(255,255,255,.36);font-size:10px;font-weight:800;letter-spacing:.12em;text-transform:uppercase;">Logo</div>`;
+
+const builderHtml = builderWallet
+? `<a href="./builder.html?wallet=${encodeURIComponent(builderWallet)}" style="color:rgba(255,255,255,.92);text-decoration:none;">${builderName}</a>`
+: builderName;
+
 return `
 <div class="token-card">
 <div class="token-head">
-<div>
+<div style="display:flex;gap:12px;align-items:flex-start;min-width:0;">
+${logoHtml}
+<div style="min-width:0;">
 <div class="token-name">${name}</div>
 <div class="token-symbol">${symbol} • ${template.replaceAll("_", " ")}</div>
+</div>
 </div>
 <div class="badge ${badgeClass(status)}">${stageLabel(status)}</div>
 </div>
@@ -91,7 +126,10 @@ return `
 <div class="kv">
 <div>
 <div class="k">Builder</div>
-<div class="v" style="font-size:16px;">${builder}</div>
+<div class="v" style="font-size:16px;">${builderHtml}</div>
+<div style="margin-top:6px;font-size:12px;color:rgba(255,255,255,.68);">
+Score ${builderScore} • ${trust.label}
+</div>
 </div>
 <div>
 <div class="k">${status === "countdown" ? "Time Left" : status === "live" ? "Status" : "Committed"}</div>
@@ -171,9 +209,9 @@ const commitCount = items.filter((x) => x.status === "commit").length;
 const countdownCount = items.filter((x) => x.status === "countdown").length;
 const liveCount = items.filter((x) => x.status === "live").length;
 
-$("statCommit").textContent = String(commitCount);
-$("statCountdown").textContent = String(countdownCount);
-$("statLive").textContent = String(liveCount);
+if ($("statCommit")) $("statCommit").textContent = String(commitCount);
+if ($("statCountdown")) $("statCountdown").textContent = String(countdownCount);
+if ($("statLive")) $("statLive").textContent = String(liveCount);
 
 const countdowns = items
 .filter((x) => x.status === "countdown" && x.countdown_ends_at)
@@ -184,7 +222,7 @@ endsAt: parseTs(x.countdown_ends_at),
 .filter((x) => Number.isFinite(x.endsAt))
 .sort((a, b) => a.endsAt - b.endsAt);
 
-$("statNext").textContent = countdowns[0]?.symbol || "—";
+if ($("statNext")) $("statNext").textContent = countdowns[0]?.symbol || "—";
 }
 
 function render() {

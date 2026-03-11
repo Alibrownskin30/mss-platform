@@ -28,6 +28,7 @@ import { startWatcher } from "./watcher.js";
 import { getClusterIntel } from "./cluster.js";
 import { createCassie } from "./cassie/index.js";
 import { buildSecurityModel } from "./intelligence/securityModel.js";
+import uploadRoutes from "./routes/upload.js";
 
 const { Metadata } = pkg;
 
@@ -45,6 +46,10 @@ helmet({
 crossOriginResourcePolicy: { policy: "cross-origin" },
 })
 );
+
+app.use("/api/upload", uploadRoutes);
+
+app.use("/uploads", express.static("uploads"));
 
 // ---- Body parsing ----
 app.use(express.json({ limit: process.env.BODY_LIMIT || "1mb" }));

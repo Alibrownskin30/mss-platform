@@ -7,22 +7,25 @@ function cleanText(value, max = 280) {
 return String(value ?? "").trim().slice(0, max);
 }
 
-function cleanHandle(value, max = 120) {
-return String(value ?? "")
-.trim()
-.replace(/^@/, "")
-.slice(0, max);
+function safeNum(v, fallback = 0) {
+const n = Number(v);
+return Number.isFinite(n) ? n : fallback;
 }
 
-// Create builder profile
+function buildTrust(score) {
+const n = safeNum(score, 0);
+if (n >= 80) return { label: "Strong", state: "good" };
+if (n >= 55) return { label: "Moderate", state: "warn" };
+return { label: "Early", state: "neutral" };
+}
+
+//
+// CREATE BUILDER PROFILE
+//
 router.post("/create", async (req, res) => {
 try {
 const wallet = cleanText(req.body.wallet, 100);
-const alias = cleanText(req.body.alias, 40);
-const bio = cleanText(req.body.bio, 280);
-const avatarUrl = cleanText(req.body.avatar_url, 500);
-const twitter = cleanHandle(req.body.twitter, 120);
-const telegram = cleanHandle(req.body.telegram, 120);
+const alias = cleanText(req.body.alias, 60);
 
 if (!wallet) {
 return res.status(400).json({ ok: false, error: "wallet is required" });
@@ -33,12 +36,12 @@ return res.status(400).json({ ok: false, error: "alias is required" });
 }
 
 const existing = await db.get(
-`SELECT id, wallet FROM builders WHERE wallet = ?`,
+`SELECT id FROM builders WHERE wallet = ?`,
 [wallet]
 );
 
 if (existing) {
-return res.status(409).json({
+return res.status(400).json({
 ok: false,
 error: "builder profile already exists for this wallet",
 });
@@ -47,15 +50,18 @@ error: "builder profile already exists for this wallet",
 const result = await db.run(
 `
 INSERT INTO builders (
-wallet, alias, bio, avatar_url, twitter, telegram
-) VALUES (?, ?, ?, ?, ?, ?)
+wallet,
+alias,
+builder_score
+) VALUES (?, ?, ?)
 `,
-[wallet, alias, bio, avatarUrl, twitter, telegram]
+[wallet, alias, 50]
 );
 
-const builder = await db.get(`SELECT * FROM builders WHERE id = ?`, [
-result.lastID,
-]);
+const builder = await db.get(
+`SELECT * FROM builders WHERE id = ?`,
+[result.lastID]
+);
 
 return res.json({ ok: true, builder });
 } catch (err) {
@@ -64,27 +70,51 @@ return res.status(500).json({ ok: false, error: "internal server error" });
 }
 });
 
-// Get builder by wallet
+//
+// LIST BUILDERS
+//
+router.get("/list", async (_req, res) => {
+try {
+const rows = await db.all(
+`
+SELECT
+b.*,
+COUNT(l.id) AS total_launches
+FROM builders b
+LEFT JOIN launches l ON l.builder_id = b.id
+GROUP BY b.id
+ORDER BY b.builder_score DESC, b.id DESC
+`
+);
+
+const builders = rows.map((row) => ({
+...row,
+builder_score: safeNum(row.builder_score, 0),
+total_launches: safeNum(row.total_launches, 0),
+trust: buildTrust(row.builder_score),
+}));
+
+return res.json({ ok: true, builders });
+} catch (err) {
+console.error("GET /api/builders/list failed:", err);
+return res.status(500).json({ ok: false, error: "internal server error" });
+}
+});
+
+//
+// GET BUILDER PROFILE + LAUNCHES BY WALLET
+//
 router.get("/:wallet", async (req, res) => {
 try {
 const wallet = cleanText(req.params.wallet, 100);
 
+if (!wallet) {
+return res.status(400).json({ ok: false, error: "wallet is required" });
+}
+
 const builder = await db.get(
 `
-SELECT
-id,
-wallet,
-alias,
-bio,
-avatar_url,
-twitter,
-telegram,
-show_projects,
-builder_score,
-projects_launched,
-successful_launches,
-created_at,
-updated_at
+SELECT *
 FROM builders
 WHERE wallet = ?
 `,
@@ -95,60 +125,48 @@ if (!builder) {
 return res.status(404).json({ ok: false, error: "builder not found" });
 }
 
-return res.json({ ok: true, builder });
-} catch (err) {
-console.error("GET /api/builders/:wallet failed:", err);
-return res.status(500).json({ ok: false, error: "internal server error" });
-}
-});
-
-// Update builder profile
-router.post("/update", async (req, res) => {
-try {
-const wallet = cleanText(req.body.wallet, 100);
-const alias = cleanText(req.body.alias, 40);
-const bio = cleanText(req.body.bio, 280);
-const avatarUrl = cleanText(req.body.avatar_url, 500);
-const twitter = cleanHandle(req.body.twitter, 120);
-const telegram = cleanHandle(req.body.telegram, 120);
-const showProjects = req.body.show_projects ? 1 : 0;
-
-if (!wallet) {
-return res.status(400).json({ ok: false, error: "wallet is required" });
-}
-
-const existing = await db.get(
-`SELECT id FROM builders WHERE wallet = ?`,
+const launches = await db.all(
+`
+SELECT
+l.*,
+b.alias AS builder_alias,
+b.wallet AS builder_wallet,
+b.builder_score
+FROM launches l
+JOIN builders b ON b.id = l.builder_id
+WHERE b.wallet = ?
+ORDER BY l.id DESC
+`,
 [wallet]
 );
 
-if (!existing) {
-return res.status(404).json({ ok: false, error: "builder not found" });
-}
+const totals = {
+all: launches.length,
+commit: launches.filter((x) => x.status === "commit").length,
+countdown: launches.filter((x) => x.status === "countdown").length,
+live: launches.filter((x) => x.status === "live").length,
+graduated: launches.filter((x) => x.status === "graduated").length,
+failed: launches.filter((x) => x.status === "failed").length,
+};
 
-await db.run(
-`
-UPDATE builders
-SET
-alias = COALESCE(NULLIF(?, ''), alias),
-bio = ?,
-avatar_url = ?,
-twitter = ?,
-telegram = ?,
-show_projects = ?,
-updated_at = CURRENT_TIMESTAMP
-WHERE wallet = ?
-`,
-[alias, bio, avatarUrl, twitter, telegram, showProjects, wallet]
-);
-
-const builder = await db.get(`SELECT * FROM builders WHERE wallet = ?`, [
-wallet,
-]);
-
-return res.json({ ok: true, builder });
+return res.json({
+ok: true,
+builder: {
+...builder,
+builder_score: safeNum(builder.builder_score, 0),
+trust: buildTrust(builder.builder_score),
+},
+totals,
+launches: launches.map((launch) => ({
+...launch,
+committed_sol: safeNum(launch.committed_sol, 0),
+min_raise_sol: safeNum(launch.min_raise_sol, 0),
+hard_cap_sol: safeNum(launch.hard_cap_sol, 0),
+participants_count: safeNum(launch.participants_count, 0),
+})),
+});
 } catch (err) {
-console.error("POST /api/builders/update failed:", err);
+console.error("GET /api/builders/:wallet failed:", err);
 return res.status(500).json({ ok: false, error: "internal server error" });
 }
 });

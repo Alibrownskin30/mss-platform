@@ -52,6 +52,13 @@ if (status === "failed") return "Failed";
 return String(status || "Unknown");
 }
 
+function getBuilderTrust(score) {
+const n = safeNum(score, 0);
+if (n >= 80) return { label: "Strong", note: "Builder profile currently shows strong trust alignment." };
+if (n >= 55) return { label: "Moderate", note: "Builder profile currently shows moderate trust alignment." };
+return { label: "Early", note: "Builder profile is still early-stage and building trust history." };
+}
+
 function setStatus(message, type = "") {
 const el = $("commitStatus");
 if (!el) return;
@@ -192,6 +199,26 @@ timeStat.textContent = badgeText(status);
 phaseNote.textContent = "Launch state loaded.";
 }
 
+function renderBuilderInfo(launch) {
+const builderAliasEl = $("builderAlias");
+const builderScoreEl = $("builderScore");
+
+if (!builderAliasEl || !builderScoreEl) return;
+
+const builderScore = safeNum(launch.builder_score, 0);
+const builderTrust = getBuilderTrust(builderScore);
+const builderAlias = escapeHtml(launch.builder_alias || launch.builder_wallet || "Unknown");
+const builderWallet = String(launch.builder_wallet || "").trim();
+
+if (builderWallet) {
+builderAliasEl.innerHTML = `<a href="./builder.html?wallet=${encodeURIComponent(builderWallet)}" style="color:rgba(255,255,255,.92);text-decoration:none;">${builderAlias}</a> • Score ${builderScore} • ${builderTrust.label}`;
+} else {
+builderAliasEl.textContent = `${launch.builder_alias || launch.builder_wallet || "Unknown"} • Score ${builderScore} • ${builderTrust.label}`;
+}
+
+builderScoreEl.textContent = `${builderScore} (${builderTrust.label})`;
+}
+
 function render() {
 if (!currentLaunch || !currentCommitStats) return;
 
@@ -210,9 +237,9 @@ $("launchName").textContent = launch.token_name || "Untitled Launch";
 $("launchSubline").textContent =
 `${launch.symbol || "—"} • ${String(launch.template || "—").replaceAll("_", " ")} • ${badgeText(launch.status)}`;
 $("launchDesc").textContent = launch.description || "No description provided.";
-$("builderAlias").textContent = launch.builder_alias || launch.builder_wallet || "Unknown";
 $("launchStatusText").textContent = badgeText(launch.status);
-$("builderScore").textContent = launch.builder_score ?? "—";
+
+renderBuilderInfo(launch);
 
 $("participantsPctStat").textContent = `${safeNum(launch.participants_pct)}%`;
 $("liquidityPctStat").textContent = `${safeNum(launch.liquidity_pct)}%`;

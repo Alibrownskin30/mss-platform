@@ -12,17 +12,18 @@
 --muted:rgba(255,255,255,.68);
 --muted2:rgba(255,255,255,.45);
 --line:rgba(255,255,255,.10);
---line2:rgba(255,255,255,.08);
+--card:linear-gradient(180deg, rgba(255,255,255,.06), rgba(255,255,255,.035));
 --a:#00ffd1;
 --b:#3aa0ff;
 --good:#35f5a3;
 --warn:#ffd166;
 --bad:#ff5b6b;
---card:linear-gradient(180deg, rgba(255,255,255,.06), rgba(255,255,255,.035));
+--shadow:0 18px 60px rgba(0,0,0,.45);
 }
 
-*{ box-sizing:border-box; }
-html,body{ max-width:100%; overflow-x:hidden; }
+*{box-sizing:border-box}
+html,body{max-width:100%;overflow-x:hidden}
+
 body{
 margin:0;
 font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial;
@@ -34,7 +35,7 @@ linear-gradient(180deg, var(--bg0), var(--bg1));
 overflow-x:hidden;
 }
 
-a{ color:inherit; text-decoration:none; }
+a{color:inherit;text-decoration:none}
 
 .topbar{
 position:sticky;
@@ -42,10 +43,11 @@ top:0;
 z-index:50;
 backdrop-filter:blur(14px);
 background:rgba(5,7,12,.55);
-border-bottom:1px solid var(--line2);
+border-bottom:1px solid rgba(255,255,255,.08);
 }
+
 .topbar-inner{
-max-width:1120px;
+max-width:1160px;
 margin:0 auto;
 padding:14px 18px;
 display:flex;
@@ -53,19 +55,24 @@ align-items:center;
 justify-content:space-between;
 gap:14px;
 }
+
 .brand{
 display:flex;
 align-items:center;
 gap:10px;
 min-width:0;
 }
+
 .mark{
-width:34px;height:34px;border-radius:10px;
+width:34px;
+height:34px;
+border-radius:10px;
 background:linear-gradient(135deg, rgba(0,255,209,.9), rgba(58,160,255,.9));
 box-shadow:0 10px 24px rgba(0,255,209,.18), 0 10px 24px rgba(58,160,255,.14);
 flex:0 0 auto;
 }
-.brand-title{ font-weight:800; }
+
+.brand-title{font-weight:800}
 .brand-sub{
 font-size:12px;
 color:var(--muted2);
@@ -74,12 +81,22 @@ overflow:hidden;
 text-overflow:ellipsis;
 }
 
+.navwrap{
+display:flex;
+align-items:center;
+gap:12px;
+min-width:0;
+margin-left:auto;
+}
+
 .nav{
 display:flex;
 gap:8px;
 align-items:center;
 flex-wrap:wrap;
+min-width:0;
 }
+
 .nav a{
 padding:8px 12px;
 border-radius:12px;
@@ -89,33 +106,124 @@ transition:.18s ease;
 font-size:13px;
 white-space:nowrap;
 }
+
 .nav a:hover{
 color:rgba(255,255,255,.92);
 border-color:rgba(255,255,255,.10);
 background:rgba(255,255,255,.04);
+box-shadow:0 0 14px rgba(0,255,209,.10);
 }
+
 .nav a.active{
 color:rgba(255,255,255,.92);
 border-color:rgba(0,255,209,.20);
 background:rgba(0,255,209,.06);
 }
 
+.authbar{
+display:flex;
+align-items:center;
+gap:10px;
+flex:0 1 auto;
+min-width:0;
+}
+
+.session-pill{
+display:inline-flex;
+align-items:center;
+gap:8px;
+padding:8px 12px;
+border-radius:999px;
+border:1px solid rgba(255,255,255,.10);
+background:rgba(255,255,255,.04);
+color:rgba(255,255,255,.78);
+font-size:12px;
+white-space:nowrap;
+cursor:pointer;
+}
+
+.session-pill:hover{
+border-color:rgba(255,255,255,.16);
+background:rgba(255,255,255,.06);
+}
+
+.authbtn{
+display:inline-flex;
+align-items:center;
+justify-content:center;
+gap:8px;
+padding:10px 12px;
+border-radius:12px;
+border:1px solid rgba(255,255,255,.12);
+background:rgba(255,255,255,.05);
+color:var(--text);
+font-weight:700;
+letter-spacing:.08em;
+text-transform:uppercase;
+font-size:11px;
+cursor:pointer;
+}
+
+.authbtn:hover{background:rgba(255,255,255,.08)}
+.authbtn.danger{
+border-color:rgba(255,77,109,.20);
+background:rgba(255,77,109,.08);
+}
+
+.dot{
+width:8px;
+height:8px;
+border-radius:50%;
+background:rgba(255,255,255,.35);
+box-shadow:0 0 0 3px rgba(255,255,255,.06);
+flex:0 0 auto;
+}
+.dot.good{background:rgba(53,245,163,.95)}
+.dot.warn{background:rgba(255,209,102,.95)}
+.dot.bad{background:rgba(255,91,107,.95)}
+
 .wrap{
-max-width:1120px;
+max-width:1160px;
 margin:0 auto;
 padding:28px 18px 80px;
 }
 
+.back-link{
+display:inline-flex;
+align-items:center;
+gap:8px;
+margin:8px 0 18px;
+color:rgba(255,255,255,.66);
+font-size:13px;
+}
+
+.back-link:hover{color:rgba(255,255,255,.92)}
+
 .hero{
-border:1px solid var(--line);
-background:var(--card);
-border-radius:24px;
-padding:28px;
-box-shadow:0 18px 60px rgba(0,0,0,.35);
+display:grid;
+grid-template-columns:1.25fr .85fr;
+gap:18px;
+align-items:stretch;
 margin-bottom:18px;
 }
 
-.eyebrow{
+.card{
+border:1px solid var(--line);
+background:var(--card);
+border-radius:22px;
+box-shadow:var(--shadow);
+min-width:0;
+}
+
+.hero-main{padding:26px}
+.hero-side{
+padding:20px;
+display:grid;
+gap:12px;
+align-content:start;
+}
+
+.kicker{
 display:inline-flex;
 align-items:center;
 gap:10px;
@@ -126,80 +234,138 @@ border:1px solid rgba(0,255,209,.18);
 font-size:11px;
 text-transform:uppercase;
 letter-spacing:.16em;
+max-width:max-content;
 }
-.eyebrow-dot{
-width:7px;height:7px;border-radius:999px;
+
+.k-dot{
+width:7px;
+height:7px;
+border-radius:999px;
 background:var(--a);
 box-shadow:0 0 0 6px rgba(0,255,209,.10);
 }
 
 h1{
-margin:16px 0 10px;
-font-size:38px;
+margin:14px 0 10px;
+font-size:40px;
 line-height:1.04;
+letter-spacing:-.03em;
 }
-.hero p{
+
+p{
 margin:0;
-max-width:760px;
 color:var(--muted);
 line-height:1.65;
 font-size:15px;
 }
 
+.pill-row{
+display:flex;
+flex-wrap:wrap;
+gap:10px;
+margin-top:18px;
+}
+
+.chip{
+display:inline-flex;
+align-items:center;
+gap:8px;
+padding:8px 10px;
+border-radius:999px;
+background:rgba(255,255,255,.04);
+border:1px solid rgba(255,255,255,.10);
+font-size:12px;
+color:rgba(255,255,255,.80);
+}
+
+.side-stat{
+border:1px solid rgba(255,255,255,.10);
+background:rgba(255,255,255,.03);
+border-radius:18px;
+padding:14px 16px;
+}
+
+.side-stat .k{
+color:var(--muted2);
+font-size:11px;
+letter-spacing:.14em;
+text-transform:uppercase;
+margin-bottom:6px;
+}
+
+.side-stat .v{
+font-size:15px;
+font-weight:800;
+color:rgba(255,255,255,.92);
+}
+
 .layout{
 display:grid;
-grid-template-columns:1.05fr .95fr;
+grid-template-columns:1fr 340px;
 gap:18px;
 }
 
-.panel{
-border:1px solid var(--line);
-background:var(--card);
-border-radius:22px;
-padding:22px;
-box-shadow:0 18px 60px rgba(0,0,0,.30);
+.form-card{padding:24px}
+.aside-card{
+padding:20px;
+display:grid;
+gap:14px;
+align-content:start;
+height:max-content;
+position:sticky;
+top:86px;
 }
 
 .section-title{
-font-size:14px;
-letter-spacing:.14em;
-text-transform:uppercase;
-color:var(--muted2);
-margin-bottom:14px;
+margin:0 0 14px;
+font-size:18px;
+font-weight:800;
+letter-spacing:-.02em;
 }
 
-.grid{
+.field-grid{
 display:grid;
 grid-template-columns:1fr 1fr;
 gap:14px;
 }
 
-.field{
-display:flex;
-flex-direction:column;
-gap:8px;
-}
-
-.field.full{
-grid-column:1 / -1;
-}
+.field{display:grid;gap:8px}
+.field.full{grid-column:1 / -1}
 
 label{
 font-size:12px;
-letter-spacing:.10em;
+font-weight:700;
+color:rgba(255,255,255,.78);
+letter-spacing:.06em;
 text-transform:uppercase;
-color:var(--muted2);
 }
 
-input, select, textarea{
+input,
+select,
+textarea{
 width:100%;
-border:1px solid rgba(255,255,255,.10);
-background:rgba(255,255,255,.05);
+border-radius:16px;
+border:1px solid var(--line);
+background:rgba(255,255,255,.04);
 color:var(--text);
-border-radius:14px;
-padding:12px 14px;
-outline:none;
+padding:14px 15px;
 font:inherit;
+outline:none;
+transition:.16s ease;
+}
+
+input:focus,
+select:focus,
+textarea:focus{
+border-color:rgba(0,255,209,.28);
+box-shadow:0 0 0 4px rgba(0,255,209,.08);
+background:rgba(255,255,255,.05);
+}
+
+input[readonly]{
+background:rgba(255,255,255,.03);
+color:rgba(255,255,255,.88);
+cursor:not-allowed;
 }
 
 textarea{
@@ -207,9 +373,34 @@ min-height:120px;
 resize:vertical;
 }
 
-input:focus, select:focus, textarea:focus{
-border-color:rgba(0,255,209,.28);
-box-shadow:0 0 0 3px rgba(0,255,209,.08);
+input[type="file"]{
+padding:12px;
+}
+
+.wallet-row{
+display:flex;
+gap:10px;
+align-items:center;
+flex-wrap:wrap;
+}
+
+.wallet-row .btn{
+flex:0 0 auto;
+}
+
+.wallet-pill{
+display:inline-flex;
+align-items:center;
+gap:8px;
+padding:10px 12px;
+border-radius:999px;
+border:1px solid rgba(255,255,255,.10);
+background:rgba(255,255,255,.04);
+color:rgba(255,255,255,.82);
+font-size:12px;
+width:max-content;
+max-width:100%;
+overflow-wrap:anywhere;
 }
 
 .hint{
@@ -218,84 +409,16 @@ font-size:12px;
 line-height:1.5;
 }
 
-.logo-wrap{
-display:grid;
-grid-template-columns:120px 1fr;
-gap:16px;
-align-items:start;
+.hr{
+height:1px;
+background:linear-gradient(90deg, transparent, rgba(255,255,255,.10), transparent);
+margin:18px 0;
 }
 
-.logo-preview{
-width:120px;
-height:120px;
-border-radius:20px;
-border:1px solid rgba(255,255,255,.10);
-background:
-linear-gradient(180deg, rgba(255,255,255,.05), rgba(255,255,255,.03));
+.btn-row{
 display:flex;
-align-items:center;
-justify-content:center;
-overflow:hidden;
-color:var(--muted2);
-font-size:12px;
-text-align:center;
-padding:8px;
-}
-
-.logo-preview img{
-width:100%;
-height:100%;
-object-fit:cover;
-display:block;
-}
-
-.template-card{
-border:1px solid rgba(255,255,255,.10);
-background:rgba(255,255,255,.03);
-border-radius:18px;
-padding:16px;
-}
-
-.template-name{
-font-weight:800;
-font-size:16px;
-}
-.template-meta{
-margin-top:8px;
-color:var(--muted);
-font-size:14px;
-line-height:1.6;
-}
-
-.summary{
-display:grid;
-grid-template-columns:1fr 1fr;
-gap:12px;
-margin-top:14px;
-}
-
-.stat{
-border:1px solid rgba(255,255,255,.10);
-background:rgba(255,255,255,.03);
-border-radius:16px;
-padding:14px;
-}
-.stat .k{
-font-size:11px;
-color:var(--muted2);
-text-transform:uppercase;
-letter-spacing:.12em;
-}
-.stat .v{
-margin-top:8px;
-font-size:22px;
-font-weight:800;
-}
-
-.actions{
-display:flex;
-gap:12px;
 flex-wrap:wrap;
+gap:12px;
 margin-top:18px;
 }
 
@@ -303,77 +426,257 @@ margin-top:18px;
 display:inline-flex;
 align-items:center;
 justify-content:center;
-gap:8px;
-min-height:46px;
-padding:0 16px;
-border-radius:14px;
+gap:10px;
+min-height:48px;
+padding:12px 16px;
+border-radius:16px;
 border:1px solid rgba(255,255,255,.12);
 background:rgba(255,255,255,.05);
 color:var(--text);
-cursor:pointer;
 font-weight:800;
-font-size:12px;
-letter-spacing:.08em;
-text-transform:uppercase;
+cursor:pointer;
+transition:.18s ease;
+text-decoration:none;
 }
+
 .btn:hover{
 background:rgba(255,255,255,.08);
+border-color:rgba(255,255,255,.18);
 }
+
 .btn.primary{
-border-color:rgba(0,255,209,.22);
-background:rgba(0,255,209,.08);
+color:#041015;
+border-color:rgba(0,255,209,.28);
+background:linear-gradient(135deg, rgba(0,255,209,.95), rgba(58,160,255,.92));
+box-shadow:0 14px 34px rgba(0,255,209,.16), 0 10px 28px rgba(58,160,255,.12);
 }
+
 .btn.primary:hover{
-background:rgba(0,255,209,.12);
+filter:brightness(1.03);
+transform:translateY(-1px);
+}
+
+.btn[disabled]{
+opacity:.65;
+cursor:not-allowed;
+transform:none;
 }
 
 .status{
-margin-top:16px;
-padding:14px 16px;
+display:none;
+margin-top:14px;
+padding:13px 14px;
 border-radius:16px;
 border:1px solid rgba(255,255,255,.10);
-background:rgba(255,255,255,.03);
-color:var(--muted);
-display:none;
+background:rgba(255,255,255,.04);
+font-size:14px;
+line-height:1.5;
 white-space:pre-wrap;
 }
+
+.status.show{display:block}
 .status.good{
-display:block;
 border-color:rgba(53,245,163,.18);
 background:rgba(53,245,163,.08);
-color:rgba(255,255,255,.90);
+color:rgba(230,255,242,.96);
 }
 .status.bad{
-display:block;
-border-color:rgba(255,91,107,.20);
+border-color:rgba(255,91,107,.18);
 background:rgba(255,91,107,.08);
+color:rgba(255,232,236,.96);
+}
+.status.warn{
+border-color:rgba(255,209,102,.18);
+background:rgba(255,209,102,.08);
+color:rgba(255,249,232,.96);
+}
+
+.preview{
+display:grid;
+gap:14px;
+}
+
+.preview-card{
+border:1px solid rgba(255,255,255,.10);
+background:rgba(255,255,255,.03);
+border-radius:22px;
+padding:18px;
+}
+
+.preview-head{
+display:flex;
+align-items:center;
+justify-content:space-between;
+gap:14px;
+margin-bottom:16px;
+}
+
+.preview-meta{
+display:flex;
+gap:12px;
+min-width:0;
+align-items:center;
+}
+
+.logo{
+width:60px;
+height:60px;
+border-radius:18px;
+object-fit:cover;
+background:linear-gradient(135deg, rgba(0,255,209,.12), rgba(58,160,255,.10));
+border:1px solid rgba(255,255,255,.10);
+flex:0 0 auto;
+}
+
+.logo.placeholder{
+display:grid;
+place-items:center;
+color:rgba(255,255,255,.40);
+font-size:11px;
+font-weight:800;
+letter-spacing:.12em;
+text-transform:uppercase;
+}
+
+.token-name{
+font-size:24px;
+font-weight:900;
+line-height:1.05;
+letter-spacing:-.03em;
+word-break:break-word;
+}
+
+.token-sub{
+margin-top:4px;
+color:var(--muted2);
+font-size:13px;
+white-space:nowrap;
+overflow:hidden;
+text-overflow:ellipsis;
+}
+
+.badge{
+display:inline-flex;
+align-items:center;
+justify-content:center;
+padding:8px 12px;
+border-radius:999px;
+font-size:11px;
+font-weight:900;
+letter-spacing:.16em;
+text-transform:uppercase;
+border:1px solid rgba(255,255,255,.10);
+background:rgba(255,255,255,.05);
+color:rgba(255,255,255,.88);
+white-space:nowrap;
+}
+
+.kv{
+display:grid;
+grid-template-columns:1fr 1fr;
+gap:12px;
+}
+
+.kv-box{
+border:1px solid rgba(255,255,255,.10);
+border-radius:16px;
+padding:12px 14px;
+background:rgba(255,255,255,.03);
+min-width:0;
+}
+
+.kv-box .k{
+color:var(--muted2);
+font-size:11px;
+letter-spacing:.14em;
+text-transform:uppercase;
+margin-bottom:6px;
+}
+
+.kv-box .v{
+font-size:16px;
+font-weight:800;
+overflow-wrap:anywhere;
+}
+
+.preview-desc{
+margin-top:14px;
+color:var(--muted);
+font-size:14px;
+line-height:1.65;
+min-height:44px;
+white-space:pre-wrap;
+}
+
+.mini-list{
+display:grid;
+gap:10px;
+}
+
+.mini-item{
+border:1px solid rgba(255,255,255,.10);
+border-radius:16px;
+padding:12px 14px;
+background:rgba(255,255,255,.03);
+}
+
+.mini-item .title{
+font-size:13px;
+font-weight:800;
+margin-bottom:4px;
 color:rgba(255,255,255,.90);
 }
 
-@media (max-width:900px){
+.mini-item .copy{
+color:var(--muted);
+font-size:12px;
+line-height:1.55;
+}
+
+.template-builder-only{
+display:none;
+}
+
+.template-builder-only.show{
+display:grid;
+gap:14px;
+}
+
+#teamWalletInputs{
+display:grid;
+gap:10px;
+}
+
+@media (max-width:980px){
+.hero,
 .layout{
 grid-template-columns:1fr;
 }
-.grid{
-grid-template-columns:1fr;
-}
-.field.full{
-grid-column:auto;
+
+.aside-card{
+position:static;
 }
 }
 
-@media (max-width:640px){
-h1{ font-size:32px; }
-.logo-wrap{
-grid-template-columns:1fr;
+@media (max-width:820px){
+.topbar-inner{flex-direction:column;align-items:stretch}
+.navwrap{flex-direction:column;align-items:stretch}
+.nav{
+overflow-x:auto;
+overflow-y:hidden;
+flex-wrap:nowrap;
+padding-bottom:4px;
+scrollbar-width:none;
+-webkit-overflow-scrolling:touch;
 }
-.summary{
-grid-template-columns:1fr 1fr;
+.nav::-webkit-scrollbar{display:none}
+.authbar{
+justify-content:flex-start;
+flex-wrap:wrap;
 }
-}
-
-@media (max-width:520px){
-.summary{
+h1{font-size:32px}
+.field-grid,
+.kv{
 grid-template-columns:1fr;
 }
 }
@@ -386,140 +689,258 @@ grid-template-columns:1fr;
 <div class="mark" aria-hidden="true"></div>
 <div>
 <div class="brand-title">MSS Protocol</div>
-<div class="brand-sub">Create Launch</div>
+<div class="brand-sub">Launch Creation</div>
 </div>
 </div>
 
+<div class="navwrap">
 <div class="nav" role="navigation" aria-label="Main">
 <a href="./index.html">Home</a>
 <a href="./token.html">Scanner</a>
 <a href="./explore.html">Explore</a>
 <a href="./alerts.html">Alerts</a>
-<a class="active" href="./launchpad.html">Launchpad</a>
+<a href="./launchpad.html" class="active">Launchpad</a>
 <a href="./methodology.html">Methodology</a>
 <a href="./legal.html">Legal</a>
+</div>
+
+<div class="authbar">
+<button id="sessionPill" class="session-pill" type="button" title="Login">
+<span id="sessionDot" class="dot warn"></span>
+<span id="sessionText">Login</span>
+</button>
+<button id="logoutBtn" class="authbtn danger" type="button" style="display:none">Logout</button>
+</div>
 </div>
 </div>
 </div>
 
 <div class="wrap">
+<a href="./launchpad.html" class="back-link">← Back to Launchpad</a>
+
 <section class="hero">
-<div class="eyebrow"><span class="eyebrow-dot"></span> Builder Launch Flow</div>
-<h1>Create A Security-First MSS Launch</h1>
+<div class="card hero-main">
+<div class="kicker"><span class="k-dot"></span> Builder Launch Flow</div>
+<h1>Create a Security-First MSS Launch</h1>
 <p>
-Submit launch metadata, choose a launch template, preview your token logo, and create a launch that appears on the MSS Launchpad.
+Template economics are fixed by MSS by default. The Builder template unlocks more structured project controls, including supply presets, team wallets, capped team allocation, and a builder bond.
 </p>
+<div class="pill-row">
+<span class="chip">Fixed Template Supply</span>
+<span class="chip">Builder Controls</span>
+<span class="chip">Max Team Allocation 15%</span>
+<span class="chip">Connect Wallet</span>
+</div>
+</div>
+
+<div class="card hero-side">
+<div class="side-stat">
+<div class="k">Builder Identity</div>
+<div class="v">Connect Phantom to create as your builder wallet</div>
+</div>
+<div class="side-stat">
+<div class="k">Builder Template</div>
+<div class="v">Preset supply, team wallets, capped allocation, and 90-day bond</div>
+</div>
+<div class="side-stat">
+<div class="k">After Create</div>
+<div class="v">Redirects into launch detail page</div>
+</div>
+</div>
 </section>
 
-<div class="layout">
-<section class="panel">
-<div class="section-title">Launch Form</div>
+<section class="layout">
+<div class="card form-card">
+<h2 class="section-title">Launch Configuration</h2>
 
-<form id="launchForm">
-<div class="grid">
-<div class="field">
-<label for="wallet">Builder Wallet</label>
-<input id="wallet" name="wallet" type="text" placeholder="test_wallet_1" required />
-<div class="hint">Must match an existing builder profile in MSS.</div>
+<form id="launchCreateForm" novalidate>
+<div class="field-grid">
+<div class="field full">
+<label>Builder Wallet</label>
+<div class="wallet-row">
+<button id="connectWalletBtn" class="btn" type="button">Connect Wallet</button>
+<button id="disconnectWalletBtn" class="btn" type="button" style="display:none;">Disconnect</button>
+<div id="walletPill" class="wallet-pill">No wallet connected</div>
+</div>
+<input id="wallet" name="wallet" type="text" placeholder="Connected wallet will appear here" autocomplete="off" />
+<div class="hint">Phantom is preferred. Manual wallet entry remains available as fallback for local testing.</div>
 </div>
 
 <div class="field">
 <label for="template">Template</label>
-<select id="template" name="template" required>
+<select id="template" name="template">
 <option value="meme_lite">Meme Lite</option>
 <option value="meme_pro">Meme Pro</option>
 <option value="builder">Builder</option>
-<option value="degen">Degen</option>
+<option value="community">Community</option>
+<option value="degen_zone">Degen Zone</option>
 </select>
+<div class="hint">Selecting a template locks the launch economics below unless Builder controls apply.</div>
 </div>
 
 <div class="field">
-<label for="token_name">Token Name</label>
-<input id="token_name" name="token_name" type="text" maxlength="60" placeholder="Example Token" required />
+<label for="tokenName">Token Name</label>
+<input id="tokenName" name="tokenName" type="text" maxlength="48" placeholder="Example: TestCoin" autocomplete="off" />
 </div>
 
 <div class="field">
 <label for="symbol">Symbol</label>
-<input id="symbol" name="symbol" type="text" maxlength="20" placeholder="EXM" required />
+<input id="symbol" name="symbol" type="text" maxlength="12" placeholder="Example: TEST" autocomplete="off" />
 </div>
 
 <div class="field full">
 <label for="description">Description</label>
-<textarea id="description" name="description" maxlength="500" placeholder="Describe the launch, identity, and purpose."></textarea>
+<textarea id="description" name="description" maxlength="600" placeholder="Describe the launch, theme, and direction..."></textarea>
+<div class="hint">This is the builder-controlled narrative shown on launch pages.</div>
+</div>
+
+<div class="field">
+<label for="logoInput">Launch Logo</label>
+<input id="logoInput" name="logoInput" type="file" accept="image/png,image/jpeg,image/webp,image/gif" />
+<div class="hint">Supported: PNG, JPG, WEBP, GIF.</div>
+</div>
+
+<div class="field">
+<label for="imageUrl">Or Existing Image URL</label>
+<input id="imageUrl" name="imageUrl" type="url" placeholder="https://..." autocomplete="off" />
+<div class="hint">Used only if no upload file is selected.</div>
+</div>
+
+<div class="field" id="fixedSupplyField">
+<label for="supply">Total Supply</label>
+<input id="supply" name="supply" type="number" readonly />
+<div class="hint">Locked by selected template.</div>
+</div>
+
+<div class="field template-builder-only" id="builderSupplyField">
+<label for="supplyPreset">Builder Supply Preset</label>
+<select id="supplyPreset" name="supplyPreset">
+<option value="1000000">1,000,000</option>
+<option value="10000000">10,000,000</option>
+<option value="100000000">100,000,000</option>
+<option value="1000000000" selected>1,000,000,000</option>
+<option value="1000000000000">1,000,000,000,000</option>
+</select>
+<div class="hint">Builder template uses MSS-approved supply presets only.</div>
+</div>
+
+<div class="field">
+<label for="minRaiseSol">Minimum Raise (SOL)</label>
+<input id="minRaiseSol" name="minRaiseSol" type="number" readonly />
+<div class="hint">Locked by selected template.</div>
+</div>
+
+<div class="field">
+<label for="hardCapSol">Hard Cap (SOL)</label>
+<input id="hardCapSol" name="hardCapSol" type="number" readonly />
+<div class="hint">Locked by selected template.</div>
+</div>
+
+<div class="field full template-builder-only" id="builderExtras">
+<div class="template-builder-only" id="builderExtrasWrap">
+<div class="field-grid">
+<div class="field">
+<label for="teamWalletCount">Team Wallet Count</label>
+<select id="teamWalletCount" name="teamWalletCount">
+<option value="0">0</option>
+<option value="1">1</option>
+<option value="2">2</option>
+<option value="3">3</option>
+<option value="4">4</option>
+<option value="5">5</option>
+</select>
+<div class="hint">Builder template supports up to 5 visible team wallets.</div>
+</div>
+
+<div class="field">
+<label for="teamAllocation">Team Allocation (%)</label>
+<input id="teamAllocation" name="teamAllocation" type="number" min="0" max="15" step="0.1" placeholder="Max 15%" />
+<div class="hint">Team allocation cannot exceed 15%.</div>
+</div>
+
+<div class="field">
+<label for="builderBond">Builder Bond (SOL)</label>
+<input id="builderBond" name="builderBond" type="number" min="5" step="1" placeholder="Minimum 5 SOL" />
+<div class="hint">Locked for 90 days after launch.</div>
+</div>
 </div>
 
 <div class="field full">
-<label>Logo</label>
-<div class="logo-wrap">
-<div id="logoPreview" class="logo-preview">No image selected</div>
-
-<div>
-<input id="logoFile" type="file" accept="image/*" />
-<div class="hint" style="margin-top:10px;">
-For now this page supports local preview and direct image URL submission.
-If you already host the image, paste the image URL below.
-</div>
-
-<div class="field" style="margin-top:12px;">
-<label for="image_url">Image URL</label>
-<input id="image_url" name="image_url" type="text" maxlength="500" placeholder="https://..." />
-</div>
+<label>Team Wallet Addresses</label>
+<div id="teamWalletInputs"></div>
+<div class="hint">These wallets are intended for transparent builder/team allocation tracking.</div>
 </div>
 </div>
 </div>
 </div>
 
-<div class="actions">
-<button type="submit" class="btn primary" id="createBtn">Create Launch</button>
-<a class="btn" href="./launchpad.html">Back To Launchpad</a>
+<div class="hr"></div>
+
+<div class="btn-row">
+<button id="createLaunchBtn" class="btn primary" type="submit">Create Launch</button>
+<a class="btn" href="./launchpad.html">Cancel</a>
 </div>
+
+<div id="createStatus" class="status" aria-live="polite"></div>
 </form>
-
-<div id="formStatus" class="status"></div>
-</section>
-
-<aside class="panel">
-<div class="section-title">Template Overview</div>
-
-<div class="template-card">
-<div class="template-name" id="templateName">Meme Lite</div>
-<div class="template-meta" id="templateMeta">
-Standard community launch flow with enforced minimum raise, hard cap, and structured token allocation.
 </div>
 
-<div class="summary">
-<div class="stat">
+<aside class="card aside-card">
+<h2 class="section-title">Launch Preview</h2>
+
+<div class="preview">
+<div class="preview-card">
+<div class="preview-head">
+<div class="preview-meta">
+<img id="logoPreviewImg" class="logo" alt="Launch logo preview" style="display:none" />
+<div id="logoPreviewPlaceholder" class="logo placeholder">No Logo</div>
+<div>
+<div id="previewName" class="token-name">Untitled Launch</div>
+<div id="previewSub" class="token-sub">TICK • MEME LITE</div>
+</div>
+</div>
+<div id="previewBadge" class="badge">Commit</div>
+</div>
+
+<div class="kv">
+<div class="kv-box">
 <div class="k">Minimum Raise</div>
-<div class="v" id="minRaiseStat">20 SOL</div>
+<div id="previewMinRaise" class="v">— SOL</div>
 </div>
-<div class="stat">
+<div class="kv-box">
 <div class="k">Hard Cap</div>
-<div class="v" id="hardCapStat">100 SOL</div>
+<div id="previewHardCap" class="v">— SOL</div>
 </div>
-<div class="stat">
-<div class="k">Participants</div>
-<div class="v" id="participantsStat">45%</div>
+<div class="kv-box">
+<div class="k">Supply</div>
+<div id="previewSupply" class="v">—</div>
 </div>
-<div class="stat">
-<div class="k">Liquidity</div>
-<div class="v" id="liquidityStat">20%</div>
-</div>
-<div class="stat">
-<div class="k">Reserve</div>
-<div class="v" id="reserveStat">30%</div>
-</div>
-<div class="stat">
+<div class="kv-box">
 <div class="k">Builder</div>
-<div class="v" id="builderStat">5%</div>
-</div>
+<div id="previewWallet" class="v">—</div>
 </div>
 </div>
 
-<div class="hint" style="margin-top:16px;">
-Public-ready builder flow should later include real image upload storage, socials, optional banner art, and arena identity fields.
+<div id="previewDesc" class="preview-desc">Launch description preview will appear here.</div>
+</div>
+
+<div class="mini-list">
+<div class="mini-item">
+<div class="title">Flow</div>
+<div class="copy">Commit → Countdown → Live → Allocations → Graduation.</div>
+</div>
+<div class="mini-item">
+<div class="title">Economics</div>
+<div class="copy">Template defines launch supply and cap settings. Builder template unlocks structured flexibility.</div>
+</div>
+<div class="mini-item">
+<div class="title">Builder Controls</div>
+<div class="copy">Builder template supports supply presets, visible team wallets, capped team allocation, and a 90-day SOL bond.</div>
+</div>
+</div>
 </div>
 </aside>
-</div>
+</section>
 </div>
 
 <script type="module" src="./assets/pages/launch-create.js"></script>

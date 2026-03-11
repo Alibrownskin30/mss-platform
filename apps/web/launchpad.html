@@ -340,8 +340,7 @@ flex-wrap:wrap;
 align-items:center;
 }
 
-.input,
-.select{
+.input{
 height:44px;
 border-radius:14px;
 border:1px solid rgba(255,255,255,.10);
@@ -349,10 +348,34 @@ background:rgba(255,255,255,.05);
 color:var(--text);
 padding:0 14px;
 outline:none;
+min-width:260px;
 }
 
-.input{ min-width:260px; }
-.select{ min-width:170px; }
+.select{
+height:44px;
+border-radius:14px;
+border:1px solid rgba(255,255,255,.10);
+background:#0b1018;
+color:#ffffff;
+padding:0 14px;
+outline:none;
+appearance:none;
+-webkit-appearance:none;
+-moz-appearance:none;
+min-width:170px;
+cursor:pointer;
+}
+
+.input:focus,
+.select:focus{
+border-color:rgba(0,255,209,.28);
+box-shadow:0 0 0 4px rgba(0,255,209,.08);
+}
+
+.select option{
+background:#0b1018;
+color:#ffffff;
+}
 
 .panel{ padding:18px; }
 
