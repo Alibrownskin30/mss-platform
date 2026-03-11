@@ -1,0 +1,12 @@
+CREATE TABLE IF NOT EXISTS tokens (
+id INTEGER PRIMARY KEY AUTOINCREMENT,
+launch_id INTEGER NOT NULL,
+name TEXT NOT NULL,
+symbol TEXT NOT NULL,
+supply TEXT NOT NULL,
+mint_address TEXT,
+created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+FOREIGN KEY (launch_id) REFERENCES launches(id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_tokens_launch_id ON tokens(launch_id);

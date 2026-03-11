@@ -1,0 +1,1 @@
+ALTER TABLE pools ADD COLUMN initial_token_reserve REAL;

@@ -1,0 +1,1 @@
+ALTER TABLE pools ADD COLUMN graduated_at DATETIME;

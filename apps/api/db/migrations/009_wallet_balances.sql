@@ -1,0 +1,8 @@
+CREATE TABLE IF NOT EXISTS wallet_balances (
+id INTEGER PRIMARY KEY AUTOINCREMENT,
+launch_id INTEGER NOT NULL,
+wallet TEXT NOT NULL,
+token_amount REAL DEFAULT 0,
+created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+UNIQUE(launch_id, wallet)
+);
