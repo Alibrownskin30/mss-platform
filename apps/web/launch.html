@@ -443,6 +443,32 @@ border-color:rgba(0,255,209,.28);
 box-shadow:0 0 0 3px rgba(0,255,209,.08);
 }
 
+input[readonly]{
+background:rgba(255,255,255,.03);
+color:rgba(255,255,255,.84);
+}
+
+.wallet-row{
+display:flex;
+gap:10px;
+align-items:center;
+flex-wrap:wrap;
+}
+
+.wallet-pill{
+display:inline-flex;
+align-items:center;
+gap:8px;
+padding:10px 12px;
+border-radius:999px;
+border:1px solid rgba(255,255,255,.10);
+background:rgba(255,255,255,.04);
+color:rgba(255,255,255,.82);
+font-size:12px;
+max-width:100%;
+overflow-wrap:anywhere;
+}
+
 .quick{
 display:flex;
 gap:10px;
@@ -531,6 +557,12 @@ display:block;
 border-color:rgba(255,91,107,.20);
 background:rgba(255,91,107,.08);
 color:rgba(255,255,255,.90);
+}
+.status.warn{
+display:block;
+border-color:rgba(255,209,102,.20);
+background:rgba(255,209,102,.08);
+color:rgba(255,255,255,.92);
 }
 
 .recent{
@@ -720,8 +752,13 @@ grid-template-columns:1fr;
 
 <form id="commitForm" class="commit-form">
 <div class="field">
-<label for="commitWallet">Wallet</label>
-<input id="commitWallet" type="text" placeholder="walletA" />
+<label>Connected Wallet</label>
+<div class="wallet-row">
+<button id="connectWalletBtn" class="btn" type="button">Connect Wallet</button>
+<button id="disconnectWalletBtn" class="btn" type="button" style="display:none;">Disconnect</button>
+<div id="walletPill" class="wallet-pill">No wallet connected</div>
+</div>
+<input id="commitWallet" type="text" placeholder="Connected wallet will appear here" readonly />
 </div>
 
 <div class="field">

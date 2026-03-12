@@ -145,8 +145,7 @@ updateTeamAllocationTotal();
 }
 
 function getWalletValue() {
-const inputWallet = $("wallet")?.value.trim() || "";
-return connectedWallet || inputWallet;
+return connectedWallet || $("wallet")?.value.trim() || "";
 }
 
 function getTeamWalletRows() {
@@ -249,7 +248,7 @@ teamAllocationTotal: builderMode ? getTeamAllocationTotalValue() : 0,
 
 function validateForm(values) {
 if (!values.wallet) {
-throw new Error("Builder wallet is required. Connect Phantom or enter a wallet manually for testing.");
+throw new Error("Connect your wallet before creating a launch.");
 }
 
 if (values.wallet.length < 6) {
@@ -371,8 +370,9 @@ walletInput.readOnly = true;
 connectBtn.style.display = "none";
 disconnectBtn.style.display = "inline-flex";
 } else {
+walletInput.value = "";
 walletPill.textContent = "No wallet connected";
-walletInput.readOnly = false;
+walletInput.readOnly = true;
 connectBtn.style.display = "inline-flex";
 disconnectBtn.style.display = "none";
 }
@@ -499,7 +499,7 @@ async function connectWallet() {
 const provider = getPhantomProvider();
 
 if (!provider) {
-setStatus("bad", "Phantom wallet not detected. Install Phantom or use manual wallet input for testing.");
+setStatus("bad", "Phantom wallet not detected. Install Phantom to continue.");
 return;
 }
 
@@ -528,7 +528,7 @@ await provider.disconnect();
 connectedWallet = null;
 updateWalletUi();
 updatePreview();
-setStatus("warn", "Wallet disconnected. Manual wallet entry is available for testing.");
+setStatus("warn", "Wallet disconnected.");
 }
 
 async function restoreWalletIfTrusted() {
@@ -719,7 +719,6 @@ btn.textContent = "Create Launch";
 
 function bindPreview() {
 const ids = [
-"wallet",
 "template",
 "tokenName",
 "symbol",

@@ -708,7 +708,7 @@ Create launches, track commit momentum, monitor countdown phases, and follow liv
 <a class="cta" href="./methodology.html">Launch Rules</a>
 </div>
 
-<div class="launch-builder-note">
+<div class="launch-builder-note" id="builderNote">
 Wallet-connected builder profiles should be visible and editable directly from launchpad.
 </div>
 </div>
@@ -784,21 +784,35 @@ return window.solana;
 return null;
 }
 
-function setBuilderButtonHref() {
-const btn = document.getElementById("myBuilderProfileBtn");
-if (!btn) return;
-
+function getConnectedWallet() {
 const provider = getPhantomProvider();
-const connectedWallet =
+return (
 provider?.publicKey?.toString?.() ||
 window.phantom?.solana?.publicKey?.toString?.() ||
 window.solana?.publicKey?.toString?.() ||
-"";
+""
+);
+}
+
+function setBuilderButtonState() {
+const btn = document.getElementById("myBuilderProfileBtn");
+const note = document.getElementById("builderNote");
+if (!btn) return;
+
+const connectedWallet = getConnectedWallet();
 
 if (connectedWallet) {
 btn.href = `./builder.html?wallet=${encodeURIComponent(connectedWallet)}`;
+btn.textContent = "My Builder Profile";
+if (note) {
+note.textContent = "Connected wallets can jump straight into their builder profile and manage launch identity.";
+}
 } else {
 btn.href = "./builder.html";
+btn.textContent = "Builder Profile";
+if (note) {
+note.textContent = "Connect Phantom to open your wallet-linked builder profile directly from launchpad.";
+}
 }
 }
 
@@ -814,20 +828,20 @@ window.location.reload();
 },
 });
 
-setBuilderButtonHref();
+setBuilderButtonState();
 
 const provider = getPhantomProvider();
 if (provider?.on) {
 provider.on("accountChanged", () => {
-setBuilderButtonHref();
+setBuilderButtonState();
 });
 
 provider.on("connect", () => {
-setBuilderButtonHref();
+setBuilderButtonState();
 });
 
 provider.on("disconnect", () => {
-setBuilderButtonHref();
+setBuilderButtonState();
 });
 }
 </script>

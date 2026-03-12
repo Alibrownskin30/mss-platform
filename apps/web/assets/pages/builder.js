@@ -68,10 +68,7 @@ el.className = "status";
 el.textContent = "";
 }
 
-function getWalletFromUrlOrProvider() {
-const fromUrl = qs("wallet");
-if (fromUrl) return fromUrl;
-
+function getConnectedWallet() {
 const provider = getPhantomProvider();
 return (
 provider?.publicKey?.toString?.() ||
@@ -79,6 +76,12 @@ window.phantom?.solana?.publicKey?.toString?.() ||
 window.solana?.publicKey?.toString?.() ||
 ""
 );
+}
+
+function getWalletFromUrlOrProvider() {
+const fromUrl = qs("wallet");
+if (fromUrl) return fromUrl;
+return getConnectedWallet();
 }
 
 async function fetchBuilder(wallet) {
@@ -126,42 +129,6 @@ throw new Error(data?.error || "Failed to update builder alias.");
 return data.builder;
 }
 
-function ensureEditUi() {
-const heroCard = document.querySelector(".hero .card");
-if (!heroCard) return;
-
-if ($("builderEditWrap")) return;
-
-const meta = heroCard.querySelector(".meta");
-if (!meta) return;
-
-const wrap = document.createElement("div");
-wrap.id = "builderEditWrap";
-wrap.style.marginTop = "18px";
-wrap.innerHTML = `
-<div style="display:grid;gap:10px;max-width:420px;">
-<label for="builderAliasInput" style="font-size:12px;font-weight:700;color:rgba(255,255,255,.78);letter-spacing:.06em;text-transform:uppercase;">
-Edit Alias
-</label>
-<div style="display:flex;gap:10px;flex-wrap:wrap;">
-<input
-id="builderAliasInput"
-type="text"
-maxlength="60"
-placeholder="Builder alias"
-style="flex:1 1 240px;min-height:42px;padding:0 14px;border-radius:12px;border:1px solid rgba(255,255,255,.12);background:rgba(255,255,255,.05);color:rgba(255,255,255,.92);outline:none;"
-/>
-<button id="saveBuilderAliasBtn" class="btn primary" type="button">Save Alias</button>
-</div>
-<div style="font-size:12px;color:rgba(255,255,255,.50);">
-Alias editing is wallet-based for now.
-</div>
-</div>
-`;
-
-meta.insertAdjacentElement("afterend", wrap);
-}
-
 function renderHeader(builder, totals) {
 $("builderAlias").textContent = builder.alias || "Unknown Builder";
 $("builderWallet").textContent = builder.wallet || "—";
@@ -181,11 +148,22 @@ $("statCommit").textContent = String(safeNum(totals.commit, 0));
 $("statCountdown").textContent = String(safeNum(totals.countdown, 0));
 $("statFailed").textContent = String(safeNum(totals.failed, 0));
 
-ensureEditUi();
-
 const aliasInput = $("builderAliasInput");
 if (aliasInput) {
 aliasInput.value = builder.alias || "";
+}
+}
+
+function renderEditState(profileWallet) {
+const editCard = $("editProfileCard");
+const connectedWallet = getConnectedWallet();
+
+if (!editCard) return;
+
+if (connectedWallet && profileWallet && connectedWallet === profileWallet) {
+editCard.classList.remove("hidden");
+} else {
+editCard.classList.add("hidden");
 }
 }
 
@@ -259,6 +237,7 @@ if (list) {
 list.innerHTML = `<div class="empty">No builder wallet detected. Open a builder profile from launchpad, or connect Phantom and return here.</div>`;
 }
 
+renderEditState("");
 setStatus("No builder wallet was detected for this page.", "warn");
 }
 
@@ -288,7 +267,7 @@ try {
 const builder = await updateBuilderAlias(wallet, alias);
 $("builderAlias").textContent = builder.alias || "Unknown Builder";
 input.value = builder.alias || "";
-setStatus("Builder alias updated successfully.", "warn");
+setStatus("Builder alias updated successfully.", "good");
 } catch (err) {
 console.error(err);
 setStatus(err.message || "Failed to update builder alias.", "bad");
@@ -311,11 +290,29 @@ return;
 
 const data = await fetchBuilder(wallet);
 renderHeader(data.builder, data.totals || {});
+renderEditState(String(data.builder?.wallet || ""));
 renderLaunches(data.launches || []);
-bindAliasSave(wallet);
+bindAliasSave(String(data.builder?.wallet || wallet));
 } catch (err) {
 console.error(err);
 setStatus(err.message || "Failed to load builder profile.", "bad");
+}
+
+const provider = getPhantomProvider();
+if (provider?.on) {
+provider.on("accountChanged", () => {
+const profileWallet = $("builderWallet")?.textContent?.trim() || "";
+renderEditState(profileWallet);
+});
+
+provider.on("connect", () => {
+const profileWallet = $("builderWallet")?.textContent?.trim() || "";
+renderEditState(profileWallet);
+});
+
+provider.on("disconnect", () => {
+renderEditState("");
+});
 }
 }
 

@@ -9,6 +9,7 @@ const MAX_WALLET_COMMIT_SOL = 1;
 const MAX_TEAM_WALLETS = 5;
 const MAX_TEAM_ALLOCATION_PCT = 15;
 const MIN_BUILDER_BOND_SOL = 5;
+const TEAM_PCT_PRECISION = 6;
 
 const LAUNCH_FEE_SPLIT = {
 founder: 0.5,
@@ -36,28 +37,115 @@ function clamp(n, min, max) {
 return Math.max(min, Math.min(max, n));
 }
 
-function parseTeamWallets(input) {
-if (!input) return [];
-if (Array.isArray(input)) {
-return input
-.map((v) => cleanText(v, 120))
-.filter(Boolean)
-.slice(0, MAX_TEAM_WALLETS);
+function roundPct(value) {
+return Number(Number(value || 0).toFixed(TEAM_PCT_PRECISION));
 }
 
-try {
-const parsed = JSON.parse(String(input));
-if (Array.isArray(parsed)) {
-return parsed
-.map((v) => cleanText(v, 120))
-.filter(Boolean)
-.slice(0, MAX_TEAM_WALLETS);
+function approxEqual(a, b, epsilon = 0.000001) {
+return Math.abs(Number(a || 0) - Number(b || 0)) <= epsilon;
 }
+
+function parseJsonMaybe(input, fallback = null) {
+if (input == null || input === "") return fallback;
+if (typeof input === "object") return input;
+
+try {
+return JSON.parse(String(input));
 } catch {
-// ignore
+return fallback;
+}
+}
+
+function normalizeWallet(value) {
+return cleanText(value, 120);
+}
+
+function dedupeWalletEntries(wallets = []) {
+const seen = new Set();
+const out = [];
+
+for (const wallet of wallets) {
+const w = normalizeWallet(wallet);
+if (!w) continue;
+if (seen.has(w)) continue;
+seen.add(w);
+out.push(w);
+}
+
+return out;
+}
+
+function parseTeamWallets(input) {
+if (!input) return [];
+
+if (Array.isArray(input)) {
+return dedupeWalletEntries(input).slice(0, MAX_TEAM_WALLETS);
+}
+
+const parsed = parseJsonMaybe(input, []);
+if (Array.isArray(parsed)) {
+return dedupeWalletEntries(parsed).slice(0, MAX_TEAM_WALLETS);
 }
 
 return [];
+}
+
+function parseTeamWalletBreakdown(input) {
+if (!input) return [];
+
+const raw = Array.isArray(input) ? input : parseJsonMaybe(input, []);
+if (!Array.isArray(raw)) return [];
+
+const seen = new Set();
+const out = [];
+
+for (const entry of raw) {
+if (!entry || typeof entry !== "object") continue;
+
+const wallet = normalizeWallet(entry.wallet ?? entry.address ?? entry.pubkey);
+const pct = roundPct(entry.pct ?? entry.percent ?? entry.percentage);
+
+if (!wallet) continue;
+if (!Number.isFinite(pct) || pct <= 0) continue;
+if (seen.has(wallet)) continue;
+
+seen.add(wallet);
+out.push({ wallet, pct });
+}
+
+return out.slice(0, MAX_TEAM_WALLETS);
+}
+
+function buildEqualBreakdown(wallets, totalPct) {
+const cleanWallets = dedupeWalletEntries(wallets).slice(0, MAX_TEAM_WALLETS);
+const pct = roundPct(totalPct);
+
+if (!cleanWallets.length || pct <= 0) return [];
+
+const perWallet = roundPct(pct / cleanWallets.length);
+const out = cleanWallets.map((wallet, index) => ({
+wallet,
+pct: index === cleanWallets.length - 1
+? roundPct(pct - perWallet * (cleanWallets.length - 1))
+: perWallet,
+}));
+
+return out.filter((x) => x.pct > 0);
+}
+
+function normalizeSupply(value, fallback) {
+const raw = String(value ?? fallback ?? "").trim();
+if (!raw) return String(fallback ?? "1000000000");
+
+const digits = raw.replace(/[^\d]/g, "");
+if (!digits) return String(fallback ?? "1000000000");
+
+return digits;
+}
+
+function safeJsonParseArray(value) {
+const parsed = parseJsonMaybe(value, []);
+return Array.isArray(parsed) ? parsed : [];
 }
 
 function getTemplateConfig(template) {
@@ -157,17 +245,44 @@ if (template !== "builder") {
 return {
 team_allocation_pct: 0,
 team_wallets: [],
+team_wallet_breakdown: [],
 builder_bond_sol: 0,
 };
 }
 
-const teamAllocationPct = safeNumber(reqBody.team_allocation_pct, reqBody.teamAllocation);
-const builderBondSol = safeNumber(reqBody.builder_bond_sol, reqBody.builderBond);
-const teamWallets = parseTeamWallets(reqBody.team_wallets ?? reqBody.teamWallets);
+const teamAllocationPct = clamp(
+safeNumber(reqBody.team_allocation_pct, reqBody.teamAllocation),
+0,
+MAX_TEAM_ALLOCATION_PCT
+);
+
+const builderBondSol = safeNumber(
+reqBody.builder_bond_sol,
+reqBody.builderBond
+);
+
+const rawTeamWallets = parseTeamWallets(
+reqBody.team_wallets ?? reqBody.teamWallets
+);
+
+let breakdown = parseTeamWalletBreakdown(
+reqBody.team_wallet_breakdown ?? reqBody.teamWalletBreakdown
+);
+
+let teamWallets = rawTeamWallets;
+
+if (!breakdown.length && teamWallets.length && teamAllocationPct > 0) {
+breakdown = buildEqualBreakdown(teamWallets, teamAllocationPct);
+}
+
+if (breakdown.length) {
+teamWallets = dedupeWalletEntries(breakdown.map((x) => x.wallet));
+}
 
 return {
-team_allocation_pct: clamp(teamAllocationPct, 0, MAX_TEAM_ALLOCATION_PCT),
-team_wallets: teamWallets,
+team_allocation_pct: teamAllocationPct,
+team_wallets: teamWallets.slice(0, MAX_TEAM_WALLETS),
+team_wallet_breakdown: breakdown.slice(0, MAX_TEAM_WALLETS),
 builder_bond_sol: builderBondSol,
 };
 }
@@ -189,12 +304,17 @@ if (template !== "builder") {
 return;
 }
 
-if (!Number.isFinite(builderCfg.team_allocation_pct) || builderCfg.team_allocation_pct < 0) {
+if (
+!Number.isFinite(builderCfg.team_allocation_pct) ||
+builderCfg.team_allocation_pct < 0
+) {
 throw new Error("invalid team allocation");
 }
 
 if (builderCfg.team_allocation_pct > MAX_TEAM_ALLOCATION_PCT) {
-throw new Error(`team allocation cannot exceed ${MAX_TEAM_ALLOCATION_PCT}%`);
+throw new Error(
+`team allocation cannot exceed ${MAX_TEAM_ALLOCATION_PCT}%`
+);
 }
 
 if (!Array.isArray(builderCfg.team_wallets)) {
@@ -209,39 +329,130 @@ if (builderCfg.team_wallets.some((wallet) => !wallet)) {
 throw new Error("invalid team wallet entry");
 }
 
-if (!Number.isFinite(builderCfg.builder_bond_sol) || builderCfg.builder_bond_sol < MIN_BUILDER_BOND_SOL) {
-throw new Error(`builder bond must be at least ${MIN_BUILDER_BOND_SOL} SOL`);
+if (!Array.isArray(builderCfg.team_wallet_breakdown)) {
+throw new Error("team wallet breakdown must be an array");
 }
+
+if (builderCfg.team_wallet_breakdown.length > MAX_TEAM_WALLETS) {
+throw new Error(`team wallet breakdown cannot exceed ${MAX_TEAM_WALLETS}`);
+}
+
+const breakdownWallets = new Set();
+let breakdownTotal = 0;
+
+for (const entry of builderCfg.team_wallet_breakdown) {
+if (!entry || typeof entry !== "object") {
+throw new Error("invalid team wallet breakdown entry");
+}
+
+const wallet = normalizeWallet(entry.wallet);
+const pct = Number(entry.pct);
+
+if (!wallet) {
+throw new Error("team wallet breakdown wallet is required");
+}
+
+if (breakdownWallets.has(wallet)) {
+throw new Error("duplicate wallet in team wallet breakdown");
+}
+
+if (!Number.isFinite(pct) || pct <= 0) {
+throw new Error("team wallet breakdown pct must be greater than 0");
+}
+
+breakdownWallets.add(wallet);
+breakdownTotal += pct;
+}
+
+breakdownTotal = roundPct(breakdownTotal);
+
+const teamWalletSet = new Set(builderCfg.team_wallets);
+
+for (const wallet of breakdownWallets) {
+if (!teamWalletSet.has(wallet)) {
+throw new Error("team wallet breakdown must match team wallets");
+}
+}
+
+if (builderCfg.team_allocation_pct === 0) {
+if (builderCfg.team_wallets.length || builderCfg.team_wallet_breakdown.length) {
+throw new Error("team wallets are not allowed when team allocation is 0");
+}
+} else {
+if (!builderCfg.team_wallets.length) {
+throw new Error("team wallets are required for builder launches");
+}
+
+if (!builderCfg.team_wallet_breakdown.length) {
+throw new Error("team wallet breakdown is required for builder launches");
+}
+
+if (!approxEqual(breakdownTotal, builderCfg.team_allocation_pct)) {
+throw new Error("team wallet breakdown must equal team allocation");
+}
+}
+
+if (
+!Number.isFinite(builderCfg.builder_bond_sol) ||
+builderCfg.builder_bond_sol < MIN_BUILDER_BOND_SOL
+) {
+throw new Error(
+`builder bond must be at least ${MIN_BUILDER_BOND_SOL} SOL`
+);
+}
+}
+
+function parseLaunchJsonFields(row) {
+const teamWallets = Array.isArray(row?.team_wallets)
+? row.team_wallets
+: safeJsonParseArray(row?.team_wallets);
+
+const teamWalletBreakdown = Array.isArray(row?.team_wallet_breakdown)
+? row.team_wallet_breakdown
+: safeJsonParseArray(row?.team_wallet_breakdown);
+
+return {
+...row,
+team_allocation_pct: Number(row?.team_allocation_pct || 0),
+builder_bond_sol: Number(row?.builder_bond_sol || 0),
+team_wallets: teamWallets,
+team_wallet_breakdown: teamWalletBreakdown,
+};
 }
 
 function shapeLaunchForList(row) {
-const totalCommitted = Number(row.committed_sol || 0);
-const hardCap = Number(row.hard_cap_sol || 0);
+const parsed = parseLaunchJsonFields(row);
+const totalCommitted = Number(parsed.committed_sol || 0);
+const hardCap = Number(parsed.hard_cap_sol || 0);
 
 return {
-id: row.id,
-token_name: row.token_name,
-symbol: row.symbol,
-description: row.description,
-image_url: row.image_url,
-template: row.template,
-launch_type: row.launch_type,
-status: row.status,
-min_raise_sol: Number(row.min_raise_sol || 0),
+id: parsed.id,
+token_name: parsed.token_name,
+symbol: parsed.symbol,
+description: parsed.description,
+image_url: parsed.image_url,
+template: parsed.template,
+launch_type: parsed.launch_type,
+status: parsed.status,
+min_raise_sol: Number(parsed.min_raise_sol || 0),
 hard_cap_sol: hardCap,
 committed_sol: totalCommitted,
-participants_count: Number(row.participants_count || 0),
-launch_fee_pct: Number(row.launch_fee_pct || 0),
-liquidity_pct: Number(row.liquidity_pct || 0),
-participants_pct: Number(row.participants_pct || 0),
-reserve_pct: Number(row.reserve_pct || 0),
-builder_pct: Number(row.builder_pct || 0),
-countdown_started_at: row.countdown_started_at || null,
-countdown_ends_at: row.countdown_ends_at || null,
-live_at: row.live_at || null,
-builder_wallet: row.builder_wallet || null,
-builder_alias: row.builder_alias || null,
-builder_score: row.builder_score ?? null,
+participants_count: Number(parsed.participants_count || 0),
+launch_fee_pct: Number(parsed.launch_fee_pct || 0),
+liquidity_pct: Number(parsed.liquidity_pct || 0),
+participants_pct: Number(parsed.participants_pct || 0),
+reserve_pct: Number(parsed.reserve_pct || 0),
+builder_pct: Number(parsed.builder_pct || 0),
+team_allocation_pct: Number(parsed.team_allocation_pct || 0),
+team_wallets: parsed.team_wallets,
+team_wallet_breakdown: parsed.team_wallet_breakdown,
+builder_bond_sol: Number(parsed.builder_bond_sol || 0),
+countdown_started_at: parsed.countdown_started_at || null,
+countdown_ends_at: parsed.countdown_ends_at || null,
+live_at: parsed.live_at || null,
+builder_wallet: parsed.builder_wallet || null,
+builder_alias: parsed.builder_alias || null,
+builder_score: parsed.builder_score ?? null,
 commitPercent: buildCommitPercent(totalCommitted, hardCap),
 };
 }
@@ -382,10 +593,14 @@ liquidity_pct,
 participants_pct,
 reserve_pct,
 builder_pct,
+team_allocation_pct,
+team_wallets,
+team_wallet_breakdown,
+builder_bond_sol,
 committed_sol,
 participants_count,
 status
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 0, 'commit')
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 0, 'commit')
 `,
 [
 builder.id,
@@ -395,7 +610,9 @@ tokenName,
 symbol,
 description,
 imageUrl,
-template === "builder" ? String(req.body.supply || cfg.supply) : cfg.supply,
+template === "builder"
+? normalizeSupply(req.body.supply, cfg.supply)
+: cfg.supply,
 cfg.min_raise_sol,
 cfg.hard_cap_sol,
 5,
@@ -403,6 +620,10 @@ cfg.liquidity_pct,
 cfg.participants_pct,
 cfg.reserve_pct,
 cfg.builder_pct,
+builderCfg.team_allocation_pct,
+JSON.stringify(builderCfg.team_wallets),
+JSON.stringify(builderCfg.team_wallet_breakdown),
+builderCfg.builder_bond_sol,
 ]
 );
 
@@ -410,7 +631,7 @@ const launch = await getLaunchById(result.lastID);
 
 return res.json({
 ok: true,
-launch,
+launch: parseLaunchJsonFields(launch),
 builderConfig: builderCfg,
 });
 } catch (err) {
@@ -856,6 +1077,7 @@ if (!launch) {
 return res.status(404).json({ ok: false, error: "launch not found" });
 }
 
+const parsedLaunch = parseLaunchJsonFields(launch);
 const stats = await getCommitStats(launchId);
 
 const recent = await db.all(
@@ -872,17 +1094,21 @@ LIMIT 25
 return res.json({
 ok: true,
 launchId,
-status: launch.status,
-minRaise: Number(launch.min_raise_sol),
-hardCap: Number(launch.hard_cap_sol),
+status: parsedLaunch.status,
+minRaise: Number(parsedLaunch.min_raise_sol),
+hardCap: Number(parsedLaunch.hard_cap_sol),
 totalCommitted: stats.totalCommitted,
 participants: stats.participants,
 commitPercent: buildCommitPercent(
 stats.totalCommitted,
-launch.hard_cap_sol
+parsedLaunch.hard_cap_sol
 ),
-countdownStartedAt: launch.countdown_started_at || null,
-countdownEndsAt: launch.countdown_ends_at || null,
+countdownStartedAt: parsedLaunch.countdown_started_at || null,
+countdownEndsAt: parsedLaunch.countdown_ends_at || null,
+teamAllocationPct: Number(parsedLaunch.team_allocation_pct || 0),
+teamWallets: parsedLaunch.team_wallets,
+teamWalletBreakdown: parsedLaunch.team_wallet_breakdown,
+builderBondSol: Number(parsedLaunch.builder_bond_sol || 0),
 recent,
 });
 } catch (err) {
@@ -918,7 +1144,7 @@ Number(stats.totalCommitted),
 Number(launch.launch_fee_pct || 5)
 );
 
-const updatedLaunch = await getLaunchById(launchId);
+const updatedLaunch = parseLaunchJsonFields(await getLaunchById(launchId));
 
 return res.json({
 ok: true,
@@ -976,13 +1202,15 @@ if (!launch) {
 return res.status(404).json({ ok: false, error: "launch not found" });
 }
 
+const parsedLaunch = parseLaunchJsonFields(launch);
+
 return res.json({
 ok: true,
 launch: {
-...launch,
+...parsedLaunch,
 commitPercent: buildCommitPercent(
-launch.committed_sol,
-launch.hard_cap_sol
+parsedLaunch.committed_sol,
+parsedLaunch.hard_cap_sol
 ),
 },
 });
