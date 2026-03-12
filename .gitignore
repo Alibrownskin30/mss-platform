@@ -12,4 +12,4 @@ dist/
 *.db
 
 apps/api/apps/
-apps/api/**/data/apps/api/uploads/
+apps/api/uploads/
