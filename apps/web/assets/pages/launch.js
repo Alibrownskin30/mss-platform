@@ -1,23 +1,29 @@
+import {
+connectWallet as connectAnyWallet,
+disconnectWallet as disconnectAnyWallet,
+getConnectedWallet,
+getConnectedPublicKey,
+onWalletChange,
+restoreWalletIfTrusted,
+getMobileWalletHelpText,
+} from "../wallet.js";
+
 function $(id) {
 return document.getElementById(id);
 }
 
 function getApiBase() {
 const { protocol, hostname, port } = window.location;
+
 if (port === "3000") {
 return `${protocol}//${hostname}:8787`;
 }
-return `${protocol}//${hostname}${port ? `:${port}` : ""}`;
+
+if (hostname.includes("-3000.app.github.dev")) {
+return `${protocol}//${hostname.replace("-3000.app.github.dev", "-8787.app.github.dev")}`;
 }
 
-function getPhantomProvider() {
-if ("phantom" in window && window.phantom?.solana?.isPhantom) {
-return window.phantom.solana;
-}
-if (window.solana?.isPhantom) {
-return window.solana;
-}
-return null;
+return `${protocol}//${hostname}${port ? `:${port}` : ""}`;
 }
 
 function qs(name) {
@@ -100,7 +106,6 @@ el.textContent = message;
 
 let currentLaunch = null;
 let currentCommitStats = null;
-let connectedWallet = null;
 
 async function fetchJson(path, options = {}) {
 const apiBase = getApiBase();
@@ -285,23 +290,31 @@ const walletInput = $("commitWallet");
 const walletPill = $("walletPill");
 const connectBtn = $("connectWalletBtn");
 const disconnectBtn = $("disconnectWalletBtn");
+const walletHint = $("walletHint");
+const walletState = getConnectedWallet();
 
 if (walletInput) {
-walletInput.value = connectedWallet || "";
+walletInput.value = walletState.publicKey || "";
 }
 
 if (walletPill) {
-walletPill.textContent = connectedWallet
-? `Connected: ${shortenWallet(connectedWallet)}`
+walletPill.textContent = walletState.isConnected
+? `Connected: ${walletState.shortPublicKey}`
 : "No wallet connected";
 }
 
 if (connectBtn) {
-connectBtn.style.display = connectedWallet ? "none" : "inline-flex";
+connectBtn.style.display = walletState.isConnected ? "none" : "inline-flex";
 }
 
 if (disconnectBtn) {
-disconnectBtn.style.display = connectedWallet ? "inline-flex" : "none";
+disconnectBtn.style.display = walletState.isConnected ? "inline-flex" : "none";
+}
+
+if (walletHint) {
+walletHint.textContent = walletState.isConnected
+? `Connected via ${String(walletState.walletName || "wallet").replace(/\b\w/g, (m) => m.toUpperCase())}.`
+: "Use Connect Wallet to choose Phantom, Solflare, or Backpack.";
 }
 }
 
@@ -374,50 +387,31 @@ render();
 }
 
 async function connectWallet() {
-const provider = getPhantomProvider();
+try {
+const wallet = await connectAnyWallet();
+updateWalletUi();
 
-if (!provider) {
-setStatus("Phantom wallet not detected. Install Phantom to continue.", "bad");
+if (wallet?.isConnected) {
+setStatus(`Wallet connected: ${shortenWallet(wallet.publicKey)}`, "good");
 return;
 }
 
-try {
-const resp = await provider.connect();
-connectedWallet = resp?.publicKey?.toString() || null;
-updateWalletUi();
-setStatus(`Wallet connected: ${shortenWallet(connectedWallet)}`, "good");
+setStatus("Wallet connection cancelled.", "warn");
 } catch (err) {
-setStatus(err?.message || "Wallet connection failed.", "bad");
+const msg = err?.message || "Wallet connection failed.";
+setStatus(msg.includes("No supported wallet") ? getMobileWalletHelpText() : msg, "bad");
 }
 }
 
 async function disconnectWallet() {
-const provider = getPhantomProvider();
-
 try {
-if (provider?.disconnect) {
-await provider.disconnect();
-}
+await disconnectAnyWallet();
 } catch {
 // ignore
 }
 
-connectedWallet = null;
 updateWalletUi();
 setStatus("Wallet disconnected.", "warn");
-}
-
-async function restoreWalletIfTrusted() {
-const provider = getPhantomProvider();
-if (!provider) return;
-
-try {
-const resp = await provider.connect({ onlyIfTrusted: true });
-connectedWallet = resp?.publicKey?.toString() || null;
-updateWalletUi();
-} catch {
-// ignore
-}
 }
 
 async function onCommitSubmit(e) {
@@ -425,7 +419,7 @@ e.preventDefault();
 setStatus("");
 
 const id = qs("id");
-const wallet = connectedWallet || $("commitWallet")?.value?.trim() || "";
+const wallet = getConnectedPublicKey() || $("commitWallet")?.value?.trim() || "";
 const solAmount = Number($("commitAmount")?.value);
 
 if (!wallet) {
@@ -472,7 +466,7 @@ async function refundCommit() {
 setStatus("");
 
 const id = qs("id");
-const wallet = connectedWallet || $("commitWallet")?.value?.trim() || "";
+const wallet = getConnectedPublicKey() || $("commitWallet")?.value?.trim() || "";
 
 if (!wallet) {
 setStatus("Connect your wallet before refunding.", "bad");
@@ -555,23 +549,9 @@ function bindWalletEvents() {
 $("connectWalletBtn")?.addEventListener("click", connectWallet);
 $("disconnectWalletBtn")?.addEventListener("click", disconnectWallet);
 
-const provider = getPhantomProvider();
-if (provider?.on) {
-provider.on("accountChanged", (publicKey) => {
-connectedWallet = publicKey ? publicKey.toString() : null;
+onWalletChange(() => {
 updateWalletUi();
 });
-
-provider.on("disconnect", () => {
-connectedWallet = null;
-updateWalletUi();
-});
-
-provider.on("connect", (publicKey) => {
-connectedWallet = publicKey?.publicKey?.toString?.() || provider.publicKey?.toString?.() || connectedWallet;
-updateWalletUi();
-});
-}
 }
 
 async function init() {
@@ -582,6 +562,7 @@ $("refundBtn")?.addEventListener("click", refundCommit);
 $("startCountdownBtn")?.addEventListener("click", startCountdown);
 
 await restoreWalletIfTrusted();
+updateWalletUi();
 
 try {
 await refresh();

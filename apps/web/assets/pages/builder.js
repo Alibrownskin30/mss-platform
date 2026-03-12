@@ -4,9 +4,15 @@ return document.getElementById(id);
 
 function getApiBase() {
 const { protocol, hostname, port } = window.location;
+
 if (port === "3000") {
 return `${protocol}//${hostname}:8787`;
 }
+
+if (hostname.includes("-3000.app.github.dev")) {
+return `${protocol}//${hostname.replace("-3000.app.github.dev", "-8787.app.github.dev")}`;
+}
+
 return `${protocol}//${hostname}${port ? `:${port}` : ""}`;
 }
 

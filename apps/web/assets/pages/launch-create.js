@@ -1,4 +1,13 @@
 import { bindSessionUi } from "../auth.js";
+import {
+connectWallet as connectAnyWallet,
+disconnectWallet as disconnectAnyWallet,
+getConnectedWallet,
+getConnectedPublicKey,
+onWalletChange,
+restoreWalletIfTrusted,
+getMobileWalletHelpText,
+} from "../wallet.js";
 
 function $(id) {
 return document.getElementById(id);
@@ -6,9 +15,15 @@ return document.getElementById(id);
 
 function getApiBase() {
 const { protocol, hostname, port } = window.location;
+
 if (port === "3000") {
 return `${protocol}//${hostname}:8787`;
 }
+
+if (hostname.includes("-3000.app.github.dev")) {
+return `${protocol}//${hostname.replace("-3000.app.github.dev", "-8787.app.github.dev")}`;
+}
+
 return `${protocol}//${hostname}${port ? `:${port}` : ""}`;
 }
 
@@ -102,8 +117,6 @@ const TEAM_LABEL_OPTIONS = [
 "Custom",
 ];
 
-let connectedWallet = null;
-
 function getSelectedTemplate() {
 const key = $("template")?.value || "meme_lite";
 return {
@@ -145,7 +158,7 @@ updateTeamAllocationTotal();
 }
 
 function getWalletValue() {
-return connectedWallet || $("wallet")?.value.trim() || "";
+return getConnectedPublicKey() || "";
 }
 
 function getTeamWalletRows() {
@@ -169,7 +182,7 @@ return {
 index,
 label: label.trim(),
 wallet: (walletInput?.value || "").trim(),
-allocationPct: Number(allocationInput?.value || 0),
+pct: Number(allocationInput?.value || 0),
 };
 });
 }
@@ -182,7 +195,7 @@ return getTeamWalletBreakdown()
 
 function getTeamAllocationTotalValue() {
 return getTeamWalletBreakdown().reduce((sum, row) => {
-const n = Number(row.allocationPct || 0);
+const n = Number(row.pct || 0);
 return sum + (Number.isFinite(n) ? n : 0);
 }, 0);
 }
@@ -315,9 +328,17 @@ throw new Error(`Team wallet ${row.index + 1} needs a label.`);
 if (!row.wallet) {
 throw new Error(`Team wallet ${row.index + 1} needs an address.`);
 }
-if (!Number.isFinite(row.allocationPct) || row.allocationPct < 0) {
+if (!Number.isFinite(row.pct) || row.pct < 0) {
 throw new Error(`Team wallet ${row.index + 1} allocation is invalid.`);
 }
+}
+
+if (values.teamAllocation === 0 && values.teamWalletCount > 0) {
+throw new Error("Set a team allocation limit above 0 if team wallets are being used.");
+}
+
+if (values.teamAllocation > 0 && values.teamWalletCount === 0) {
+throw new Error("Add at least one team wallet when using team allocation.");
 }
 
 if (values.teamAllocationTotal > 15) {
@@ -326,6 +347,10 @@ throw new Error("Combined team wallet allocation cannot exceed 15%.");
 
 if (values.teamAllocation > 0 && values.teamAllocationTotal > values.teamAllocation) {
 throw new Error("Combined team wallet allocation exceeds the team allocation limit.");
+}
+
+if (values.teamAllocation > 0 && values.teamAllocationTotal !== values.teamAllocation) {
+throw new Error("Combined team wallet allocation must match the team allocation limit exactly.");
 }
 
 if (!Number.isFinite(values.builderBond) || values.builderBond < 5) {
@@ -360,21 +385,30 @@ const walletInput = $("wallet");
 const walletPill = $("walletPill");
 const connectBtn = $("connectWalletBtn");
 const disconnectBtn = $("disconnectWalletBtn");
+const walletHint = $("walletHint");
 
 if (!walletInput || !walletPill || !connectBtn || !disconnectBtn) return;
 
-if (connectedWallet) {
-walletInput.value = connectedWallet;
-walletPill.textContent = `Connected: ${shortenWallet(connectedWallet)}`;
+const walletState = getConnectedWallet();
+
+if (walletState.isConnected) {
+walletInput.value = walletState.publicKey || "";
+walletPill.textContent = `Connected: ${walletState.shortPublicKey}`;
 walletInput.readOnly = true;
 connectBtn.style.display = "none";
 disconnectBtn.style.display = "inline-flex";
+if (walletHint) {
+walletHint.textContent = `Connected via ${String(walletState.walletName || "wallet").replace(/\b\w/g, (m) => m.toUpperCase())}.`;
+}
 } else {
 walletInput.value = "";
 walletPill.textContent = "No wallet connected";
 walletInput.readOnly = true;
 connectBtn.style.display = "inline-flex";
 disconnectBtn.style.display = "none";
+if (walletHint) {
+walletHint.textContent = "Use Connect Wallet to choose Phantom, Solflare, or Backpack.";
+}
 }
 }
 
@@ -394,7 +428,7 @@ if (!container) return;
 container.innerHTML = "";
 
 for (let i = 0; i < count; i++) {
-const prev = existing[i] || { label: "Team", wallet: "", allocationPct: 0 };
+const prev = existing[i] || { label: "Team", wallet: "", pct: 0 };
 const selectedLabel = TEAM_LABEL_OPTIONS.includes(prev.label) ? prev.label : "Custom";
 const customLabel = selectedLabel === "Custom" ? prev.label : "";
 
@@ -414,7 +448,7 @@ ${buildLabelOptionsHtml(selectedLabel)}
 </div>
 <div class="field">
 <label>Allocation %</label>
-<input data-role="allocation" type="number" min="0" max="15" step="0.1" placeholder="0.0" value="${Number(prev.allocationPct || 0) || ""}" />
+<input data-role="allocation" type="number" min="0" max="15" step="0.1" placeholder="0.0" value="${Number(prev.pct || 0) || ""}" />
 </div>
 `;
 
@@ -485,64 +519,34 @@ img.style.display = "none";
 placeholder.style.display = "grid";
 }
 
-function getPhantomProvider() {
-if ("phantom" in window && window.phantom?.solana?.isPhantom) {
-return window.phantom.solana;
-}
-if (window.solana?.isPhantom) {
-return window.solana;
-}
-return null;
-}
-
 async function connectWallet() {
-const provider = getPhantomProvider();
+try {
+const wallet = await connectAnyWallet();
+updateWalletUi();
+updatePreview();
 
-if (!provider) {
-setStatus("bad", "Phantom wallet not detected. Install Phantom to continue.");
+if (wallet?.isConnected) {
+setStatus("good", `Wallet connected: ${shortenWallet(wallet.publicKey)}`);
 return;
 }
 
-try {
-const resp = await provider.connect();
-connectedWallet = resp?.publicKey?.toString() || null;
-updateWalletUi();
-updatePreview();
-setStatus("good", `Wallet connected: ${shortenWallet(connectedWallet)}`);
+setStatus("warn", "Wallet connection cancelled.");
 } catch (err) {
-setStatus("bad", err?.message || "Wallet connection failed.");
+const msg = err?.message || "Wallet connection failed.";
+setStatus("bad", msg.includes("No supported wallet") ? getMobileWalletHelpText() : msg);
 }
 }
 
 async function disconnectWallet() {
-const provider = getPhantomProvider();
-
 try {
-if (provider?.disconnect) {
-await provider.disconnect();
-}
+await disconnectAnyWallet();
 } catch {
 // ignore
 }
 
-connectedWallet = null;
 updateWalletUi();
 updatePreview();
 setStatus("warn", "Wallet disconnected.");
-}
-
-async function restoreWalletIfTrusted() {
-const provider = getPhantomProvider();
-if (!provider) return;
-
-try {
-const resp = await provider.connect({ onlyIfTrusted: true });
-connectedWallet = resp?.publicKey?.toString() || null;
-updateWalletUi();
-updatePreview();
-} catch {
-// ignore
-}
 }
 
 async function uploadLogo() {
@@ -779,23 +783,13 @@ function bindWalletEvents() {
 $("connectWalletBtn")?.addEventListener("click", connectWallet);
 $("disconnectWalletBtn")?.addEventListener("click", disconnectWallet);
 
-const provider = getPhantomProvider();
-if (provider?.on) {
-provider.on("accountChanged", (publicKey) => {
-connectedWallet = publicKey ? publicKey.toString() : null;
-updateWalletUi();
-updatePreview();
-});
-
-provider.on("disconnect", () => {
-connectedWallet = null;
+onWalletChange(() => {
 updateWalletUi();
 updatePreview();
 });
 }
-}
 
-function init() {
+async function init() {
 initSessionUi();
 applyTemplateValues();
 updateWalletUi();
@@ -804,7 +798,9 @@ bindWalletEvents();
 renderTeamWalletInputs();
 updatePreview();
 updateTeamAllocationTotal();
-restoreWalletIfTrusted();
+await restoreWalletIfTrusted();
+updateWalletUi();
+updatePreview();
 
 const form = $("launchCreateForm");
 if (form) {
