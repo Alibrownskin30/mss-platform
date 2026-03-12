@@ -607,17 +607,32 @@ overflow:auto;
 color:rgba(255,255,255,.85);
 }
 
-/* dropdown readability */
-select,
+/* global dropdown readability fix */
+select{
+color:#ffffff !important;
+background-color:#0b1018 !important;
+border:1px solid rgba(255,255,255,.12) !important;
+-webkit-appearance:none;
+-moz-appearance:none;
+appearance:none;
+}
+
 select:focus{
-color:var(--text);
-background:rgba(0,0,0,.28);
-border:1px solid rgba(255,255,255,.12);
+color:#ffffff !important;
+background-color:#0b1018 !important;
+border-color:rgba(77,163,255,.30) !important;
+outline:none;
+box-shadow:0 0 0 3px rgba(77,163,255,.12);
 }
 
 select option{
-background:#0b0f1a;
-color:rgba(255,255,255,.92);
+background-color:#0b1018 !important;
+color:#ffffff !important;
+}
+
+select optgroup{
+background-color:#0b1018 !important;
+color:#ffffff !important;
 }
 
 /* elite token layout helpers */

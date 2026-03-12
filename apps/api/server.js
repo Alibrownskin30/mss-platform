@@ -11,6 +11,7 @@ import { checkLaunchCountdowns } from "./services/launchWatcher.js";
 import marketRoutes from "./routes/market.js";
 import tokenRoutes from "./routes/token.js";
 import { startGraduationWatcher } from "./services/launcher/graduationWatcher.js";
+import uploadRoutes from "./routes/upload.js";
 
 import { Connection, PublicKey } from "@solana/web3.js";
 import pkg from "@metaplex-foundation/mpl-token-metadata";
@@ -28,7 +29,6 @@ import { startWatcher } from "./watcher.js";
 import { getClusterIntel } from "./cluster.js";
 import { createCassie } from "./cassie/index.js";
 import { buildSecurityModel } from "./intelligence/securityModel.js";
-import uploadRoutes from "./routes/upload.js";
 
 const { Metadata } = pkg;
 
@@ -47,12 +47,9 @@ crossOriginResourcePolicy: { policy: "cross-origin" },
 })
 );
 
-app.use("/api/upload", uploadRoutes);
-
-app.use("/uploads", express.static("uploads"));
-
 // ---- Body parsing ----
 app.use(express.json({ limit: process.env.BODY_LIMIT || "1mb" }));
+app.use(express.urlencoded({ extended: true, limit: process.env.BODY_LIMIT || "1mb" }));
 
 // ---- CORS ----
 const rawOrigins = (process.env.CORS_ORIGINS || "")
@@ -73,6 +70,10 @@ credentials: false,
 };
 
 app.use(cors(corsOptions));
+
+// ---- Uploads ----
+app.use("/api/upload", uploadRoutes);
+app.use("/uploads", express.static("uploads"));
 
 // ---- Baseline abuse protection (global) ----
 const limiter = rateLimit({

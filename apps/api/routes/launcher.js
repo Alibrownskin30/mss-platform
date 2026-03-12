@@ -6,6 +6,10 @@ const router = express.Router();
 
 const COUNTDOWN_MINUTES = 5;
 const MAX_WALLET_COMMIT_SOL = 1;
+const MAX_TEAM_WALLETS = 5;
+const MAX_TEAM_ALLOCATION_PCT = 15;
+const MIN_BUILDER_BOND_SOL = 5;
+
 const LAUNCH_FEE_SPLIT = {
 founder: 0.5,
 buyback: 0.3,
@@ -16,9 +20,59 @@ function cleanText(value, max = 280) {
 return String(value ?? "").trim().slice(0, max);
 }
 
+function cleanSymbol(value, max = 20) {
+return String(value ?? "")
+.toUpperCase()
+.replace(/[^A-Z0-9]/g, "")
+.slice(0, max);
+}
+
+function safeNumber(value, fallback = 0) {
+const n = Number(value);
+return Number.isFinite(n) ? n : fallback;
+}
+
+function clamp(n, min, max) {
+return Math.max(min, Math.min(max, n));
+}
+
+function parseTeamWallets(input) {
+if (!input) return [];
+if (Array.isArray(input)) {
+return input
+.map((v) => cleanText(v, 120))
+.filter(Boolean)
+.slice(0, MAX_TEAM_WALLETS);
+}
+
+try {
+const parsed = JSON.parse(String(input));
+if (Array.isArray(parsed)) {
+return parsed
+.map((v) => cleanText(v, 120))
+.filter(Boolean)
+.slice(0, MAX_TEAM_WALLETS);
+}
+} catch {
+// ignore
+}
+
+return [];
+}
+
 function getTemplateConfig(template) {
 const configs = {
 degen: {
+launch_type: "degen",
+supply: "1000000000",
+min_raise_sol: 10,
+hard_cap_sol: 50,
+liquidity_pct: 20,
+participants_pct: 45,
+reserve_pct: 30,
+builder_pct: 5,
+},
+degen_zone: {
 launch_type: "degen",
 supply: "1000000000",
 min_raise_sol: 10,
@@ -51,8 +105,18 @@ builder_pct: 5,
 builder: {
 launch_type: "main",
 supply: "1000000000",
-min_raise_sol: 100,
-hard_cap_sol: 300,
+min_raise_sol: 50,
+hard_cap_sol: 250,
+liquidity_pct: 20,
+participants_pct: 45,
+reserve_pct: 30,
+builder_pct: 5,
+},
+community: {
+launch_type: "main",
+supply: "1000000000",
+min_raise_sol: 40,
+hard_cap_sol: 200,
 liquidity_pct: 20,
 participants_pct: 45,
 reserve_pct: 30,
@@ -68,6 +132,118 @@ const total = Number(totalCommitted || 0);
 const cap = Number(hardCap || 0);
 if (cap <= 0) return 0;
 return Math.max(0, Math.min(100, Math.floor((total / cap) * 100)));
+}
+
+function buildFeeBreakdown(totalCommitted, launchFeePct = 5) {
+const feeTotal = totalCommitted * (Number(launchFeePct) / 100);
+const founderFee = feeTotal * LAUNCH_FEE_SPLIT.founder;
+const buybackFee = feeTotal * LAUNCH_FEE_SPLIT.buyback;
+const treasuryFee = feeTotal * LAUNCH_FEE_SPLIT.treasury;
+const netRaiseAfterFee = totalCommitted - feeTotal;
+
+return {
+launchFeePct: Number(launchFeePct),
+totalCommitted,
+feeTotal,
+founderFee,
+buybackFee,
+treasuryFee,
+netRaiseAfterFee,
+};
+}
+
+function shapeBuilderConfig(template, reqBody) {
+if (template !== "builder") {
+return {
+team_allocation_pct: 0,
+team_wallets: [],
+builder_bond_sol: 0,
+};
+}
+
+const teamAllocationPct = safeNumber(reqBody.team_allocation_pct, reqBody.teamAllocation);
+const builderBondSol = safeNumber(reqBody.builder_bond_sol, reqBody.builderBond);
+const teamWallets = parseTeamWallets(reqBody.team_wallets ?? reqBody.teamWallets);
+
+return {
+team_allocation_pct: clamp(teamAllocationPct, 0, MAX_TEAM_ALLOCATION_PCT),
+team_wallets: teamWallets,
+builder_bond_sol: builderBondSol,
+};
+}
+
+function validateBuilderConfig(template, cfg, builderCfg) {
+if (!cfg) {
+throw new Error("invalid template");
+}
+
+if (Number(cfg.min_raise_sol) <= 0) {
+throw new Error("invalid minimum raise");
+}
+
+if (Number(cfg.hard_cap_sol) <= Number(cfg.min_raise_sol)) {
+throw new Error("hard cap must be greater than minimum raise");
+}
+
+if (template !== "builder") {
+return;
+}
+
+if (!Number.isFinite(builderCfg.team_allocation_pct) || builderCfg.team_allocation_pct < 0) {
+throw new Error("invalid team allocation");
+}
+
+if (builderCfg.team_allocation_pct > MAX_TEAM_ALLOCATION_PCT) {
+throw new Error(`team allocation cannot exceed ${MAX_TEAM_ALLOCATION_PCT}%`);
+}
+
+if (!Array.isArray(builderCfg.team_wallets)) {
+throw new Error("team wallets must be an array");
+}
+
+if (builderCfg.team_wallets.length > MAX_TEAM_WALLETS) {
+throw new Error(`team wallets cannot exceed ${MAX_TEAM_WALLETS}`);
+}
+
+if (builderCfg.team_wallets.some((wallet) => !wallet)) {
+throw new Error("invalid team wallet entry");
+}
+
+if (!Number.isFinite(builderCfg.builder_bond_sol) || builderCfg.builder_bond_sol < MIN_BUILDER_BOND_SOL) {
+throw new Error(`builder bond must be at least ${MIN_BUILDER_BOND_SOL} SOL`);
+}
+}
+
+function shapeLaunchForList(row) {
+const totalCommitted = Number(row.committed_sol || 0);
+const hardCap = Number(row.hard_cap_sol || 0);
+
+return {
+id: row.id,
+token_name: row.token_name,
+symbol: row.symbol,
+description: row.description,
+image_url: row.image_url,
+template: row.template,
+launch_type: row.launch_type,
+status: row.status,
+min_raise_sol: Number(row.min_raise_sol || 0),
+hard_cap_sol: hardCap,
+committed_sol: totalCommitted,
+participants_count: Number(row.participants_count || 0),
+launch_fee_pct: Number(row.launch_fee_pct || 0),
+liquidity_pct: Number(row.liquidity_pct || 0),
+participants_pct: Number(row.participants_pct || 0),
+reserve_pct: Number(row.reserve_pct || 0),
+builder_pct: Number(row.builder_pct || 0),
+countdown_started_at: row.countdown_started_at || null,
+countdown_ends_at: row.countdown_ends_at || null,
+live_at: row.live_at || null,
+builder_wallet: row.builder_wallet || null,
+builder_alias: row.builder_alias || null,
+builder_score: row.builder_score ?? null,
+commitPercent: buildCommitPercent(totalCommitted, hardCap),
+};
 }
 
 async function getLaunchById(launchId) {
@@ -139,55 +315,6 @@ WHERE id = ?
 return getLaunchById(launchId);
 }
 
-function buildFeeBreakdown(totalCommitted, launchFeePct = 5) {
-const feeTotal = totalCommitted * (Number(launchFeePct) / 100);
-const founderFee = feeTotal * LAUNCH_FEE_SPLIT.founder;
-const buybackFee = feeTotal * LAUNCH_FEE_SPLIT.buyback;
-const treasuryFee = feeTotal * LAUNCH_FEE_SPLIT.treasury;
-const netRaiseAfterFee = totalCommitted - feeTotal;
-
-return {
-launchFeePct: Number(launchFeePct),
-totalCommitted,
-feeTotal,
-founderFee,
-buybackFee,
-treasuryFee,
-netRaiseAfterFee,
-};
-}
-
-function shapeLaunchForList(row) {
-const totalCommitted = Number(row.committed_sol || 0);
-const hardCap = Number(row.hard_cap_sol || 0);
-return {
-id: row.id,
-token_name: row.token_name,
-symbol: row.symbol,
-description: row.description,
-image_url: row.image_url,
-template: row.template,
-launch_type: row.launch_type,
-status: row.status,
-min_raise_sol: Number(row.min_raise_sol || 0),
-hard_cap_sol: hardCap,
-committed_sol: totalCommitted,
-participants_count: Number(row.participants_count || 0),
-launch_fee_pct: Number(row.launch_fee_pct || 0),
-liquidity_pct: Number(row.liquidity_pct || 0),
-participants_pct: Number(row.participants_pct || 0),
-reserve_pct: Number(row.reserve_pct || 0),
-builder_pct: Number(row.builder_pct || 0),
-countdown_started_at: row.countdown_started_at || null,
-countdown_ends_at: row.countdown_ends_at || null,
-live_at: row.live_at || null,
-builder_wallet: row.builder_wallet || null,
-builder_alias: row.builder_alias || null,
-builder_score: row.builder_score ?? null,
-commitPercent: buildCommitPercent(totalCommitted, hardCap),
-};
-}
-
 //
 // CREATE LAUNCH
 //
@@ -196,7 +323,7 @@ try {
 const wallet = cleanText(req.body.wallet, 100);
 const template = cleanText(req.body.template, 40);
 const tokenName = cleanText(req.body.token_name, 60);
-const symbol = cleanText(req.body.symbol, 20).toUpperCase();
+const symbol = cleanSymbol(req.body.symbol, 20);
 const description = cleanText(req.body.description, 500);
 const imageUrl = cleanText(req.body.image_url, 500);
 
@@ -219,25 +346,21 @@ return res.status(400).json({ ok: false, error: "symbol is required" });
 const builder = await getBuilderByWallet(wallet);
 
 if (!builder) {
-return res
-.status(404)
-.json({ ok: false, error: "builder profile not found" });
+return res.status(404).json({
+ok: false,
+error: "builder profile not found",
+});
 }
 
 const cfg = getTemplateConfig(template);
+const builderCfg = shapeBuilderConfig(template, req.body);
 
-if (!cfg) {
-return res.status(400).json({ ok: false, error: "invalid template" });
-}
-
-if (Number(cfg.min_raise_sol) <= 0) {
-return res.status(400).json({ ok: false, error: "invalid minimum raise" });
-}
-
-if (Number(cfg.hard_cap_sol) <= Number(cfg.min_raise_sol)) {
+try {
+validateBuilderConfig(template, cfg, builderCfg);
+} catch (validationErr) {
 return res.status(400).json({
 ok: false,
-error: "hard cap must be greater than minimum raise",
+error: validationErr.message,
 });
 }
 
@@ -272,7 +395,7 @@ tokenName,
 symbol,
 description,
 imageUrl,
-cfg.supply,
+template === "builder" ? String(req.body.supply || cfg.supply) : cfg.supply,
 cfg.min_raise_sol,
 cfg.hard_cap_sol,
 5,
@@ -285,7 +408,11 @@ cfg.builder_pct,
 
 const launch = await getLaunchById(result.lastID);
 
-return res.json({ ok: true, launch });
+return res.json({
+ok: true,
+launch,
+builderConfig: builderCfg,
+});
 } catch (err) {
 console.error("POST /api/launcher/create failed:", err);
 return res.status(500).json({ ok: false, error: "internal server error" });
@@ -303,15 +430,11 @@ const wallet = cleanText(req.body.wallet, 100);
 const solAmount = Number(req.body.solAmount);
 
 if (!launchId || !wallet || !Number.isFinite(solAmount)) {
-return res
-.status(400)
-.json({ ok: false, error: "missing or invalid fields" });
+return res.status(400).json({ ok: false, error: "missing or invalid fields" });
 }
 
 if (solAmount <= 0) {
-return res
-.status(400)
-.json({ ok: false, error: "solAmount must be greater than 0" });
+return res.status(400).json({ ok: false, error: "solAmount must be greater than 0" });
 }
 
 const launch = await getLaunchById(launchId);
@@ -376,7 +499,7 @@ let updatedLaunch = await getLaunchById(launchId);
 
 if (
 updatedLaunch.status === "commit" &&
-Number(stats.totalCommitted) >= Number(updatedLaunch.hard_cap_sol)
+Number(stats.totalCommitted) >= Number(updatedLaunch.min_raise_sol)
 ) {
 updatedLaunch = await beginCountdown(launchId);
 }
@@ -413,9 +536,10 @@ const launchId = Number(req.body.launchId);
 const wallet = cleanText(req.body.wallet, 100);
 
 if (!launchId || !wallet) {
-return res
-.status(400)
-.json({ ok: false, error: "launchId and wallet are required" });
+return res.status(400).json({
+ok: false,
+error: "launchId and wallet are required",
+});
 }
 
 const launch = await getLaunchById(launchId);
@@ -534,9 +658,7 @@ updatedLaunch.hard_cap_sol
 });
 } catch (err) {
 console.error("POST /api/launcher/:id/start-countdown failed:", err);
-return res
-.status(500)
-.json({ ok: false, error: "failed to start countdown" });
+return res.status(500).json({ ok: false, error: "failed to start countdown" });
 }
 });
 
@@ -553,9 +675,7 @@ return res.status(404).json({ ok: false, error: "launch not found" });
 }
 
 if (launch.status !== "countdown") {
-return res
-.status(400)
-.json({ ok: false, error: "launch is not in countdown" });
+return res.status(400).json({ ok: false, error: "launch is not in countdown" });
 }
 
 await db.run(
@@ -579,9 +699,7 @@ status: updatedLaunch.status,
 });
 } catch (err) {
 console.error("POST /api/launcher/:id/cancel-countdown failed:", err);
-return res
-.status(500)
-.json({ ok: false, error: "failed to cancel countdown" });
+return res.status(500).json({ ok: false, error: "failed to cancel countdown" });
 }
 });
 
@@ -599,9 +717,7 @@ return res.status(404).json({ ok: false, error: "launch not found" });
 }
 
 if (launch.status !== "countdown") {
-return res
-.status(400)
-.json({ ok: false, error: "launch is not in countdown" });
+return res.status(400).json({ ok: false, error: "launch is not in countdown" });
 }
 
 const countdownCheck = await db.get(
@@ -657,7 +773,6 @@ WHERE id = ?
 );
 
 const updatedLaunch = await getLaunchById(launchId);
-
 const allocationResult = await buildLaunchAllocations(launchId);
 const feeBreakdown = buildFeeBreakdown(
 Number(stats.totalCommitted),
@@ -680,9 +795,10 @@ execution: allocationResult,
 });
 } catch (err) {
 console.error("POST /api/launcher/:id/finalize failed:", err);
-return res
-.status(400)
-.json({ ok: false, error: err.message || "finalize failed" });
+return res.status(400).json({
+ok: false,
+error: err.message || "finalize failed",
+});
 }
 });
 
@@ -771,9 +887,7 @@ recent,
 });
 } catch (err) {
 console.error("GET /api/launcher/commits/:launchId failed:", err);
-return res
-.status(500)
-.json({ ok: false, error: "failed to fetch commit stats" });
+return res.status(500).json({ ok: false, error: "failed to fetch commit stats" });
 }
 });
 

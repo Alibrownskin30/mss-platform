@@ -355,11 +355,32 @@ transition:.16s ease;
 }
 
 input:focus,
-select:focus,
 textarea:focus{
 border-color:rgba(0,255,209,.28);
 box-shadow:0 0 0 4px rgba(0,255,209,.08);
 background:rgba(255,255,255,.05);
+}
+
+select{
+color:#ffffff !important;
+background-color:#0b1018 !important;
+border:1px solid rgba(255,255,255,.12) !important;
+-webkit-appearance:none;
+-moz-appearance:none;
+appearance:none;
+}
+
+select:focus{
+color:#ffffff !important;
+background-color:#0b1018 !important;
+border-color:rgba(0,255,209,.28) !important;
+box-shadow:0 0 0 4px rgba(0,255,209,.08);
+}
+
+select option,
+select optgroup{
+color:#ffffff !important;
+background-color:#0b1018 !important;
 }
 
 input[readonly]{
@@ -642,17 +663,46 @@ display:grid;
 gap:14px;
 }
 
-#teamWalletInputs{
+.team-wallet-list{
 display:grid;
-gap:10px;
+gap:12px;
 }
+
+.team-wallet-row{
+display:grid;
+grid-template-columns:1fr 1.3fr .7fr;
+gap:10px;
+padding:12px;
+border:1px solid rgba(255,255,255,.10);
+border-radius:16px;
+background:rgba(255,255,255,.03);
+}
+
+.team-summary{
+display:flex;
+justify-content:space-between;
+align-items:center;
+gap:12px;
+padding:12px 14px;
+border:1px solid rgba(255,255,255,.10);
+border-radius:16px;
+background:rgba(255,255,255,.03);
+font-size:13px;
+}
+
+.team-summary strong{
+font-size:15px;
+}
+
+.team-total.good{ color:var(--good); }
+.team-total.warn{ color:var(--warn); }
+.team-total.bad{ color:var(--bad); }
 
 @media (max-width:980px){
 .hero,
 .layout{
 grid-template-columns:1fr;
 }
-
 .aside-card{
 position:static;
 }
@@ -676,7 +726,8 @@ flex-wrap:wrap;
 }
 h1{font-size:32px}
 .field-grid,
-.kv{
+.kv,
+.team-wallet-row{
 grid-template-columns:1fr;
 }
 }
@@ -723,7 +774,7 @@ grid-template-columns:1fr;
 <div class="kicker"><span class="k-dot"></span> Builder Launch Flow</div>
 <h1>Create a Security-First MSS Launch</h1>
 <p>
-Template economics are fixed by MSS by default. The Builder template unlocks more structured project controls, including supply presets, team wallets, capped team allocation, and a builder bond.
+Template economics are fixed by MSS by default. The Builder template unlocks more structured project controls, including supply presets, labeled team wallets, capped team allocation, and a builder bond.
 </p>
 <div class="pill-row">
 <span class="chip">Fixed Template Supply</span>
@@ -740,7 +791,7 @@ Template economics are fixed by MSS by default. The Builder template unlocks mor
 </div>
 <div class="side-stat">
 <div class="k">Builder Template</div>
-<div class="v">Preset supply, team wallets, capped allocation, and 90-day bond</div>
+<div class="v">Preset supply, labeled wallets, capped allocation, and 90-day bond</div>
 </div>
 <div class="side-stat">
 <div class="k">After Create</div>
@@ -837,7 +888,7 @@ Template economics are fixed by MSS by default. The Builder template unlocks mor
 </div>
 
 <div class="field full template-builder-only" id="builderExtras">
-<div class="template-builder-only" id="builderExtrasWrap">
+<div id="builderExtrasWrap">
 <div class="field-grid">
 <div class="field">
 <label for="teamWalletCount">Team Wallet Count</label>
@@ -853,9 +904,9 @@ Template economics are fixed by MSS by default. The Builder template unlocks mor
 </div>
 
 <div class="field">
-<label for="teamAllocation">Team Allocation (%)</label>
+<label for="teamAllocation">Team Allocation Limit (%)</label>
 <input id="teamAllocation" name="teamAllocation" type="number" min="0" max="15" step="0.1" placeholder="Max 15%" />
-<div class="hint">Team allocation cannot exceed 15%.</div>
+<div class="hint">Combined wallet allocations cannot exceed this amount or 15%, whichever is lower.</div>
 </div>
 
 <div class="field">
@@ -866,9 +917,13 @@ Template economics are fixed by MSS by default. The Builder template unlocks mor
 </div>
 
 <div class="field full">
-<label>Team Wallet Addresses</label>
-<div id="teamWalletInputs"></div>
-<div class="hint">These wallets are intended for transparent builder/team allocation tracking.</div>
+<label>Team Wallet Breakdown</label>
+<div id="teamWalletInputs" class="team-wallet-list"></div>
+<div class="team-summary">
+<span>Current Team Allocation Total</span>
+<strong id="teamAllocationTotal" class="team-total good">0.00%</strong>
+</div>
+<div class="hint">Example labels: Marketing, Team, Treasury, Advisors.</div>
 </div>
 </div>
 </div>
@@ -935,7 +990,7 @@ Template economics are fixed by MSS by default. The Builder template unlocks mor
 </div>
 <div class="mini-item">
 <div class="title">Builder Controls</div>
-<div class="copy">Builder template supports supply presets, visible team wallets, capped team allocation, and a 90-day SOL bond.</div>
+<div class="copy">Builder template supports supply presets, labeled team wallets, capped wallet allocation, and a 90-day SOL bond.</div>
 </div>
 </div>
 </div>
