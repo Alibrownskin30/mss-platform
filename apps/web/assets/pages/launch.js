@@ -2,7 +2,13 @@ function $(id) {
 return document.getElementById(id);
 }
 
-const API_BASE = "http://127.0.0.1:8787";
+function getApiBase() {
+const { protocol, hostname, port } = window.location;
+if (port === "3000") {
+return `${protocol}//${hostname}:8787`;
+}
+return `${protocol}//${hostname}${port ? `:${port}` : ""}`;
+}
 
 function qs(name) {
 return new URLSearchParams(window.location.search).get(name);
@@ -78,7 +84,8 @@ let currentLaunch = null;
 let currentCommitStats = null;
 
 async function fetchJson(path, options = {}) {
-const res = await fetch(`${API_BASE}${path}`, options);
+const apiBase = getApiBase();
+const res = await fetch(`${apiBase}${path}`, options);
 const data = await res.json().catch(() => null);
 
 if (!res.ok || (data && data.ok === false)) {
@@ -219,6 +226,41 @@ builderAliasEl.textContent = `${launch.builder_alias || launch.builder_wallet ||
 builderScoreEl.textContent = `${builderScore} (${builderTrust.label})`;
 }
 
+function renderProgressCard(launch, committed, hardCap, minRaise, participants, pct) {
+const headline = $("progressHeadline");
+const subline = $("progressSubline");
+const text = $("progressText");
+const pctEl = $("progressPct");
+const fill = $("progressFill");
+const pill = $("progressStatusPill");
+
+if (headline) headline.textContent = `${committed} / ${hardCap} SOL committed`;
+if (text) text.textContent = `${committed} / ${hardCap} SOL committed`;
+if (pctEl) pctEl.textContent = `${pct}%`;
+if (fill) fill.style.width = `${pct}%`;
+
+if (pill) {
+pill.textContent = badgeText(launch.status);
+pill.className = `status-pill ${launch.status || "commit"}`;
+}
+
+if (subline) {
+if (launch.status === "commit") {
+const minRemaining = Math.max(0, minRaise - committed);
+subline.textContent =
+committed >= minRaise
+? `Minimum raise reached • ${participants} participant${participants === 1 ? "" : "s"}`
+: `${minRemaining} SOL until minimum raise • ${participants} participant${participants === 1 ? "" : "s"}`;
+} else if (launch.status === "countdown") {
+subline.textContent = `Countdown active • ${participants} participant${participants === 1 ? "" : "s"}`;
+} else if (launch.status === "live") {
+subline.textContent = `Launch is live • ${participants} participant${participants === 1 ? "" : "s"}`;
+} else {
+subline.textContent = `Launch status • ${participants} participant${participants === 1 ? "" : "s"}`;
+}
+}
+}
+
 function render() {
 if (!currentLaunch || !currentCommitStats) return;
 
@@ -247,10 +289,7 @@ $("reservePctStat").textContent = `${safeNum(launch.reserve_pct)}%`;
 $("builderPctStat").textContent = `${safeNum(launch.builder_pct)}%`;
 
 renderLogo(launch.image_url);
-
-$("progressText").textContent = `${committed} / ${hardCap} SOL committed`;
-$("progressPct").textContent = `${pct}%`;
-$("progressFill").style.width = `${pct}%`;
+renderProgressCard(launch, committed, hardCap, minRaise, participants, pct);
 
 $("participantsStat").textContent = String(participants);
 $("minRaiseStat").textContent = `${minRaise} SOL`;

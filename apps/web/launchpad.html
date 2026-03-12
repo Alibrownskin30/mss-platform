@@ -280,6 +280,7 @@ font-weight:800;
 letter-spacing:.08em;
 text-transform:uppercase;
 font-size:12px;
+cursor:pointer;
 }
 .cta.primary{
 border-color:rgba(0,255,209,.22);
@@ -485,6 +486,10 @@ background:rgba(255,209,102,.10);
 border-color:rgba(53,245,163,.22);
 background:rgba(53,245,163,.10);
 }
+.badge.failed{
+border-color:rgba(255,91,107,.22);
+background:rgba(255,91,107,.10);
+}
 
 .kv{
 display:grid;
@@ -633,6 +638,13 @@ width:100%;
 width:100%;
 min-width:100%;
 }
+.hero-actions{
+flex-direction:column;
+align-items:stretch;
+}
+.cta{
+width:100%;
+}
 }
 
 @media (max-width:520px){
@@ -692,11 +704,12 @@ Create launches, track commit momentum, monitor countdown phases, and follow liv
 
 <div class="hero-actions">
 <a class="cta primary" href="./launch-create.html">Create Launch</a>
+<a class="cta" id="myBuilderProfileBtn" href="./builder.html">My Builder Profile</a>
 <a class="cta" href="./methodology.html">Launch Rules</a>
 </div>
 
 <div class="launch-builder-note">
-Before public launch, builder creation should support logo upload, token metadata, and launch branding.
+Wallet-connected builder profiles should be visible and editable directly from launchpad.
 </div>
 </div>
 
@@ -761,6 +774,34 @@ Before public launch, builder creation should support logo upload, token metadat
 import { bindSessionUi } from "./assets/auth.js";
 import "./assets/pages/launches.js";
 
+function getPhantomProvider() {
+if ("phantom" in window && window.phantom?.solana?.isPhantom) {
+return window.phantom.solana;
+}
+if (window.solana?.isPhantom) {
+return window.solana;
+}
+return null;
+}
+
+function setBuilderButtonHref() {
+const btn = document.getElementById("myBuilderProfileBtn");
+if (!btn) return;
+
+const provider = getPhantomProvider();
+const connectedWallet =
+provider?.publicKey?.toString?.() ||
+window.phantom?.solana?.publicKey?.toString?.() ||
+window.solana?.publicKey?.toString?.() ||
+"";
+
+if (connectedWallet) {
+btn.href = `./builder.html?wallet=${encodeURIComponent(connectedWallet)}`;
+} else {
+btn.href = "./builder.html";
+}
+}
+
 bindSessionUi({
 sessionPillId: "sessionPill",
 sessionDotId: "sessionDot",
@@ -772,6 +813,23 @@ onLogout() {
 window.location.reload();
 },
 });
+
+setBuilderButtonHref();
+
+const provider = getPhantomProvider();
+if (provider?.on) {
+provider.on("accountChanged", () => {
+setBuilderButtonHref();
+});
+
+provider.on("connect", () => {
+setBuilderButtonHref();
+});
+
+provider.on("disconnect", () => {
+setBuilderButtonHref();
+});
+}
 </script>
 </body>
 </html>

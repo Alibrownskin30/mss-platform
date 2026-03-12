@@ -19,6 +19,14 @@ if (n >= 55) return { label: "Moderate", state: "warn" };
 return { label: "Early", state: "neutral" };
 }
 
+function shapeBuilder(row) {
+return {
+...row,
+builder_score: safeNum(row?.builder_score, 0),
+trust: buildTrust(row?.builder_score),
+};
+}
+
 //
 // CREATE BUILDER PROFILE
 //
@@ -63,9 +71,58 @@ const builder = await db.get(
 [result.lastID]
 );
 
-return res.json({ ok: true, builder });
+return res.json({ ok: true, builder: shapeBuilder(builder) });
 } catch (err) {
 console.error("POST /api/builders/create failed:", err);
+return res.status(500).json({ ok: false, error: "internal server error" });
+}
+});
+
+//
+// UPDATE BUILDER PROFILE
+//
+router.post("/update", async (req, res) => {
+try {
+const wallet = cleanText(req.body.wallet, 100);
+const alias = cleanText(req.body.alias, 60);
+
+if (!wallet) {
+return res.status(400).json({ ok: false, error: "wallet is required" });
+}
+
+if (!alias) {
+return res.status(400).json({ ok: false, error: "alias is required" });
+}
+
+const existing = await db.get(
+`SELECT * FROM builders WHERE wallet = ?`,
+[wallet]
+);
+
+if (!existing) {
+return res.status(404).json({ ok: false, error: "builder not found" });
+}
+
+await db.run(
+`
+UPDATE builders
+SET alias = ?
+WHERE wallet = ?
+`,
+[alias, wallet]
+);
+
+const updated = await db.get(
+`SELECT * FROM builders WHERE wallet = ?`,
+[wallet]
+);
+
+return res.json({
+ok: true,
+builder: shapeBuilder(updated),
+});
+} catch (err) {
+console.error("POST /api/builders/update failed:", err);
 return res.status(500).json({ ok: false, error: "internal server error" });
 }
 });
@@ -88,10 +145,8 @@ ORDER BY b.builder_score DESC, b.id DESC
 );
 
 const builders = rows.map((row) => ({
-...row,
-builder_score: safeNum(row.builder_score, 0),
+...shapeBuilder(row),
 total_launches: safeNum(row.total_launches, 0),
-trust: buildTrust(row.builder_score),
 }));
 
 return res.json({ ok: true, builders });
@@ -151,11 +206,7 @@ failed: launches.filter((x) => x.status === "failed").length,
 
 return res.json({
 ok: true,
-builder: {
-...builder,
-builder_score: safeNum(builder.builder_score, 0),
-trust: buildTrust(builder.builder_score),
-},
+builder: shapeBuilder(builder),
 totals,
 launches: launches.map((launch) => ({
 ...launch,

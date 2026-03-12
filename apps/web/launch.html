@@ -282,10 +282,44 @@ background:rgba(255,209,102,.10);
 border-color:rgba(53,245,163,.22);
 background:rgba(53,245,163,.10);
 }
-.status-pill.failed,
+.status-pill.failed{
+border-color:rgba(255,91,107,.20);
+background:rgba(255,91,107,.10);
+}
 .status-pill.graduated{
 border-color:rgba(255,255,255,.14);
 background:rgba(255,255,255,.06);
+}
+
+.progress-card{
+margin-top:22px;
+padding:18px;
+border:1px solid rgba(255,255,255,.10);
+background:rgba(255,255,255,.03);
+border-radius:20px;
+}
+
+.progress-card-top{
+display:flex;
+justify-content:space-between;
+align-items:flex-start;
+gap:12px;
+flex-wrap:wrap;
+margin-bottom:14px;
+}
+
+.progress-card-title{
+font-size:20px;
+font-weight:800;
+line-height:1.1;
+}
+
+.progress-card-sub{
+margin-top:4px;
+font-size:12px;
+color:var(--muted2);
+letter-spacing:.08em;
+text-transform:uppercase;
 }
 
 .progress-wrap{
@@ -315,6 +349,33 @@ width:0%;
 background:linear-gradient(90deg, rgba(0,255,209,.95), rgba(58,160,255,.95));
 box-shadow:0 0 20px rgba(0,255,209,.18);
 transition:width .25s ease;
+}
+
+.commit-kpis{
+display:grid;
+grid-template-columns:1fr 1fr;
+gap:12px;
+margin-top:14px;
+}
+
+.commit-kpi{
+border:1px solid rgba(255,255,255,.10);
+background:rgba(255,255,255,.03);
+border-radius:16px;
+padding:14px;
+}
+
+.commit-kpi .k{
+font-size:11px;
+color:var(--muted2);
+text-transform:uppercase;
+letter-spacing:.12em;
+}
+
+.commit-kpi .v{
+margin-top:8px;
+font-size:24px;
+font-weight:800;
 }
 
 .stats{
@@ -514,14 +575,16 @@ height:96px;
 @media (max-width:620px){
 h1{ font-size:32px; }
 .stats,
-.allocation-grid{
+.allocation-grid,
+.commit-kpis{
 grid-template-columns:1fr 1fr;
 }
 }
 
 @media (max-width:500px){
 .stats,
-.allocation-grid{
+.allocation-grid,
+.commit-kpis{
 grid-template-columns:1fr;
 }
 }
@@ -583,8 +646,16 @@ grid-template-columns:1fr;
 <div id="phaseNote" class="phase-note">Loading launch state…</div>
 </div>
 
-<div style="margin-top:22px;">
+<div class="progress-card">
 <div class="section-title">Commit Progress</div>
+
+<div class="progress-card-top">
+<div>
+<div class="progress-card-title" id="progressHeadline">0 / 0 SOL committed</div>
+<div class="progress-card-sub" id="progressSubline">Launch commit status</div>
+</div>
+<div id="progressStatusPill" class="status-pill commit">Commit</div>
+</div>
 
 <div class="progress-wrap">
 <div class="progress-top">
@@ -596,20 +667,20 @@ grid-template-columns:1fr;
 </div>
 </div>
 
-<div class="stats">
-<div class="stat">
+<div class="commit-kpis">
+<div class="commit-kpi">
 <div class="k">Participants</div>
 <div class="v" id="participantsStat">0</div>
 </div>
-<div class="stat">
+<div class="commit-kpi">
 <div class="k">Minimum Raise</div>
 <div class="v" id="minRaiseStat">0 SOL</div>
 </div>
-<div class="stat">
+<div class="commit-kpi">
 <div class="k">Hard Cap</div>
 <div class="v" id="hardCapStat">0 SOL</div>
 </div>
-<div class="stat">
+<div class="commit-kpi">
 <div class="k">Countdown / Live</div>
 <div class="v" id="timeStat">—</div>
 </div>

@@ -2,6 +2,14 @@ function $(id) {
 return document.getElementById(id);
 }
 
+function getApiBase() {
+const { protocol, hostname, port } = window.location;
+if (port === "3000") {
+return `${protocol}//${hostname}:8787`;
+}
+return `${protocol}//${hostname}${port ? `:${port}` : ""}`;
+}
+
 function clamp(n, min, max) {
 return Math.max(min, Math.min(max, n));
 }
@@ -43,6 +51,7 @@ function badgeClass(status) {
 if (status === "countdown") return "countdown";
 if (status === "live") return "live";
 if (status === "graduated") return "live";
+if (status === "failed") return "failed";
 return "commit";
 }
 
@@ -69,10 +78,16 @@ return { label: "Moderate", state: "moderate" };
 return { label: "Early", state: "early" };
 }
 
+function fmtSol(n) {
+const v = safeNum(n, 0);
+return Number.isInteger(v) ? String(v) : v.toFixed(2);
+}
+
 function buildCard(launch) {
 const name = escapeHtml(launch.token_name || "Untitled Launch");
 const symbol = escapeHtml(launch.symbol || "N/A");
-const template = escapeHtml(launch.template || "—");
+const templateRaw = String(launch.template || "—");
+const template = escapeHtml(templateRaw.replaceAll("_", " "));
 const status = launch.status || "commit";
 const builderName = escapeHtml(launch.builder_alias || launch.builder_wallet || "Unknown Builder");
 const builderWallet = String(launch.builder_wallet || "").trim();
@@ -98,7 +113,7 @@ timeLabel = "GRADUATED";
 } else if (status === "failed") {
 timeLabel = "FAILED";
 } else {
-timeLabel = `${committed} / ${hardCap} SOL`;
+timeLabel = `${fmtSol(committed)} / ${fmtSol(hardCap)} SOL`;
 }
 
 const imageUrl = String(launch.image_url || "").trim();
@@ -117,7 +132,7 @@ return `
 ${logoHtml}
 <div style="min-width:0;">
 <div class="token-name">${name}</div>
-<div class="token-symbol">${symbol} • ${template.replaceAll("_", " ")}</div>
+<div class="token-symbol">${symbol} • ${template}</div>
 </div>
 </div>
 <div class="badge ${badgeClass(status)}">${stageLabel(status)}</div>
@@ -139,7 +154,7 @@ Score ${builderScore} • ${trust.label}
 
 <div class="progress-wrap">
 <div class="progress-top">
-<span>${committed} / ${hardCap} SOL committed</span>
+<span>${fmtSol(committed)} / ${fmtSol(hardCap)} SOL committed</span>
 <strong>${percent}%</strong>
 </div>
 <div class="progress">
@@ -154,15 +169,15 @@ Score ${builderScore} • ${trust.label}
 </div>
 <div>
 <div class="k">Minimum Raise</div>
-<div class="v">${minRaise} SOL</div>
+<div class="v">${fmtSol(minRaise)} SOL</div>
 </div>
 </div>
 
 <div class="token-footer">
 <div class="meta-line">
-<span>Hard Cap: ${hardCap} SOL</span>
+<span>Hard Cap: ${fmtSol(hardCap)} SOL</span>
 <span>•</span>
-<span>Template: ${template.replaceAll("_", " ")}</span>
+<span>Template: ${template}</span>
 </div>
 
 <a class="btn primary" href="./launch.html?id=${encodeURIComponent(launch.id)}">View</a>
@@ -175,10 +190,12 @@ let ALL_LAUNCHES = [];
 
 async function loadLaunches() {
 const meta = $("listMeta");
+const apiBase = getApiBase();
+
 try {
 if (meta) meta.textContent = "Loading launch data…";
 
-const res = await fetch("http://127.0.0.1:8787/api/launcher/list", {
+const res = await fetch(`${apiBase}/api/launcher/list`, {
 method: "GET",
 headers: { "Content-Type": "application/json" },
 });
