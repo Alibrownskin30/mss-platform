@@ -104,14 +104,15 @@ for (const entry of raw) {
 if (!entry || typeof entry !== "object") continue;
 
 const wallet = normalizeWallet(entry.wallet ?? entry.address ?? entry.pubkey);
-const pct = roundPct(entry.pct ?? entry.percent ?? entry.percentage);
+const pct = roundPct(entry.pct ?? entry.percent ?? entry.percentage ?? entry.allocationPct);
+const label = cleanText(entry.label ?? "", 60);
 
 if (!wallet) continue;
 if (!Number.isFinite(pct) || pct <= 0) continue;
 if (seen.has(wallet)) continue;
 
 seen.add(wallet);
-out.push({ wallet, pct });
+out.push({ wallet, pct, label });
 }
 
 return out.slice(0, MAX_TEAM_WALLETS);
@@ -130,6 +131,7 @@ pct:
 index === cleanWallets.length - 1
 ? roundPct(pct - perWallet * (cleanWallets.length - 1))
 : perWallet,
+label: "",
 }));
 
 return out.filter((x) => x.pct > 0);
@@ -314,9 +316,7 @@ throw new Error("invalid team allocation");
 }
 
 if (builderCfg.team_allocation_pct > MAX_TEAM_ALLOCATION_PCT) {
-throw new Error(
-`team allocation cannot exceed ${MAX_TEAM_ALLOCATION_PCT}%`
-);
+throw new Error(`team allocation cannot exceed ${MAX_TEAM_ALLOCATION_PCT}%`);
 }
 
 if (!Array.isArray(builderCfg.team_wallets)) {
@@ -377,10 +377,7 @@ throw new Error("team wallet breakdown must match team wallets");
 }
 
 if (builderCfg.team_allocation_pct === 0) {
-if (
-builderCfg.team_wallets.length ||
-builderCfg.team_wallet_breakdown.length
-) {
+if (builderCfg.team_wallets.length || builderCfg.team_wallet_breakdown.length) {
 throw new Error("team wallets are not allowed when team allocation is 0");
 }
 } else {
@@ -401,9 +398,7 @@ if (
 !Number.isFinite(builderCfg.builder_bond_sol) ||
 builderCfg.builder_bond_sol < MIN_BUILDER_BOND_SOL
 ) {
-throw new Error(
-`builder bond must be at least ${MIN_BUILDER_BOND_SOL} SOL`
-);
+throw new Error(`builder bond must be at least ${MIN_BUILDER_BOND_SOL} SOL`);
 }
 }
 
@@ -421,7 +416,7 @@ return {
 team_allocation_pct: Number(row?.team_allocation_pct || 0),
 builder_bond_sol: Number(row?.builder_bond_sol || 0),
 builder_bond_refunded: Number(row?.builder_bond_refunded || 0),
-team_wallets: teamWallets,
+team_wallets,
 team_wallet_breakdown: teamWalletBreakdown,
 };
 }
@@ -551,6 +546,55 @@ WHERE id = ?
 return getLaunchById(launchId);
 }
 
+async function autoRefundFailedLaunch(launchId) {
+let launch = await getLaunchById(launchId);
+if (!launch) return null;
+
+if (!["failed", "failed_refunded"].includes(String(launch.status || ""))) {
+return launch;
+}
+
+const parsedLaunch = parseLaunchJsonFields(launch);
+
+await db.run(
+`
+DELETE FROM commits
+WHERE launch_id = ?
+`,
+[launchId]
+);
+
+if (
+String(parsedLaunch.template || "") === "builder" &&
+Number(parsedLaunch.builder_bond_sol || 0) > 0 &&
+Number(parsedLaunch.builder_bond_refunded || 0) !== 1
+) {
+await db.run(
+`
+UPDATE launches
+SET builder_bond_refunded = 1,
+updated_at = CURRENT_TIMESTAMP
+WHERE id = ?
+`,
+[launchId]
+);
+}
+
+await syncLaunchStats(launchId);
+
+await db.run(
+`
+UPDATE launches
+SET status = 'failed_refunded',
+updated_at = CURRENT_TIMESTAMP
+WHERE id = ?
+`,
+[launchId]
+);
+
+return getLaunchById(launchId);
+}
+
 async function finalizeLaunchIfReady(launchId) {
 let launch = await getLaunchById(launchId);
 if (!launch || launch.status !== "countdown") {
@@ -578,7 +622,8 @@ const stats = await syncLaunchStats(launchId);
 launch = await getLaunchById(launchId);
 
 if (Number(stats.totalCommitted) < Number(launch.min_raise_sol || 0)) {
-return markLaunchFailed(launchId);
+const failed = await markLaunchFailed(launchId);
+return autoRefundFailedLaunch(failed.id);
 }
 
 await db.run(
@@ -605,6 +650,8 @@ const stats = await syncLaunchStats(launchId);
 launch = await getLaunchById(launchId);
 
 const minRaise = Number(launch.min_raise_sol || 0);
+const hardCap = Number(launch.hard_cap_sol || 0);
+
 const commitExpiredCheck = await db.get(
 `
 SELECT
@@ -620,12 +667,17 @@ WHERE id = ?
 
 const commitExpired = Number(commitExpiredCheck?.expired || 0) === 1;
 
-if (Number(stats.totalCommitted) >= minRaise && minRaise > 0) {
+if (Number(stats.totalCommitted) >= hardCap && hardCap > 0) {
 return beginCountdown(launchId);
 }
 
 if (commitExpired) {
-return markLaunchFailed(launchId);
+if (Number(stats.totalCommitted) >= minRaise && minRaise > 0) {
+return beginCountdown(launchId);
+}
+
+const failed = await markLaunchFailed(launchId);
+return autoRefundFailedLaunch(failed.id);
 }
 
 return launch;
@@ -635,12 +687,13 @@ if (launch.status === "countdown") {
 return finalizeLaunchIfReady(launchId);
 }
 
+if (launch.status === "failed") {
+return autoRefundFailedLaunch(launchId);
+}
+
 return launch;
 }
 
-//
-// CREATE LAUNCH
-//
 router.post("/create", async (req, res) => {
 try {
 const wallet = cleanText(req.body.wallet, 100);
@@ -755,9 +808,6 @@ return res.status(500).json({ ok: false, error: "internal server error" });
 }
 });
 
-//
-// COMMIT TO LAUNCH
-//
 router.post("/commit", async (req, res) => {
 try {
 const launchId = Number(req.body.launchId);
@@ -855,11 +905,6 @@ return res.status(500).json({ ok: false, error: "commit failed" });
 }
 });
 
-//
-// REFUND FULL WALLET COMMIT
-// refunds allowed during commit phase and failed phase
-// builder bond refunds once on failed builder launches
-//
 router.post("/refund", async (req, res) => {
 try {
 const launchId = Number(req.body.launchId);
@@ -966,9 +1011,6 @@ return res.status(500).json({ ok: false, error: "refund failed" });
 }
 });
 
-//
-// START COUNTDOWN MANUALLY
-//
 router.post("/:id/start-countdown", async (req, res) => {
 try {
 const launchId = Number(req.params.id);
@@ -985,24 +1027,13 @@ error: "countdown can only start from commit phase",
 });
 }
 
-if (Number(launch.min_raise_sol) <= 0) {
-return res.status(400).json({ ok: false, error: "invalid minimum raise" });
-}
-
-if (Number(launch.hard_cap_sol) <= Number(launch.min_raise_sol)) {
-return res.status(400).json({
-ok: false,
-error: "hard cap must be greater than minimum raise",
-});
-}
-
 const stats = await syncLaunchStats(launchId);
-const minRaise = Number(launch.min_raise_sol);
+const hardCap = Number(launch.hard_cap_sol || 0);
 
-if (stats.totalCommitted < minRaise) {
+if (stats.totalCommitted < hardCap) {
 return res.status(400).json({
 ok: false,
-error: "min raise not reached",
+error: "hard cap not reached",
 });
 }
 
@@ -1027,9 +1058,6 @@ return res.status(500).json({ ok: false, error: "failed to start countdown" });
 }
 });
 
-//
-// CANCEL COUNTDOWN BACK TO COMMIT
-//
 router.post("/:id/cancel-countdown", async (req, res) => {
 try {
 const launchId = Number(req.params.id);
@@ -1089,9 +1117,6 @@ return res.status(500).json({ ok: false, error: "failed to cancel countdown" });
 }
 });
 
-//
-// FINALIZE LIVE LAUNCH
-//
 router.post("/:id/finalize", async (req, res) => {
 try {
 const launchId = Number(req.params.id);
@@ -1134,9 +1159,6 @@ error: err.message || "finalize failed",
 }
 });
 
-//
-// LIST LAUNCHES FOR UI
-//
 router.get("/list", async (_req, res) => {
 try {
 const ids = await db.all(`SELECT id FROM launches ORDER BY id DESC`);
@@ -1153,6 +1175,7 @@ b.alias AS builder_alias,
 b.builder_score
 FROM launches l
 JOIN builders b ON b.id = l.builder_id
+WHERE l.status != 'failed_refunded'
 ORDER BY l.id DESC
 `
 );
@@ -1177,9 +1200,6 @@ return res.status(500).json({ ok: false, error: "failed to fetch launches" });
 }
 });
 
-//
-// GET COMMIT STATS
-//
 router.get("/commits/:launchId", async (req, res) => {
 try {
 const launchId = Number(req.params.launchId);
@@ -1238,9 +1258,6 @@ return res.status(500).json({ ok: false, error: "failed to fetch commit stats" }
 }
 });
 
-//
-// EXECUTE LIVE LAUNCH ALLOCATIONS
-//
 router.post("/:id/execute", async (req, res) => {
 try {
 const launchId = Number(req.params.id);
@@ -1278,9 +1295,6 @@ return res.status(400).json({ ok: false, error: err.message });
 }
 });
 
-//
-// GET ALLOCATIONS FOR A LAUNCH
-//
 router.get("/:id/allocations", async (req, res) => {
 try {
 const launchId = Number(req.params.id);
@@ -1298,9 +1312,6 @@ return res.status(500).json({ ok: false, error: "internal server error" });
 }
 });
 
-//
-// GET LAUNCH BY ID
-//
 router.get("/:id", async (req, res) => {
 try {
 const id = Number(req.params.id);
