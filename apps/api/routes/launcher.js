@@ -104,15 +104,14 @@ for (const entry of raw) {
 if (!entry || typeof entry !== "object") continue;
 
 const wallet = normalizeWallet(entry.wallet ?? entry.address ?? entry.pubkey);
-const pct = roundPct(entry.pct ?? entry.percent ?? entry.percentage ?? entry.allocationPct);
-const label = cleanText(entry.label ?? "", 60);
+const pct = roundPct(entry.pct ?? entry.percent ?? entry.percentage);
 
 if (!wallet) continue;
 if (!Number.isFinite(pct) || pct <= 0) continue;
 if (seen.has(wallet)) continue;
 
 seen.add(wallet);
-out.push({ wallet, pct, label });
+out.push({ wallet, pct });
 }
 
 return out.slice(0, MAX_TEAM_WALLETS);
@@ -131,7 +130,6 @@ pct:
 index === cleanWallets.length - 1
 ? roundPct(pct - perWallet * (cleanWallets.length - 1))
 : perWallet,
-label: "",
 }));
 
 return out.filter((x) => x.pct > 0);
@@ -416,7 +414,7 @@ return {
 team_allocation_pct: Number(row?.team_allocation_pct || 0),
 builder_bond_sol: Number(row?.builder_bond_sol || 0),
 builder_bond_refunded: Number(row?.builder_bond_refunded || 0),
-team_wallets,
+team_wallets: teamWallets,
 team_wallet_breakdown: teamWalletBreakdown,
 };
 }
@@ -470,6 +468,18 @@ async function getBuilderByWallet(wallet) {
 return db.get(
 `SELECT id, wallet, alias FROM builders WHERE wallet = ?`,
 [wallet]
+);
+}
+
+async function getBuilderWalletForLaunch(launchId) {
+return db.get(
+`
+SELECT b.wallet
+FROM launches l
+JOIN builders b ON b.id = l.builder_id
+WHERE l.id = ?
+`,
+[launchId]
 );
 }
 
@@ -548,27 +558,51 @@ return getLaunchById(launchId);
 
 async function autoRefundFailedLaunch(launchId) {
 let launch = await getLaunchById(launchId);
-if (!launch) return null;
-
-if (!["failed", "failed_refunded"].includes(String(launch.status || ""))) {
+if (!launch || launch.status !== "failed") {
 return launch;
 }
 
 const parsedLaunch = parseLaunchJsonFields(launch);
+const builder = await getBuilderWalletForLaunch(launchId);
 
-await db.run(
+const refundRows = await db.all(
 `
-DELETE FROM commits
+SELECT wallet, COALESCE(SUM(sol_amount), 0) AS total
+FROM commits
 WHERE launch_id = ?
+GROUP BY wallet
 `,
 [launchId]
 );
 
+const refunds = refundRows.map((row) => ({
+wallet: String(row.wallet || ""),
+committedRefundSol: Number(row.total || 0),
+builderBondRefundSol: 0,
+totalRefundSol: Number(row.total || 0),
+}));
+
 if (
 String(parsedLaunch.template || "") === "builder" &&
 Number(parsedLaunch.builder_bond_sol || 0) > 0 &&
-Number(parsedLaunch.builder_bond_refunded || 0) !== 1
+Number(parsedLaunch.builder_bond_refunded || 0) !== 1 &&
+builder?.wallet
 ) {
+const builderWallet = String(builder.wallet);
+const existing = refunds.find((x) => x.wallet === builderWallet);
+
+if (existing) {
+existing.builderBondRefundSol = Number(parsedLaunch.builder_bond_sol || 0);
+existing.totalRefundSol += Number(parsedLaunch.builder_bond_sol || 0);
+} else {
+refunds.push({
+wallet: builderWallet,
+committedRefundSol: 0,
+builderBondRefundSol: Number(parsedLaunch.builder_bond_sol || 0),
+totalRefundSol: Number(parsedLaunch.builder_bond_sol || 0),
+});
+}
+
 await db.run(
 `
 UPDATE launches
@@ -579,6 +613,14 @@ WHERE id = ?
 [launchId]
 );
 }
+
+await db.run(
+`
+DELETE FROM commits
+WHERE launch_id = ?
+`,
+[launchId]
+);
 
 await syncLaunchStats(launchId);
 
@@ -592,7 +634,12 @@ WHERE id = ?
 [launchId]
 );
 
-return getLaunchById(launchId);
+launch = await getLaunchById(launchId);
+
+return {
+launch,
+refunds,
+};
 }
 
 async function finalizeLaunchIfReady(launchId) {
@@ -603,8 +650,7 @@ return launch;
 
 const countdownCheck = await db.get(
 `
-SELECT
-CASE
+SELECT CASE
 WHEN countdown_ends_at IS NOT NULL AND datetime('now') >= datetime(countdown_ends_at)
 THEN 1 ELSE 0
 END AS ready
@@ -622,8 +668,9 @@ const stats = await syncLaunchStats(launchId);
 launch = await getLaunchById(launchId);
 
 if (Number(stats.totalCommitted) < Number(launch.min_raise_sol || 0)) {
-const failed = await markLaunchFailed(launchId);
-return autoRefundFailedLaunch(failed.id);
+await markLaunchFailed(launchId);
+const refunded = await autoRefundFailedLaunch(launchId);
+return refunded?.launch || getLaunchById(launchId);
 }
 
 await db.run(
@@ -641,7 +688,7 @@ await buildLaunchAllocations(launchId);
 return getLaunchById(launchId);
 }
 
-async function reconcileLaunchState(launchId) {
+export async function reconcileLaunchState(launchId) {
 let launch = await getLaunchById(launchId);
 if (!launch) return null;
 
@@ -650,12 +697,9 @@ const stats = await syncLaunchStats(launchId);
 launch = await getLaunchById(launchId);
 
 const minRaise = Number(launch.min_raise_sol || 0);
-const hardCap = Number(launch.hard_cap_sol || 0);
-
 const commitExpiredCheck = await db.get(
 `
-SELECT
-CASE
+SELECT CASE
 WHEN commit_ends_at IS NOT NULL AND datetime('now') >= datetime(commit_ends_at)
 THEN 1 ELSE 0
 END AS expired
@@ -667,17 +711,10 @@ WHERE id = ?
 
 const commitExpired = Number(commitExpiredCheck?.expired || 0) === 1;
 
-if (Number(stats.totalCommitted) >= hardCap && hardCap > 0) {
-return beginCountdown(launchId);
-}
-
 if (commitExpired) {
-if (Number(stats.totalCommitted) >= minRaise && minRaise > 0) {
-return beginCountdown(launchId);
-}
-
-const failed = await markLaunchFailed(launchId);
-return autoRefundFailedLaunch(failed.id);
+await markLaunchFailed(launchId);
+const refunded = await autoRefundFailedLaunch(launchId);
+return refunded?.launch || getLaunchById(launchId);
 }
 
 return launch;
@@ -688,7 +725,8 @@ return finalizeLaunchIfReady(launchId);
 }
 
 if (launch.status === "failed") {
-return autoRefundFailedLaunch(launchId);
+const refunded = await autoRefundFailedLaunch(launchId);
+return refunded?.launch || getLaunchById(launchId);
 }
 
 return launch;
@@ -880,7 +918,7 @@ VALUES (?, ?, ?)
 );
 
 const stats = await syncLaunchStats(launchId);
-const updatedLaunch = await reconcileLaunchState(launchId);
+const updatedLaunch = await getLaunchById(launchId);
 
 return res.json({
 ok: true,
@@ -950,15 +988,7 @@ String(parsedLaunch.template || "") === "builder" &&
 Number(parsedLaunch.builder_bond_sol || 0) > 0 &&
 Number(parsedLaunch.builder_bond_refunded || 0) !== 1
 ) {
-const builder = await db.get(
-`
-SELECT b.wallet
-FROM launches l
-JOIN builders b ON b.id = l.builder_id
-WHERE l.id = ?
-`,
-[launchId]
-);
+const builder = await getBuilderWalletForLaunch(launchId);
 
 if (builder?.wallet === wallet) {
 refundAmount += Number(parsedLaunch.builder_bond_sol || 0);
@@ -1027,13 +1057,24 @@ error: "countdown can only start from commit phase",
 });
 }
 
-const stats = await syncLaunchStats(launchId);
-const hardCap = Number(launch.hard_cap_sol || 0);
+if (Number(launch.min_raise_sol) <= 0) {
+return res.status(400).json({ ok: false, error: "invalid minimum raise" });
+}
 
-if (stats.totalCommitted < hardCap) {
+if (Number(launch.hard_cap_sol) <= Number(launch.min_raise_sol)) {
 return res.status(400).json({
 ok: false,
-error: "hard cap not reached",
+error: "hard cap must be greater than minimum raise",
+});
+}
+
+const stats = await syncLaunchStats(launchId);
+const minRaise = Number(launch.min_raise_sol);
+
+if (stats.totalCommitted < minRaise) {
+return res.status(400).json({
+ok: false,
+error: "min raise not reached",
 });
 }
 
@@ -1073,8 +1114,7 @@ return res.status(400).json({ ok: false, error: "launch is not in countdown" });
 
 const commitStillOpenCheck = await db.get(
 `
-SELECT
-CASE
+SELECT CASE
 WHEN commit_ends_at IS NOT NULL AND datetime('now') < datetime(commit_ends_at)
 THEN 1 ELSE 0
 END AS still_open
@@ -1175,24 +1215,26 @@ b.alias AS builder_alias,
 b.builder_score
 FROM launches l
 JOIN builders b ON b.id = l.builder_id
-WHERE l.status != 'failed_refunded'
 ORDER BY l.id DESC
 `
 );
 
 const shaped = rows.map(shapeLaunchForList);
 
+const visible = shaped.filter((x) => x.status !== "failed_refunded");
+
 const grouped = {
-commit: shaped.filter((x) => x.status === "commit"),
-countdown: shaped.filter((x) => x.status === "countdown"),
-live: shaped.filter((x) => x.status === "live"),
-failed: shaped.filter((x) => x.status === "failed"),
+commit: visible.filter((x) => x.status === "commit"),
+countdown: visible.filter((x) => x.status === "countdown"),
+live: visible.filter((x) => x.status === "live"),
+failed: visible.filter((x) => x.status === "failed"),
 };
 
 return res.json({
 ok: true,
 launches: grouped,
-all: shaped,
+all: visible,
+history: shaped,
 });
 } catch (err) {
 console.error("GET /api/launcher/list failed:", err);
