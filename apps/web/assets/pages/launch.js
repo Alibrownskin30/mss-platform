@@ -71,6 +71,7 @@ if (status === "countdown") return "Countdown";
 if (status === "live") return "Live";
 if (status === "graduated") return "Graduated";
 if (status === "failed") return "Failed";
+if (status === "failed_refunded") return "Refunded";
 return String(status || "Unknown");
 }
 
@@ -90,6 +91,22 @@ return `${w.slice(0, 4)}...${w.slice(-4)}`;
 
 function setStatus(message, type = "") {
 const el = $("commitStatus");
+if (!el) return;
+
+el.className = "status";
+if (!message) {
+el.textContent = "";
+return;
+}
+
+if (type === "good") el.classList.add("good");
+if (type === "bad") el.classList.add("bad");
+if (type === "warn") el.classList.add("warn");
+el.textContent = message;
+}
+
+function setClosureNote(message, type = "") {
+const el = $("launchClosureNote");
 if (!el) return;
 
 el.className = "status";
@@ -167,9 +184,21 @@ list.innerHTML = items.map((row) => `
 `).join("");
 }
 
-function renderBuilderLaunchExtras(launch, stats) {
+function renderTeamWalletBreakdown(launch, stats) {
+const wrap = $("builderExtraBlock");
+const teamAllocationPctStat = $("teamAllocationPctStat");
+const builderBondStat = $("builderBondStat");
+const teamWalletBreakdownList = $("teamWalletBreakdownList");
+
+if (!wrap || !teamAllocationPctStat || !builderBondStat || !teamWalletBreakdownList) return;
+
 const isBuilder = String(launch.template || "") === "builder";
-if (!isBuilder) return "";
+if (!isBuilder) {
+wrap.classList.add("hidden");
+return;
+}
+
+wrap.classList.remove("hidden");
 
 const teamAllocationPct = safeNum(stats.teamAllocationPct, safeNum(launch.team_allocation_pct, 0));
 const builderBondSol = safeNum(stats.builderBondSol, safeNum(launch.builder_bond_sol, 0));
@@ -179,27 +208,31 @@ const breakdown = Array.isArray(stats.teamWalletBreakdown)
 ? launch.team_wallet_breakdown
 : [];
 
-const rows = breakdown
-.map((row, idx) => {
-const wallet = escapeHtml(row.wallet || `Team Wallet ${idx + 1}`);
-const pct = safeNum(row.pct, row.allocationPct);
-return `<div>${wallet} — ${pct}%</div>`;
-})
-.join("");
+teamAllocationPctStat.textContent = `${teamAllocationPct}%`;
+builderBondStat.textContent = `${builderBondSol} SOL`;
 
-return `
-<div style="margin-top:14px;padding:14px;border:1px solid rgba(255,255,255,.10);border-radius:16px;background:rgba(255,255,255,.03);">
-<div style="font-size:11px;color:rgba(255,255,255,.45);text-transform:uppercase;letter-spacing:.12em;">Builder Launch Controls</div>
-<div style="margin-top:10px;font-size:14px;line-height:1.6;">
-<div><strong>Team Allocation:</strong> ${teamAllocationPct}%</div>
-<div><strong>Builder Bond:</strong> ${builderBondSol} SOL</div>
-${rows ? `<div style="margin-top:8px;"><strong>Team Wallet Breakdown:</strong><div style="margin-top:6px;color:rgba(255,255,255,.78);">${rows}</div></div>` : ""}
-</div>
-</div>
-`;
+if (!breakdown.length) {
+teamWalletBreakdownList.innerHTML = `<div class="recent-item"><div class="recent-meta">No team wallet breakdown set.</div></div>`;
+return;
 }
 
-function renderPhase(launch, committed, minRaise, commitEndsAt, stats) {
+teamWalletBreakdownList.innerHTML = breakdown.map((row, idx) => {
+const wallet = escapeHtml(row.wallet || `Team Wallet ${idx + 1}`);
+const pct = safeNum(row.pct, row.allocationPct);
+const label = escapeHtml(row.label || "");
+return `
+<div class="recent-item">
+<div style="min-width:0;">
+<div class="recent-wallet">${wallet}</div>
+<div class="recent-meta">${label || "Team wallet allocation"}</div>
+</div>
+<div class="recent-wallet">${pct}%</div>
+</div>
+`;
+}).join("");
+}
+
+function renderPhase(launch, committed, minRaise, hardCap, commitEndsAt) {
 const phaseValue = $("phaseValue");
 const phasePill = $("phasePill");
 const phaseNote = $("phaseNote");
@@ -216,15 +249,18 @@ let note = "";
 
 if (status === "commit") {
 const minRemaining = Math.max(0, minRaise - committed);
+const hardRemaining = Math.max(0, hardCap - committed);
 const msLeft = commitEndsAt ? commitEndsAt - Date.now() : null;
 timeStat.textContent = Number.isFinite(msLeft) ? fmtCountdown(msLeft) : "COMMIT";
 
-if (committed >= minRaise) {
-note = "Minimum raise reached. Countdown can now begin. Refunds stay enabled until countdown starts.";
+if (committed >= hardCap && hardCap > 0) {
+note = "Hard cap reached. Countdown can begin immediately and refunds will close as soon as countdown starts.";
+} else if (committed >= minRaise) {
+note = `Minimum raise reached. Commit phase remains open for additional participation until hard cap is reached or the commit timer expires. ${hardRemaining} SOL remains until hard cap.`;
 } else if (Number.isFinite(msLeft)) {
-note = `Commit phase active. ${minRemaining} SOL still needed before countdown can begin. Refunds are currently allowed. Commit window ends in ${fmtCountdown(msLeft)}.`;
+note = `Commit phase active. ${minRemaining} SOL still needed before launch qualifies for countdown at commit expiry. Refunds are currently allowed. Commit window ends in ${fmtCountdown(msLeft)}.`;
 } else {
-note = `Commit phase active. ${minRemaining} SOL still needed before countdown can begin. Refunds are currently allowed.`;
+note = `Commit phase active. ${minRemaining} SOL still needed before launch qualifies for countdown at commit expiry. Refunds are currently allowed.`;
 }
 } else if (status === "countdown") {
 const ends = parseTs(launch.countdown_ends_at);
@@ -243,13 +279,16 @@ timeStat.textContent = "GRADUATED";
 note = "This launch has already completed its launch lifecycle and graduated beyond the initial launch phase.";
 } else if (status === "failed") {
 timeStat.textContent = "FAILED";
-note = "This launch failed to reach minimum raise before commit expiry. Refunds remain available for committed wallets.";
+note = "This launch failed to reach minimum raise before commit expiry.";
+} else if (status === "failed_refunded") {
+timeStat.textContent = "REFUNDED";
+note = "This launch failed and all tracked commitments were automatically refunded.";
 } else {
 timeStat.textContent = badgeText(status);
 note = "Launch state loaded.";
 }
 
-phaseNote.innerHTML = `${escapeHtml(note)}${renderBuilderLaunchExtras(launch, stats)}`;
+phaseNote.textContent = note;
 }
 
 function renderBuilderInfo(launch) {
@@ -293,10 +332,13 @@ pill.className = `status-pill ${launch.status || "commit"}`;
 if (subline) {
 if (launch.status === "commit") {
 const minRemaining = Math.max(0, minRaise - committed);
+const hardRemaining = Math.max(0, hardCap - committed);
 const msLeft = commitEndsAt ? commitEndsAt - Date.now() : null;
 
-if (committed >= minRaise) {
-subline.textContent = `Minimum raise reached • ${participants} participant${participants === 1 ? "" : "s"}`;
+if (committed >= hardCap && hardCap > 0) {
+subline.textContent = `Hard cap reached • ${participants} participant${participants === 1 ? "" : "s"}`;
+} else if (committed >= minRaise) {
+subline.textContent = `${hardRemaining} SOL until hard cap • ${participants} participant${participants === 1 ? "" : "s"}${Number.isFinite(msLeft) ? ` • ${fmtCountdown(msLeft)} left` : ""}`;
 } else if (Number.isFinite(msLeft)) {
 subline.textContent = `${minRemaining} SOL until minimum raise • ${participants} participant${participants === 1 ? "" : "s"} • ${fmtCountdown(msLeft)} left`;
 } else {
@@ -308,6 +350,8 @@ subline.textContent = `Countdown active • ${participants} participant${partici
 subline.textContent = `Launch is live • ${participants} participant${participants === 1 ? "" : "s"}`;
 } else if (launch.status === "failed") {
 subline.textContent = `Launch failed • ${participants} participant${participants === 1 ? "" : "s"}`;
+} else if (launch.status === "failed_refunded") {
+subline.textContent = `Launch refunded and closed`;
 } else {
 subline.textContent = `Launch status • ${participants} participant${participants === 1 ? "" : "s"}`;
 }
@@ -320,14 +364,18 @@ const liquidityPctStat = $("liquidityPctStat");
 const reservePctStat = $("reservePctStat");
 const builderPctStat = $("builderPctStat");
 
-if (participantsPctStat) participantsPctStat.textContent = `${safeNum(launch.participants_pct)}%`;
-if (liquidityPctStat) liquidityPctStat.textContent = `${safeNum(launch.liquidity_pct)}%`;
-if (reservePctStat) reservePctStat.textContent = `${safeNum(launch.reserve_pct)}%`;
-
-const isBuilder = String(launch.template || "") === "builder";
+const participantsPct = safeNum(launch.participants_pct);
+const liquidityPct = safeNum(launch.liquidity_pct);
+const rawReservePct = safeNum(launch.reserve_pct);
 const baseBuilderPct = safeNum(launch.builder_pct);
+const isBuilder = String(launch.template || "") === "builder";
 const teamAllocationPct = safeNum(stats.teamAllocationPct, safeNum(launch.team_allocation_pct, 0));
+const effectiveReservePct = isBuilder ? Math.max(0, rawReservePct - teamAllocationPct) : rawReservePct;
 const builderBondSol = safeNum(stats.builderBondSol, safeNum(launch.builder_bond_sol, 0));
+
+if (participantsPctStat) participantsPctStat.textContent = `${participantsPct}%`;
+if (liquidityPctStat) liquidityPctStat.textContent = `${liquidityPct}%`;
+if (reservePctStat) reservePctStat.textContent = `${effectiveReservePct}%`;
 
 if (builderPctStat) {
 if (isBuilder) {
@@ -394,6 +442,7 @@ $("launchStatusText").textContent = badgeText(launch.status);
 
 renderBuilderInfo(launch);
 renderAllocationStructure(launch, stats);
+renderTeamWalletBreakdown(launch, stats);
 
 renderLogo(launch.image_url);
 renderProgressCard(launch, committed, hardCap, minRaise, participants, pct, commitEndsAt);
@@ -402,7 +451,7 @@ $("participantsStat").textContent = String(participants);
 $("minRaiseStat").textContent = `${minRaise} SOL`;
 $("hardCapStat").textContent = `${hardCap} SOL`;
 
-renderPhase(launch, committed, minRaise, commitEndsAt, stats);
+renderPhase(launch, committed, minRaise, hardCap, commitEndsAt);
 renderRecent(stats.recent || []);
 updateWalletUi();
 
@@ -413,7 +462,7 @@ const startCountdownBtn = $("startCountdownBtn");
 const commitOpen = launch.status === "commit";
 const refundOpen = launch.status === "commit" || launch.status === "failed";
 const canStartCountdown =
-launch.status === "commit" && committed >= minRaise && minRaise > 0;
+launch.status === "commit" && committed >= hardCap && hardCap > 0;
 
 if (commitBtn) {
 commitBtn.style.display = commitOpen ? "inline-flex" : "none";
@@ -428,6 +477,12 @@ refundBtn.disabled = !refundOpen;
 if (startCountdownBtn) {
 startCountdownBtn.style.display = canStartCountdown ? "inline-flex" : "none";
 startCountdownBtn.disabled = !canStartCountdown;
+}
+
+if (launch.status === "failed_refunded") {
+setClosureNote("This launch failed, all tracked commitments were automatically refunded, and the launch is now closed.", "warn");
+} else {
+setClosureNote("");
 }
 }
 
@@ -630,7 +685,7 @@ console.error(err);
 }, 5000);
 
 setInterval(() => {
-if (currentLaunch?.status === "countdown" || currentLaunch?.status === "commit") {
+if (["commit", "countdown"].includes(currentLaunch?.status || "")) {
 render();
 }
 }, 1000);

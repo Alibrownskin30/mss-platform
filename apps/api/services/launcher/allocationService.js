@@ -16,6 +16,22 @@ function roundSol(value) {
 return Number(Number(value || 0).toFixed(9));
 }
 
+function safeNum(value, fallback = 0) {
+const n = Number(value);
+return Number.isFinite(n) ? n : fallback;
+}
+
+function parseJsonArray(value) {
+if (Array.isArray(value)) return value;
+if (value == null || value === "") return [];
+try {
+const parsed = JSON.parse(String(value));
+return Array.isArray(parsed) ? parsed : [];
+} catch {
+return [];
+}
+}
+
 function getRevenueWallets() {
 return {
 founder: process.env.FOUNDER_WALLET || "FOUNDER_WALLET_UNSET",
@@ -85,19 +101,26 @@ if (!totalSupply || !totalCommitted) {
 throw new Error("invalid launch supply or committed total");
 }
 
+const isBuilderLaunch = String(launch.template || "") === "builder";
+const teamAllocationPct = safeNum(launch.team_allocation_pct, 0);
+const rawReservePct = safeNum(launch.reserve_pct, 0);
+
+let effectiveReservePct = rawReservePct;
+if (isBuilderLaunch && teamAllocationPct > 0) {
+effectiveReservePct = Math.max(0, rawReservePct - teamAllocationPct);
+}
+
 const participantTokens = toTokenAmount(totalSupply, launch.participants_pct);
 const liquidityTokens = toTokenAmount(totalSupply, launch.liquidity_pct);
-const reserveTokens = toTokenAmount(totalSupply, launch.reserve_pct);
+const reserveTokens = toTokenAmount(totalSupply, effectiveReservePct);
 const builderTokens = toTokenAmount(totalSupply, launch.builder_pct);
+const teamTokens = isBuilderLaunch ? toTokenAmount(totalSupply, teamAllocationPct) : 0;
 
 const launchFeeSol = roundSol((totalCommitted * launchFeePct) / 100);
 const netCommittedAfterLaunchFee = roundSol(totalCommitted - launchFeeSol);
 
-// This is the protocol trading tax model for launcher trading activity.
-// It is returned as metadata here so the platform has one clean source of truth.
 const tradingTax = buildTradingTaxBreakdown(totalCommitted);
 
-// Participant allocations
 for (const row of commits) {
 const walletShare = Number(row.sol_amount) / totalCommitted;
 const tokenAmount = Math.floor(participantTokens * walletShare);
@@ -116,7 +139,6 @@ sol_amount
 );
 }
 
-// Builder allocation
 const builder = await db.get(
 `
 SELECT b.wallet
@@ -140,7 +162,40 @@ sol_amount
 [launchId, builder.wallet, String(builderTokens)]
 );
 
-// Reserve allocation
+const teamWalletBreakdown = parseJsonArray(launch.team_wallet_breakdown);
+
+if (isBuilderLaunch && teamTokens > 0 && teamWalletBreakdown.length) {
+let distributed = 0;
+
+for (let i = 0; i < teamWalletBreakdown.length; i++) {
+const row = teamWalletBreakdown[i];
+const pct = safeNum(row?.pct, 0);
+const wallet = String(row?.wallet || "").trim();
+
+if (!wallet || pct <= 0) continue;
+
+const tokenAmount =
+i === teamWalletBreakdown.length - 1
+? Math.max(0, teamTokens - distributed)
+: Math.floor((teamTokens * pct) / teamAllocationPct);
+
+distributed += tokenAmount;
+
+await db.run(
+`
+INSERT INTO allocations (
+launch_id,
+wallet,
+allocation_type,
+token_amount,
+sol_amount
+) VALUES (?, ?, 'team', ?, 0)
+`,
+[launchId, wallet, String(tokenAmount)]
+);
+}
+}
+
 await db.run(
 `
 INSERT INTO allocations (
@@ -154,7 +209,6 @@ sol_amount
 [launchId, `RESERVE_LAUNCH_${launchId}`, String(reserveTokens)]
 );
 
-// Liquidity allocation
 await db.run(
 `
 INSERT INTO allocations (
@@ -179,6 +233,8 @@ participantTokens,
 liquidityTokens,
 reserveTokens,
 builderTokens,
+teamTokens,
+effectiveReservePct,
 tradingTax,
 };
 }
