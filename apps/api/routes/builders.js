@@ -27,6 +27,21 @@ trust: buildTrust(row?.builder_score),
 };
 }
 
+async function getAliasOwner(alias) {
+const cleanAlias = cleanText(alias, 60);
+if (!cleanAlias) return null;
+
+return db.get(
+`
+SELECT *
+FROM builders
+WHERE LOWER(alias) = LOWER(?)
+LIMIT 1
+`,
+[cleanAlias]
+);
+}
+
 //
 // CREATE BUILDER PROFILE
 //
@@ -52,6 +67,14 @@ if (existing) {
 return res.status(400).json({
 ok: false,
 error: "builder profile already exists for this wallet",
+});
+}
+
+const aliasOwner = await getAliasOwner(alias);
+if (aliasOwner) {
+return res.status(400).json({
+ok: false,
+error: "builder alias is already taken",
 });
 }
 
@@ -101,6 +124,14 @@ const existing = await db.get(
 
 if (!existing) {
 return res.status(404).json({ ok: false, error: "builder not found" });
+}
+
+const aliasOwner = await getAliasOwner(alias);
+if (aliasOwner && aliasOwner.wallet !== wallet) {
+return res.status(400).json({
+ok: false,
+error: "builder alias is already taken",
+});
 }
 
 await db.run(

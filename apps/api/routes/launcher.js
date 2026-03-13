@@ -420,6 +420,7 @@ return {
 ...row,
 team_allocation_pct: Number(row?.team_allocation_pct || 0),
 builder_bond_sol: Number(row?.builder_bond_sol || 0),
+builder_bond_refunded: Number(row?.builder_bond_refunded || 0),
 team_wallets: teamWallets,
 team_wallet_breakdown: teamWalletBreakdown,
 };
@@ -452,6 +453,7 @@ team_allocation_pct: Number(parsed.team_allocation_pct || 0),
 team_wallets: parsed.team_wallets,
 team_wallet_breakdown: parsed.team_wallet_breakdown,
 builder_bond_sol: Number(parsed.builder_bond_sol || 0),
+builder_bond_refunded: Number(parsed.builder_bond_refunded || 0),
 commit_started_at: parsed.commit_started_at || null,
 commit_ends_at: parsed.commit_ends_at || null,
 countdown_started_at: parsed.countdown_started_at || null,
@@ -707,12 +709,13 @@ team_allocation_pct,
 team_wallets,
 team_wallet_breakdown,
 builder_bond_sol,
+builder_bond_refunded,
 commit_started_at,
 commit_ends_at,
 committed_sol,
 participants_count,
 status
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, datetime(CURRENT_TIMESTAMP, '+${COMMIT_PHASE_MINUTES} minutes'), 0, 0, 'commit')
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, CURRENT_TIMESTAMP, datetime(CURRENT_TIMESTAMP, '+${COMMIT_PHASE_MINUTES} minutes'), 0, 0, 'commit')
 `,
 [
 builder.id,
@@ -754,7 +757,6 @@ return res.status(500).json({ ok: false, error: "internal server error" });
 
 //
 // COMMIT TO LAUNCH
-// multiple commits allowed, max 1 SOL total per wallet
 //
 router.post("/commit", async (req, res) => {
 try {
@@ -828,7 +830,7 @@ VALUES (?, ?, ?)
 );
 
 const stats = await syncLaunchStats(launchId);
-let updatedLaunch = await reconcileLaunchState(launchId);
+const updatedLaunch = await reconcileLaunchState(launchId);
 
 return res.json({
 ok: true,
@@ -856,6 +858,7 @@ return res.status(500).json({ ok: false, error: "commit failed" });
 //
 // REFUND FULL WALLET COMMIT
 // refunds allowed during commit phase and failed phase
+// builder bond refunds once on failed builder launches
 //
 router.post("/refund", async (req, res) => {
 try {
@@ -891,7 +894,42 @@ WHERE launch_id = ? AND wallet = ?
 [launchId, wallet]
 );
 
-const refundAmount = Number(walletCommit?.total || 0);
+let refundAmount = Number(walletCommit?.total || 0);
+let builderBondRefunded = 0;
+
+const parsedLaunch = parseLaunchJsonFields(launch);
+
+if (
+launch.status === "failed" &&
+String(parsedLaunch.template || "") === "builder" &&
+Number(parsedLaunch.builder_bond_sol || 0) > 0 &&
+Number(parsedLaunch.builder_bond_refunded || 0) !== 1
+) {
+const builder = await db.get(
+`
+SELECT b.wallet
+FROM launches l
+JOIN builders b ON b.id = l.builder_id
+WHERE l.id = ?
+`,
+[launchId]
+);
+
+if (builder?.wallet === wallet) {
+refundAmount += Number(parsedLaunch.builder_bond_sol || 0);
+builderBondRefunded = Number(parsedLaunch.builder_bond_sol || 0);
+
+await db.run(
+`
+UPDATE launches
+SET builder_bond_refunded = 1,
+updated_at = CURRENT_TIMESTAMP
+WHERE id = ?
+`,
+[launchId]
+);
+}
+}
 
 if (refundAmount <= 0) {
 return res.status(400).json({ ok: false, error: "nothing to refund" });
@@ -913,6 +951,7 @@ ok: true,
 launchId,
 wallet,
 refundedSol: refundAmount,
+builderBondRefunded,
 totalCommitted: stats.totalCommitted,
 participants: stats.participants,
 commitPercent: buildCommitPercent(
@@ -929,7 +968,6 @@ return res.status(500).json({ ok: false, error: "refund failed" });
 
 //
 // START COUNTDOWN MANUALLY
-// allowed once min raise is reached and commit window is still open
 //
 router.post("/:id/start-countdown", async (req, res) => {
 try {
@@ -991,12 +1029,11 @@ return res.status(500).json({ ok: false, error: "failed to start countdown" });
 
 //
 // CANCEL COUNTDOWN BACK TO COMMIT
-// kept for compatibility; only valid while original commit window is still open
 //
 router.post("/:id/cancel-countdown", async (req, res) => {
 try {
 const launchId = Number(req.params.id);
-let launch = await getLaunchById(launchId);
+const launch = await getLaunchById(launchId);
 
 if (!launch) {
 return res.status(404).json({ ok: false, error: "launch not found" });
@@ -1054,7 +1091,6 @@ return res.status(500).json({ ok: false, error: "failed to cancel countdown" });
 
 //
 // FINALIZE LIVE LAUNCH
-// only after countdown has ended
 //
 router.post("/:id/finalize", async (req, res) => {
 try {
@@ -1193,6 +1229,7 @@ teamAllocationPct: Number(parsedLaunch.team_allocation_pct || 0),
 teamWallets: parsedLaunch.team_wallets,
 teamWalletBreakdown: parsedLaunch.team_wallet_breakdown,
 builderBondSol: Number(parsedLaunch.builder_bond_sol || 0),
+builderBondRefunded: Number(parsedLaunch.builder_bond_refunded || 0),
 recent,
 });
 } catch (err) {
@@ -1203,7 +1240,6 @@ return res.status(500).json({ ok: false, error: "failed to fetch commit stats" }
 
 //
 // EXECUTE LIVE LAUNCH ALLOCATIONS
-// kept for compatibility, but only allowed once launch is live
 //
 router.post("/:id/execute", async (req, res) => {
 try {
