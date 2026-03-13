@@ -4,9 +4,15 @@ return document.getElementById(id);
 
 function getApiBase() {
 const { protocol, hostname, port } = window.location;
+
 if (port === "3000") {
 return `${protocol}//${hostname}:8787`;
 }
+
+if (hostname.includes("-3000.app.github.dev")) {
+return `${protocol}//${hostname.replace("-3000.app.github.dev", "-8787.app.github.dev")}`;
+}
+
 return `${protocol}//${hostname}${port ? `:${port}` : ""}`;
 }
 
@@ -16,7 +22,7 @@ return Math.max(min, Math.min(max, n));
 
 function fmtTime(ms) {
 if (!Number.isFinite(ms)) return "—";
-if (ms <= 0) return "LIVE";
+if (ms <= 0) return "00:00";
 
 const s = Math.floor(ms / 1000);
 const h = Math.floor(s / 3600);
@@ -26,6 +32,7 @@ const r = s % 60;
 if (h > 0) {
 return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}:${String(r).padStart(2, "0")}`;
 }
+
 return `${String(m).padStart(2, "0")}:${String(r).padStart(2, "0")}`;
 }
 
@@ -83,6 +90,23 @@ const v = safeNum(n, 0);
 return Number.isInteger(v) ? String(v) : v.toFixed(2);
 }
 
+function getCommitEndsAt(launch) {
+return (
+parseTs(launch.commit_ends_at) ||
+parseTs(launch.commitEndsAt) ||
+parseTs(launch.commit_expires_at) ||
+null
+);
+}
+
+function getCountdownEndsAt(launch) {
+return (
+parseTs(launch.countdown_ends_at) ||
+parseTs(launch.countdownEndsAt) ||
+null
+);
+}
+
 function buildCard(launch) {
 const name = escapeHtml(launch.token_name || "Untitled Launch");
 const symbol = escapeHtml(launch.symbol || "N/A");
@@ -100,20 +124,35 @@ const minRaise = safeNum(launch.min_raise_sol);
 const participants = safeNum(launch.participants_count);
 const percent = clamp(safeNum(launch.commitPercent), 0, 100);
 
-const countdownEndsAt = parseTs(launch.countdown_ends_at);
-const remaining = countdownEndsAt ? countdownEndsAt - Date.now() : null;
+const commitEndsAt = getCommitEndsAt(launch);
+const countdownEndsAt = getCountdownEndsAt(launch);
+
+const commitRemaining = commitEndsAt ? commitEndsAt - Date.now() : null;
+const countdownRemaining = countdownEndsAt ? countdownEndsAt - Date.now() : null;
 
 let timeLabel = "—";
-if (status === "countdown") {
-timeLabel = fmtTime(remaining);
+let timeHeading = "Committed";
+
+if (status === "commit") {
+if (Number.isFinite(commitRemaining)) {
+timeHeading = "Commit Time Left";
+timeLabel = fmtTime(commitRemaining);
+} else {
+timeHeading = "Committed";
+timeLabel = `${fmtSol(committed)} / ${fmtSol(hardCap)} SOL`;
+}
+} else if (status === "countdown") {
+timeHeading = "Time Left";
+timeLabel = fmtTime(countdownRemaining);
 } else if (status === "live") {
+timeHeading = "Status";
 timeLabel = "LIVE";
 } else if (status === "graduated") {
+timeHeading = "Status";
 timeLabel = "GRADUATED";
 } else if (status === "failed") {
+timeHeading = "Status";
 timeLabel = "FAILED";
-} else {
-timeLabel = `${fmtSol(committed)} / ${fmtSol(hardCap)} SOL`;
 }
 
 const imageUrl = String(launch.image_url || "").trim();
@@ -147,7 +186,7 @@ Score ${builderScore} • ${trust.label}
 </div>
 </div>
 <div>
-<div class="k">${status === "countdown" ? "Time Left" : status === "live" ? "Status" : "Committed"}</div>
+<div class="k">${escapeHtml(timeHeading)}</div>
 <div class="v">${escapeHtml(timeLabel)}</div>
 </div>
 </div>
@@ -200,11 +239,17 @@ method: "GET",
 headers: { "Content-Type": "application/json" },
 });
 
-if (!res.ok) {
-throw new Error(`HTTP ${res.status}`);
+let data = null;
+try {
+data = await res.json();
+} catch {
+data = null;
 }
 
-const data = await res.json();
+if (!res.ok || !data?.ok) {
+throw new Error(data?.error || `HTTP ${res.status}`);
+}
+
 ALL_LAUNCHES = Array.isArray(data?.all) ? data.all : [];
 
 if (meta) {
@@ -230,16 +275,25 @@ if ($("statCommit")) $("statCommit").textContent = String(commitCount);
 if ($("statCountdown")) $("statCountdown").textContent = String(countdownCount);
 if ($("statLive")) $("statLive").textContent = String(liveCount);
 
-const countdowns = items
-.filter((x) => x.status === "countdown" && x.countdown_ends_at)
-.map((x) => ({
+const timed = items
+.map((x) => {
+const status = x.status || "commit";
+const commitEndsAt = getCommitEndsAt(x);
+const countdownEndsAt = getCountdownEndsAt(x);
+
+let endsAt = null;
+if (status === "countdown") endsAt = countdownEndsAt;
+if (status === "commit") endsAt = commitEndsAt;
+
+return {
 symbol: x.symbol || x.token_name || "—",
-endsAt: parseTs(x.countdown_ends_at),
-}))
+endsAt,
+};
+})
 .filter((x) => Number.isFinite(x.endsAt))
 .sort((a, b) => a.endsAt - b.endsAt);
 
-if ($("statNext")) $("statNext").textContent = countdowns[0]?.symbol || "—";
+if ($("statNext")) $("statNext").textContent = timed[0]?.symbol || "—";
 }
 
 function render() {
@@ -279,8 +333,17 @@ items.sort((a, b) => safeNum(b.commitPercent) - safeNum(a.commitPercent));
 items.sort((a, b) => safeNum(b.participants_count) - safeNum(a.participants_count));
 } else if (sort === "ending") {
 items.sort((a, b) => {
-const aEnd = parseTs(a.countdown_ends_at) ?? Number.MAX_SAFE_INTEGER;
-const bEnd = parseTs(b.countdown_ends_at) ?? Number.MAX_SAFE_INTEGER;
+const aStatus = a.status || "commit";
+const bStatus = b.status || "commit";
+
+const aEnd = aStatus === "countdown"
+? (getCountdownEndsAt(a) ?? Number.MAX_SAFE_INTEGER)
+: (getCommitEndsAt(a) ?? Number.MAX_SAFE_INTEGER);
+
+const bEnd = bStatus === "countdown"
+? (getCountdownEndsAt(b) ?? Number.MAX_SAFE_INTEGER)
+: (getCommitEndsAt(b) ?? Number.MAX_SAFE_INTEGER);
+
 return aEnd - bEnd;
 });
 } else {

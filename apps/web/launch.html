@@ -60,7 +60,9 @@ gap:10px;
 min-width:0;
 }
 .mark{
-width:34px;height:34px;border-radius:10px;
+width:34px;
+height:34px;
+border-radius:10px;
 background:linear-gradient(135deg, rgba(0,255,209,.9), rgba(58,160,255,.9));
 box-shadow:0 10px 24px rgba(0,255,209,.18), 0 10px 24px rgba(58,160,255,.14);
 flex:0 0 auto;
@@ -74,11 +76,23 @@ overflow:hidden;
 text-overflow:ellipsis;
 }
 
+.navwrap{
+display:flex;
+align-items:center;
+gap:12px;
+min-width:0;
+margin-left:auto;
+max-width:100%;
+overflow:hidden;
+}
+
 .nav{
 display:flex;
 gap:8px;
 align-items:center;
 flex-wrap:wrap;
+min-width:0;
+max-width:100%;
 }
 .nav a{
 padding:8px 12px;
@@ -88,6 +102,7 @@ border:1px solid transparent;
 transition:.18s ease;
 font-size:13px;
 white-space:nowrap;
+flex:0 0 auto;
 }
 .nav a:hover{
 color:rgba(255,255,255,.92);
@@ -118,8 +133,12 @@ font-size:13px;
 
 .layout{
 display:grid;
-grid-template-columns:1.15fr .85fr;
+grid-template-columns:minmax(0,1.15fr) minmax(0,.85fr);
 gap:18px;
+min-width:0;
+}
+.layout > *{
+min-width:0;
 }
 
 .panel{
@@ -128,13 +147,16 @@ background:var(--card);
 border-radius:22px;
 padding:22px;
 box-shadow:0 18px 60px rgba(0,0,0,.32);
+min-width:0;
+overflow:hidden;
 }
 
 .hero{
 display:grid;
-grid-template-columns:112px 1fr;
+grid-template-columns:112px minmax(0,1fr);
 gap:18px;
 align-items:start;
+min-width:0;
 }
 
 .logo{
@@ -151,6 +173,7 @@ color:var(--muted2);
 font-size:12px;
 text-align:center;
 padding:8px;
+flex:0 0 auto;
 }
 .logo img{
 width:100%;
@@ -176,6 +199,7 @@ h1{
 margin:14px 0 8px;
 font-size:38px;
 line-height:1.04;
+word-break:break-word;
 }
 
 .subline{
@@ -183,6 +207,7 @@ color:var(--muted2);
 font-size:13px;
 letter-spacing:.10em;
 text-transform:uppercase;
+word-break:break-word;
 }
 
 .desc{
@@ -190,6 +215,7 @@ margin-top:14px;
 color:var(--muted);
 line-height:1.65;
 font-size:15px;
+word-break:break-word;
 }
 
 .meta{
@@ -197,6 +223,7 @@ display:flex;
 flex-wrap:wrap;
 gap:10px;
 margin-top:14px;
+min-width:0;
 }
 
 .chip{
@@ -209,6 +236,9 @@ background:rgba(255,255,255,.04);
 border:1px solid rgba(255,255,255,.10);
 font-size:12px;
 color:rgba(255,255,255,.80);
+min-width:0;
+max-width:100%;
+overflow-wrap:anywhere;
 }
 
 .section-title{
@@ -225,6 +255,7 @@ padding:16px 18px;
 border-radius:18px;
 border:1px solid rgba(255,255,255,.10);
 background:rgba(255,255,255,.03);
+min-width:0;
 }
 
 .phase-top{
@@ -245,6 +276,7 @@ letter-spacing:.14em;
 .phase-value{
 font-size:22px;
 font-weight:800;
+word-break:break-word;
 }
 
 .phase-note{
@@ -252,6 +284,7 @@ margin-top:10px;
 color:var(--muted);
 font-size:14px;
 line-height:1.55;
+word-break:break-word;
 }
 
 .status-pill{
@@ -269,6 +302,7 @@ border:1px solid rgba(255,255,255,.10);
 background:rgba(255,255,255,.05);
 color:rgba(255,255,255,.90);
 text-transform:uppercase;
+flex:0 0 auto;
 }
 .status-pill.commit{
 border-color:rgba(58,160,255,.22);
@@ -297,6 +331,7 @@ padding:18px;
 border:1px solid rgba(255,255,255,.10);
 background:rgba(255,255,255,.03);
 border-radius:20px;
+min-width:0;
 }
 
 .progress-card-top{
@@ -306,12 +341,14 @@ align-items:flex-start;
 gap:12px;
 flex-wrap:wrap;
 margin-bottom:14px;
+min-width:0;
 }
 
 .progress-card-title{
 font-size:20px;
 font-weight:800;
 line-height:1.1;
+word-break:break-word;
 }
 
 .progress-card-sub{
@@ -320,12 +357,14 @@ font-size:12px;
 color:var(--muted2);
 letter-spacing:.08em;
 text-transform:uppercase;
+word-break:break-word;
 }
 
 .progress-wrap{
 display:flex;
 flex-direction:column;
 gap:8px;
+min-width:0;
 }
 .progress-top{
 display:flex;
@@ -334,6 +373,7 @@ gap:8px;
 align-items:center;
 font-size:12px;
 color:var(--muted);
+flex-wrap:wrap;
 }
 .progress{
 width:100%;
@@ -356,6 +396,7 @@ display:grid;
 grid-template-columns:1fr 1fr;
 gap:12px;
 margin-top:14px;
+min-width:0;
 }
 
 .commit-kpi{
@@ -363,6 +404,7 @@ border:1px solid rgba(255,255,255,.10);
 background:rgba(255,255,255,.03);
 border-radius:16px;
 padding:14px;
+min-width:0;
 }
 
 .commit-kpi .k{
@@ -376,6 +418,7 @@ letter-spacing:.12em;
 margin-top:8px;
 font-size:24px;
 font-weight:800;
+word-break:break-word;
 }
 
 .stats{
@@ -383,12 +426,14 @@ display:grid;
 grid-template-columns:1fr 1fr;
 gap:12px;
 margin-top:18px;
+min-width:0;
 }
 .stat{
 border:1px solid rgba(255,255,255,.10);
 background:rgba(255,255,255,.03);
 border-radius:16px;
 padding:14px;
+min-width:0;
 }
 .stat .k{
 font-size:11px;
@@ -400,6 +445,7 @@ letter-spacing:.12em;
 margin-top:8px;
 font-size:24px;
 font-weight:800;
+word-break:break-word;
 }
 
 .allocation-grid{
@@ -407,18 +453,21 @@ display:grid;
 grid-template-columns:1fr 1fr;
 gap:12px;
 margin-top:14px;
+min-width:0;
 }
 
 .commit-form{
 display:flex;
 flex-direction:column;
 gap:14px;
+min-width:0;
 }
 
 .field{
 display:flex;
 flex-direction:column;
 gap:8px;
+min-width:0;
 }
 
 label{
@@ -437,6 +486,7 @@ border-radius:14px;
 padding:12px 14px;
 outline:none;
 font:inherit;
+min-width:0;
 }
 input:focus{
 border-color:rgba(0,255,209,.28);
@@ -446,6 +496,7 @@ box-shadow:0 0 0 3px rgba(0,255,209,.08);
 input[readonly]{
 background:rgba(255,255,255,.03);
 color:rgba(255,255,255,.84);
+overflow-wrap:anywhere;
 }
 
 .wallet-row{
@@ -453,6 +504,7 @@ display:flex;
 gap:10px;
 align-items:center;
 flex-wrap:wrap;
+min-width:0;
 }
 
 .wallet-pill{
@@ -467,16 +519,17 @@ color:rgba(255,255,255,.82);
 font-size:12px;
 max-width:100%;
 overflow-wrap:anywhere;
+min-width:0;
 }
 
 .quick{
-display:flex;
+display:grid;
+grid-template-columns:repeat(4,minmax(0,1fr));
 gap:10px;
-flex-wrap:wrap;
 }
 .quick button{
 min-height:40px;
-padding:0 14px;
+padding:0 10px;
 border-radius:12px;
 border:1px solid rgba(255,255,255,.12);
 background:rgba(255,255,255,.05);
@@ -486,6 +539,7 @@ font-weight:700;
 font-size:12px;
 letter-spacing:.08em;
 text-transform:uppercase;
+min-width:0;
 }
 .quick button:hover{
 background:rgba(255,255,255,.08);
@@ -513,6 +567,7 @@ font-weight:800;
 font-size:12px;
 letter-spacing:.08em;
 text-transform:uppercase;
+min-width:0;
 }
 .btn.primary{
 border-color:rgba(0,255,209,.22);
@@ -545,6 +600,7 @@ background:rgba(255,255,255,.03);
 color:var(--muted);
 display:none;
 white-space:pre-wrap;
+word-break:break-word;
 }
 .status.good{
 display:block;
@@ -570,6 +626,7 @@ margin-top:14px;
 display:flex;
 flex-direction:column;
 gap:10px;
+min-width:0;
 }
 .recent-item{
 border:1px solid rgba(255,255,255,.10);
@@ -581,14 +638,18 @@ justify-content:space-between;
 gap:10px;
 align-items:center;
 flex-wrap:wrap;
+min-width:0;
 }
 .recent-wallet{
 font-weight:700;
 font-size:14px;
+overflow-wrap:anywhere;
+word-break:break-word;
 }
 .recent-meta{
 color:var(--muted);
 font-size:12px;
+overflow-wrap:anywhere;
 }
 
 @media (max-width:920px){
@@ -604,11 +665,41 @@ height:96px;
 }
 }
 
-@media (max-width:620px){
+@media (max-width:820px){
+.topbar-inner{
+flex-direction:column;
+align-items:stretch;
+}
+.navwrap{
+flex-direction:column;
+align-items:stretch;
+}
+.nav{
+overflow-x:auto;
+overflow-y:hidden;
+flex-wrap:nowrap;
+padding-bottom:4px;
+scrollbar-width:none;
+-webkit-overflow-scrolling:touch;
+}
+.nav::-webkit-scrollbar{display:none}
 h1{ font-size:32px; }
+.meta{
+flex-direction:column;
+align-items:stretch;
+}
+.chip{
+width:100%;
+}
+}
+
+@media (max-width:620px){
 .stats,
 .allocation-grid,
 .commit-kpis{
+grid-template-columns:1fr 1fr;
+}
+.quick{
 grid-template-columns:1fr 1fr;
 }
 }
@@ -616,7 +707,8 @@ grid-template-columns:1fr 1fr;
 @media (max-width:500px){
 .stats,
 .allocation-grid,
-.commit-kpis{
+.commit-kpis,
+.quick{
 grid-template-columns:1fr;
 }
 }
@@ -633,6 +725,7 @@ grid-template-columns:1fr;
 </div>
 </div>
 
+<div class="navwrap">
 <div class="nav" role="navigation" aria-label="Main">
 <a href="./index.html">Home</a>
 <a href="./token.html">Scanner</a>
@@ -641,6 +734,7 @@ grid-template-columns:1fr;
 <a class="active" href="./launchpad.html">Launchpad</a>
 <a href="./methodology.html">Methodology</a>
 <a href="./legal.html">Legal</a>
+</div>
 </div>
 </div>
 </div>
@@ -653,7 +747,7 @@ grid-template-columns:1fr;
 <div class="hero">
 <div id="launchLogo" class="logo">No Image</div>
 
-<div>
+<div style="min-width:0;">
 <div class="eyebrow">Launch Detail</div>
 <h1 id="launchName">Loading launch…</h1>
 <div class="subline" id="launchSubline">—</div>
@@ -682,7 +776,7 @@ grid-template-columns:1fr;
 <div class="section-title">Commit Progress</div>
 
 <div class="progress-card-top">
-<div>
+<div style="min-width:0;">
 <div class="progress-card-title" id="progressHeadline">0 / 0 SOL committed</div>
 <div class="progress-card-sub" id="progressSubline">Launch commit status</div>
 </div>
@@ -759,6 +853,9 @@ grid-template-columns:1fr;
 <div id="walletPill" class="wallet-pill">No wallet connected</div>
 </div>
 <input id="commitWallet" type="text" placeholder="Connected wallet will appear here" readonly />
+<div id="walletHint" class="desc" style="margin-top:0;font-size:12px;color:rgba(255,255,255,.52);">
+Use Connect Wallet to choose Phantom, Solflare, or Backpack.
+</div>
 </div>
 
 <div class="field">

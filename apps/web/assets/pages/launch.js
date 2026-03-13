@@ -158,7 +158,7 @@ return;
 
 list.innerHTML = items.map((row) => `
 <div class="recent-item">
-<div>
+<div style="min-width:0;">
 <div class="recent-wallet">${escapeHtml(row.wallet || "Unknown")}</div>
 <div class="recent-meta">${escapeHtml(row.created_at || "")}</div>
 </div>
@@ -167,7 +167,7 @@ list.innerHTML = items.map((row) => `
 `).join("");
 }
 
-function renderPhase(launch, committed, minRaise) {
+function renderPhase(launch, committed, minRaise, commitEndsAt) {
 const phaseValue = $("phaseValue");
 const phasePill = $("phasePill");
 const phaseNote = $("phaseNote");
@@ -182,10 +182,15 @@ phasePill.className = `status-pill ${status || ""}`;
 
 if (status === "commit") {
 const minRemaining = Math.max(0, minRaise - committed);
-timeStat.textContent = "COMMIT";
+const msLeft = commitEndsAt ? commitEndsAt - Date.now() : null;
+timeStat.textContent = Number.isFinite(msLeft) ? fmtCountdown(msLeft) : "COMMIT";
+
 if (committed >= minRaise) {
 phaseNote.textContent =
 "Minimum raise reached. Countdown can now begin. Refunds stay enabled until countdown starts.";
+} else if (Number.isFinite(msLeft)) {
+phaseNote.textContent =
+`Commit phase active. ${minRemaining} SOL still needed before countdown can begin. Refunds are currently allowed. Commit window ends in ${fmtCountdown(msLeft)}.`;
 } else {
 phaseNote.textContent =
 `Commit phase active. ${minRemaining} SOL still needed before countdown can begin. Refunds are currently allowed.`;
@@ -222,7 +227,7 @@ return;
 if (status === "failed") {
 timeStat.textContent = "FAILED";
 phaseNote.textContent =
-"This launch failed to meet required conditions. Refund handling should be completed according to final MSS failure rules.";
+"This launch failed to reach minimum raise before commit expiry. Refunds remain available for committed wallets.";
 return;
 }
 
@@ -250,7 +255,7 @@ builderAliasEl.textContent = `${launch.builder_alias || launch.builder_wallet ||
 builderScoreEl.textContent = `${builderScore} (${builderTrust.label})`;
 }
 
-function renderProgressCard(launch, committed, hardCap, minRaise, participants, pct) {
+function renderProgressCard(launch, committed, hardCap, minRaise, participants, pct, commitEndsAt) {
 const headline = $("progressHeadline");
 const subline = $("progressSubline");
 const text = $("progressText");
@@ -271,14 +276,21 @@ pill.className = `status-pill ${launch.status || "commit"}`;
 if (subline) {
 if (launch.status === "commit") {
 const minRemaining = Math.max(0, minRaise - committed);
-subline.textContent =
-committed >= minRaise
-? `Minimum raise reached • ${participants} participant${participants === 1 ? "" : "s"}`
-: `${minRemaining} SOL until minimum raise • ${participants} participant${participants === 1 ? "" : "s"}`;
+const msLeft = commitEndsAt ? commitEndsAt - Date.now() : null;
+
+if (committed >= minRaise) {
+subline.textContent = `Minimum raise reached • ${participants} participant${participants === 1 ? "" : "s"}`;
+} else if (Number.isFinite(msLeft)) {
+subline.textContent = `${minRemaining} SOL until minimum raise • ${participants} participant${participants === 1 ? "" : "s"} • ${fmtCountdown(msLeft)} left`;
+} else {
+subline.textContent = `${minRemaining} SOL until minimum raise • ${participants} participant${participants === 1 ? "" : "s"}`;
+}
 } else if (launch.status === "countdown") {
 subline.textContent = `Countdown active • ${participants} participant${participants === 1 ? "" : "s"}`;
 } else if (launch.status === "live") {
 subline.textContent = `Launch is live • ${participants} participant${participants === 1 ? "" : "s"}`;
+} else if (launch.status === "failed") {
+subline.textContent = `Launch failed • ${participants} participant${participants === 1 ? "" : "s"}`;
 } else {
 subline.textContent = `Launch status • ${participants} participant${participants === 1 ? "" : "s"}`;
 }
@@ -328,6 +340,7 @@ const committed = safeNum(stats.totalCommitted, safeNum(launch.committed_sol));
 const hardCap = safeNum(stats.hardCap, safeNum(launch.hard_cap_sol));
 const minRaise = safeNum(stats.minRaise, safeNum(launch.min_raise_sol));
 const participants = safeNum(stats.participants, safeNum(launch.participants_count));
+const commitEndsAt = parseTs(stats.commitEndsAt || launch.commit_ends_at);
 const pct = hardCap > 0
 ? Math.max(0, Math.min(100, Math.floor((committed / hardCap) * 100)))
 : 0;
@@ -346,13 +359,13 @@ $("reservePctStat").textContent = `${safeNum(launch.reserve_pct)}%`;
 $("builderPctStat").textContent = `${safeNum(launch.builder_pct)}%`;
 
 renderLogo(launch.image_url);
-renderProgressCard(launch, committed, hardCap, minRaise, participants, pct);
+renderProgressCard(launch, committed, hardCap, minRaise, participants, pct, commitEndsAt);
 
 $("participantsStat").textContent = String(participants);
 $("minRaiseStat").textContent = `${minRaise} SOL`;
 $("hardCapStat").textContent = `${hardCap} SOL`;
 
-renderPhase(launch, committed, minRaise);
+renderPhase(launch, committed, minRaise, commitEndsAt);
 renderRecent(stats.recent || []);
 updateWalletUi();
 
@@ -361,7 +374,7 @@ const refundBtn = $("refundBtn");
 const startCountdownBtn = $("startCountdownBtn");
 
 const commitOpen = launch.status === "commit";
-const refundOpen = launch.status === "commit";
+const refundOpen = launch.status === "commit" || launch.status === "failed";
 const canStartCountdown =
 launch.status === "commit" && committed >= minRaise && minRaise > 0;
 
@@ -473,8 +486,8 @@ setStatus("Connect your wallet before refunding.", "bad");
 return;
 }
 
-if (currentLaunch?.status !== "commit") {
-setStatus("Refunds are only available during commit phase.", "bad");
+if (!["commit", "failed"].includes(currentLaunch?.status || "")) {
+setStatus("Refunds are only available during commit phase or after failure.", "bad");
 return;
 }
 
@@ -503,7 +516,7 @@ await refresh();
 console.error(err);
 setStatus(err.message || "Refund failed.", "bad");
 } finally {
-if (refundBtn && currentLaunch?.status === "commit") refundBtn.disabled = false;
+if (refundBtn && ["commit", "failed"].includes(currentLaunch?.status || "")) refundBtn.disabled = false;
 }
 }
 
@@ -580,7 +593,7 @@ console.error(err);
 }, 5000);
 
 setInterval(() => {
-if (currentLaunch?.status === "countdown") {
+if (currentLaunch?.status === "countdown" || currentLaunch?.status === "commit") {
 render();
 }
 }, 1000);

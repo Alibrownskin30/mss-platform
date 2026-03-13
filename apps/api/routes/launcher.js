@@ -4,6 +4,7 @@ import { buildLaunchAllocations } from "../services/launcher/allocationService.j
 
 const router = express.Router();
 
+const COMMIT_PHASE_MINUTES = 60;
 const COUNTDOWN_MINUTES = 5;
 const MAX_WALLET_COMMIT_SOL = 1;
 const MAX_TEAM_WALLETS = 5;
@@ -125,7 +126,8 @@ if (!cleanWallets.length || pct <= 0) return [];
 const perWallet = roundPct(pct / cleanWallets.length);
 const out = cleanWallets.map((wallet, index) => ({
 wallet,
-pct: index === cleanWallets.length - 1
+pct:
+index === cleanWallets.length - 1
 ? roundPct(pct - perWallet * (cleanWallets.length - 1))
 : perWallet,
 }));
@@ -375,7 +377,10 @@ throw new Error("team wallet breakdown must match team wallets");
 }
 
 if (builderCfg.team_allocation_pct === 0) {
-if (builderCfg.team_wallets.length || builderCfg.team_wallet_breakdown.length) {
+if (
+builderCfg.team_wallets.length ||
+builderCfg.team_wallet_breakdown.length
+) {
 throw new Error("team wallets are not allowed when team allocation is 0");
 }
 } else {
@@ -447,9 +452,12 @@ team_allocation_pct: Number(parsed.team_allocation_pct || 0),
 team_wallets: parsed.team_wallets,
 team_wallet_breakdown: parsed.team_wallet_breakdown,
 builder_bond_sol: Number(parsed.builder_bond_sol || 0),
+commit_started_at: parsed.commit_started_at || null,
+commit_ends_at: parsed.commit_ends_at || null,
 countdown_started_at: parsed.countdown_started_at || null,
 countdown_ends_at: parsed.countdown_ends_at || null,
 live_at: parsed.live_at || null,
+failed_at: parsed.failed_at || null,
 builder_wallet: parsed.builder_wallet || null,
 builder_alias: parsed.builder_alias || null,
 builder_score: parsed.builder_score ?? null,
@@ -526,6 +534,108 @@ WHERE id = ?
 return getLaunchById(launchId);
 }
 
+async function markLaunchFailed(launchId) {
+await db.run(
+`
+UPDATE launches
+SET status = 'failed',
+failed_at = CURRENT_TIMESTAMP,
+updated_at = CURRENT_TIMESTAMP
+WHERE id = ?
+`,
+[launchId]
+);
+
+return getLaunchById(launchId);
+}
+
+async function finalizeLaunchIfReady(launchId) {
+let launch = await getLaunchById(launchId);
+if (!launch || launch.status !== "countdown") {
+return launch;
+}
+
+const countdownCheck = await db.get(
+`
+SELECT
+CASE
+WHEN countdown_ends_at IS NOT NULL AND datetime('now') >= datetime(countdown_ends_at)
+THEN 1 ELSE 0
+END AS ready
+FROM launches
+WHERE id = ?
+`,
+[launchId]
+);
+
+if (!countdownCheck || Number(countdownCheck.ready) !== 1) {
+return launch;
+}
+
+const stats = await syncLaunchStats(launchId);
+launch = await getLaunchById(launchId);
+
+if (Number(stats.totalCommitted) < Number(launch.min_raise_sol || 0)) {
+return markLaunchFailed(launchId);
+}
+
+await db.run(
+`
+UPDATE launches
+SET status = 'live',
+live_at = CURRENT_TIMESTAMP,
+updated_at = CURRENT_TIMESTAMP
+WHERE id = ?
+`,
+[launchId]
+);
+
+await buildLaunchAllocations(launchId);
+return getLaunchById(launchId);
+}
+
+async function reconcileLaunchState(launchId) {
+let launch = await getLaunchById(launchId);
+if (!launch) return null;
+
+if (launch.status === "commit") {
+const stats = await syncLaunchStats(launchId);
+launch = await getLaunchById(launchId);
+
+const minRaise = Number(launch.min_raise_sol || 0);
+const commitExpiredCheck = await db.get(
+`
+SELECT
+CASE
+WHEN commit_ends_at IS NOT NULL AND datetime('now') >= datetime(commit_ends_at)
+THEN 1 ELSE 0
+END AS expired
+FROM launches
+WHERE id = ?
+`,
+[launchId]
+);
+
+const commitExpired = Number(commitExpiredCheck?.expired || 0) === 1;
+
+if (Number(stats.totalCommitted) >= minRaise && minRaise > 0) {
+return beginCountdown(launchId);
+}
+
+if (commitExpired) {
+return markLaunchFailed(launchId);
+}
+
+return launch;
+}
+
+if (launch.status === "countdown") {
+return finalizeLaunchIfReady(launchId);
+}
+
+return launch;
+}
+
 //
 // CREATE LAUNCH
 //
@@ -597,10 +707,12 @@ team_allocation_pct,
 team_wallets,
 team_wallet_breakdown,
 builder_bond_sol,
+commit_started_at,
+commit_ends_at,
 committed_sol,
 participants_count,
 status
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 0, 'commit')
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, datetime(CURRENT_TIMESTAMP, '+${COMMIT_PHASE_MINUTES} minutes'), 0, 0, 'commit')
 `,
 [
 builder.id,
@@ -658,7 +770,7 @@ if (solAmount <= 0) {
 return res.status(400).json({ ok: false, error: "solAmount must be greater than 0" });
 }
 
-const launch = await getLaunchById(launchId);
+let launch = await reconcileLaunchState(launchId);
 
 if (!launch) {
 return res.status(404).json({ ok: false, error: "launch not found" });
@@ -716,14 +828,7 @@ VALUES (?, ?, ?)
 );
 
 const stats = await syncLaunchStats(launchId);
-let updatedLaunch = await getLaunchById(launchId);
-
-if (
-updatedLaunch.status === "commit" &&
-Number(stats.totalCommitted) >= Number(updatedLaunch.min_raise_sol)
-) {
-updatedLaunch = await beginCountdown(launchId);
-}
+let updatedLaunch = await reconcileLaunchState(launchId);
 
 return res.json({
 ok: true,
@@ -739,6 +844,7 @@ stats.totalCommitted,
 updatedLaunch.hard_cap_sol
 ),
 status: updatedLaunch.status,
+commitEndsAt: updatedLaunch.commit_ends_at || null,
 countdownEndsAt: updatedLaunch.countdown_ends_at || null,
 });
 } catch (err) {
@@ -749,7 +855,7 @@ return res.status(500).json({ ok: false, error: "commit failed" });
 
 //
 // REFUND FULL WALLET COMMIT
-// refunds allowed ONLY during commit phase
+// refunds allowed during commit phase and failed phase
 //
 router.post("/refund", async (req, res) => {
 try {
@@ -763,16 +869,16 @@ error: "launchId and wallet are required",
 });
 }
 
-const launch = await getLaunchById(launchId);
+let launch = await reconcileLaunchState(launchId);
 
 if (!launch) {
 return res.status(404).json({ ok: false, error: "launch not found" });
 }
 
-if (launch.status !== "commit") {
+if (!["commit", "failed"].includes(launch.status)) {
 return res.status(400).json({
 ok: false,
-error: "refunds are only allowed during commit phase",
+error: "refunds are only allowed during commit phase or after a failed launch",
 });
 }
 
@@ -800,7 +906,7 @@ WHERE launch_id = ? AND wallet = ?
 );
 
 const stats = await syncLaunchStats(launchId);
-const updatedLaunch = await getLaunchById(launchId);
+launch = await getLaunchById(launchId);
 
 return res.json({
 ok: true,
@@ -811,9 +917,9 @@ totalCommitted: stats.totalCommitted,
 participants: stats.participants,
 commitPercent: buildCommitPercent(
 stats.totalCommitted,
-updatedLaunch.hard_cap_sol
+launch.hard_cap_sol
 ),
-status: updatedLaunch.status,
+status: launch.status,
 });
 } catch (err) {
 console.error("POST /api/launcher/refund failed:", err);
@@ -823,12 +929,12 @@ return res.status(500).json({ ok: false, error: "refund failed" });
 
 //
 // START COUNTDOWN MANUALLY
-// allowed once min raise is reached
+// allowed once min raise is reached and commit window is still open
 //
 router.post("/:id/start-countdown", async (req, res) => {
 try {
 const launchId = Number(req.params.id);
-const launch = await getLaunchById(launchId);
+let launch = await reconcileLaunchState(launchId);
 
 if (!launch) {
 return res.status(404).json({ ok: false, error: "launch not found" });
@@ -885,11 +991,12 @@ return res.status(500).json({ ok: false, error: "failed to start countdown" });
 
 //
 // CANCEL COUNTDOWN BACK TO COMMIT
+// kept for compatibility; only valid while original commit window is still open
 //
 router.post("/:id/cancel-countdown", async (req, res) => {
 try {
 const launchId = Number(req.params.id);
-const launch = await getLaunchById(launchId);
+let launch = await getLaunchById(launchId);
 
 if (!launch) {
 return res.status(404).json({ ok: false, error: "launch not found" });
@@ -897,6 +1004,26 @@ return res.status(404).json({ ok: false, error: "launch not found" });
 
 if (launch.status !== "countdown") {
 return res.status(400).json({ ok: false, error: "launch is not in countdown" });
+}
+
+const commitStillOpenCheck = await db.get(
+`
+SELECT
+CASE
+WHEN commit_ends_at IS NOT NULL AND datetime('now') < datetime(commit_ends_at)
+THEN 1 ELSE 0
+END AS still_open
+FROM launches
+WHERE id = ?
+`,
+[launchId]
+);
+
+if (Number(commitStillOpenCheck?.still_open || 0) !== 1) {
+return res.status(400).json({
+ok: false,
+error: "commit window has already expired",
+});
 }
 
 await db.run(
@@ -917,6 +1044,7 @@ return res.json({
 ok: true,
 launchId,
 status: updatedLaunch.status,
+commitEndsAt: updatedLaunch.commit_ends_at || null,
 });
 } catch (err) {
 console.error("POST /api/launcher/:id/cancel-countdown failed:", err);
@@ -931,70 +1059,18 @@ return res.status(500).json({ ok: false, error: "failed to cancel countdown" });
 router.post("/:id/finalize", async (req, res) => {
 try {
 const launchId = Number(req.params.id);
-let launch = await getLaunchById(launchId);
+const launch = await reconcileLaunchState(launchId);
 
 if (!launch) {
 return res.status(404).json({ ok: false, error: "launch not found" });
 }
 
-if (launch.status !== "countdown") {
-return res.status(400).json({ ok: false, error: "launch is not in countdown" });
-}
-
-const countdownCheck = await db.get(
-`
-SELECT
-CASE
-WHEN countdown_ends_at IS NOT NULL AND datetime('now') >= datetime(countdown_ends_at)
-THEN 1 ELSE 0
-END AS ready
-FROM launches
-WHERE id = ?
-`,
-[launchId]
-);
-
-if (!countdownCheck || Number(countdownCheck.ready) !== 1) {
-return res.status(400).json({
-ok: false,
-error: "countdown has not finished yet",
-});
+if (launch.status !== "live") {
+return res.status(400).json({ ok: false, error: "launch is not ready to finalize" });
 }
 
 const stats = await syncLaunchStats(launchId);
-launch = await getLaunchById(launchId);
-
-if (Number(launch.min_raise_sol) <= 0) {
-return res.status(400).json({ ok: false, error: "invalid minimum raise" });
-}
-
-if (Number(launch.hard_cap_sol) <= Number(launch.min_raise_sol)) {
-return res.status(400).json({
-ok: false,
-error: "hard cap must be greater than minimum raise",
-});
-}
-
-if (Number(stats.totalCommitted) < Number(launch.min_raise_sol)) {
-return res.status(400).json({
-ok: false,
-error: "min raise no longer satisfied",
-});
-}
-
-await db.run(
-`
-UPDATE launches
-SET status = 'live',
-live_at = CURRENT_TIMESTAMP,
-updated_at = CURRENT_TIMESTAMP
-WHERE id = ?
-`,
-[launchId]
-);
-
 const updatedLaunch = await getLaunchById(launchId);
-const allocationResult = await buildLaunchAllocations(launchId);
 const feeBreakdown = buildFeeBreakdown(
 Number(stats.totalCommitted),
 Number(updatedLaunch.launch_fee_pct || 5)
@@ -1012,7 +1088,6 @@ stats.totalCommitted,
 updatedLaunch.hard_cap_sol
 ),
 feeBreakdown,
-execution: allocationResult,
 });
 } catch (err) {
 console.error("POST /api/launcher/:id/finalize failed:", err);
@@ -1028,6 +1103,11 @@ error: err.message || "finalize failed",
 //
 router.get("/list", async (_req, res) => {
 try {
+const ids = await db.all(`SELECT id FROM launches ORDER BY id DESC`);
+for (const row of ids) {
+await reconcileLaunchState(row.id);
+}
+
 const rows = await db.all(
 `
 SELECT
@@ -1047,6 +1127,7 @@ const grouped = {
 commit: shaped.filter((x) => x.status === "commit"),
 countdown: shaped.filter((x) => x.status === "countdown"),
 live: shaped.filter((x) => x.status === "live"),
+failed: shaped.filter((x) => x.status === "failed"),
 };
 
 return res.json({
@@ -1071,7 +1152,7 @@ if (!launchId) {
 return res.status(400).json({ ok: false, error: "invalid launchId" });
 }
 
-const launch = await getLaunchById(launchId);
+let launch = await reconcileLaunchState(launchId);
 
 if (!launch) {
 return res.status(404).json({ ok: false, error: "launch not found" });
@@ -1103,8 +1184,11 @@ commitPercent: buildCommitPercent(
 stats.totalCommitted,
 parsedLaunch.hard_cap_sol
 ),
+commitStartedAt: parsedLaunch.commit_started_at || null,
+commitEndsAt: parsedLaunch.commit_ends_at || null,
 countdownStartedAt: parsedLaunch.countdown_started_at || null,
 countdownEndsAt: parsedLaunch.countdown_ends_at || null,
+failedAt: parsedLaunch.failed_at || null,
 teamAllocationPct: Number(parsedLaunch.team_allocation_pct || 0),
 teamWallets: parsedLaunch.team_wallets,
 teamWalletBreakdown: parsedLaunch.team_wallet_breakdown,
@@ -1124,7 +1208,7 @@ return res.status(500).json({ ok: false, error: "failed to fetch commit stats" }
 router.post("/:id/execute", async (req, res) => {
 try {
 const launchId = Number(req.params.id);
-const launch = await getLaunchById(launchId);
+const launch = await reconcileLaunchState(launchId);
 
 if (!launch) {
 return res.status(404).json({ ok: false, error: "launch not found" });
@@ -1164,6 +1248,7 @@ return res.status(400).json({ ok: false, error: err.message });
 router.get("/:id/allocations", async (req, res) => {
 try {
 const launchId = Number(req.params.id);
+await reconcileLaunchState(launchId);
 
 const rows = await db.all(
 `SELECT * FROM allocations WHERE launch_id = ? ORDER BY id ASC`,
@@ -1183,6 +1268,7 @@ return res.status(500).json({ ok: false, error: "internal server error" });
 router.get("/:id", async (req, res) => {
 try {
 const id = Number(req.params.id);
+await reconcileLaunchState(id);
 
 const launch = await db.get(
 `

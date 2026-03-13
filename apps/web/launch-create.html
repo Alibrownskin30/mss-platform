@@ -355,7 +355,8 @@ transition:.16s ease;
 }
 
 input:focus,
-textarea:focus{
+textarea:focus,
+select:focus{
 border-color:rgba(0,255,209,.28);
 box-shadow:0 0 0 4px rgba(0,255,209,.08);
 background:rgba(255,255,255,.05);
@@ -368,13 +369,6 @@ border:1px solid rgba(255,255,255,.12) !important;
 -webkit-appearance:none;
 -moz-appearance:none;
 appearance:none;
-}
-
-select:focus{
-color:#ffffff !important;
-background-color:#0b1018 !important;
-border-color:rgba(0,255,209,.28) !important;
-box-shadow:0 0 0 4px rgba(0,255,209,.08);
 }
 
 select option,
@@ -787,7 +781,7 @@ Template economics are fixed by MSS by default. The Builder template unlocks mor
 <div class="card hero-side">
 <div class="side-stat">
 <div class="k">Builder Identity</div>
-<div class="v">Connect Phantom to create as your builder wallet</div>
+<div class="v">Connect Phantom, Solflare, or Backpack to create as your builder wallet</div>
 </div>
 <div class="side-stat">
 <div class="k">Builder Template</div>
@@ -814,7 +808,7 @@ Template economics are fixed by MSS by default. The Builder template unlocks mor
 <div id="walletPill" class="wallet-pill">No wallet connected</div>
 </div>
 <input id="wallet" name="wallet" type="text" placeholder="Connected wallet will appear here" autocomplete="off" readonly />
-<div class="hint">Phantom connection is the preferred flow for launch creation.</div>
+<div id="walletHint" class="hint">Use Connect Wallet to choose Phantom, Solflare, or Backpack.</div>
 </div>
 
 <div class="field">
