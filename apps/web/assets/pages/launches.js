@@ -68,7 +68,6 @@ function badgeClass(status) {
 if (status === "countdown") return "countdown";
 if (status === "live" || status === "graduated") return "live";
 if (status === "failed") return "failed";
-if (status === "failed_refunded") return "refunded";
 return "commit";
 }
 
@@ -85,14 +84,9 @@ return Number.isFinite(ms) ? ms : null;
 
 function getBuilderTrust(score) {
 const n = safeNum(score, 0);
-
-if (n >= 80) {
-return { label: "Strong", state: "strong" };
-}
-if (n >= 55) {
-return { label: "Moderate", state: "moderate" };
-}
-return { label: "Early", state: "early" };
+if (n >= 80) return { label: "Strong" };
+if (n >= 55) return { label: "Moderate" };
+return { label: "Early" };
 }
 
 function fmtSol(n) {
@@ -159,6 +153,27 @@ out.push(`<span class="small-chip">Bond ${fmtSol(launch.builder_bond_sol)} SOL</
 return out.join("");
 }
 
+function trendingScore(launch) {
+const participants = safeNum(launch.participants_count, 0);
+const progress = safeNum(launch.commitPercent, 0);
+const committed = safeNum(launch.committed_sol, 0);
+const statusBoost = launch.status === "commit" ? 18 : launch.status === "countdown" ? 10 : 0;
+return progress * 1.4 + participants * 2.5 + committed * 0.8 + statusBoost;
+}
+
+function getFeedLines(launch) {
+const recent = Array.isArray(launch.recent) ? launch.recent.slice(0, 3) : [];
+if (!recent.length) {
+return `<div class="feed-line"><span>No recent commits</span><span>—</span></div>`;
+}
+
+return recent.map((row) => {
+const wallet = shortenWallet(row.wallet || "");
+const amount = fmtSol(row.sol_amount);
+return `<div class="feed-line"><span>${escapeHtml(wallet)} committed</span><span>${amount} SOL</span></div>`;
+}).join("");
+}
+
 function buildCard(launch) {
 const name = escapeHtml(launch.token_name || "Untitled Launch");
 const symbol = escapeHtml(launch.symbol || "N/A");
@@ -216,7 +231,7 @@ Score ${builderScore} • ${trust.label}
 <strong>${percent}%</strong>
 </div>
 <div class="progress">
-<div class="progress-fill" style="width:${percent}%;"></div>
+<div class="progress-fill ${percent >= 70 ? "hot" : ""}" style="width:${percent}%;"></div>
 </div>
 </div>
 
@@ -297,6 +312,7 @@ ${builderHtml} • Score ${builderScore} • ${trust.label}
 <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
 <div class="badge ${badgeClass(status)}">${stageLabel(status)}</div>
 <div class="small-chip">${escapeHtml(timing.label)}: ${escapeHtml(timing.value)}</div>
+<div class="small-chip">Trending ${Math.round(trendingScore(launch))}</div>
 </div>
 
 <div class="progress-wrap">
@@ -305,8 +321,12 @@ ${builderHtml} • Score ${builderScore} • ${trust.label}
 <strong>${percent}%</strong>
 </div>
 <div class="progress">
-<div class="progress-fill" style="width:${percent}%;"></div>
+<div class="progress-fill ${percent >= 70 ? "hot" : ""}" style="width:${percent}%;"></div>
 </div>
+</div>
+
+<div class="live-feed">
+${getFeedLines(launch)}
 </div>
 </div>
 
@@ -335,6 +355,10 @@ ${walletConnected ? "Quick commit enabled" : "Connect wallet to commit"}
 <div class="v">${fmtSol(hardCap)} SOL</div>
 </div>
 <div class="list-stat">
+<div class="k">Progress</div>
+<div class="v">${percent}%</div>
+</div>
+<div class="list-stat">
 <div class="k">Template</div>
 <div class="v">${template}</div>
 </div>
@@ -351,6 +375,7 @@ ${walletConnected ? "Quick commit enabled" : "Connect wallet to commit"}
 
 let ALL_LAUNCHES = [];
 let CURRENT_VIEW = localStorage.getItem("mss_launchpad_view") || "grid";
+const PREV_PROGRESS = new Map();
 
 function setActionStatus(kind, message) {
 const el = $("launchActionStatus");
@@ -378,6 +403,21 @@ throw new Error(data?.error || `HTTP ${res.status}`);
 return data;
 }
 
+async function enrichRecent(allLaunches) {
+const commitish = allLaunches.filter((x) => ["commit", "countdown", "live"].includes(String(x.status || "")));
+const enriched = await Promise.all(commitish.map(async (launch) => {
+try {
+const stats = await fetchJson(`/api/launcher/commits/${launch.id}`);
+return { ...launch, recent: Array.isArray(stats.recent) ? stats.recent : [] };
+} catch {
+return { ...launch, recent: [] };
+}
+}));
+
+const byId = new Map(enriched.map((x) => [x.id, x]));
+return allLaunches.map((x) => byId.get(x.id) || { ...x, recent: [] });
+}
+
 async function loadLaunches() {
 const meta = $("listMeta");
 
@@ -385,7 +425,18 @@ try {
 if (meta) meta.textContent = "Loading launch data…";
 
 const data = await fetchJson(`/api/launcher/list`);
-ALL_LAUNCHES = Array.isArray(data?.all) ? data.all : [];
+let launches = Array.isArray(data?.all) ? data.all : [];
+launches = launches.filter((x) => x.status !== "failed_refunded");
+launches = await enrichRecent(launches);
+
+for (const launch of launches) {
+const prev = PREV_PROGRESS.get(launch.id);
+const next = safeNum(launch.commitPercent, 0);
+launch.bumped = prev != null && next > prev;
+PREV_PROGRESS.set(launch.id, next);
+}
+
+ALL_LAUNCHES = launches;
 
 if (meta) {
 meta.textContent = `${ALL_LAUNCHES.length} launch${ALL_LAUNCHES.length === 1 ? "" : "es"} loaded`;
@@ -402,25 +453,18 @@ render();
 }
 
 function renderStats(items) {
-const activeItems = items.filter((x) => x.status !== "failed_refunded");
-const commitCount = activeItems.filter((x) => x.status === "commit").length;
-const countdownCount = activeItems.filter((x) => x.status === "countdown").length;
-const liveCount = activeItems.filter((x) => x.status === "live").length;
+const commitCount = items.filter((x) => x.status === "commit").length;
+const countdownCount = items.filter((x) => x.status === "countdown").length;
+const liveCount = items.filter((x) => x.status === "live").length;
 
 if ($("statCommit")) $("statCommit").textContent = String(commitCount);
 if ($("statCountdown")) $("statCountdown").textContent = String(countdownCount);
 if ($("statLive")) $("statLive").textContent = String(liveCount);
 
-const countdowns = activeItems
-.filter((x) => x.status === "countdown" && x.countdown_ends_at)
-.map((x) => ({
-symbol: x.symbol || x.token_name || "—",
-endsAt: parseTs(x.countdown_ends_at),
-}))
-.filter((x) => Number.isFinite(x.endsAt))
-.sort((a, b) => a.endsAt - b.endsAt);
-
-if ($("statNext")) $("statNext").textContent = countdowns[0]?.symbol || "—";
+const trending = items.slice().sort((a, b) => trendingScore(b) - trendingScore(a))[0];
+if ($("statTrending")) {
+$("statTrending").textContent = trending?.symbol || trending?.token_name || "—";
+}
 }
 
 function applyViewState() {
@@ -442,7 +486,9 @@ listBtn.classList.toggle("active", !gridView);
 function sortItems(items, sort) {
 const out = items.slice();
 
-if (sort === "progress") {
+if (sort === "trending") {
+out.sort((a, b) => trendingScore(b) - trendingScore(a));
+} else if (sort === "progress") {
 out.sort((a, b) => safeNum(b.commitPercent) - safeNum(a.commitPercent));
 } else if (sort === "participants") {
 out.sort((a, b) => safeNum(b.participants_count) - safeNum(a.participants_count));
@@ -497,10 +543,9 @@ if (!grid || !list) return;
 
 const q = ($("lSearch")?.value || "").trim().toLowerCase();
 const statusFilter = $("lStatus")?.value || "all";
-const sort = $("lSort")?.value || "newest";
+const sort = $("lSort")?.value || "trending";
 
-let items = ALL_LAUNCHES
-.filter((x) => x.status !== "failed_refunded");
+let items = ALL_LAUNCHES.slice();
 
 if (q) {
 items = items.filter((x) => {
@@ -684,7 +729,7 @@ applyViewState();
 await loadLaunches();
 
 setInterval(render, 1000);
-setInterval(loadLaunches, 15000);
+setInterval(loadLaunches, 5000);
 }
 
 init();
