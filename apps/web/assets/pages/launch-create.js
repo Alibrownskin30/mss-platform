@@ -54,6 +54,7 @@ return `${n} SOL`;
 
 function shortenWallet(wallet) {
 const w = String(wallet || "").trim();
+if (!w) return "—";
 if (w.length <= 12) return w;
 return `${w.slice(0, 4)}...${w.slice(-4)}`;
 }
@@ -87,7 +88,7 @@ hardCapSol: 100,
 meme_pro: {
 supply: 1000000000,
 minRaiseSol: 50,
-hardCapSol: 250,
+hardCapSol: 200,
 },
 builder: {
 supply: 1000000000,
@@ -132,11 +133,13 @@ return getSelectedTemplate().key === "builder";
 function applyTemplateValues() {
 const tpl = getSelectedTemplate();
 const builderMode = isBuilderTemplate();
+
 const supplyInput = $("supply");
 const supplyPreset = $("supplyPreset");
 const fixedSupplyField = $("fixedSupplyField");
 const builderSupplyField = $("builderSupplyField");
 const builderExtras = $("builderExtras");
+const builderHighlight = $("builderModeHighlight");
 
 if (builderMode) {
 const builderSupply = Number(supplyPreset?.value || tpl.supply);
@@ -144,17 +147,31 @@ if (supplyInput) supplyInput.value = String(builderSupply);
 if (fixedSupplyField) fixedSupplyField.style.display = "none";
 if (builderSupplyField) builderSupplyField.classList.add("show");
 if (builderExtras) builderExtras.classList.add("show");
+if (builderHighlight) builderHighlight.classList.add("show");
 } else {
 if (supplyInput) supplyInput.value = String(tpl.supply);
 if (fixedSupplyField) fixedSupplyField.style.display = "grid";
 if (builderSupplyField) builderSupplyField.classList.remove("show");
 if (builderExtras) builderExtras.classList.remove("show");
+if (builderHighlight) builderHighlight.classList.remove("show");
 }
 
 if ($("minRaiseSol")) $("minRaiseSol").value = String(tpl.minRaiseSol);
 if ($("hardCapSol")) $("hardCapSol").value = String(tpl.hardCapSol);
 
+const allocationChip = $("previewAllocationChip");
+const templateChip = $("previewTemplateChip");
+
+if (templateChip) {
+templateChip.textContent = builderMode ? "Builder Template" : "Template Locked";
+}
+
+if (allocationChip) {
+allocationChip.textContent = builderMode ? "Reserve Adjusts For Team" : "Fixed Allocation";
+}
+
 updateTeamAllocationTotal();
+updatePreview();
 }
 
 function getWalletValue() {
@@ -349,7 +366,7 @@ if (values.teamAllocation > 0 && values.teamAllocationTotal > values.teamAllocat
 throw new Error("Combined team wallet allocation exceeds the team allocation limit.");
 }
 
-if (values.teamAllocation > 0 && values.teamAllocationTotal !== values.teamAllocation) {
+if (values.teamAllocation > 0 && Math.abs(values.teamAllocationTotal - values.teamAllocation) > 0.000001) {
 throw new Error("Combined team wallet allocation must match the team allocation limit exactly.");
 }
 
@@ -477,6 +494,45 @@ container.appendChild(row);
 }
 
 updateTeamAllocationTotal();
+updatePreview();
+}
+
+function renderPreviewBuilderBlock(values) {
+const block = $("previewBuilderBlock");
+const allocationEl = $("previewTeamAllocation");
+const bondEl = $("previewBuilderBond");
+const list = $("previewBuilderList");
+
+if (!block || !allocationEl || !bondEl || !list) return;
+
+if (values.template !== "builder") {
+block.classList.remove("show");
+list.innerHTML = "";
+return;
+}
+
+block.classList.add("show");
+allocationEl.textContent = `${Number(values.teamAllocation || 0).toFixed(values.teamAllocation % 1 ? 1 : 0)}%`;
+bondEl.textContent = formatSol(values.builderBond);
+
+const rows = values.teamWalletBreakdown.filter((row) => row.wallet || row.label || row.pct);
+
+if (!rows.length) {
+list.innerHTML = `<div class="preview-builder-row"><span>No visible team wallets set</span><strong>—</strong></div>`;
+return;
+}
+
+list.innerHTML = rows.map((row, i) => {
+const label = row.label || `Wallet ${i + 1}`;
+const wallet = row.wallet ? shortenWallet(row.wallet) : "No wallet";
+const pct = Number(row.pct || 0).toFixed(row.pct % 1 ? 1 : 0);
+return `
+<div class="preview-builder-row">
+<span>${label} • ${wallet}</span>
+<strong>${pct}%</strong>
+</div>
+`;
+}).join("");
 }
 
 function updatePreview() {
@@ -487,10 +543,28 @@ $("previewSub").textContent = `${values.symbol || "TICK"} • ${normalizeTemplat
 $("previewMinRaise").textContent = formatSol(values.minRaiseSol);
 $("previewHardCap").textContent = formatSol(values.hardCapSol);
 $("previewSupply").textContent = formatSupply(values.supply);
-$("previewWallet").textContent = values.wallet || "—";
+$("previewWallet").textContent = values.wallet ? shortenWallet(values.wallet) : "—";
 $("previewDesc").textContent =
 values.description || "Launch description preview will appear here.";
 $("previewBadge").textContent = "Commit";
+
+const flowChip = $("previewFlowChip");
+const templateChip = $("previewTemplateChip");
+const allocationChip = $("previewAllocationChip");
+
+if (flowChip) {
+flowChip.textContent = "Commit → Countdown → Live";
+}
+
+if (templateChip) {
+templateChip.textContent = values.template === "builder" ? "Builder Template" : "Template Locked";
+}
+
+if (allocationChip) {
+allocationChip.textContent = values.template === "builder" ? "Reserve Adjusts For Team" : "Fixed Allocation";
+}
+
+renderPreviewBuilderBlock(values);
 
 const file = $("logoInput")?.files?.[0];
 const existingUrl = values.imageUrl;
@@ -738,6 +812,7 @@ const ids = [
 for (const id of ids) {
 const el = $(id);
 if (!el) continue;
+
 el.addEventListener("input", () => {
 if (id === "template" || id === "supplyPreset") {
 applyTemplateValues();
@@ -748,6 +823,7 @@ renderTeamWalletInputs();
 updatePreview();
 updateTeamAllocationTotal();
 });
+
 el.addEventListener("change", () => {
 if (id === "template" || id === "supplyPreset") {
 applyTemplateValues();
@@ -833,7 +909,12 @@ updatePreview();
 updateTeamAllocationTotal();
 });
 
-$("teamAllocation")?.addEventListener("input", updateTeamAllocationTotal);
+$("teamAllocation")?.addEventListener("input", () => {
+updateTeamAllocationTotal();
+updatePreview();
+});
+
+$("builderBond")?.addEventListener("input", updatePreview);
 }
 
 init();
