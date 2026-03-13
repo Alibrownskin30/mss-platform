@@ -368,6 +368,16 @@ font-weight:800;
 overflow-wrap:anywhere;
 }
 
+.launch-note{
+padding:12px 14px;
+border:1px solid rgba(255,255,255,.10);
+border-radius:14px;
+background:rgba(255,255,255,.03);
+font-size:12px;
+line-height:1.55;
+color:rgba(255,255,255,.72);
+}
+
 .btn{
 display:inline-flex;
 align-items:center;
@@ -534,7 +544,7 @@ h1{font-size:32px}
 <div class="v" id="statCountdown">0</div>
 </div>
 <div class="stat">
-<div class="k">Failed</div>
+<div class="k">Failed / Closed</div>
 <div class="v" id="statFailed">0</div>
 </div>
 </div>
@@ -554,6 +564,7 @@ h1{font-size:32px}
 
 <div class="hint">
 Alias editing is enabled only when the connected wallet matches the builder profile currently open.
+Builder aliases must be unique across MSS.
 </div>
 </section>
 
