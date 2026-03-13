@@ -34,6 +34,8 @@ linear-gradient(180deg, var(--bg0), var(--bg1));
 overflow-x:hidden;
 }
 
+.hidden{ display:none !important; }
+
 a{ color:inherit; text-decoration:none; }
 
 .topbar{
@@ -772,6 +774,8 @@ grid-template-columns:1fr;
 <div id="phaseNote" class="phase-note">Loading launch state…</div>
 </div>
 
+<div id="launchClosureNote" class="status"></div>
+
 <div class="progress-card">
 <div class="section-title">Commit Progress</div>
 
@@ -832,6 +836,26 @@ grid-template-columns:1fr;
 <div class="k">Builder</div>
 <div class="v" id="builderPctStat">—</div>
 </div>
+</div>
+</div>
+
+<div id="builderExtraBlock" class="hidden" style="margin-top:22px;">
+<div class="section-title">Builder Launch Controls</div>
+
+<div class="allocation-grid">
+<div class="stat">
+<div class="k">Team Allocation</div>
+<div class="v" id="teamAllocationPctStat">—</div>
+</div>
+<div class="stat">
+<div class="k">Builder Bond</div>
+<div class="v" id="builderBondStat">—</div>
+</div>
+</div>
+
+<div style="margin-top:18px;">
+<div class="section-title">Team Wallet Breakdown</div>
+<div id="teamWalletBreakdownList" class="recent"></div>
 </div>
 </div>
 
