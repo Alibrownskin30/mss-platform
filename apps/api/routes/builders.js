@@ -7,6 +7,10 @@ function cleanText(value, max = 280) {
 return String(value ?? "").trim().slice(0, max);
 }
 
+function normalizeAlias(value) {
+return cleanText(value, 60).replace(/\s+/g, " ");
+}
+
 function safeNum(v, fallback = 0) {
 const n = Number(v);
 return Number.isFinite(n) ? n : fallback;
@@ -27,8 +31,26 @@ trust: buildTrust(row?.builder_score),
 };
 }
 
+function validateAlias(alias) {
+const cleanAlias = normalizeAlias(alias);
+
+if (!cleanAlias) {
+throw new Error("alias is required");
+}
+
+if (cleanAlias.length < 2) {
+throw new Error("alias must be at least 2 characters");
+}
+
+if (cleanAlias.length > 60) {
+throw new Error("alias is too long");
+}
+
+return cleanAlias;
+}
+
 async function getAliasOwner(alias) {
-const cleanAlias = cleanText(alias, 60);
+const cleanAlias = normalizeAlias(alias);
 if (!cleanAlias) return null;
 
 return db.get(
@@ -48,14 +70,16 @@ LIMIT 1
 router.post("/create", async (req, res) => {
 try {
 const wallet = cleanText(req.body.wallet, 100);
-const alias = cleanText(req.body.alias, 60);
+let alias;
+
+try {
+alias = validateAlias(req.body.alias);
+} catch (err) {
+return res.status(400).json({ ok: false, error: err.message });
+}
 
 if (!wallet) {
 return res.status(400).json({ ok: false, error: "wallet is required" });
-}
-
-if (!alias) {
-return res.status(400).json({ ok: false, error: "alias is required" });
 }
 
 const existing = await db.get(
@@ -107,14 +131,16 @@ return res.status(500).json({ ok: false, error: "internal server error" });
 router.post("/update", async (req, res) => {
 try {
 const wallet = cleanText(req.body.wallet, 100);
-const alias = cleanText(req.body.alias, 60);
+let alias;
+
+try {
+alias = validateAlias(req.body.alias);
+} catch (err) {
+return res.status(400).json({ ok: false, error: err.message });
+}
 
 if (!wallet) {
 return res.status(400).json({ ok: false, error: "wallet is required" });
-}
-
-if (!alias) {
-return res.status(400).json({ ok: false, error: "alias is required" });
 }
 
 const existing = await db.get(
@@ -127,7 +153,7 @@ return res.status(404).json({ ok: false, error: "builder not found" });
 }
 
 const aliasOwner = await getAliasOwner(alias);
-if (aliasOwner && aliasOwner.wallet !== wallet) {
+if (aliasOwner && aliasOwner.id !== existing.id) {
 return res.status(400).json({
 ok: false,
 error: "builder alias is already taken",
@@ -233,6 +259,7 @@ countdown: launches.filter((x) => x.status === "countdown").length,
 live: launches.filter((x) => x.status === "live").length,
 graduated: launches.filter((x) => x.status === "graduated").length,
 failed: launches.filter((x) => x.status === "failed").length,
+failed_refunded: launches.filter((x) => x.status === "failed_refunded").length,
 };
 
 return res.json({
@@ -245,6 +272,8 @@ committed_sol: safeNum(launch.committed_sol, 0),
 min_raise_sol: safeNum(launch.min_raise_sol, 0),
 hard_cap_sol: safeNum(launch.hard_cap_sol, 0),
 participants_count: safeNum(launch.participants_count, 0),
+builder_bond_sol: safeNum(launch.builder_bond_sol, 0),
+team_allocation_pct: safeNum(launch.team_allocation_pct, 0),
 })),
 });
 } catch (err) {
