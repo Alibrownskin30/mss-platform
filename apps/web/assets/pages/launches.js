@@ -67,7 +67,7 @@ return "Unknown";
 function badgeClass(status) {
 if (status === "countdown") return "countdown";
 if (status === "live" || status === "graduated") return "live";
-if (status === "failed") return "failed";
+if (status === "failed" || status === "failed_refunded") return "failed";
 return "commit";
 }
 
@@ -109,7 +109,7 @@ return imageUrl
 }
 
 function getTimingMeta(launch) {
-const status = launch.status || "commit";
+const status = String(launch.status || "commit");
 const commitEndsAt = parseTs(launch.commit_ends_at);
 const countdownEndsAt = parseTs(launch.countdown_ends_at);
 
@@ -134,6 +134,13 @@ value: "LIVE",
 };
 }
 
+if (status === "failed_refunded") {
+return {
+label: "Status",
+value: "Refunded",
+};
+}
+
 return {
 label: "Status",
 value: stageLabel(status),
@@ -147,7 +154,8 @@ if (safeNum(launch.team_allocation_pct) > 0) {
 out.push(`<span class="small-chip">Team ${fmtSol(launch.team_allocation_pct)}%</span>`);
 }
 if (safeNum(launch.builder_bond_sol) > 0) {
-out.push(`<span class="small-chip">Bond ${fmtSol(launch.builder_bond_sol)} SOL</span>`);
+const refunded = safeNum(launch.builder_bond_refunded, 0) === 1;
+out.push(`<span class="small-chip">Bond ${fmtSol(launch.builder_bond_sol)} SOL${refunded ? " • Refunded" : ""}</span>`);
 }
 }
 return out.join("");
@@ -157,8 +165,30 @@ function trendingScore(launch) {
 const participants = safeNum(launch.participants_count, 0);
 const progress = safeNum(launch.commitPercent, 0);
 const committed = safeNum(launch.committed_sol, 0);
-const statusBoost = launch.status === "commit" ? 18 : launch.status === "countdown" ? 10 : 0;
-return progress * 1.4 + participants * 2.5 + committed * 0.8 + statusBoost;
+const minRaise = safeNum(launch.min_raise_sol, 0);
+const hardCap = safeNum(launch.hard_cap_sol, 0);
+const status = String(launch.status || "");
+
+const nearSoftCapBoost =
+minRaise > 0 && committed >= minRaise ? 20 : minRaise > 0 ? (committed / minRaise) * 16 : 0;
+
+const nearHardCapBoost =
+hardCap > 0 ? (committed / hardCap) * 20 : 0;
+
+const statusBoost =
+status === "commit" ? 18 :
+status === "countdown" ? 28 :
+status === "live" ? 12 :
+0;
+
+return (
+progress * 1.3 +
+participants * 2.8 +
+committed * 0.8 +
+nearSoftCapBoost +
+nearHardCapBoost +
+statusBoost
+);
 }
 
 function getFeedLines(launch) {
@@ -179,7 +209,7 @@ const name = escapeHtml(launch.token_name || "Untitled Launch");
 const symbol = escapeHtml(launch.symbol || "N/A");
 const templateRaw = String(launch.template || "—");
 const template = escapeHtml(templateRaw.replaceAll("_", " "));
-const status = launch.status || "commit";
+const status = String(launch.status || "commit");
 const builderName = escapeHtml(launch.builder_alias || launch.builder_wallet || "Unknown Builder");
 const builderWallet = String(launch.builder_wallet || "").trim();
 const builderScore = safeNum(launch.builder_score, 0);
@@ -274,7 +304,7 @@ const name = escapeHtml(launch.token_name || "Untitled Launch");
 const symbol = escapeHtml(launch.symbol || "N/A");
 const templateRaw = String(launch.template || "—");
 const template = escapeHtml(templateRaw.replaceAll("_", " "));
-const status = launch.status || "commit";
+const status = String(launch.status || "commit");
 const builderName = escapeHtml(launch.builder_alias || launch.builder_wallet || "Unknown Builder");
 const builderWallet = String(launch.builder_wallet || "").trim();
 const builderScore = safeNum(launch.builder_score, 0);
@@ -404,15 +434,20 @@ return data;
 }
 
 async function enrichRecent(allLaunches) {
-const commitish = allLaunches.filter((x) => ["commit", "countdown", "live"].includes(String(x.status || "")));
-const enriched = await Promise.all(commitish.map(async (launch) => {
+const commitish = allLaunches.filter((x) =>
+["commit", "countdown", "live"].includes(String(x.status || ""))
+);
+
+const enriched = await Promise.all(
+commitish.map(async (launch) => {
 try {
 const stats = await fetchJson(`/api/launcher/commits/${launch.id}`);
 return { ...launch, recent: Array.isArray(stats.recent) ? stats.recent : [] };
 } catch {
 return { ...launch, recent: [] };
 }
-}));
+})
+);
 
 const byId = new Map(enriched.map((x) => [x.id, x]));
 return allLaunches.map((x) => byId.get(x.id) || { ...x, recent: [] });
@@ -426,6 +461,7 @@ if (meta) meta.textContent = "Loading launch data…";
 
 const data = await fetchJson(`/api/launcher/list`);
 let launches = Array.isArray(data?.all) ? data.all : [];
+
 launches = launches.filter((x) => x.status !== "failed_refunded");
 launches = await enrichRecent(launches);
 
@@ -496,12 +532,14 @@ out.sort((a, b) => safeNum(b.participants_count) - safeNum(a.participants_count)
 out.sort((a, b) => {
 const aStatus = String(a.status || "");
 const bStatus = String(b.status || "");
-const aEnd = aStatus === "countdown"
+const aEnd =
+aStatus === "countdown"
 ? parseTs(a.countdown_ends_at) ?? Number.MAX_SAFE_INTEGER
 : aStatus === "commit"
 ? parseTs(a.commit_ends_at) ?? Number.MAX_SAFE_INTEGER
 : Number.MAX_SAFE_INTEGER;
-const bEnd = bStatus === "countdown"
+const bEnd =
+bStatus === "countdown"
 ? parseTs(b.countdown_ends_at) ?? Number.MAX_SAFE_INTEGER
 : bStatus === "commit"
 ? parseTs(b.commit_ends_at) ?? Number.MAX_SAFE_INTEGER
@@ -517,12 +555,13 @@ return out;
 
 function renderListSections(items) {
 const sections = [
-{ key: "commit", title: "Commit Live Now" },
 { key: "countdown", title: "Launching Soon" },
+{ key: "commit", title: "Commit Live Now" },
 { key: "live", title: "Live Tokens" },
 ];
 
-const html = sections.map((section) => {
+const html = sections
+.map((section) => {
 const rows = items.filter((x) => x.status === section.key);
 if (!rows.length) return "";
 return `
@@ -531,7 +570,8 @@ return `
 ${rows.map(buildListRow).join("")}
 </div>
 `;
-}).join("");
+})
+.join("");
 
 return html || `<div class="empty">No launches found.</div>`;
 }
@@ -629,6 +669,7 @@ setActionStatus("bad", err.message || "Quick commit failed.");
 function bindQuickCommitButtons() {
 document.querySelectorAll(".quick-commit-btn").forEach((btn) => {
 btn.onclick = async () => {
+if (btn.disabled) return;
 const launchId = Number(btn.getAttribute("data-launch-id"));
 const amount = Number(btn.getAttribute("data-amount"));
 if (!launchId || !amount) return;
