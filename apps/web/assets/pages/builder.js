@@ -50,6 +50,7 @@ if (status === "countdown") return "Countdown";
 if (status === "live") return "Live";
 if (status === "graduated") return "Graduated";
 if (status === "failed") return "Failed";
+if (status === "failed_refunded") return "Refunded";
 return "Unknown";
 }
 
@@ -57,6 +58,7 @@ function badgeClass(status) {
 if (status === "countdown") return "countdown";
 if (status === "live" || status === "graduated") return "live";
 if (status === "failed") return "failed";
+if (status === "failed_refunded") return "live";
 return "commit";
 }
 
@@ -88,6 +90,13 @@ function getWalletFromUrlOrProvider() {
 const fromUrl = qs("wallet");
 if (fromUrl) return fromUrl;
 return getConnectedWallet();
+}
+
+function shortenWallet(wallet) {
+const w = String(wallet || "").trim();
+if (!w) return "—";
+if (w.length <= 12) return w;
+return `${w.slice(0, 4)}...${w.slice(-4)}`;
 }
 
 async function fetchBuilder(wallet) {
@@ -152,7 +161,9 @@ $("statLive").textContent = String(safeNum(totals.live, 0));
 $("statGraduated").textContent = String(safeNum(totals.graduated, 0));
 $("statCommit").textContent = String(safeNum(totals.commit, 0));
 $("statCountdown").textContent = String(safeNum(totals.countdown, 0));
-$("statFailed").textContent = String(safeNum(totals.failed, 0));
+$("statFailed").textContent = String(
+safeNum(totals.failed, 0) + safeNum(totals.failed_refunded, 0)
+);
 
 const aliasInput = $("builderAliasInput");
 if (aliasInput) {
@@ -173,6 +184,21 @@ editCard.classList.add("hidden");
 }
 }
 
+function renderBuilderMeta(launch) {
+const isBuilder = String(launch.template || "") === "builder";
+if (!isBuilder) return "";
+
+const teamAllocation = safeNum(launch.team_allocation_pct, 0);
+const builderBond = safeNum(launch.builder_bond_sol, 0);
+
+return `
+<div class="row-box">
+<div class="k">Builder Controls</div>
+<div class="v">Team ${teamAllocation}% • Bond ${builderBond} SOL</div>
+</div>
+`;
+}
+
 function renderLaunches(launches) {
 const list = $("launchList");
 if (!list) return;
@@ -187,6 +213,13 @@ const committed = safeNum(launch.committed_sol, 0);
 const hardCap = safeNum(launch.hard_cap_sol, 0);
 const participants = safeNum(launch.participants_count, 0);
 const minRaise = safeNum(launch.min_raise_sol, 0);
+const status = String(launch.status || "");
+const template = escapeHtml(String(launch.template || "—").replaceAll("_", " "));
+
+const statusNote =
+status === "failed_refunded"
+? `<div style="margin-top:10px;font-size:12px;color:rgba(255,255,255,.70);">This failed launch has already been refunded and closed.</div>`
+: "";
 
 return `
 <div class="launch-row">
@@ -194,10 +227,10 @@ return `
 <div>
 <div class="launch-name">${escapeHtml(launch.token_name || "Untitled Launch")}</div>
 <div class="launch-sub">
-${escapeHtml(launch.symbol || "—")} • ${escapeHtml(String(launch.template || "—").replaceAll("_", " "))}
+${escapeHtml(launch.symbol || "—")} • ${template}
 </div>
 </div>
-<div class="badge ${badgeClass(launch.status)}">${statusLabel(launch.status)}</div>
+<div class="badge ${badgeClass(status)}">${statusLabel(status)}</div>
 </div>
 
 <div class="row-kv">
@@ -213,9 +246,15 @@ ${escapeHtml(launch.symbol || "—")} • ${escapeHtml(String(launch.template ||
 <div class="k">Minimum Raise</div>
 <div class="v">${minRaise} SOL</div>
 </div>
+${renderBuilderMeta(launch)}
 </div>
 
-<div>
+${statusNote}
+
+<div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;">
+<div style="font-size:12px;color:rgba(255,255,255,.62);">
+Launch ID #${safeNum(launch.id, 0)} • Status ${statusLabel(status)}
+</div>
 <a class="btn primary" href="./launch.html?id=${encodeURIComponent(launch.id)}">View Launch</a>
 </div>
 </div>
@@ -253,7 +292,7 @@ const input = $("builderAliasInput");
 if (!btn || !input || !wallet) return;
 
 btn.onclick = async () => {
-const alias = String(input.value || "").trim();
+const alias = String(input.value || "").trim().replace(/\s+/g, " ");
 
 if (!alias) {
 setStatus("Alias is required.", "bad");
