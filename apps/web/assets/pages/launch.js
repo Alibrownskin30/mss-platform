@@ -75,11 +75,33 @@ if (status === "failed_refunded") return "Refunded";
 return String(status || "Unknown");
 }
 
+function pillClass(status) {
+if (status === "commit") return "commit";
+if (status === "countdown") return "countdown";
+if (status === "live") return "live";
+if (status === "graduated") return "graduated";
+if (status === "failed" || status === "failed_refunded") return "failed";
+return "commit";
+}
+
 function getBuilderTrust(score) {
 const n = safeNum(score, 0);
-if (n >= 80) return { label: "Strong", note: "Builder profile currently shows strong trust alignment." };
-if (n >= 55) return { label: "Moderate", note: "Builder profile currently shows moderate trust alignment." };
-return { label: "Early", note: "Builder profile is still early-stage and building trust history." };
+if (n >= 80) {
+return {
+label: "Strong",
+note: "Builder profile currently shows strong trust alignment.",
+};
+}
+if (n >= 55) {
+return {
+label: "Moderate",
+note: "Builder profile currently shows moderate trust alignment.",
+};
+}
+return {
+label: "Early",
+note: "Builder profile is still early-stage and building trust history.",
+};
 }
 
 function shortenWallet(wallet) {
@@ -200,8 +222,18 @@ return;
 
 wrap.classList.remove("hidden");
 
-const teamAllocationPct = safeNum(stats.teamAllocationPct, safeNum(launch.team_allocation_pct, 0));
-const builderBondSol = safeNum(stats.builderBondSol, safeNum(launch.builder_bond_sol, 0));
+const teamAllocationPct = safeNum(
+stats.teamAllocationPct,
+safeNum(launch.team_allocation_pct, 0)
+);
+const builderBondSol = safeNum(
+stats.builderBondSol,
+safeNum(launch.builder_bond_sol, 0)
+);
+const builderBondRefunded = safeNum(
+stats.builderBondRefunded,
+safeNum(launch.builder_bond_refunded, 0)
+);
 const breakdown = Array.isArray(stats.teamWalletBreakdown)
 ? stats.teamWalletBreakdown
 : Array.isArray(launch.team_wallet_breakdown)
@@ -209,7 +241,12 @@ const breakdown = Array.isArray(stats.teamWalletBreakdown)
 : [];
 
 teamAllocationPctStat.textContent = `${teamAllocationPct}%`;
+
+if (builderBondRefunded === 1 || String(launch.status || "") === "failed_refunded") {
+builderBondStat.innerHTML = `${builderBondSol} SOL<div style="margin-top:6px;font-size:12px;color:rgba(255,255,255,.62);font-weight:600;">Refunded</div>`;
+} else {
 builderBondStat.textContent = `${builderBondSol} SOL`;
+}
 
 if (!breakdown.length) {
 teamWalletBreakdownList.innerHTML = `<div class="recent-item"><div class="recent-meta">No team wallet breakdown set.</div></div>`;
@@ -240,10 +277,10 @@ const timeStat = $("timeStat");
 
 if (!phaseValue || !phasePill || !phaseNote || !timeStat) return;
 
-const status = launch.status;
+const status = String(launch.status || "");
 phaseValue.textContent = badgeText(status);
 phasePill.textContent = badgeText(status);
-phasePill.className = `status-pill ${status || ""}`;
+phasePill.className = `status-pill ${pillClass(status)}`;
 
 let note = "";
 
@@ -251,6 +288,7 @@ if (status === "commit") {
 const minRemaining = Math.max(0, minRaise - committed);
 const hardRemaining = Math.max(0, hardCap - committed);
 const msLeft = commitEndsAt ? commitEndsAt - Date.now() : null;
+
 timeStat.textContent = Number.isFinite(msLeft) ? fmtCountdown(msLeft) : "COMMIT";
 
 if (committed >= hardCap && hardCap > 0) {
@@ -265,8 +303,7 @@ note = `Commit phase active. ${minRemaining} SOL still needed before launch qual
 } else if (status === "countdown") {
 const ends = parseTs(launch.countdown_ends_at);
 const msLeft = (ends ?? 0) - Date.now();
-const shown = fmtCountdown(msLeft);
-timeStat.textContent = shown;
+timeStat.textContent = fmtCountdown(msLeft);
 note =
 msLeft > 0
 ? "Countdown is active. Refunds are disabled. Launch will auto-finalize and go live when the timer reaches zero."
@@ -282,7 +319,7 @@ timeStat.textContent = "FAILED";
 note = "This launch failed to reach minimum raise before commit expiry.";
 } else if (status === "failed_refunded") {
 timeStat.textContent = "REFUNDED";
-note = "This launch failed and all tracked commitments were automatically refunded.";
+note = "This launch failed, all tracked commitments were automatically refunded, and the launch is now closed.";
 } else {
 timeStat.textContent = badgeText(status);
 note = "Launch state loaded.";
@@ -326,7 +363,7 @@ if (fill) fill.style.width = `${pct}%`;
 
 if (pill) {
 pill.textContent = badgeText(launch.status);
-pill.className = `status-pill ${launch.status || "commit"}`;
+pill.className = `status-pill ${pillClass(launch.status)}`;
 }
 
 if (subline) {
@@ -351,7 +388,7 @@ subline.textContent = `Launch is live • ${participants} participant${participa
 } else if (launch.status === "failed") {
 subline.textContent = `Launch failed • ${participants} participant${participants === 1 ? "" : "s"}`;
 } else if (launch.status === "failed_refunded") {
-subline.textContent = `Launch refunded and closed`;
+subline.textContent = "Launch refunded and closed";
 } else {
 subline.textContent = `Launch status • ${participants} participant${participants === 1 ? "" : "s"}`;
 }
@@ -369,9 +406,21 @@ const liquidityPct = safeNum(launch.liquidity_pct);
 const rawReservePct = safeNum(launch.reserve_pct);
 const baseBuilderPct = safeNum(launch.builder_pct);
 const isBuilder = String(launch.template || "") === "builder";
-const teamAllocationPct = safeNum(stats.teamAllocationPct, safeNum(launch.team_allocation_pct, 0));
-const effectiveReservePct = isBuilder ? Math.max(0, rawReservePct - teamAllocationPct) : rawReservePct;
-const builderBondSol = safeNum(stats.builderBondSol, safeNum(launch.builder_bond_sol, 0));
+const teamAllocationPct = safeNum(
+stats.teamAllocationPct,
+safeNum(launch.team_allocation_pct, 0)
+);
+const effectiveReservePct = isBuilder
+? Math.max(0, rawReservePct - teamAllocationPct)
+: rawReservePct;
+const builderBondSol = safeNum(
+stats.builderBondSol,
+safeNum(launch.builder_bond_sol, 0)
+);
+const builderBondRefunded = safeNum(
+stats.builderBondRefunded,
+safeNum(launch.builder_bond_refunded, 0)
+);
 
 if (participantsPctStat) participantsPctStat.textContent = `${participantsPct}%`;
 if (liquidityPctStat) liquidityPctStat.textContent = `${liquidityPct}%`;
@@ -379,7 +428,7 @@ if (reservePctStat) reservePctStat.textContent = `${effectiveReservePct}%`;
 
 if (builderPctStat) {
 if (isBuilder) {
-builderPctStat.innerHTML = `${baseBuilderPct}%<div style="margin-top:6px;font-size:12px;color:rgba(255,255,255,.62);font-weight:600;">Team ${teamAllocationPct}% • Bond ${builderBondSol} SOL</div>`;
+builderPctStat.innerHTML = `${baseBuilderPct}%<div style="margin-top:6px;font-size:12px;color:rgba(255,255,255,.62);font-weight:600;">Team ${teamAllocationPct}% • Bond ${builderBondSol} SOL${builderBondRefunded === 1 ? " • Refunded" : ""}</div>`;
 } else {
 builderPctStat.textContent = `${baseBuilderPct}%`;
 }
@@ -480,7 +529,17 @@ startCountdownBtn.disabled = !canStartCountdown;
 }
 
 if (launch.status === "failed_refunded") {
-setClosureNote("This launch failed, all tracked commitments were automatically refunded, and the launch is now closed.", "warn");
+const bondRefunded = safeNum(
+stats.builderBondRefunded,
+safeNum(launch.builder_bond_refunded, 0)
+) === 1;
+
+setClosureNote(
+bondRefunded
+? "This launch failed, all tracked commitments were automatically refunded, the builder bond was refunded, and the launch is now closed."
+: "This launch failed, all tracked commitments were automatically refunded, and the launch is now closed.",
+"warn"
+);
 } else {
 setClosureNote("");
 }
@@ -598,8 +657,12 @@ wallet,
 }),
 });
 
+const bondLine = safeNum(data.builderBondRefunded, 0) > 0
+? `\nBuilder bond refunded: ${data.builderBondRefunded} SOL`
+: "";
+
 setStatus(
-`Refund successful.\n\nRefunded: ${data.refundedSol} SOL\nTotal committed: ${data.totalCommitted} SOL\nParticipants: ${data.participants}`,
+`Refund successful.\n\nRefunded: ${data.refundedSol} SOL${bondLine}\nTotal committed: ${data.totalCommitted} SOL\nParticipants: ${data.participants}`,
 "good"
 );
 
@@ -608,7 +671,9 @@ await refresh();
 console.error(err);
 setStatus(err.message || "Refund failed.", "bad");
 } finally {
-if (refundBtn && ["commit", "failed"].includes(currentLaunch?.status || "")) refundBtn.disabled = false;
+if (refundBtn && ["commit", "failed"].includes(currentLaunch?.status || "")) {
+refundBtn.disabled = false;
+}
 }
 }
 
