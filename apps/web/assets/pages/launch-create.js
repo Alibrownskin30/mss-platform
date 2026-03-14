@@ -40,6 +40,10 @@ return String(v || "")
 .replace(/\b\w/g, (m) => m.toUpperCase());
 }
 
+function normalizeWallet(value) {
+return String(value || "").trim();
+}
+
 function formatSupply(v) {
 const n = Number(v);
 if (!Number.isFinite(n) || n <= 0) return "—";
@@ -197,8 +201,8 @@ selectedLabel === "Custom"
 
 return {
 index,
-label: label.trim(),
-wallet: (walletInput?.value || "").trim(),
+label: String(label || "").trim(),
+wallet: normalizeWallet(walletInput?.value || ""),
 pct: Number(allocationInput?.value || 0),
 };
 });
@@ -232,12 +236,7 @@ totalEl.classList.add("good");
 return;
 }
 
-if (limit > 0 && total > limit) {
-totalEl.classList.add("bad");
-return;
-}
-
-if (total > 15) {
+if (total > 15 || (limit > 0 && total > limit)) {
 totalEl.classList.add("bad");
 return;
 }
@@ -338,16 +337,25 @@ if (values.teamWalletBreakdown.length !== values.teamWalletCount) {
 throw new Error("Team wallet rows are not aligned with team wallet count.");
 }
 
+const seenWallets = new Set();
+
 for (const row of values.teamWalletBreakdown) {
 if (!row.label) {
 throw new Error(`Team wallet ${row.index + 1} needs a label.`);
 }
+
 if (!row.wallet) {
 throw new Error(`Team wallet ${row.index + 1} needs an address.`);
 }
-if (!Number.isFinite(row.pct) || row.pct < 0) {
-throw new Error(`Team wallet ${row.index + 1} allocation is invalid.`);
+
+if (!Number.isFinite(row.pct) || row.pct <= 0) {
+throw new Error(`Team wallet ${row.index + 1} allocation must be greater than 0.`);
 }
+
+if (seenWallets.has(row.wallet)) {
+throw new Error(`Team wallet ${row.index + 1} duplicates another team wallet.`);
+}
+seenWallets.add(row.wallet);
 }
 
 if (values.teamAllocation === 0 && values.teamWalletCount > 0) {
@@ -457,11 +465,11 @@ row.innerHTML = `
 <select data-role="label-select">
 ${buildLabelOptionsHtml(selectedLabel)}
 </select>
-<input data-role="label-custom" type="text" placeholder="Custom label" value="${customLabel}" style="${selectedLabel === "Custom" ? "" : "display:none;"}" />
+<input data-role="label-custom" type="text" placeholder="Custom label" value="${escapeHtmlAttr(customLabel)}" style="${selectedLabel === "Custom" ? "" : "display:none;"}" />
 </div>
 <div class="field">
 <label>Wallet Address</label>
-<input data-role="wallet" type="text" placeholder="Team wallet ${i + 1}" value="${prev.wallet || ""}" autocomplete="off" />
+<input data-role="wallet" type="text" placeholder="Team wallet ${i + 1}" value="${escapeHtmlAttr(prev.wallet || "")}" autocomplete="off" />
 </div>
 <div class="field">
 <label>Allocation %</label>
@@ -528,7 +536,7 @@ const wallet = row.wallet ? shortenWallet(row.wallet) : "No wallet";
 const pct = Number(row.pct || 0).toFixed(row.pct % 1 ? 1 : 0);
 return `
 <div class="preview-builder-row">
-<span>${label} • ${wallet}</span>
+<span>${escapeHtmlText(label)} • ${escapeHtmlText(wallet)}</span>
 <strong>${pct}%</strong>
 </div>
 `;
@@ -863,6 +871,21 @@ onWalletChange(() => {
 updateWalletUi();
 updatePreview();
 });
+}
+
+function escapeHtmlAttr(str) {
+return String(str ?? "")
+.replaceAll("&", "&amp;")
+.replaceAll('"', "&quot;")
+.replaceAll("<", "&lt;")
+.replaceAll(">", "&gt;");
+}
+
+function escapeHtmlText(str) {
+return String(str ?? "")
+.replaceAll("&", "&amp;")
+.replaceAll("<", "&lt;")
+.replaceAll(">", "&gt;");
 }
 
 async function init() {
