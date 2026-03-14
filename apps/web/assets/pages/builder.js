@@ -57,8 +57,7 @@ return "Unknown";
 function badgeClass(status) {
 if (status === "countdown") return "countdown";
 if (status === "live" || status === "graduated") return "live";
-if (status === "failed") return "failed";
-if (status === "failed_refunded") return "live";
+if (status === "failed" || status === "failed_refunded") return "failed";
 return "commit";
 }
 
@@ -90,13 +89,6 @@ function getWalletFromUrlOrProvider() {
 const fromUrl = qs("wallet");
 if (fromUrl) return fromUrl;
 return getConnectedWallet();
-}
-
-function shortenWallet(wallet) {
-const w = String(wallet || "").trim();
-if (!w) return "—";
-if (w.length <= 12) return w;
-return `${w.slice(0, 4)}...${w.slice(-4)}`;
 }
 
 async function fetchBuilder(wallet) {
@@ -190,11 +182,12 @@ if (!isBuilder) return "";
 
 const teamAllocation = safeNum(launch.team_allocation_pct, 0);
 const builderBond = safeNum(launch.builder_bond_sol, 0);
+const bondRefunded = safeNum(launch.builder_bond_refunded, 0) === 1;
 
 return `
 <div class="row-box">
 <div class="k">Builder Controls</div>
-<div class="v">Team ${teamAllocation}% • Bond ${builderBond} SOL</div>
+<div class="v">Team ${teamAllocation}% • Bond ${builderBond} SOL${bondRefunded ? " • Refunded" : ""}</div>
 </div>
 `;
 }
@@ -216,10 +209,12 @@ const minRaise = safeNum(launch.min_raise_sol, 0);
 const status = String(launch.status || "");
 const template = escapeHtml(String(launch.template || "—").replaceAll("_", " "));
 
-const statusNote =
-status === "failed_refunded"
-? `<div style="margin-top:10px;font-size:12px;color:rgba(255,255,255,.70);">This failed launch has already been refunded and closed.</div>`
-: "";
+let statusNote = "";
+if (status === "failed_refunded") {
+statusNote = `<div class="launch-note">This failed launch has already been refunded and closed.</div>`;
+} else if (status === "failed") {
+statusNote = `<div class="launch-note">This launch failed to reach minimum raise and remains in failed state until all refunds are processed.</div>`;
+}
 
 return `
 <div class="launch-row">
