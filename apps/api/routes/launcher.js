@@ -1,6 +1,7 @@
 import express from "express";
 import db from "../db/index.js";
 import { buildLaunchAllocations } from "../services/launcher/allocationService.js";
+import { verifyCommitTransfer } from "../services/launcher/commitVerifier.js";
 
 const router = express.Router();
 
@@ -111,7 +112,7 @@ if (!Number.isFinite(pct) || pct <= 0) continue;
 if (seen.has(wallet)) continue;
 
 seen.add(wallet);
-out.push({ wallet, pct });
+out.push({ wallet, pct, label: cleanText(entry.label, 80) });
 }
 
 return out.slice(0, MAX_TEAM_WALLETS);
@@ -225,7 +226,7 @@ return Math.max(0, Math.min(100, Math.floor((total / cap) * 100)));
 }
 
 function buildFeeBreakdown(totalCommitted, launchFeePct = 5) {
-const feeTotal = totalCommitted * Number(launchFeePct) / 100;
+const feeTotal = (totalCommitted * Number(launchFeePct)) / 100;
 const founderFee = feeTotal * LAUNCH_FEE_SPLIT.founder;
 const buybackFee = feeTotal * LAUNCH_FEE_SPLIT.buyback;
 const treasuryFee = feeTotal * LAUNCH_FEE_SPLIT.treasury;
@@ -458,6 +459,18 @@ builder_alias: parsed.builder_alias || null,
 builder_score: parsed.builder_score ?? null,
 commitPercent: buildCommitPercent(totalCommitted, hardCap),
 };
+}
+
+function getEscrowWallet() {
+const wallet = cleanText(process.env.ESCROW_WALLET, 120);
+if (!wallet) {
+throw new Error("ESCROW_WALLET is not configured");
+}
+return wallet;
+}
+
+function solToLamports(solAmount) {
+return Math.round(Number(solAmount) * 1_000_000_000);
 }
 
 async function getLaunchById(launchId) {
@@ -863,7 +876,7 @@ return res.status(500).json({ ok: false, error: "internal server error" });
 }
 });
 
-router.post("/commit", async (req, res) => {
+router.post("/prepare-commit", async (req, res) => {
 try {
 const launchId = Number(req.body.launchId);
 const wallet = cleanText(req.body.wallet, 100);
@@ -885,17 +898,6 @@ return res.status(404).json({ ok: false, error: "launch not found" });
 
 if (launch.status !== "commit") {
 return res.status(400).json({ ok: false, error: "commit phase closed" });
-}
-
-if (Number(launch.min_raise_sol) <= 0) {
-return res.status(400).json({ ok: false, error: "invalid minimum raise" });
-}
-
-if (Number(launch.hard_cap_sol) <= Number(launch.min_raise_sol)) {
-return res.status(400).json({
-ok: false,
-error: "hard cap must be greater than minimum raise",
-});
 }
 
 const existing = await db.get(
@@ -926,21 +928,138 @@ error: "hard cap reached",
 });
 }
 
-await db.run(
-`
-INSERT INTO commits (launch_id, wallet, sol_amount)
-VALUES (?, ?, ?)
-`,
-[launchId, wallet, solAmount]
-);
-
-const stats = await syncLaunchStats(launchId);
-const updatedLaunch = await reconcileLaunchState(launchId);
+const escrowWallet = getEscrowWallet();
+const reference = `mss-launch-${launchId}`;
+const expectedLamports = solToLamports(solAmount);
 
 return res.json({
 ok: true,
 launchId,
 wallet,
+escrowWallet,
+expectedLamports,
+reference,
+maxWalletCommitSol: MAX_WALLET_COMMIT_SOL,
+currentWalletCommitted: currentWalletTotal,
+remainingWalletCommit: Math.max(0, MAX_WALLET_COMMIT_SOL - currentWalletTotal),
+status: launch.status,
+commitEndsAt: launch.commit_ends_at || null,
+});
+} catch (err) {
+console.error("POST /api/launcher/prepare-commit failed:", err);
+return res.status(500).json({ ok: false, error: err.message || "failed to prepare commit" });
+}
+});
+
+router.post("/confirm-commit", async (req, res) => {
+try {
+const launchId = Number(req.body.launchId);
+const wallet = cleanText(req.body.wallet, 100);
+const solAmount = Number(req.body.solAmount);
+const txSignature = cleanText(req.body.txSignature, 140);
+
+if (!launchId || !wallet || !Number.isFinite(solAmount) || !txSignature) {
+return res.status(400).json({ ok: false, error: "missing or invalid fields" });
+}
+
+if (solAmount <= 0) {
+return res.status(400).json({ ok: false, error: "solAmount must be greater than 0" });
+}
+
+let launch = await reconcileLaunchState(launchId);
+
+if (!launch) {
+return res.status(404).json({ ok: false, error: "launch not found" });
+}
+
+if (launch.status !== "commit") {
+return res.status(400).json({ ok: false, error: "commit phase closed" });
+}
+
+const reusedTx = await db.get(
+`
+SELECT id FROM commits
+WHERE tx_signature = ?
+LIMIT 1
+`,
+[txSignature]
+);
+
+if (reusedTx) {
+return res.status(400).json({ ok: false, error: "transaction already used" });
+}
+
+const existing = await db.get(
+`
+SELECT COALESCE(SUM(sol_amount), 0) AS total
+FROM commits
+WHERE launch_id = ? AND wallet = ?
+`,
+[launchId, wallet]
+);
+
+const currentWalletTotal = Number(existing?.total || 0);
+
+if (currentWalletTotal + solAmount > MAX_WALLET_COMMIT_SOL) {
+return res.status(400).json({
+ok: false,
+error: `max commit per wallet is ${MAX_WALLET_COMMIT_SOL} SOL`,
+});
+}
+
+const currentLaunchTotal = Number(launch.committed_sol || 0);
+const hardCap = Number(launch.hard_cap_sol || 0);
+
+if (currentLaunchTotal + solAmount > hardCap) {
+return res.status(400).json({
+ok: false,
+error: "hard cap reached",
+});
+}
+
+const escrowWallet = getEscrowWallet();
+const expectedLamports = solToLamports(solAmount);
+
+await verifyCommitTransfer({
+txSignature,
+expectedSender: wallet,
+expectedDestination: escrowWallet,
+expectedLamports,
+reference: `mss-launch-${launchId}`,
+});
+
+await db.run(
+`
+INSERT INTO commits (
+launch_id,
+wallet,
+sol_amount,
+tx_signature,
+tx_status,
+verified_at
+) VALUES (?, ?, ?, ?, 'confirmed', CURRENT_TIMESTAMP)
+`,
+[launchId, wallet, solAmount, txSignature]
+);
+
+const stats = await syncLaunchStats(launchId);
+let updatedLaunch = await getLaunchById(launchId);
+
+if (
+Number(stats.totalCommitted) >= Number(updatedLaunch.hard_cap_sol || 0) &&
+Number(updatedLaunch.hard_cap_sol || 0) > 0 &&
+updatedLaunch.status === "commit"
+) {
+updatedLaunch = await beginCountdown(launchId);
+} else {
+updatedLaunch = await reconcileLaunchState(launchId);
+}
+
+return res.json({
+ok: true,
+launchId,
+wallet,
+txSignature,
 walletCommittedTotal: currentWalletTotal + solAmount,
 totalCommitted: stats.totalCommitted,
 participants: stats.participants,
@@ -955,9 +1074,16 @@ commitEndsAt: updatedLaunch.commit_ends_at || null,
 countdownEndsAt: updatedLaunch.countdown_ends_at || null,
 });
 } catch (err) {
-console.error("POST /api/launcher/commit failed:", err);
-return res.status(500).json({ ok: false, error: "commit failed" });
+console.error("POST /api/launcher/confirm-commit failed:", err);
+return res.status(400).json({ ok: false, error: err.message || "commit verification failed" });
 }
+});
+
+router.post("/commit", async (_req, res) => {
+return res.status(410).json({
+ok: false,
+error: "direct commit is deprecated. use prepare-commit and confirm-commit",
+});
 });
 
 router.post("/refund", async (req, res) => {
@@ -1237,7 +1363,6 @@ ORDER BY l.id DESC
 );
 
 const shaped = rows.map(shapeLaunchForList);
-
 const visible = shaped.filter((x) => x.status !== "failed_refunded");
 
 const grouped = {
@@ -1278,7 +1403,7 @@ const stats = await getCommitStats(launchId);
 
 const recent = await db.all(
 `
-SELECT wallet, sol_amount, created_at
+SELECT wallet, sol_amount, created_at, tx_signature, tx_status, verified_at
 FROM commits
 WHERE launch_id = ?
 ORDER BY id DESC

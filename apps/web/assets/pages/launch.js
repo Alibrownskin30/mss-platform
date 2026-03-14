@@ -84,6 +84,12 @@ return `${minutes}m ${seconds}s`;
 return `${seconds}s`;
 }
 
+function fmtSol(value, decimals = 2) {
+const n = Number(value);
+if (!Number.isFinite(n)) return "—";
+return `${n.toFixed(decimals).replace(/\.?0+$/, "")} SOL`;
+}
+
 function badgeText(status) {
 if (status === "commit") return "Commit";
 if (status === "countdown") return "Countdown";
@@ -244,6 +250,58 @@ return null;
 return countdownStartedAt - commitStartedAt;
 }
 
+function buildFeeBreakdown(launch, committed) {
+const launchFeePct = safeNum(launch.launch_fee_pct, 5);
+const totalCommitted = safeNum(committed, 0);
+const feeTotal = totalCommitted * (launchFeePct / 100);
+const founderFee = feeTotal * 0.5;
+const buybackFee = feeTotal * 0.3;
+const treasuryFee = feeTotal * 0.2;
+const netRaiseAfterFee = totalCommitted - feeTotal;
+
+return {
+launchFeePct,
+totalCommitted,
+feeTotal,
+founderFee,
+buybackFee,
+treasuryFee,
+netRaiseAfterFee,
+};
+}
+
+function renderLaunchEconomics(launch, committed) {
+const launchFeePctEl = $("launchFeePctStat");
+const feeTotalEl = $("feeTotalStat");
+const founderFeeEl = $("founderFeeStat");
+const buybackFeeEl = $("buybackFeeStat");
+const treasuryFeeEl = $("treasuryFeeStat");
+const netRaiseEl = $("netRaiseAfterFeeStat");
+const liquidityFundingEl = $("liquidityFundingStat");
+
+if (
+!launchFeePctEl ||
+!feeTotalEl ||
+!founderFeeEl ||
+!buybackFeeEl ||
+!treasuryFeeEl ||
+!netRaiseEl ||
+!liquidityFundingEl
+) {
+return;
+}
+
+const fee = buildFeeBreakdown(launch, committed);
+
+launchFeePctEl.textContent = `${fee.launchFeePct}%`;
+feeTotalEl.textContent = fmtSol(fee.feeTotal);
+founderFeeEl.textContent = fmtSol(fee.founderFee);
+buybackFeeEl.textContent = fmtSol(fee.buybackFee);
+treasuryFeeEl.textContent = fmtSol(fee.treasuryFee);
+netRaiseEl.textContent = fmtSol(fee.netRaiseAfterFee);
+liquidityFundingEl.textContent = fmtSol(fee.netRaiseAfterFee);
+}
+
 function renderTeamWalletBreakdown(launch, stats) {
 const wrap = $("builderExtraBlock");
 const teamAllocationPctStat = $("teamAllocationPctStat");
@@ -334,7 +392,7 @@ const msLeft = commitEndsAt ? commitEndsAt - Date.now() : null;
 timeStat.textContent = Number.isFinite(msLeft) ? fmtCountdown(msLeft) : "COMMIT";
 
 if (committed >= hardCap && hardCap > 0) {
-note = "Hard cap reached. Countdown can begin immediately and refunds will close as soon as countdown starts.";
+note = "Hard cap reached. Countdown has been triggered automatically and refunds are now closing.";
 } else if (committed >= minRaise) {
 note = `Minimum raise reached. Commit phase remains open for additional participation until hard cap is reached or the commit timer expires. ${hardRemaining} SOL remains until hard cap.`;
 } else if (Number.isFinite(msLeft)) {
@@ -551,6 +609,7 @@ $("launchStatusText").textContent = badgeText(launch.status);
 
 renderBuilderInfo(launch);
 renderAllocationStructure(launch, stats);
+renderLaunchEconomics(launch, committed);
 renderTeamWalletBreakdown(launch, stats);
 
 renderLogo(launch.image_url);
@@ -571,11 +630,6 @@ const startCountdownBtn = $("startCountdownBtn");
 const commitOpen = launch.status === "commit";
 const refundOpen = launch.status === "commit" || launch.status === "failed";
 
-const canStartCountdown =
-launch.status === "commit" &&
-committed >= hardCap &&
-hardCap > 0;
-
 if (commitBtn) {
 commitBtn.style.display = commitOpen ? "inline-flex" : "none";
 commitBtn.disabled = !commitOpen;
@@ -587,8 +641,8 @@ refundBtn.disabled = !refundOpen;
 }
 
 if (startCountdownBtn) {
-startCountdownBtn.style.display = canStartCountdown ? "inline-flex" : "none";
-startCountdownBtn.disabled = !canStartCountdown;
+startCountdownBtn.style.display = "none";
+startCountdownBtn.disabled = true;
 }
 
 if (launch.status === "failed_refunded") {
@@ -747,31 +801,6 @@ refundBtn.disabled = false;
 
 async function startCountdown() {
 setStatus("");
-
-const id = qs("id");
-const btn = $("startCountdownBtn");
-if (btn) btn.disabled = true;
-
-try {
-const data = await fetchJson(`/api/launcher/${id}/start-countdown`, {
-method: "POST",
-headers: {
-"Content-Type": "application/json",
-},
-});
-
-setStatus(
-`Countdown started.\n\nTotal committed: ${data.totalCommitted} SOL\nParticipants: ${data.participants}\nCountdown ends at: ${data.countdownEndsAt}`,
-"good"
-);
-
-await refresh();
-} catch (err) {
-console.error(err);
-setStatus(err.message || "Failed to start countdown.", "bad");
-} finally {
-if (btn) btn.disabled = false;
-}
 }
 
 function bindQuickAmounts() {

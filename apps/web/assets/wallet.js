@@ -260,7 +260,7 @@ Choose a supported Solana wallet for MSS launch actions.
 <div style="margin-top:14px;font-size:12px;line-height:1.5;color:rgba(255,255,255,.48);">
 ${
 mobile
-? "On mobile, choosing a wallet can open this page inside that wallet app."
+? "On mobile, choosing a wallet can open this page inside that wallet app browser."
 : "Desktop wallets usually need the browser extension installed and unlocked."
 }
 </div>
@@ -331,6 +331,37 @@ resolve(null);
 }
 });
 });
+}
+
+function getActiveProvider() {
+return state.provider || null;
+}
+
+function assertConnectedProvider() {
+const provider = getActiveProvider();
+const publicKey = state.publicKey;
+
+if (!provider || !publicKey) {
+throw new Error("Connect your wallet before sending SOL.");
+}
+
+if (typeof window.solanaWeb3 === "undefined") {
+throw new Error("Solana Web3 library is not available on this page.");
+}
+
+return {
+provider,
+publicKey,
+web3: window.solanaWeb3,
+};
+}
+
+function normalizeLamports(value) {
+const n = Number(value);
+if (!Number.isFinite(n) || n <= 0) {
+throw new Error("Invalid lamports amount.");
+}
+return Math.round(n);
 }
 
 export function getAvailableWallets() {
@@ -438,4 +469,63 @@ setConnected(wallet.provider, wallet.name, publicKey);
 }
 
 return getConnectedWallet();
+}
+
+export async function sendSolTransfer({
+destination,
+lamports,
+}) {
+const { provider, publicKey, web3 } = assertConnectedProvider();
+
+const cleanDestination = String(destination || "").trim();
+if (!cleanDestination) {
+throw new Error("Destination wallet is required.");
+}
+
+const amountLamports = normalizeLamports(lamports);
+
+const fromPubkey = new web3.PublicKey(publicKey);
+const toPubkey = new web3.PublicKey(cleanDestination);
+
+const latestBlockhash = await web3.Connection.prototype.getLatestBlockhash.call(
+new web3.Connection(web3.clusterApiUrl("mainnet-beta"), "confirmed")
+);
+
+const transaction = new web3.Transaction({
+feePayer: fromPubkey,
+recentBlockhash: latestBlockhash.blockhash,
+});
+
+transaction.add(
+web3.SystemProgram.transfer({
+fromPubkey,
+toPubkey,
+lamports: amountLamports,
+})
+);
+
+let signature = null;
+
+if (typeof provider.signAndSendTransaction === "function") {
+const result = await provider.signAndSendTransaction(transaction);
+signature = result?.signature || null;
+} else if (typeof provider.signTransaction === "function") {
+const signed = await provider.signTransaction(transaction);
+signature = await new web3.Connection(
+web3.clusterApiUrl("mainnet-beta"),
+"confirmed"
+).sendRawTransaction(signed.serialize());
+} else {
+throw new Error("Connected wallet does not support transaction sending.");
+}
+
+if (!signature) {
+throw new Error("Wallet did not return a transaction signature.");
+}
+
+return {
+signature,
+lamports: amountLamports,
+destination: cleanDestination,
+};
 }
