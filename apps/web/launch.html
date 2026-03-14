@@ -458,6 +458,14 @@ margin-top:14px;
 min-width:0;
 }
 
+.economics-grid{
+display:grid;
+grid-template-columns:1fr 1fr;
+gap:12px;
+margin-top:14px;
+min-width:0;
+}
+
 .commit-form{
 display:flex;
 flex-direction:column;
@@ -575,18 +583,11 @@ min-width:0;
 border-color:rgba(0,255,209,.22);
 background:rgba(0,255,209,.08);
 }
-.btn.warn{
-border-color:rgba(255,209,102,.20);
-background:rgba(255,209,102,.10);
-}
 .btn:hover{
 background:rgba(255,255,255,.08);
 }
 .btn.primary:hover{
 background:rgba(0,255,209,.12);
-}
-.btn.warn:hover{
-background:rgba(255,209,102,.14);
 }
 .btn:disabled{
 opacity:.55;
@@ -698,7 +699,8 @@ width:100%;
 @media (max-width:620px){
 .stats,
 .allocation-grid,
-.commit-kpis{
+.commit-kpis,
+.economics-grid{
 grid-template-columns:1fr 1fr;
 }
 .quick{
@@ -710,7 +712,8 @@ grid-template-columns:1fr 1fr;
 .stats,
 .allocation-grid,
 .commit-kpis,
-.quick{
+.quick,
+.economics-grid{
 grid-template-columns:1fr;
 }
 }
@@ -839,6 +842,44 @@ grid-template-columns:1fr;
 </div>
 </div>
 
+<div style="margin-top:22px;">
+<div class="section-title">Launch Economics</div>
+<div class="economics-grid">
+<div class="stat">
+<div class="k">Launch Fee</div>
+<div class="v" id="launchFeePctStat">—</div>
+</div>
+<div class="stat">
+<div class="k">Total Fee</div>
+<div class="v" id="totalFeeSolStat">—</div>
+</div>
+<div class="stat">
+<div class="k">Founder Split</div>
+<div class="v" id="founderFeeSolStat">—</div>
+</div>
+<div class="stat">
+<div class="k">Buyback Split</div>
+<div class="v" id="buybackFeeSolStat">—</div>
+</div>
+<div class="stat">
+<div class="k">Treasury Split</div>
+<div class="v" id="treasuryFeeSolStat">—</div>
+</div>
+<div class="stat">
+<div class="k">Net Raise After Fee</div>
+<div class="v" id="netRaiseAfterFeeStat">—</div>
+</div>
+<div class="stat">
+<div class="k">Liquidity Funding</div>
+<div class="v" id="liquidityFundingStat">—</div>
+</div>
+<div class="stat">
+<div class="k">Fee Split</div>
+<div class="v" id="feeSplitStat">50 / 30 / 20</div>
+</div>
+</div>
+</div>
+
 <div id="builderExtraBlock" class="hidden" style="margin-top:22px;">
 <div class="section-title">Builder Launch Controls</div>
 
@@ -897,7 +938,6 @@ Use Connect Wallet to choose Phantom, Solflare, or Backpack.
 <div class="action-stack">
 <button id="commitBtn" type="submit" class="btn primary">Commit SOL</button>
 <button id="refundBtn" type="button" class="btn">Refund SOL</button>
-<button id="startCountdownBtn" type="button" class="btn warn">Start Countdown</button>
 </div>
 </form>
 
@@ -906,7 +946,7 @@ Use Connect Wallet to choose Phantom, Solflare, or Backpack.
 <div style="margin-top:22px;" class="section-title">Launch Notes</div>
 <div class="desc" style="margin-top:0;">
 MSS launches enforce structured commit logic, capped wallet participation, minimum raise checks,
-countdown-based go-live transitions, and refund protection that disables the moment countdown begins.
+countdown-based go-live transitions, automatic lifecycle transitions, and refund protection that disables the moment countdown begins.
 </div>
 </aside>
 </div>

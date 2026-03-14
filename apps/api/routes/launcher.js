@@ -225,7 +225,7 @@ return Math.max(0, Math.min(100, Math.floor((total / cap) * 100)));
 }
 
 function buildFeeBreakdown(totalCommitted, launchFeePct = 5) {
-const feeTotal = totalCommitted * (Number(launchFeePct) / 100);
+const feeTotal = totalCommitted * Number(launchFeePct) / 100;
 const founderFee = feeTotal * LAUNCH_FEE_SPLIT.founder;
 const buybackFee = feeTotal * LAUNCH_FEE_SPLIT.buyback;
 const treasuryFee = feeTotal * LAUNCH_FEE_SPLIT.treasury;
@@ -526,6 +526,13 @@ return stats;
 }
 
 async function beginCountdown(launchId) {
+const launch = await getLaunchById(launchId);
+if (!launch) return null;
+
+if (launch.status === "countdown") {
+return launch;
+}
+
 await db.run(
 `
 UPDATE launches
@@ -534,28 +541,11 @@ countdown_started_at = CURRENT_TIMESTAMP,
 countdown_ends_at = datetime(CURRENT_TIMESTAMP, '+${COUNTDOWN_MINUTES} minutes'),
 updated_at = CURRENT_TIMESTAMP
 WHERE id = ?
-AND status = 'commit'
 `,
 [launchId]
 );
 
 return getLaunchById(launchId);
-}
-
-async function maybeBeginCountdownOnHardCap(launchId) {
-const launch = await getLaunchById(launchId);
-if (!launch || launch.status !== "commit") {
-return launch;
-}
-
-const committed = Number(launch.committed_sol || 0);
-const hardCap = Number(launch.hard_cap_sol || 0);
-
-if (hardCap > 0 && committed >= hardCap) {
-return beginCountdown(launchId);
-}
-
-return launch;
 }
 
 async function markLaunchFailed(launchId) {
@@ -711,11 +701,10 @@ if (!launch) return null;
 
 if (launch.status === "commit") {
 const stats = await syncLaunchStats(launchId);
-launch = await maybeBeginCountdownOnHardCap(launchId);
+launch = await getLaunchById(launchId);
 
-if (launch?.status === "countdown") {
-return launch;
-}
+const minRaise = Number(launch.min_raise_sol || 0);
+const hardCap = Number(launch.hard_cap_sol || 0);
 
 const commitExpiredCheck = await db.get(
 `
@@ -731,7 +720,15 @@ WHERE id = ?
 
 const commitExpired = Number(commitExpiredCheck?.expired || 0) === 1;
 
+if (Number(stats.totalCommitted) >= hardCap && hardCap > 0) {
+return beginCountdown(launchId);
+}
+
 if (commitExpired) {
+if (Number(stats.totalCommitted) >= minRaise && minRaise > 0) {
+return beginCountdown(launchId);
+}
+
 await markLaunchFailed(launchId);
 const refunded = await autoRefundFailedLaunch(launchId);
 return refunded?.launch || getLaunchById(launchId);
@@ -938,11 +935,7 @@ VALUES (?, ?, ?)
 );
 
 const stats = await syncLaunchStats(launchId);
-let updatedLaunch = await maybeBeginCountdownOnHardCap(launchId);
-
-if (!updatedLaunch) {
-updatedLaunch = await getLaunchById(launchId);
-}
+const updatedLaunch = await reconcileLaunchState(launchId);
 
 return res.json({
 ok: true,
@@ -958,9 +951,7 @@ stats.totalCommitted,
 updatedLaunch.hard_cap_sol
 ),
 status: updatedLaunch.status,
-commitStartedAt: updatedLaunch.commit_started_at || null,
 commitEndsAt: updatedLaunch.commit_ends_at || null,
-countdownStartedAt: updatedLaunch.countdown_started_at || null,
 countdownEndsAt: updatedLaunch.countdown_ends_at || null,
 });
 } catch (err) {

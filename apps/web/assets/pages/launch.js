@@ -214,7 +214,9 @@ list.innerHTML = `<div class="recent-item"><div class="recent-meta">No commits y
 return;
 }
 
-list.innerHTML = items.map((row) => `
+list.innerHTML = items
+.map(
+(row) => `
 <div class="recent-item">
 <div style="min-width:0;">
 <div class="recent-wallet">${escapeHtml(row.wallet || "Unknown")}</div>
@@ -222,7 +224,9 @@ list.innerHTML = items.map((row) => `
 </div>
 <div class="recent-wallet">${safeNum(row.sol_amount)} SOL</div>
 </div>
-`).join("");
+`
+)
+.join("");
 }
 
 function getFillDurationMs(launch, stats) {
@@ -287,7 +291,8 @@ teamWalletBreakdownList.innerHTML = `<div class="recent-item"><div class="recent
 return;
 }
 
-teamWalletBreakdownList.innerHTML = breakdown.map((row, idx) => {
+teamWalletBreakdownList.innerHTML = breakdown
+.map((row, idx) => {
 const wallet = escapeHtml(row.wallet || `Team Wallet ${idx + 1}`);
 const pct = safeNum(row.pct, row.allocationPct);
 const label = escapeHtml(row.label || "");
@@ -300,7 +305,8 @@ return `
 <div class="recent-wallet">${pct}%</div>
 </div>
 `;
-}).join("");
+})
+.join("");
 }
 
 function renderPhase(launch, committed, minRaise, hardCap, commitEndsAt, stats) {
@@ -354,7 +360,8 @@ msLeft > 0
 }
 } else if (status === "live") {
 timeStat.textContent = "LIVE";
-note = fillDurationMs != null
+note =
+fillDurationMs != null
 ? `Launch is now live. Commit phase filled in ${fmtDuration(fillDurationMs)}. Commit and refund actions are closed, and the launch has moved into live state.`
 : "Launch is now live. Commit and refund actions are closed, and the launch has moved into live state.";
 } else if (status === "graduated") {
@@ -429,11 +436,13 @@ subline.textContent = `${minRemaining} SOL until minimum raise • ${participant
 subline.textContent = `${minRemaining} SOL until minimum raise • ${participants} participant${participants === 1 ? "" : "s"}`;
 }
 } else if (launch.status === "countdown") {
-subline.textContent = fillDurationMs != null
+subline.textContent =
+fillDurationMs != null
 ? `Commit phase filled in ${fmtDuration(fillDurationMs)} • Countdown active • ${participants} participant${participants === 1 ? "" : "s"}`
 : `Countdown active • ${participants} participant${participants === 1 ? "" : "s"}`;
 } else if (launch.status === "live") {
-subline.textContent = fillDurationMs != null
+subline.textContent =
+fillDurationMs != null
 ? `Commit phase filled in ${fmtDuration(fillDurationMs)} • Launch is live • ${participants} participant${participants === 1 ? "" : "s"}`
 : `Launch is live • ${participants} participant${participants === 1 ? "" : "s"}`;
 } else if (launch.status === "failed") {
@@ -561,8 +570,11 @@ const startCountdownBtn = $("startCountdownBtn");
 
 const commitOpen = launch.status === "commit";
 const refundOpen = launch.status === "commit" || launch.status === "failed";
+
 const canStartCountdown =
-launch.status === "commit" && committed >= minRaise && minRaise > 0;
+launch.status === "commit" &&
+committed >= hardCap &&
+hardCap > 0;
 
 if (commitBtn) {
 commitBtn.style.display = commitOpen ? "inline-flex" : "none";
