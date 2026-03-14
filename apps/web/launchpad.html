@@ -60,7 +60,9 @@ gap:10px;
 min-width:0;
 }
 .mark{
-width:34px;height:34px;border-radius:10px;
+width:34px;
+height:34px;
+border-radius:10px;
 background:linear-gradient(135deg, rgba(0,255,209,.9), rgba(58,160,255,.9));
 box-shadow:0 10px 24px rgba(0,255,209,.18), 0 10px 24px rgba(58,160,255,.14);
 flex:0 0 auto;
@@ -508,6 +510,7 @@ align-items:flex-start;
 font-size:20px;
 font-weight:800;
 line-height:1.1;
+word-break:break-word;
 }
 
 .token-symbol{
@@ -516,6 +519,7 @@ font-size:12px;
 color:var(--muted2);
 letter-spacing:.08em;
 text-transform:uppercase;
+word-break:break-word;
 }
 
 .badge{
@@ -568,6 +572,7 @@ letter-spacing:.12em;
 margin-top:6px;
 font-size:18px;
 font-weight:800;
+word-break:break-word;
 }
 
 .progress-wrap{
@@ -583,6 +588,7 @@ gap:8px;
 align-items:center;
 font-size:12px;
 color:var(--muted);
+flex-wrap:wrap;
 }
 
 .progress{
@@ -1034,7 +1040,7 @@ if (connectedWallet) {
 btn.href = `./builder.html?wallet=${encodeURIComponent(connectedWallet)}`;
 btn.textContent = "My Builder Profile";
 if (note) {
-note.textContent = "Connected wallets can jump straight into their builder profile and manage launch identity.";
+note.textContent = "Connected wallets can jump directly into their builder profile and manage launch identity from launchpad.";
 }
 } else {
 btn.href = "./builder.html";
