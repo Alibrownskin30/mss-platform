@@ -65,6 +65,25 @@ return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}:${String(r).
 return `${String(m).padStart(2, "0")}:${String(r).padStart(2, "0")}`;
 }
 
+function fmtDuration(ms) {
+if (!Number.isFinite(ms) || ms <= 0) return "00:00";
+
+const totalSeconds = Math.floor(ms / 1000);
+const hours = Math.floor(totalSeconds / 3600);
+const minutes = Math.floor((totalSeconds % 3600) / 60);
+const seconds = totalSeconds % 60;
+
+if (hours > 0) {
+return `${hours}h ${minutes}m ${seconds}s`;
+}
+
+if (minutes > 0) {
+return `${minutes}m ${seconds}s`;
+}
+
+return `${seconds}s`;
+}
+
 function badgeText(status) {
 if (status === "commit") return "Commit";
 if (status === "countdown") return "Countdown";
@@ -206,6 +225,21 @@ list.innerHTML = items.map((row) => `
 `).join("");
 }
 
+function getFillDurationMs(launch, stats) {
+const commitStartedAt = parseTs(stats.commitStartedAt || launch.commit_started_at);
+const countdownStartedAt = parseTs(stats.countdownStartedAt || launch.countdown_started_at);
+
+if (!Number.isFinite(commitStartedAt) || !Number.isFinite(countdownStartedAt)) {
+return null;
+}
+
+if (countdownStartedAt <= commitStartedAt) {
+return null;
+}
+
+return countdownStartedAt - commitStartedAt;
+}
+
 function renderTeamWalletBreakdown(launch, stats) {
 const wrap = $("builderExtraBlock");
 const teamAllocationPctStat = $("teamAllocationPctStat");
@@ -269,7 +303,7 @@ return `
 }).join("");
 }
 
-function renderPhase(launch, committed, minRaise, hardCap, commitEndsAt) {
+function renderPhase(launch, committed, minRaise, hardCap, commitEndsAt, stats) {
 const phaseValue = $("phaseValue");
 const phasePill = $("phasePill");
 const phaseNote = $("phaseNote");
@@ -278,6 +312,8 @@ const timeStat = $("timeStat");
 if (!phaseValue || !phasePill || !phaseNote || !timeStat) return;
 
 const status = String(launch.status || "");
+const fillDurationMs = getFillDurationMs(launch, stats);
+
 phaseValue.textContent = badgeText(status);
 phasePill.textContent = badgeText(status);
 phasePill.className = `status-pill ${pillClass(status)}`;
@@ -304,13 +340,23 @@ note = `Commit phase active. ${minRemaining} SOL still needed before launch qual
 const ends = parseTs(launch.countdown_ends_at);
 const msLeft = (ends ?? 0) - Date.now();
 timeStat.textContent = fmtCountdown(msLeft);
+
+if (fillDurationMs != null) {
+note =
+msLeft > 0
+? `Commit phase filled in ${fmtDuration(fillDurationMs)}. Countdown is active. Refunds are disabled. Launch will auto-finalize and go live when the timer reaches zero.`
+: `Commit phase filled in ${fmtDuration(fillDurationMs)}. Countdown has ended. Waiting for automatic finalize and LP/live transition.`;
+} else {
 note =
 msLeft > 0
 ? "Countdown is active. Refunds are disabled. Launch will auto-finalize and go live when the timer reaches zero."
 : "Countdown has ended. Waiting for automatic finalize and LP/live transition.";
+}
 } else if (status === "live") {
 timeStat.textContent = "LIVE";
-note = "Launch is now live. Commit and refund actions are closed, and the launch has moved into live state.";
+note = fillDurationMs != null
+? `Launch is now live. Commit phase filled in ${fmtDuration(fillDurationMs)}. Commit and refund actions are closed, and the launch has moved into live state.`
+: "Launch is now live. Commit and refund actions are closed, and the launch has moved into live state.";
 } else if (status === "graduated") {
 timeStat.textContent = "GRADUATED";
 note = "This launch has already completed its launch lifecycle and graduated beyond the initial launch phase.";
@@ -348,13 +394,14 @@ builderAliasEl.textContent = `${launch.builder_alias || launch.builder_wallet ||
 builderScoreEl.textContent = `${builderScore} (${builderTrust.label})`;
 }
 
-function renderProgressCard(launch, committed, hardCap, minRaise, participants, pct, commitEndsAt) {
+function renderProgressCard(launch, committed, hardCap, minRaise, participants, pct, commitEndsAt, stats) {
 const headline = $("progressHeadline");
 const subline = $("progressSubline");
 const text = $("progressText");
 const pctEl = $("progressPct");
 const fill = $("progressFill");
 const pill = $("progressStatusPill");
+const fillDurationMs = getFillDurationMs(launch, stats);
 
 if (headline) headline.textContent = `${committed} / ${hardCap} SOL committed`;
 if (text) text.textContent = `${committed} / ${hardCap} SOL committed`;
@@ -382,9 +429,13 @@ subline.textContent = `${minRemaining} SOL until minimum raise • ${participant
 subline.textContent = `${minRemaining} SOL until minimum raise • ${participants} participant${participants === 1 ? "" : "s"}`;
 }
 } else if (launch.status === "countdown") {
-subline.textContent = `Countdown active • ${participants} participant${participants === 1 ? "" : "s"}`;
+subline.textContent = fillDurationMs != null
+? `Commit phase filled in ${fmtDuration(fillDurationMs)} • Countdown active • ${participants} participant${participants === 1 ? "" : "s"}`
+: `Countdown active • ${participants} participant${participants === 1 ? "" : "s"}`;
 } else if (launch.status === "live") {
-subline.textContent = `Launch is live • ${participants} participant${participants === 1 ? "" : "s"}`;
+subline.textContent = fillDurationMs != null
+? `Commit phase filled in ${fmtDuration(fillDurationMs)} • Launch is live • ${participants} participant${participants === 1 ? "" : "s"}`
+: `Launch is live • ${participants} participant${participants === 1 ? "" : "s"}`;
 } else if (launch.status === "failed") {
 subline.textContent = `Launch failed • ${participants} participant${participants === 1 ? "" : "s"}`;
 } else if (launch.status === "failed_refunded") {
@@ -494,13 +545,13 @@ renderAllocationStructure(launch, stats);
 renderTeamWalletBreakdown(launch, stats);
 
 renderLogo(launch.image_url);
-renderProgressCard(launch, committed, hardCap, minRaise, participants, pct, commitEndsAt);
+renderProgressCard(launch, committed, hardCap, minRaise, participants, pct, commitEndsAt, stats);
 
 $("participantsStat").textContent = String(participants);
 $("minRaiseStat").textContent = `${minRaise} SOL`;
 $("hardCapStat").textContent = `${hardCap} SOL`;
 
-renderPhase(launch, committed, minRaise, hardCap, commitEndsAt);
+renderPhase(launch, committed, minRaise, hardCap, commitEndsAt, stats);
 renderRecent(stats.recent || []);
 updateWalletUi();
 
@@ -511,7 +562,7 @@ const startCountdownBtn = $("startCountdownBtn");
 const commitOpen = launch.status === "commit";
 const refundOpen = launch.status === "commit" || launch.status === "failed";
 const canStartCountdown =
-launch.status === "commit" && committed >= hardCap && hardCap > 0;
+launch.status === "commit" && committed >= minRaise && minRaise > 0;
 
 if (commitBtn) {
 commitBtn.style.display = commitOpen ? "inline-flex" : "none";
@@ -612,8 +663,13 @@ solAmount,
 }),
 });
 
+const countdownLine =
+data.status === "countdown" && data.countdownEndsAt
+? `\nCountdown ends at: ${data.countdownEndsAt}`
+: "";
+
 setStatus(
-`Commit successful.\n\nWallet total: ${data.walletCommittedTotal} SOL\nTotal committed: ${data.totalCommitted} SOL\nParticipants: ${data.participants}`,
+`Commit successful.\n\nWallet total: ${data.walletCommittedTotal} SOL\nTotal committed: ${data.totalCommitted} SOL\nParticipants: ${data.participants}${countdownLine}`,
 "good"
 );
 

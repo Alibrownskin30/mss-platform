@@ -534,11 +534,28 @@ countdown_started_at = CURRENT_TIMESTAMP,
 countdown_ends_at = datetime(CURRENT_TIMESTAMP, '+${COUNTDOWN_MINUTES} minutes'),
 updated_at = CURRENT_TIMESTAMP
 WHERE id = ?
+AND status = 'commit'
 `,
 [launchId]
 );
 
 return getLaunchById(launchId);
+}
+
+async function maybeBeginCountdownOnHardCap(launchId) {
+const launch = await getLaunchById(launchId);
+if (!launch || launch.status !== "commit") {
+return launch;
+}
+
+const committed = Number(launch.committed_sol || 0);
+const hardCap = Number(launch.hard_cap_sol || 0);
+
+if (hardCap > 0 && committed >= hardCap) {
+return beginCountdown(launchId);
+}
+
+return launch;
 }
 
 async function markLaunchFailed(launchId) {
@@ -694,9 +711,12 @@ if (!launch) return null;
 
 if (launch.status === "commit") {
 const stats = await syncLaunchStats(launchId);
-launch = await getLaunchById(launchId);
+launch = await maybeBeginCountdownOnHardCap(launchId);
 
-const minRaise = Number(launch.min_raise_sol || 0);
+if (launch?.status === "countdown") {
+return launch;
+}
+
 const commitExpiredCheck = await db.get(
 `
 SELECT CASE
@@ -918,7 +938,11 @@ VALUES (?, ?, ?)
 );
 
 const stats = await syncLaunchStats(launchId);
-const updatedLaunch = await getLaunchById(launchId);
+let updatedLaunch = await maybeBeginCountdownOnHardCap(launchId);
+
+if (!updatedLaunch) {
+updatedLaunch = await getLaunchById(launchId);
+}
 
 return res.json({
 ok: true,
@@ -934,7 +958,9 @@ stats.totalCommitted,
 updatedLaunch.hard_cap_sol
 ),
 status: updatedLaunch.status,
+commitStartedAt: updatedLaunch.commit_started_at || null,
 commitEndsAt: updatedLaunch.commit_ends_at || null,
+countdownStartedAt: updatedLaunch.countdown_started_at || null,
 countdownEndsAt: updatedLaunch.countdown_ends_at || null,
 });
 } catch (err) {
