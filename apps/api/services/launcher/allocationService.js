@@ -1,15 +1,12 @@
 import db from "../../db/index.js";
 
-const TRADING_TAX_PCT = 1;
+const BASE_PARTICIPANT_PCT = 42;
+const BONUS_PARTICIPANT_PCT = 3;
+const INTERNAL_POOL_LIQUIDITY_PCT = 10;
+const RAYDIUM_RESERVED_LIQUIDITY_PCT = 10;
 
-const TRADING_TAX_SPLIT = {
-founder: 0.5,
-buyback: 0.3,
-treasury: 0.2,
-};
-
-function toTokenAmount(totalSupply, pct) {
-return Math.floor((Number(totalSupply) * Number(pct)) / 100);
+function floorBig(n) {
+return Math.floor(Number(n || 0));
 }
 
 function roundSol(value) {
@@ -32,36 +29,178 @@ return [];
 }
 }
 
-function getRevenueWallets() {
+function toTokenAmount(totalSupply, pct) {
+return floorBig((Number(totalSupply) * Number(pct)) / 100);
+}
+
+function sum(items, fn) {
+return items.reduce((acc, item) => acc + Number(fn(item) || 0), 0);
+}
+
+function getBonusPctByFillRatio(fillRatio) {
+const pctFilled = Number(fillRatio || 0) * 100;
+
+if (pctFilled < 10) return 8;
+if (pctFilled < 30) return 5;
+if (pctFilled < 60) return 3;
+return 0;
+}
+
+function normalizeSupply(value) {
+const n = Number(value);
+if (!Number.isFinite(n) || n <= 0) {
+throw new Error("invalid total supply");
+}
+return Math.floor(n);
+}
+
+function normalizeCommitRows(rows) {
+return (Array.isArray(rows) ? rows : [])
+.map((row) => ({
+wallet: String(row?.wallet || "").trim(),
+sol_amount: safeNum(row?.sol_amount, 0),
+}))
+.filter((row) => row.wallet && row.sol_amount > 0);
+}
+
+function buildParticipantBaseAllocations(commits, totalCommitted, baseParticipantTokens) {
+if (!commits.length || totalCommitted <= 0 || baseParticipantTokens <= 0) {
+return commits.map((row) => ({
+wallet: row.wallet,
+committed_sol: row.sol_amount,
+base_tokens: 0,
+}));
+}
+
+let distributed = 0;
+
+return commits.map((row, index) => {
+let baseTokens;
+
+if (index === commits.length - 1) {
+baseTokens = Math.max(0, baseParticipantTokens - distributed);
+} else {
+const share = row.sol_amount / totalCommitted;
+baseTokens = floorBig(baseParticipantTokens * share);
+distributed += baseTokens;
+}
+
 return {
-founder: process.env.FOUNDER_WALLET || "FOUNDER_WALLET_UNSET",
-buyback: process.env.BUYBACK_WALLET || "BUYBACK_WALLET_UNSET",
-treasury: process.env.TREASURY_WALLET || "TREASURY_WALLET_UNSET",
+wallet: row.wallet,
+committed_sol: row.sol_amount,
+base_tokens: baseTokens,
+};
+});
+}
+
+function buildBonusAllocations({
+commits,
+hardCap,
+bonusPoolTokens,
+}) {
+if (!commits.length || bonusPoolTokens <= 0 || hardCap <= 0) {
+return commits.map((row) => ({
+wallet: row.wallet,
+committed_sol: row.sol_amount,
+bonus_pct: 0,
+bonus_tokens_raw: 0,
+bonus_tokens: 0,
+fill_before: 0,
+fill_after: 0,
+}));
+}
+
+let runningCommitted = 0;
+
+const raw = commits.map((row) => {
+const fillBefore = runningCommitted / hardCap;
+const fillAfter = (runningCommitted + row.sol_amount) / hardCap;
+const bonusPct = getBonusPctByFillRatio(fillBefore);
+
+runningCommitted += row.sol_amount;
+
+return {
+wallet: row.wallet,
+committed_sol: row.sol_amount,
+bonus_pct: bonusPct,
+bonus_tokens_raw: row.sol_amount * (bonusPct / 100),
+fill_before: fillBefore,
+fill_after: fillAfter,
+};
+});
+
+const totalRawWeight = sum(raw, (x) => x.bonus_tokens_raw);
+
+if (totalRawWeight <= 0) {
+return raw.map((x) => ({
+...x,
+bonus_tokens: 0,
+}));
+}
+
+let distributed = 0;
+
+return raw.map((row, index) => {
+let bonusTokens;
+
+if (index === raw.length - 1) {
+bonusTokens = Math.max(0, bonusPoolTokens - distributed);
+} else {
+bonusTokens = floorBig((row.bonus_tokens_raw / totalRawWeight) * bonusPoolTokens);
+distributed += bonusTokens;
+}
+
+return {
+...row,
+bonus_tokens: bonusTokens,
+};
+});
+}
+
+function buildTeamAllocations({
+isBuilderLaunch,
+totalSupply,
+teamAllocationPct,
+teamWalletBreakdown,
+}) {
+if (!isBuilderLaunch || teamAllocationPct <= 0 || !teamWalletBreakdown.length) {
+return {
+teamTokens: 0,
+rows: [],
 };
 }
 
-function buildTradingTaxBreakdown(baseSolAmount) {
-const totalTaxSol = roundSol((Number(baseSolAmount) * TRADING_TAX_PCT) / 100);
+const teamTokens = toTokenAmount(totalSupply, teamAllocationPct);
 
-const founderSol = roundSol(totalTaxSol * TRADING_TAX_SPLIT.founder);
-const buybackSol = roundSol(totalTaxSol * TRADING_TAX_SPLIT.buyback);
-const treasurySol = roundSol(totalTaxSol * TRADING_TAX_SPLIT.treasury);
+let distributed = 0;
+const rows = [];
 
-const recomposed = roundSol(founderSol + buybackSol + treasurySol);
-const remainder = roundSol(totalTaxSol - recomposed);
+for (let i = 0; i < teamWalletBreakdown.length; i++) {
+const item = teamWalletBreakdown[i];
+const wallet = String(item?.wallet || "").trim();
+const pct = safeNum(item?.pct, 0);
+
+if (!wallet || pct <= 0) continue;
+
+let tokenAmount;
+if (i === teamWalletBreakdown.length - 1) {
+tokenAmount = Math.max(0, teamTokens - distributed);
+} else {
+tokenAmount = floorBig((teamTokens * pct) / teamAllocationPct);
+distributed += tokenAmount;
+}
+
+rows.push({
+wallet,
+allocation_type: "team",
+token_amount: tokenAmount,
+sol_amount: 0,
+});
+}
 
 return {
-tradingTaxPct: TRADING_TAX_PCT,
-totalTaxSol,
-founderSol: roundSol(founderSol + remainder),
-buybackSol,
-treasurySol,
-splitPct: {
-founder: 0.5,
-buyback: 0.3,
-treasury: 0.2,
-},
-wallets: getRevenueWallets(),
+teamTokens,
+rows,
 };
 }
 
@@ -88,56 +227,108 @@ if (existing) {
 throw new Error("allocations already built for this launch");
 }
 
-const commits = await db.all(
+const rawCommits = await db.all(
 `SELECT wallet, sol_amount FROM commits WHERE launch_id = ? ORDER BY id ASC`,
 [launchId]
 );
 
-const totalSupply = Number(launch.supply);
-const totalCommitted = Number(launch.committed_sol);
-const launchFeePct = Number(launch.launch_fee_pct || 5);
+const commits = normalizeCommitRows(rawCommits);
 
-if (!totalSupply || !totalCommitted) {
-throw new Error("invalid launch supply or committed total");
+const totalSupply = normalizeSupply(launch.supply);
+const totalCommitted = safeNum(launch.committed_sol, 0);
+const launchFeePct = safeNum(launch.launch_fee_pct, 5);
+const hardCap = safeNum(launch.hard_cap_sol, 0);
+
+if (totalCommitted <= 0) {
+throw new Error("invalid committed total");
 }
-
-const isBuilderLaunch = String(launch.template || "") === "builder";
-const teamAllocationPct = safeNum(launch.team_allocation_pct, 0);
-const rawReservePct = safeNum(launch.reserve_pct, 0);
-
-let effectiveReservePct = rawReservePct;
-if (isBuilderLaunch && teamAllocationPct > 0) {
-effectiveReservePct = Math.max(0, rawReservePct - teamAllocationPct);
-}
-
-const participantTokens = toTokenAmount(totalSupply, launch.participants_pct);
-const liquidityTokens = toTokenAmount(totalSupply, launch.liquidity_pct);
-const reserveTokens = toTokenAmount(totalSupply, effectiveReservePct);
-const builderTokens = toTokenAmount(totalSupply, launch.builder_pct);
-const teamTokens = isBuilderLaunch ? toTokenAmount(totalSupply, teamAllocationPct) : 0;
 
 const launchFeeSol = roundSol((totalCommitted * launchFeePct) / 100);
 const netCommittedAfterLaunchFee = roundSol(totalCommitted - launchFeeSol);
 
-const tradingTax = buildTradingTaxBreakdown(totalCommitted);
+const isBuilderLaunch = String(launch.template || "") === "builder";
+const teamAllocationPct = safeNum(launch.team_allocation_pct, 0);
+const rawReservePct = safeNum(launch.reserve_pct, 0);
+const builderPct = safeNum(launch.builder_pct, 0);
 
-for (const row of commits) {
-const walletShare = Number(row.sol_amount) / totalCommitted;
-const tokenAmount = Math.floor(participantTokens * walletShare);
+const effectiveReservePct =
+isBuilderLaunch && teamAllocationPct > 0
+? Math.max(0, rawReservePct - teamAllocationPct)
+: rawReservePct;
 
-await db.run(
-`
-INSERT INTO allocations (
-launch_id,
-wallet,
-allocation_type,
-token_amount,
-sol_amount
-) VALUES (?, ?, 'participant', ?, ?)
-`,
-[launchId, row.wallet, String(tokenAmount), Number(row.sol_amount)]
-);
+const participantTotalTokens = toTokenAmount(totalSupply, safeNum(launch.participants_pct, 45));
+const participantBaseTokens = toTokenAmount(totalSupply, BASE_PARTICIPANT_PCT);
+const participantBonusPoolTokens = toTokenAmount(totalSupply, BONUS_PARTICIPANT_PCT);
+
+if (participantBaseTokens + participantBonusPoolTokens > participantTotalTokens) {
+throw new Error("participant allocation math exceeds configured participant pct");
 }
+
+const internalPoolTokens = toTokenAmount(totalSupply, INTERNAL_POOL_LIQUIDITY_PCT);
+const raydiumLiquidityTokensReserved = toTokenAmount(
+totalSupply,
+RAYDIUM_RESERVED_LIQUIDITY_PCT
+);
+
+const reserveTokens = toTokenAmount(totalSupply, effectiveReservePct);
+const builderTokens = toTokenAmount(totalSupply, builderPct);
+
+const teamWalletBreakdown = parseJsonArray(launch.team_wallet_breakdown);
+const { teamTokens, rows: teamRows } = buildTeamAllocations({
+isBuilderLaunch,
+totalSupply,
+teamAllocationPct,
+teamWalletBreakdown,
+});
+
+const baseAllocs = buildParticipantBaseAllocations(
+commits,
+totalCommitted,
+participantBaseTokens
+);
+
+const bonusAllocs = buildBonusAllocations({
+commits,
+hardCap,
+bonusPoolTokens: participantBonusPoolTokens,
+});
+
+const bonusByWallet = new Map(
+bonusAllocs.map((row) => [row.wallet, row])
+);
+
+const participantRows = baseAllocs.map((row) => {
+const bonus = bonusByWallet.get(row.wallet);
+
+return {
+wallet: row.wallet,
+allocation_type: "participant",
+committed_sol: row.committed_sol,
+base_tokens: row.base_tokens,
+bonus_tokens: safeNum(bonus?.bonus_tokens, 0),
+bonus_pct: safeNum(bonus?.bonus_pct, 0),
+fill_before: safeNum(bonus?.fill_before, 0),
+fill_after: safeNum(bonus?.fill_after, 0),
+token_amount: row.base_tokens + safeNum(bonus?.bonus_tokens, 0),
+};
+});
+
+const participantDistributedBase = sum(participantRows, (x) => x.base_tokens);
+const participantDistributedBonus = sum(participantRows, (x) => x.bonus_tokens);
+const participantDistributedTotal = sum(participantRows, (x) => x.token_amount);
+
+const unsoldParticipantTokensBurned = Math.max(
+0,
+participantBaseTokens - participantDistributedBase
+);
+
+const unusedBonusTokensBurned = Math.max(
+0,
+participantBonusPoolTokens - participantDistributedBonus
+);
+
+const totalBurned = unsoldParticipantTokensBurned + unusedBonusTokensBurned;
+const finalSupply = Math.max(0, totalSupply - totalBurned);
 
 const builder = await db.get(
 `
@@ -149,66 +340,68 @@ WHERE l.id = ?
 [launchId]
 );
 
-await db.run(
-`
-INSERT INTO allocations (
-launch_id,
-wallet,
-allocation_type,
-token_amount,
-sol_amount
-) VALUES (?, ?, 'builder', ?, 0)
-`,
-[launchId, builder.wallet, String(builderTokens)]
-);
+const allocationRows = [];
 
-const teamWalletBreakdown = parseJsonArray(launch.team_wallet_breakdown);
-
-if (isBuilderLaunch && teamTokens > 0 && teamWalletBreakdown.length) {
-let distributed = 0;
-
-for (let i = 0; i < teamWalletBreakdown.length; i++) {
-const row = teamWalletBreakdown[i];
-const pct = safeNum(row?.pct, 0);
-const wallet = String(row?.wallet || "").trim();
-
-if (!wallet || pct <= 0) continue;
-
-const tokenAmount =
-i === teamWalletBreakdown.length - 1
-? Math.max(0, teamTokens - distributed)
-: Math.floor((teamTokens * pct) / teamAllocationPct);
-
-distributed += tokenAmount;
-
-await db.run(
-`
-INSERT INTO allocations (
-launch_id,
-wallet,
-allocation_type,
-token_amount,
-sol_amount
-) VALUES (?, ?, 'team', ?, 0)
-`,
-[launchId, wallet, String(tokenAmount)]
-);
-}
+for (const row of participantRows) {
+allocationRows.push({
+wallet: row.wallet,
+allocation_type: "participant",
+token_amount: row.token_amount,
+sol_amount: row.committed_sol,
+});
 }
 
-await db.run(
-`
-INSERT INTO allocations (
-launch_id,
-wallet,
-allocation_type,
-token_amount,
-sol_amount
-) VALUES (?, ?, 'reserve', ?, 0)
-`,
-[launchId, `RESERVE_LAUNCH_${launchId}`, String(reserveTokens)]
-);
+allocationRows.push({
+wallet: builder?.wallet || `BUILDER_LAUNCH_${launchId}`,
+allocation_type: "builder",
+token_amount: builderTokens,
+sol_amount: 0,
+});
 
+for (const row of teamRows) {
+allocationRows.push(row);
+}
+
+allocationRows.push({
+wallet: `RESERVE_LAUNCH_${launchId}`,
+allocation_type: "reserve",
+token_amount: reserveTokens,
+sol_amount: 0,
+});
+
+allocationRows.push({
+wallet: `INTERNAL_POOL_LAUNCH_${launchId}`,
+allocation_type: "internal_pool",
+token_amount: internalPoolTokens,
+sol_amount: netCommittedAfterLaunchFee,
+});
+
+allocationRows.push({
+wallet: `RAYDIUM_RESERVED_LAUNCH_${launchId}`,
+allocation_type: "raydium_reserved",
+token_amount: raydiumLiquidityTokensReserved,
+sol_amount: 0,
+});
+
+if (unsoldParticipantTokensBurned > 0) {
+allocationRows.push({
+wallet: "11111111111111111111111111111111",
+allocation_type: "burn_unsold_participants",
+token_amount: unsoldParticipantTokensBurned,
+sol_amount: 0,
+});
+}
+
+if (unusedBonusTokensBurned > 0) {
+allocationRows.push({
+wallet: "11111111111111111111111111111111",
+allocation_type: "burn_unused_bonus",
+token_amount: unusedBonusTokensBurned,
+sol_amount: 0,
+});
+}
+
+for (const row of allocationRows) {
 await db.run(
 `
 INSERT INTO allocations (
@@ -217,24 +410,42 @@ wallet,
 allocation_type,
 token_amount,
 sol_amount
-) VALUES (?, ?, 'liquidity', ?, ?)
+) VALUES (?, ?, ?, ?, ?)
 `,
-[launchId, `LP_LAUNCH_${launchId}`, String(liquidityTokens), netCommittedAfterLaunchFee]
+[
+launchId,
+row.wallet,
+row.allocation_type,
+String(row.token_amount),
+Number(row.sol_amount || 0),
+]
 );
+}
 
 return {
 launchId,
 totalSupply,
+finalSupply,
 totalCommitted,
 launchFeePct,
 launchFeeSol,
-netCommittedAfterLaunchFee,
-participantTokens,
-liquidityTokens,
+netRaiseAfterFee: netCommittedAfterLaunchFee,
+participantTotalTokens,
+participantBaseTokens,
+participantBonusPoolTokens,
+participantDistributedBase,
+participantDistributedBonus,
+participantDistributedTotal,
+unsoldParticipantTokensBurned,
+unusedBonusTokensBurned,
+internalPoolSol: netCommittedAfterLaunchFee,
+internalPoolTokens,
+raydiumLiquidityTokensReserved,
 reserveTokens,
 builderTokens,
 teamTokens,
 effectiveReservePct,
-tradingTax,
+allocations: participantRows,
+systemAllocations: allocationRows.filter((x) => x.allocation_type !== "participant"),
 };
 }

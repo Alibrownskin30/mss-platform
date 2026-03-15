@@ -1,8 +1,16 @@
 import "dotenv/config";
 import { Connection } from "@solana/web3.js";
 
-const RPC = process.env.SOLANA_RPC || "https://api.mainnet-beta.solana.com";
-const connection = new Connection(RPC, "confirmed");
+const RPC = process.env.SOLANA_RPC || "https://api.devnet.solana.com";
+const COMMITMENT = "confirmed";
+const MAX_RETRIES = 15;
+const RETRY_DELAY_MS = 1500;
+
+const connection = new Connection(RPC, COMMITMENT);
+
+function sleep(ms) {
+return new Promise((resolve) => setTimeout(resolve, ms));
+}
 
 function toBase58Key(keyLike) {
 if (!keyLike) return "";
@@ -47,6 +55,35 @@ if (text.includes(reference)) return true;
 return false;
 }
 
+async function getParsedTransactionWithRetry(txSignature) {
+let lastError = null;
+
+for (let attempt = 1; attempt <= MAX_RETRIES; attempt += 1) {
+try {
+const tx = await connection.getParsedTransaction(txSignature, {
+maxSupportedTransactionVersion: 0,
+commitment: COMMITMENT,
+});
+
+if (tx) {
+return tx;
+}
+} catch (err) {
+lastError = err;
+}
+
+if (attempt < MAX_RETRIES) {
+await sleep(RETRY_DELAY_MS);
+}
+}
+
+if (lastError) {
+throw new Error(`transaction lookup failed: ${lastError.message || lastError}`);
+}
+
+throw new Error("transaction not found after retry window");
+}
+
 export async function verifyCommitTransfer({
 txSignature,
 expectedSender,
@@ -70,14 +107,7 @@ if (!Number.isFinite(Number(expectedLamports)) || Number(expectedLamports) <= 0)
 throw new Error("invalid expected lamports");
 }
 
-const tx = await connection.getParsedTransaction(txSignature, {
-maxSupportedTransactionVersion: 0,
-commitment: "confirmed",
-});
-
-if (!tx) {
-throw new Error("transaction not found");
-}
+const tx = await getParsedTransactionWithRetry(txSignature);
 
 const err = tx?.meta?.err;
 if (err) {
@@ -102,7 +132,7 @@ throw new Error("transfer amount mismatch");
 if (reference) {
 const hasReference = extractReferencePresent(tx, reference);
 if (!hasReference) {
-// keep this soft for now if your wallet flow doesn't attach memo/reference yet
+// Soft for now until memo/reference is definitely attached in wallet flow.
 // throw new Error("transaction reference mismatch");
 }
 }
@@ -113,5 +143,6 @@ txSignature,
 matchedLamports,
 slot: tx.slot,
 blockTime: tx.blockTime || null,
+rpc: RPC,
 };
 }

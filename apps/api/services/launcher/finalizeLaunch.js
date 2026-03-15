@@ -55,6 +55,17 @@ WHERE id = ?
 return stats;
 }
 
+function parseJsonMaybe(value, fallback = null) {
+if (value == null || value === "") return fallback;
+if (typeof value === "object") return value;
+
+try {
+return JSON.parse(String(value));
+} catch {
+return fallback;
+}
+}
+
 export async function finalizeLaunch(launchId) {
 const launch = await db.get(
 `SELECT * FROM launches WHERE id = ?`,
@@ -129,19 +140,70 @@ console.log("Buyback fee:", feePlan.buybackFee);
 console.log("Treasury fee:", feePlan.treasuryFee);
 console.log("Net raise:", feePlan.netRaiseAfterFee);
 
-const feeDistribution = await distributeLaunchFees({
+let feeDistribution = null;
+
+const priorFeeDistribution = parseJsonMaybe(
+refreshed.fee_distribution_json,
+null
+);
+
+if (Number(refreshed.fees_distributed || 0) === 1) {
+console.log(`Fees already distributed for launch ${launchId}, skipping`);
+feeDistribution = priorFeeDistribution;
+} else {
+const claim = await db.run(
+`
+UPDATE launches
+SET fees_distributed = 2,
+updated_at = CURRENT_TIMESTAMP
+WHERE id = ?
+AND COALESCE(fees_distributed, 0) = 0
+`,
+[launchId]
+);
+
+if (claim.changes === 0) {
+const latest = await db.get(
+`SELECT fee_distribution_json, fees_distributed FROM launches WHERE id = ?`,
+[launchId]
+);
+
+feeDistribution = parseJsonMaybe(latest?.fee_distribution_json, null);
+console.log(`Fee distribution already claimed for launch ${launchId}, skipping`);
+} else {
+try {
+feeDistribution = await distributeLaunchFees({
 totalCommitted,
 launchFeePct,
 });
 
-console.log("Fee distribution complete:", feeDistribution);
+await db.run(
+`
+UPDATE launches
+SET fees_distributed = 1,
+fees_distributed_at = CURRENT_TIMESTAMP,
+fee_distribution_json = ?,
+updated_at = CURRENT_TIMESTAMP
+WHERE id = ?
+`,
+[JSON.stringify(feeDistribution), launchId]
+);
 
-/*
-NEXT PHASES
-1. Mint launch token
-2. Create LP
-3. Distribute participant allocations
-*/
+console.log("Fee distribution complete:", feeDistribution);
+} catch (err) {
+await db.run(
+`
+UPDATE launches
+SET fees_distributed = 0,
+updated_at = CURRENT_TIMESTAMP
+WHERE id = ?
+`,
+[launchId]
+);
+throw err;
+}
+}
+}
 
 await db.run(
 `
@@ -155,17 +217,53 @@ WHERE id = ?
 );
 
 let allocationsBuilt = false;
+let allocationResult = null;
 
 try {
-await buildLaunchAllocations(launchId);
+allocationResult = await buildLaunchAllocations(launchId);
 allocationsBuilt = true;
 } catch (err) {
 const msg = String(err?.message || err || "");
-if (!msg.toLowerCase().includes("already")) {
+if (msg.toLowerCase().includes("already")) {
+allocationsBuilt = true;
+allocationResult = null;
+} else {
 console.error(`Allocation build failed for launch ${launchId}:`, err);
 throw err;
 }
 }
+
+if (allocationResult) {
+await db.run(
+`
+UPDATE launches
+SET final_supply = ?,
+unsold_participant_tokens_burned = ?,
+unused_bonus_tokens_burned = ?,
+internal_pool_sol = ?,
+internal_pool_tokens = ?,
+raydium_liquidity_tokens_reserved = ?,
+launch_result_json = ?,
+updated_at = CURRENT_TIMESTAMP
+WHERE id = ?
+`,
+[
+String(allocationResult.finalSupply ?? ""),
+String(allocationResult.unsoldParticipantTokensBurned ?? "0"),
+String(allocationResult.unusedBonusTokensBurned ?? "0"),
+safeNum(allocationResult.internalPoolSol, 0),
+String(allocationResult.internalPoolTokens ?? "0"),
+String(allocationResult.raydiumLiquidityTokensReserved ?? "0"),
+JSON.stringify(allocationResult),
+launchId,
+]
+);
+}
+
+const finalLaunch = await db.get(
+`SELECT * FROM launches WHERE id = ?`,
+[launchId]
+);
 
 console.log("Launch moved to LIVE:", launchId);
 
@@ -182,5 +280,31 @@ treasuryFee: feePlan.treasuryFee,
 netRaise: feePlan.netRaiseAfterFee,
 feeDistribution,
 allocationsBuilt,
+finalSupply: String(finalLaunch?.final_supply || allocationResult?.finalSupply || ""),
+unsoldParticipantTokensBurned: String(
+finalLaunch?.unsold_participant_tokens_burned ||
+allocationResult?.unsoldParticipantTokensBurned ||
+"0"
+),
+unusedBonusTokensBurned: String(
+finalLaunch?.unused_bonus_tokens_burned ||
+allocationResult?.unusedBonusTokensBurned ||
+"0"
+),
+internalPoolSol: safeNum(
+finalLaunch?.internal_pool_sol,
+allocationResult?.internalPoolSol || 0
+),
+internalPoolTokens: String(
+finalLaunch?.internal_pool_tokens ||
+allocationResult?.internalPoolTokens ||
+"0"
+),
+raydiumLiquidityTokensReserved: String(
+finalLaunch?.raydium_liquidity_tokens_reserved ||
+allocationResult?.raydiumLiquidityTokensReserved ||
+"0"
+),
+launchResult: allocationResult || parseJsonMaybe(finalLaunch?.launch_result_json, null),
 };
 }

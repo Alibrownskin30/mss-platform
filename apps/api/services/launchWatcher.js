@@ -111,95 +111,6 @@ WHERE id = ?
 return getLaunchById(launchId);
 }
 
-async function autoRefundFailedLaunch(launch) {
-if (!launch) return;
-
-const launchId = Number(launch.id || 0);
-if (!launchId) return;
-
-const refreshed = await getLaunchById(launchId);
-if (!refreshed || refreshed.status !== "failed") return;
-
-const commits = await db.all(
-`
-SELECT wallet, COALESCE(SUM(sol_amount), 0) AS total_committed
-FROM commits
-WHERE launch_id = ?
-GROUP BY wallet
-`,
-[launchId]
-);
-
-const builder =
-String(refreshed.template || "") === "builder"
-? await db.get(
-`
-SELECT b.wallet
-FROM launches l
-JOIN builders b ON b.id = l.builder_id
-WHERE l.id = ?
-`,
-[launchId]
-)
-: null;
-
-let refundedWallets = 0;
-let totalRefunded = 0;
-
-for (const row of commits) {
-const wallet = String(row.wallet || "").trim();
-const amount = Number(row.total_committed || 0);
-if (!wallet || amount <= 0) continue;
-
-await db.run(
-`
-DELETE FROM commits
-WHERE launch_id = ? AND wallet = ?
-`,
-[launchId, wallet]
-);
-
-refundedWallets += 1;
-totalRefunded += amount;
-}
-
-const shouldRefundBond =
-String(refreshed.template || "") === "builder" &&
-Number(refreshed.builder_bond_sol || 0) > 0 &&
-Number(refreshed.builder_bond_refunded || 0) !== 1 &&
-builder?.wallet;
-
-if (shouldRefundBond) {
-await db.run(
-`
-UPDATE launches
-SET builder_bond_refunded = 1,
-updated_at = CURRENT_TIMESTAMP
-WHERE id = ?
-`,
-[launchId]
-);
-}
-
-await db.run(
-`
-UPDATE launches
-SET committed_sol = 0,
-participants_count = 0,
-status = 'failed_refunded',
-updated_at = CURRENT_TIMESTAMP
-WHERE id = ?
-`,
-[launchId]
-);
-
-console.log(
-`↩️ Launch ${launchId} auto-refunded and closed (${refundedWallets} wallet(s), ${totalRefunded} SOL${
-shouldRefundBond ? " + builder bond flagged refunded" : ""
-})`
-);
-}
-
 async function finalizeCountdownLaunch(launch) {
 const launchId = Number(launch?.id || 0);
 if (!launchId) return;
@@ -220,9 +131,7 @@ return;
 }
 
 if (result.reason === "minimum raise not met") {
-const failedLaunch = await getLaunchById(launchId);
 console.log(`❌ Launch ${launchId} failed after countdown`);
-await autoRefundFailedLaunch(failedLaunch);
 }
 }
 
@@ -258,9 +167,7 @@ continue;
 
 if (commitExpired && Number(stats.totalCommitted) < minRaise) {
 await markLaunchFailed(launchId);
-const failedLaunch = await getLaunchById(launchId);
 console.log(`❌ Launch ${launchId} failed at commit expiry`);
-await autoRefundFailedLaunch(failedLaunch);
 }
 }
 }
@@ -294,17 +201,7 @@ await finalizeCountdownLaunch(launch);
 }
 
 async function processFailedLaunches() {
-const failedLaunches = await db.all(
-`
-SELECT *
-FROM launches
-WHERE status = 'failed'
-`
-);
-
-for (const launch of failedLaunches) {
-await autoRefundFailedLaunch(launch);
-}
+return;
 }
 
 export async function checkLaunchCountdowns() {

@@ -7,8 +7,8 @@ import { verifyCommitTransfer } from "../services/launcher/commitVerifier.js";
 
 const router = express.Router();
 
-const COMMIT_PHASE_MINUTES = 60;
-const COUNTDOWN_MINUTES = 5;
+const COMMIT_PHASE_MINUTES = 4;
+const COUNTDOWN_MINUTES = 4;
 const MAX_WALLET_COMMIT_SOL = 1;
 const MAX_TEAM_WALLETS = 5;
 const MAX_TEAM_ALLOCATION_PCT = 15;
@@ -517,6 +517,15 @@ throw new Error("invalid refund lamports");
 const destinationPubkey = new PublicKey(destinationWallet);
 const { blockhash, lastValidBlockHeight } = await connection.getLatestBlockhash("confirmed");
 
+const feeBufferLamports = 10000;
+const escrowBalance = await connection.getBalance(escrowKeypair.publicKey, "confirmed");
+
+if (escrowBalance < lamports + feeBufferLamports) {
+throw new Error(
+`escrow wallet lacks fee reserve for full refund: balance=${escrowBalance}, refund=${lamports}`
+);
+}
+
 const tx = new Transaction({
 feePayer: escrowKeypair.publicKey,
 recentBlockhash: blockhash,
@@ -546,7 +555,11 @@ if (confirmation?.value?.err) {
 throw new Error("refund transfer confirmation failed");
 }
 
-return signature;
+return {
+signature,
+refundedSol: solAmount,
+refundedLamports: lamports,
+};
 }
 
 async function getLaunchById(launchId) {
@@ -677,6 +690,7 @@ committedRefundSol: Number(row.total || 0),
 builderBondRefundSol: 0,
 totalRefundSol: Number(row.total || 0),
 txSignature: null,
+refundedSolActual: 0,
 }));
 
 if (
@@ -698,16 +712,21 @@ committedRefundSol: 0,
 builderBondRefundSol: Number(parsedLaunch.builder_bond_sol || 0),
 totalRefundSol: Number(parsedLaunch.builder_bond_sol || 0),
 txSignature: null,
+refundedSolActual: 0,
 });
 }
 }
 
 for (const refund of refunds) {
 if (!refund.wallet || Number(refund.totalRefundSol || 0) <= 0) continue;
-refund.txSignature = await sendRefundTransfer({
+
+const refundTransfer = await sendRefundTransfer({
 destinationWallet: refund.wallet,
 solAmount: refund.totalRefundSol,
 });
+
+refund.txSignature = refundTransfer.signature;
+refund.refundedSolActual = refundTransfer.refundedSol;
 }
 
 if (
@@ -1246,7 +1265,7 @@ if (refundAmount <= 0) {
 return res.status(400).json({ ok: false, error: "nothing to refund" });
 }
 
-const refundTxSignature = await sendRefundTransfer({
+const refundTransfer = await sendRefundTransfer({
 destinationWallet: wallet,
 solAmount: refundAmount,
 });
@@ -1267,8 +1286,9 @@ ok: true,
 launchId,
 wallet,
 refundedSol: refundAmount,
+refundedSolActual: refundTransfer.refundedSol,
 builderBondRefunded,
-refundTxSignature,
+refundTxSignature: refundTransfer.signature,
 totalCommitted: stats.totalCommitted,
 participants: stats.participants,
 commitPercent: buildCommitPercent(
