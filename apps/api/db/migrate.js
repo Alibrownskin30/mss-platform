@@ -2,7 +2,7 @@ import fs from "fs/promises";
 import path from "path";
 import db from "./index.js";
 
-const migrationsDir = path.resolve("apps/api/db/migrations");
+const migrationsDir = path.resolve("db/migrations");
 
 async function ensureMigrationsTable() {
 await db.exec(`

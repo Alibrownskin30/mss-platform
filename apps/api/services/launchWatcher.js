@@ -1,5 +1,5 @@
 import db from "../db/index.js";
-import { buildLaunchAllocations } from "./launcher/allocationService.js";
+import { finalizeLaunch } from "./launcher/finalizeLaunch.js";
 
 const COUNTDOWN_MS = 5 * 60 * 1000;
 
@@ -117,6 +117,9 @@ if (!launch) return;
 const launchId = Number(launch.id || 0);
 if (!launchId) return;
 
+const refreshed = await getLaunchById(launchId);
+if (!refreshed || refreshed.status !== "failed") return;
+
 const commits = await db.all(
 `
 SELECT wallet, COALESCE(SUM(sol_amount), 0) AS total_committed
@@ -128,7 +131,7 @@ GROUP BY wallet
 );
 
 const builder =
-String(launch.template || "") === "builder"
+String(refreshed.template || "") === "builder"
 ? await db.get(
 `
 SELECT b.wallet
@@ -141,25 +144,29 @@ WHERE l.id = ?
 : null;
 
 let refundedWallets = 0;
+let totalRefunded = 0;
 
 for (const row of commits) {
 const wallet = String(row.wallet || "").trim();
-if (!wallet) continue;
-refundedWallets += 1;
-}
+const amount = Number(row.total_committed || 0);
+if (!wallet || amount <= 0) continue;
 
 await db.run(
 `
 DELETE FROM commits
-WHERE launch_id = ?
+WHERE launch_id = ? AND wallet = ?
 `,
-[launchId]
+[launchId, wallet]
 );
 
+refundedWallets += 1;
+totalRefunded += amount;
+}
+
 const shouldRefundBond =
-String(launch.template || "") === "builder" &&
-Number(launch.builder_bond_sol || 0) > 0 &&
-Number(launch.builder_bond_refunded || 0) !== 1 &&
+String(refreshed.template || "") === "builder" &&
+Number(refreshed.builder_bond_sol || 0) > 0 &&
+Number(refreshed.builder_bond_refunded || 0) !== 1 &&
 builder?.wallet;
 
 if (shouldRefundBond) {
@@ -187,12 +194,9 @@ WHERE id = ?
 );
 
 console.log(
-`↩️ Launch ${launchId} refund recorded and closed (${refundedWallets} wallet(s)${
-shouldRefundBond ? " + builder bond" : ""
+`↩️ Launch ${launchId} auto-refunded and closed (${refundedWallets} wallet(s), ${totalRefunded} SOL${
+shouldRefundBond ? " + builder bond flagged refunded" : ""
 })`
-);
-console.log(
-`ℹ️ Launch ${launchId} refund is currently database/state only. Outbound on-chain SOL refund execution is not wired yet.`
 );
 }
 
@@ -203,39 +207,22 @@ if (!launchId) return;
 const refreshed = await getLaunchById(launchId);
 if (!refreshed || refreshed.status !== "countdown") return;
 
-const stats = await syncLaunchStats(launchId);
-const totalCommitted = Number(stats.totalCommitted || 0);
-const minRaise = Number(refreshed.min_raise_sol || 0);
+const result = await finalizeLaunch(launchId);
 
-if (totalCommitted < minRaise) {
-await markLaunchFailed(launchId);
-const failedLaunch = await getLaunchById(launchId);
-console.log(`❌ Launch ${launchId} failed after countdown`);
-await autoRefundFailedLaunch(failedLaunch);
+if (!result) return;
+
+if (result.ok) {
+console.log(`🚀 Launch ${launchId} is now LIVE`);
+if (result.allocationsBuilt) {
+console.log(`📦 Allocations built for launch ${launchId}`);
+}
 return;
 }
 
-await db.run(
-`
-UPDATE launches
-SET status = 'live',
-live_at = CURRENT_TIMESTAMP,
-updated_at = CURRENT_TIMESTAMP
-WHERE id = ?
-`,
-[launchId]
-);
-
-console.log(`🚀 Launch ${launchId} is now LIVE`);
-
-try {
-await buildLaunchAllocations(launchId);
-console.log(`📦 Allocations built for launch ${launchId}`);
-} catch (err) {
-const msg = String(err?.message || err || "");
-if (!msg.toLowerCase().includes("allocations already built")) {
-console.error(`Allocation build failed for launch ${launchId}`, err);
-}
+if (result.reason === "minimum raise not met") {
+const failedLaunch = await getLaunchById(launchId);
+console.log(`❌ Launch ${launchId} failed after countdown`);
+await autoRefundFailedLaunch(failedLaunch);
 }
 }
 
