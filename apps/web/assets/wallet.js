@@ -487,9 +487,12 @@ const amountLamports = normalizeLamports(lamports);
 const fromPubkey = new web3.PublicKey(publicKey);
 const toPubkey = new web3.PublicKey(cleanDestination);
 
-const latestBlockhash = await web3.Connection.prototype.getLatestBlockhash.call(
-new web3.Connection(web3.clusterApiUrl("mainnet-beta"), "confirmed")
+const connection = new web3.Connection(
+web3.clusterApiUrl("devnet"),
+"confirmed"
 );
+
+const latestBlockhash = await connection.getLatestBlockhash();
 
 const transaction = new web3.Transaction({
 feePayer: fromPubkey,
@@ -511,10 +514,7 @@ const result = await provider.signAndSendTransaction(transaction);
 signature = result?.signature || null;
 } else if (typeof provider.signTransaction === "function") {
 const signed = await provider.signTransaction(transaction);
-signature = await new web3.Connection(
-web3.clusterApiUrl("mainnet-beta"),
-"confirmed"
-).sendRawTransaction(signed.serialize());
+signature = await connection.sendRawTransaction(signed.serialize());
 } else {
 throw new Error("Connected wallet does not support transaction sending.");
 }

@@ -6,6 +6,7 @@ getConnectedPublicKey,
 onWalletChange,
 restoreWalletIfTrusted,
 getMobileWalletHelpText,
+sendSolTransfer,
 } from "../wallet.js";
 
 function $(id) {
@@ -88,6 +89,14 @@ function fmtSol(value, decimals = 2) {
 const n = Number(value);
 if (!Number.isFinite(n)) return "—";
 return `${n.toFixed(decimals).replace(/\.?0+$/, "")} SOL`;
+}
+
+function solToLamports(solAmount) {
+const n = Number(solAmount);
+if (!Number.isFinite(n) || n <= 0) {
+throw new Error("Invalid SOL amount.");
+}
+return Math.round(n * 1_000_000_000);
 }
 
 function badgeText(status) {
@@ -258,6 +267,7 @@ const founderFee = feeTotal * 0.5;
 const buybackFee = feeTotal * 0.3;
 const treasuryFee = feeTotal * 0.2;
 const netRaiseAfterFee = totalCommitted - feeTotal;
+const liquidityFunding = netRaiseAfterFee;
 
 return {
 launchFeePct,
@@ -267,25 +277,26 @@ founderFee,
 buybackFee,
 treasuryFee,
 netRaiseAfterFee,
+liquidityFunding,
 };
 }
 
 function renderLaunchEconomics(launch, committed) {
 const launchFeePctEl = $("launchFeePctStat");
-const feeTotalEl = $("feeTotalStat");
-const founderFeeEl = $("founderFeeStat");
-const buybackFeeEl = $("buybackFeeStat");
-const treasuryFeeEl = $("treasuryFeeStat");
-const netRaiseEl = $("netRaiseAfterFeeStat");
+const totalFeeSolEl = $("totalFeeSolStat");
+const founderFeeSolEl = $("founderFeeSolStat");
+const buybackFeeSolEl = $("buybackFeeSolStat");
+const treasuryFeeSolEl = $("treasuryFeeSolStat");
+const netRaiseAfterFeeEl = $("netRaiseAfterFeeStat");
 const liquidityFundingEl = $("liquidityFundingStat");
 
 if (
 !launchFeePctEl ||
-!feeTotalEl ||
-!founderFeeEl ||
-!buybackFeeEl ||
-!treasuryFeeEl ||
-!netRaiseEl ||
+!totalFeeSolEl ||
+!founderFeeSolEl ||
+!buybackFeeSolEl ||
+!treasuryFeeSolEl ||
+!netRaiseAfterFeeEl ||
 !liquidityFundingEl
 ) {
 return;
@@ -294,12 +305,12 @@ return;
 const fee = buildFeeBreakdown(launch, committed);
 
 launchFeePctEl.textContent = `${fee.launchFeePct}%`;
-feeTotalEl.textContent = fmtSol(fee.feeTotal);
-founderFeeEl.textContent = fmtSol(fee.founderFee);
-buybackFeeEl.textContent = fmtSol(fee.buybackFee);
-treasuryFeeEl.textContent = fmtSol(fee.treasuryFee);
-netRaiseEl.textContent = fmtSol(fee.netRaiseAfterFee);
-liquidityFundingEl.textContent = fmtSol(fee.netRaiseAfterFee);
+totalFeeSolEl.textContent = fmtSol(fee.feeTotal);
+founderFeeSolEl.textContent = fmtSol(fee.founderFee);
+buybackFeeSolEl.textContent = fmtSol(fee.buybackFee);
+treasuryFeeSolEl.textContent = fmtSol(fee.treasuryFee);
+netRaiseAfterFeeEl.textContent = fmtSol(fee.netRaiseAfterFee);
+liquidityFundingEl.textContent = fmtSol(fee.liquidityFunding);
 }
 
 function renderTeamWalletBreakdown(launch, stats) {
@@ -717,7 +728,9 @@ const btn = $("commitBtn");
 if (btn) btn.disabled = true;
 
 try {
-const data = await fetchJson(`/api/launcher/commit`, {
+setStatus("Preparing secure commit request…", "warn");
+
+const prepare = await fetchJson(`/api/launcher/prepare-commit`, {
 method: "POST",
 headers: {
 "Content-Type": "application/json",
@@ -729,15 +742,51 @@ solAmount,
 }),
 });
 
+const destinationWallet = String(
+prepare.escrowWallet || prepare.destinationWallet || ""
+).trim();
+
+if (!destinationWallet) {
+throw new Error("Escrow wallet was not returned by the server.");
+}
+
+const lamports = solToLamports(solAmount);
+
+setStatus("Awaiting wallet approval…", "warn");
+
+const transfer = await sendSolTransfer({
+destination: destinationWallet,
+lamports,
+});
+
+setStatus("Verifying on-chain transfer…", "warn");
+
+const data = await fetchJson(`/api/launcher/confirm-commit`, {
+method: "POST",
+headers: {
+"Content-Type": "application/json",
+},
+body: JSON.stringify({
+launchId: Number(id),
+wallet,
+solAmount,
+txSignature: transfer.signature,
+}),
+});
+
 const countdownLine =
 data.status === "countdown" && data.countdownEndsAt
 ? `\nCountdown ends at: ${data.countdownEndsAt}`
 : "";
 
 setStatus(
-`Commit successful.\n\nWallet total: ${data.walletCommittedTotal} SOL\nTotal committed: ${data.totalCommitted} SOL\nParticipants: ${data.participants}${countdownLine}`,
+`Commit successful.\n\nWallet total: ${data.walletCommittedTotal} SOL\nTotal committed: ${data.totalCommitted} SOL\nParticipants: ${data.participants}\nTransaction: ${data.txSignature || transfer.signature}${countdownLine}`,
 "good"
 );
+
+if ($("commitAmount")) {
+$("commitAmount").value = "";
+}
 
 await refresh();
 } catch (err) {
@@ -784,8 +833,8 @@ const bondLine = safeNum(data.builderBondRefunded, 0) > 0
 : "";
 
 setStatus(
-`Refund successful.\n\nRefunded: ${data.refundedSol} SOL${bondLine}\nTotal committed: ${data.totalCommitted} SOL\nParticipants: ${data.participants}`,
-"good"
+`Refund recorded.\n\nRefunded: ${data.refundedSol} SOL${bondLine}\nTotal committed: ${data.totalCommitted} SOL\nParticipants: ${data.participants}\n\nNote: on-chain outbound refund execution still needs to be wired if this is meant to move real SOL automatically.`,
+"warn"
 );
 
 await refresh();
