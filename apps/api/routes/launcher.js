@@ -1,4 +1,6 @@
 import express from "express";
+import { Connection, Keypair, PublicKey, SystemProgram, Transaction } from "@solana/web3.js";
+import bs58 from "bs58";
 import db from "../db/index.js";
 import { buildLaunchAllocations } from "../services/launcher/allocationService.js";
 import { verifyCommitTransfer } from "../services/launcher/commitVerifier.js";
@@ -469,8 +471,82 @@ throw new Error("ESCROW_WALLET is not configured");
 return wallet;
 }
 
+function getRpcUrl() {
+return (
+cleanText(process.env.SOLANA_RPC, 500) ||
+cleanText(process.env.RPC_URL, 500) ||
+"https://api.devnet.solana.com"
+);
+}
+
+function getEscrowKeypair() {
+const raw = cleanText(process.env.ESCROW_PRIVATE_KEY, 5000);
+if (!raw) {
+throw new Error("ESCROW_PRIVATE_KEY is not configured");
+}
+
+try {
+if (raw.startsWith("[")) {
+const arr = JSON.parse(raw);
+if (!Array.isArray(arr) || !arr.length) {
+throw new Error("invalid secret key array");
+}
+return Keypair.fromSecretKey(Uint8Array.from(arr));
+}
+
+return Keypair.fromSecretKey(bs58.decode(raw));
+} catch (err) {
+throw new Error(`ESCROW_PRIVATE_KEY is invalid: ${err?.message || err}`);
+}
+}
+
 function solToLamports(solAmount) {
 return Math.round(Number(solAmount) * 1_000_000_000);
+}
+
+async function sendRefundTransfer({ destinationWallet, solAmount }) {
+const rpcUrl = getRpcUrl();
+const connection = new Connection(rpcUrl, "confirmed");
+const escrowKeypair = getEscrowKeypair();
+
+const lamports = solToLamports(solAmount);
+if (!Number.isFinite(lamports) || lamports <= 0) {
+throw new Error("invalid refund lamports");
+}
+
+const destinationPubkey = new PublicKey(destinationWallet);
+const { blockhash, lastValidBlockHeight } = await connection.getLatestBlockhash("confirmed");
+
+const tx = new Transaction({
+feePayer: escrowKeypair.publicKey,
+recentBlockhash: blockhash,
+}).add(
+SystemProgram.transfer({
+fromPubkey: escrowKeypair.publicKey,
+toPubkey: destinationPubkey,
+lamports,
+})
+);
+
+const signature = await connection.sendTransaction(tx, [escrowKeypair], {
+skipPreflight: false,
+preflightCommitment: "confirmed",
+});
+
+const confirmation = await connection.confirmTransaction(
+{
+signature,
+blockhash,
+lastValidBlockHeight,
+},
+"confirmed"
+);
+
+if (confirmation?.value?.err) {
+throw new Error("refund transfer confirmation failed");
+}
+
+return signature;
 }
 
 async function getLaunchById(launchId) {
@@ -600,6 +676,7 @@ wallet: String(row.wallet || ""),
 committedRefundSol: Number(row.total || 0),
 builderBondRefundSol: 0,
 totalRefundSol: Number(row.total || 0),
+txSignature: null,
 }));
 
 if (
@@ -620,9 +697,25 @@ wallet: builderWallet,
 committedRefundSol: 0,
 builderBondRefundSol: Number(parsedLaunch.builder_bond_sol || 0),
 totalRefundSol: Number(parsedLaunch.builder_bond_sol || 0),
+txSignature: null,
+});
+}
+}
+
+for (const refund of refunds) {
+if (!refund.wallet || Number(refund.totalRefundSol || 0) <= 0) continue;
+refund.txSignature = await sendRefundTransfer({
+destinationWallet: refund.wallet,
+solAmount: refund.totalRefundSol,
 });
 }
 
+if (
+String(parsedLaunch.template || "") === "builder" &&
+Number(parsedLaunch.builder_bond_sol || 0) > 0 &&
+Number(parsedLaunch.builder_bond_refunded || 0) !== 1 &&
+builder?.wallet
+) {
 await db.run(
 `
 UPDATE launches
@@ -1153,6 +1246,11 @@ if (refundAmount <= 0) {
 return res.status(400).json({ ok: false, error: "nothing to refund" });
 }
 
+const refundTxSignature = await sendRefundTransfer({
+destinationWallet: wallet,
+solAmount: refundAmount,
+});
+
 await db.run(
 `
 DELETE FROM commits
@@ -1170,6 +1268,7 @@ launchId,
 wallet,
 refundedSol: refundAmount,
 builderBondRefunded,
+refundTxSignature,
 totalCommitted: stats.totalCommitted,
 participants: stats.participants,
 commitPercent: buildCommitPercent(
@@ -1180,7 +1279,7 @@ status: launch.status,
 });
 } catch (err) {
 console.error("POST /api/launcher/refund failed:", err);
-return res.status(500).json({ ok: false, error: "refund failed" });
+return res.status(500).json({ ok: false, error: err.message || "refund failed" });
 }
 });
 
