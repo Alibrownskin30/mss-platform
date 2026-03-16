@@ -1,0 +1,3 @@
+-- 016_launch_commit_and_builder_fields.sql
+-- Builder launch fields already exist in this database.
+-- This migration intentionally does nothing.

@@ -429,9 +429,19 @@ return {
 team_allocation_pct: Number(row?.team_allocation_pct || 0),
 builder_bond_sol: Number(row?.builder_bond_sol || 0),
 builder_bond_refunded: Number(row?.builder_bond_refunded || 0),
+builder_bond_paid: Number(row?.builder_bond_paid || 0),
+builder_bond_tx_signature: cleanText(row?.builder_bond_tx_signature, 140),
 team_wallets: teamWallets,
 team_wallet_breakdown: teamWalletBreakdown,
 };
+}
+
+function hasCollectedBuilderBond(row) {
+const launch = parseLaunchJsonFields(row);
+return Boolean(
+Number(launch.builder_bond_paid || 0) === 1 ||
+cleanText(launch.builder_bond_tx_signature || "", 140)
+);
 }
 
 function shapeLaunchForList(row) {
@@ -462,6 +472,7 @@ team_wallets: parsed.team_wallets,
 team_wallet_breakdown: parsed.team_wallet_breakdown,
 builder_bond_sol: Number(parsed.builder_bond_sol || 0),
 builder_bond_refunded: Number(parsed.builder_bond_refunded || 0),
+builder_bond_paid: Number(parsed.builder_bond_paid || 0),
 commit_started_at: parsed.commit_started_at || null,
 commit_ends_at: parsed.commit_ends_at || null,
 countdown_started_at: parsed.countdown_started_at || null,
@@ -514,6 +525,58 @@ throw new Error(`ESCROW_PRIVATE_KEY is invalid: ${err?.message || err}`);
 
 function solToLamports(solAmount) {
 return Math.round(Number(solAmount) * 1_000_000_000);
+}
+
+function buildBuilderBondReference(wallet) {
+return `mss-builder-bond-${cleanText(wallet, 80)}`;
+}
+
+async function buildEscrowTransferTransaction({ wallet, solAmount, reference }) {
+const escrowWallet = getEscrowWallet();
+const expectedLamports = solToLamports(solAmount);
+
+const connection = new Connection(getRpcUrl(), "confirmed");
+const fromPubkey = new PublicKey(wallet);
+const escrowPubkey = new PublicKey(escrowWallet);
+
+const transaction = new Transaction();
+
+transaction.add(
+SystemProgram.transfer({
+fromPubkey,
+toPubkey: escrowPubkey,
+lamports: expectedLamports,
+})
+);
+
+transaction.add(
+new TransactionInstruction({
+keys: [],
+programId: MEMO_PROGRAM_ID,
+data: Buffer.from(reference, "utf8"),
+})
+);
+
+const { blockhash, lastValidBlockHeight } =
+await connection.getLatestBlockhash("confirmed");
+
+transaction.feePayer = fromPubkey;
+transaction.recentBlockhash = blockhash;
+
+const transactionBase64 = Buffer.from(
+transaction.serialize({
+requireAllSignatures: false,
+verifySignatures: false,
+})
+).toString("base64");
+
+return {
+escrowWallet,
+expectedLamports,
+reference,
+transaction: transactionBase64,
+lastValidBlockHeight,
+};
 }
 
 async function sendRefundTransfer({ destinationWallet, solAmount }) {
@@ -705,12 +768,14 @@ txSignature: null,
 refundedSolActual: 0,
 }));
 
-if (
+const shouldRefundBuilderBond =
 String(parsedLaunch.template || "") === "builder" &&
 Number(parsedLaunch.builder_bond_sol || 0) > 0 &&
 Number(parsedLaunch.builder_bond_refunded || 0) !== 1 &&
-builder?.wallet
-) {
+hasCollectedBuilderBond(parsedLaunch) &&
+builder?.wallet;
+
+if (shouldRefundBuilderBond) {
 const builderWallet = String(builder.wallet);
 const existing = refunds.find((x) => x.wallet === builderWallet);
 
@@ -741,12 +806,7 @@ refund.txSignature = refundTransfer.signature;
 refund.refundedSolActual = refundTransfer.refundedSol;
 }
 
-if (
-String(parsedLaunch.template || "") === "builder" &&
-Number(parsedLaunch.builder_bond_sol || 0) > 0 &&
-Number(parsedLaunch.builder_bond_refunded || 0) !== 1 &&
-builder?.wallet
-) {
+if (shouldRefundBuilderBond) {
 await db.run(
 `
 UPDATE launches
@@ -871,6 +931,125 @@ return refunded?.launch || getLaunchById(launchId);
 return launch;
 }
 
+router.post("/prepare-builder-bond", async (req, res) => {
+try {
+const wallet = cleanText(req.body.wallet, 100);
+const builderBondSol = Number(
+req.body.builderBondSol ?? req.body.builder_bond_sol
+);
+
+if (!wallet || !Number.isFinite(builderBondSol)) {
+return res.status(400).json({ ok: false, error: "missing or invalid fields" });
+}
+
+if (builderBondSol < MIN_BUILDER_BOND_SOL) {
+return res.status(400).json({
+ok: false,
+error: `builder bond must be at least ${MIN_BUILDER_BOND_SOL} SOL`,
+});
+}
+
+const prepared = await buildEscrowTransferTransaction({
+wallet,
+solAmount: builderBondSol,
+reference: buildBuilderBondReference(wallet),
+});
+
+return res.json({
+ok: true,
+wallet,
+builderBondSol,
+...prepared,
+});
+} catch (err) {
+console.error("POST /api/launcher/prepare-builder-bond failed:", err);
+return res.status(500).json({
+ok: false,
+error: err.message || "failed to prepare builder bond",
+});
+}
+});
+
+router.post("/confirm-builder-bond", async (req, res) => {
+try {
+const wallet = cleanText(req.body.wallet, 100);
+const builderBondSol = Number(
+req.body.builderBondSol ?? req.body.builder_bond_sol
+);
+const txSignatureInput = cleanText(req.body.txSignature, 140);
+const signedTransactionBase64 = cleanText(
+req.body.signedTransaction ?? req.body.signedBase64 ?? req.body.signedTx,
+50000
+);
+
+if (
+!wallet ||
+!Number.isFinite(builderBondSol) ||
+(!txSignatureInput && !signedTransactionBase64)
+) {
+return res.status(400).json({ ok: false, error: "missing or invalid fields" });
+}
+
+if (builderBondSol < MIN_BUILDER_BOND_SOL) {
+return res.status(400).json({
+ok: false,
+error: `builder bond must be at least ${MIN_BUILDER_BOND_SOL} SOL`,
+});
+}
+
+let txSignature = txSignatureInput;
+
+if (!txSignature) {
+const connection = new Connection(getRpcUrl(), "confirmed");
+const rawSignedTx = Buffer.from(signedTransactionBase64, "base64");
+
+txSignature = await connection.sendRawTransaction(rawSignedTx, {
+skipPreflight: false,
+preflightCommitment: "confirmed",
+});
+
+const confirmation = await connection.confirmTransaction(txSignature, "confirmed");
+if (confirmation?.value?.err) {
+throw new Error("signed builder bond transaction confirmation failed");
+}
+}
+
+const existingLaunch = await db.get(
+`SELECT id FROM launches WHERE builder_bond_tx_signature = ? LIMIT 1`,
+[txSignature]
+);
+
+if (existingLaunch) {
+return res.status(400).json({
+ok: false,
+error: "builder bond transaction already attached to another launch",
+});
+}
+
+await verifyCommitTransfer({
+txSignature,
+expectedSender: wallet,
+expectedDestination: getEscrowWallet(),
+expectedLamports: solToLamports(builderBondSol),
+reference: buildBuilderBondReference(wallet),
+});
+
+return res.json({
+ok: true,
+wallet,
+builderBondSol,
+txSignature,
+builderBondPaid: 1,
+});
+} catch (err) {
+console.error("POST /api/launcher/confirm-builder-bond failed:", err);
+return res.status(400).json({
+ok: false,
+error: err.message || "builder bond verification failed",
+});
+}
+});
+
 router.post("/create", async (req, res) => {
 try {
 const wallet = cleanText(req.body.wallet, 100);
@@ -879,6 +1058,10 @@ const tokenName = cleanText(req.body.token_name, 60);
 const symbol = cleanSymbol(req.body.symbol, 20);
 const description = cleanText(req.body.description, 500);
 const imageUrl = cleanText(req.body.image_url, 500);
+const builderBondTxSignature = cleanText(
+req.body.builder_bond_tx_signature ?? req.body.builderBondTxSignature,
+140
+);
 
 if (!wallet) {
 return res.status(400).json({ ok: false, error: "wallet is required" });
@@ -917,6 +1100,41 @@ error: validationErr.message,
 });
 }
 
+let builderBondPaid = 0;
+let finalBuilderBondTxSignature = "";
+
+if (template === "builder") {
+if (!builderBondTxSignature) {
+return res.status(400).json({
+ok: false,
+error: "builder bond transaction is required for builder launches",
+});
+}
+
+const existingLaunchWithBondTx = await db.get(
+`SELECT id FROM launches WHERE builder_bond_tx_signature = ? LIMIT 1`,
+[builderBondTxSignature]
+);
+
+if (existingLaunchWithBondTx) {
+return res.status(400).json({
+ok: false,
+error: "builder bond transaction already used by another launch",
+});
+}
+
+await verifyCommitTransfer({
+txSignature: builderBondTxSignature,
+expectedSender: wallet,
+expectedDestination: getEscrowWallet(),
+expectedLamports: solToLamports(builderCfg.builder_bond_sol),
+reference: buildBuilderBondReference(wallet),
+});
+
+builderBondPaid = 1;
+finalBuilderBondTxSignature = builderBondTxSignature;
+}
+
 const result = await db.run(
 `
 INSERT INTO launches (
@@ -940,12 +1158,18 @@ team_wallets,
 team_wallet_breakdown,
 builder_bond_sol,
 builder_bond_refunded,
+builder_bond_paid,
+builder_bond_tx_signature,
 commit_started_at,
 commit_ends_at,
+countdown_started_at,
+countdown_ends_at,
+live_at,
+failed_at,
 committed_sol,
 participants_count,
 status
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, CURRENT_TIMESTAMP, datetime(CURRENT_TIMESTAMP, '+${COMMIT_PHASE_MINUTES} minutes'), 0, 0, 'commit')
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, CURRENT_TIMESTAMP, datetime(CURRENT_TIMESTAMP, '+${COMMIT_PHASE_MINUTES} minutes'), NULL, NULL, NULL, NULL, 0, 0, 'commit')
 `,
 [
 builder.id,
@@ -969,6 +1193,8 @@ builderCfg.team_allocation_pct,
 JSON.stringify(builderCfg.team_wallets),
 JSON.stringify(builderCfg.team_wallet_breakdown),
 builderCfg.builder_bond_sol,
+builderBondPaid,
+finalBuilderBondTxSignature,
 ]
 );
 
@@ -981,7 +1207,7 @@ builderConfig: builderCfg,
 });
 } catch (err) {
 console.error("POST /api/launcher/create failed:", err);
-return res.status(500).json({ ok: false, error: "internal server error" });
+return res.status(500).json({ ok: false, error: err.message || "internal server error" });
 }
 });
 
@@ -1037,54 +1263,19 @@ error: "hard cap reached",
 });
 }
 
-const escrowWallet = getEscrowWallet();
 const reference = `mss-launch-${launchId}`;
-const expectedLamports = solToLamports(solAmount);
 
-const connection = new Connection(getRpcUrl(), "confirmed");
-const fromPubkey = new PublicKey(wallet);
-const escrowPubkey = new PublicKey(escrowWallet);
-
-const transaction = new Transaction();
-
-transaction.add(
-SystemProgram.transfer({
-fromPubkey,
-toPubkey: escrowPubkey,
-lamports: expectedLamports,
-})
-);
-
-transaction.add(
-new TransactionInstruction({
-keys: [],
-programId: MEMO_PROGRAM_ID,
-data: Buffer.from(reference, "utf8"),
-})
-);
-
-const { blockhash, lastValidBlockHeight } =
-await connection.getLatestBlockhash("confirmed");
-
-transaction.feePayer = fromPubkey;
-transaction.recentBlockhash = blockhash;
-
-const transactionBase64 = Buffer.from(
-transaction.serialize({
-requireAllSignatures: false,
-verifySignatures: false,
-})
-).toString("base64");
+const prepared = await buildEscrowTransferTransaction({
+wallet,
+solAmount,
+reference,
+});
 
 return res.json({
 ok: true,
 launchId,
 wallet,
-escrowWallet,
-expectedLamports,
-reference,
-transaction: transactionBase64,
-lastValidBlockHeight,
+...prepared,
 maxWalletCommitSol: MAX_WALLET_COMMIT_SOL,
 currentWalletCommitted: currentWalletTotal,
 remainingWalletCommit: Math.max(0, MAX_WALLET_COMMIT_SOL - currentWalletTotal),
@@ -1200,6 +1391,58 @@ expectedLamports,
 reference: `mss-launch-${launchId}`,
 });
 
+launch = await reconcileLaunchState(launchId);
+
+if (!launch) {
+try {
+const refundTransfer = await sendRefundTransfer({
+destinationWallet: wallet,
+solAmount,
+});
+
+return res.status(409).json({
+ok: false,
+error: "launch not found after transfer verification; funds refunded",
+txSignature,
+refundTxSignature: refundTransfer.signature,
+refundedSol: refundTransfer.refundedSol,
+});
+} catch (refundErr) {
+console.error("Late confirm refund failed after missing launch:", refundErr);
+return res.status(409).json({
+ok: false,
+error: `launch not found after transfer verification and refund failed: ${refundErr?.message || refundErr}`,
+txSignature,
+});
+}
+}
+
+if (launch.status !== "commit") {
+try {
+const refundTransfer = await sendRefundTransfer({
+destinationWallet: wallet,
+solAmount,
+});
+
+return res.status(409).json({
+ok: false,
+error: "commit phase closed before confirmation completed; funds refunded",
+txSignature,
+refundTxSignature: refundTransfer.signature,
+refundedSol: refundTransfer.refundedSol,
+status: launch.status,
+});
+} catch (refundErr) {
+console.error("Late confirm refund failed after commit phase closure:", refundErr);
+return res.status(409).json({
+ok: false,
+error: `commit phase closed before confirmation completed and refund failed: ${refundErr?.message || refundErr}`,
+txSignature,
+status: launch.status,
+});
+}
+}
+
 await db.run(
 `
 INSERT INTO commits (
@@ -1301,7 +1544,8 @@ if (
 launch.status === "failed" &&
 String(parsedLaunch.template || "") === "builder" &&
 Number(parsedLaunch.builder_bond_sol || 0) > 0 &&
-Number(parsedLaunch.builder_bond_refunded || 0) !== 1
+Number(parsedLaunch.builder_bond_refunded || 0) !== 1 &&
+hasCollectedBuilderBond(parsedLaunch)
 ) {
 const builder = await getBuilderWalletForLaunch(launchId);
 
@@ -1613,6 +1857,7 @@ teamWallets: parsedLaunch.team_wallets,
 teamWalletBreakdown: parsedLaunch.team_wallet_breakdown,
 builderBondSol: Number(parsedLaunch.builder_bond_sol || 0),
 builderBondRefunded: Number(parsedLaunch.builder_bond_refunded || 0),
+builderBondPaid: Number(parsedLaunch.builder_bond_paid || 0),
 recent,
 });
 } catch (err) {

@@ -83,6 +83,41 @@ el.className = "status";
 el.textContent = "";
 }
 
+let cachedBuilderBond = null;
+
+function getPhantomProvider() {
+return window.getPhantomProvider?.() || window.phantom?.solana || window.solana || null;
+}
+
+function clearBuilderBondCache() {
+cachedBuilderBond = null;
+}
+
+function getCachedBuilderBondSignature(values) {
+if (!cachedBuilderBond) return "";
+if (cachedBuilderBond.wallet !== values.wallet) return "";
+if (Number(cachedBuilderBond.builderBond) !== Number(values.builderBond)) return "";
+return cachedBuilderBond.txSignature || "";
+}
+
+async function fetchJson(path, options = {}) {
+const apiBase = getApiBase();
+const res = await fetch(`${apiBase}${path}`, options);
+
+let data = null;
+try {
+data = await res.json();
+} catch {
+data = null;
+}
+
+if (!res.ok || !data?.ok) {
+throw new Error(data?.error || `HTTP ${res.status}`);
+}
+
+return data;
+}
+
 const TEMPLATE_CONFIG = {
 meme_lite: {
 supply: 1000000000,
@@ -626,6 +661,7 @@ await disconnectAnyWallet();
 // ignore
 }
 
+clearBuilderBondCache();
 updateWalletUi();
 updatePreview();
 setStatus("warn", "Wallet disconnected.");
@@ -661,32 +697,21 @@ return `${apiBase}${url}`;
 }
 
 async function getBuilderByWallet(wallet) {
-const apiBase = getApiBase();
-const res = await fetch(`${apiBase}/api/builders/${encodeURIComponent(wallet)}`);
-
-let data = null;
 try {
-data = await res.json();
-} catch {
-data = null;
-}
-
-if (res.status === 404) {
+const data = await fetchJson(`/api/builders/${encodeURIComponent(wallet)}`);
+return data.builder || null;
+} catch (err) {
+if (String(err?.message || "").includes("HTTP 404")) {
 return null;
 }
-
-if (!res.ok || !data?.ok) {
-throw new Error(data?.error || "Unable to check builder profile.");
+throw err;
 }
-
-return data.builder || null;
 }
 
 async function createBuilderProfile(wallet) {
-const apiBase = getApiBase();
 const alias = defaultBuilderAlias(wallet);
 
-const res = await fetch(`${apiBase}/api/builders/create`, {
+const data = await fetchJson(`/api/builders/create`, {
 method: "POST",
 headers: {
 "Content-Type": "application/json",
@@ -696,17 +721,6 @@ wallet,
 alias,
 }),
 });
-
-let data = null;
-try {
-data = await res.json();
-} catch {
-data = null;
-}
-
-if (!res.ok || !data?.ok || !data?.builder) {
-throw new Error(data?.error || "Unable to create builder profile.");
-}
 
 return data.builder;
 }
@@ -720,9 +734,7 @@ return createBuilderProfile(wallet);
 }
 
 async function createLaunch(payload) {
-const apiBase = getApiBase();
-
-const res = await fetch(`${apiBase}/api/launcher/create`, {
+const data = await fetchJson(`/api/launcher/create`, {
 method: "POST",
 headers: {
 "Content-Type": "application/json",
@@ -730,18 +742,81 @@ headers: {
 body: JSON.stringify(payload),
 });
 
-let data = null;
-try {
-data = await res.json();
-} catch {
-data = null;
-}
-
-if (!res.ok || !data?.ok || !data?.launch?.id) {
-throw new Error(data?.error || "Launch creation failed.");
-}
-
 return data.launch;
+}
+
+async function collectBuilderBond(values) {
+if (values.template !== "builder" || Number(values.builderBond) <= 0) {
+return "";
+}
+
+const cachedSignature = getCachedBuilderBondSignature(values);
+if (cachedSignature) {
+return cachedSignature;
+}
+
+const provider = getPhantomProvider();
+if (!provider?.signTransaction) {
+throw new Error("Wallet signing is not available for builder bond.");
+}
+
+if (!window.solanaWeb3?.Transaction?.from) {
+throw new Error("solanaWeb3 is not available on this page.");
+}
+
+setStatus("warn", "Preparing builder bond approval...");
+
+const prepare = await fetchJson(`/api/launcher/prepare-builder-bond`, {
+method: "POST",
+headers: {
+"Content-Type": "application/json",
+},
+body: JSON.stringify({
+wallet: values.wallet,
+builderBondSol: Number(values.builderBond),
+}),
+});
+
+const transactionBase64 =
+prepare.transaction ||
+prepare.serializedTransaction ||
+prepare.tx ||
+"";
+
+if (!transactionBase64) {
+throw new Error("Prepared builder bond transaction was not returned by the server.");
+}
+
+const txBytes = Uint8Array.from(atob(transactionBase64), (c) => c.charCodeAt(0));
+const transaction = window.solanaWeb3.Transaction.from(txBytes);
+
+setStatus("warn", "Awaiting builder bond wallet approval...");
+const signedTransaction = await provider.signTransaction(transaction);
+
+const signedBase64 = btoa(
+String.fromCharCode(...signedTransaction.serialize())
+);
+
+setStatus("warn", "Confirming builder bond...");
+const confirm = await fetchJson(`/api/launcher/confirm-builder-bond`, {
+method: "POST",
+headers: {
+"Content-Type": "application/json",
+},
+body: JSON.stringify({
+wallet: values.wallet,
+builderBondSol: Number(values.builderBond),
+signedTransaction: signedBase64,
+}),
+});
+
+cachedBuilderBond = {
+wallet: values.wallet,
+builderBond: Number(values.builderBond),
+txSignature: confirm.txSignature,
+};
+
+return confirm.txSignature;
 }
 
 async function onSubmit(e) {
@@ -761,6 +836,12 @@ btn.textContent = "Creating Launch...";
 
 setStatus("warn", "Preparing builder profile...");
 await ensureBuilderProfile(values.wallet);
+
+let builderBondTxSignature = "";
+
+if (values.template === "builder" && Number(values.builderBond) > 0) {
+builderBondTxSignature = await collectBuilderBond(values);
+}
 
 setStatus("warn", "Uploading logo and creating launch...");
 
@@ -784,15 +865,21 @@ team_allocation_pct: values.template === "builder" ? Number(values.teamAllocatio
 team_wallets: values.template === "builder" ? values.teamWallets : [],
 team_wallet_breakdown: values.template === "builder" ? values.teamWalletBreakdown : [],
 builder_bond_sol: values.template === "builder" ? Number(values.builderBond) : 0,
+builder_bond_tx_signature: builderBondTxSignature,
 };
 
 const launch = await createLaunch(payload);
 
-setStatus("good", `Launch created successfully. Redirecting to launch #${launch.id}...`);
+const builderBondNotice =
+values.template === "builder" && Number(values.builderBond) > 0
+? ` Builder bond confirmed: ${values.builderBond} SOL.`
+: "";
+
+setStatus("good", `Launch created successfully. Redirecting to launch #${launch.id}...${builderBondNotice}`);
 
 window.setTimeout(() => {
 window.location.href = `./launch.html?id=${encodeURIComponent(launch.id)}`;
-}, 500);
+}, 700);
 } catch (err) {
 setStatus("bad", err?.message || "Unable to create launch.");
 } finally {
@@ -868,6 +955,7 @@ $("connectWalletBtn")?.addEventListener("click", connectWallet);
 $("disconnectWalletBtn")?.addEventListener("click", disconnectWallet);
 
 onWalletChange(() => {
+clearBuilderBondCache();
 updateWalletUi();
 updatePreview();
 });
@@ -915,6 +1003,7 @@ updatePreview();
 }
 
 $("template")?.addEventListener("change", () => {
+clearBuilderBondCache();
 applyTemplateValues();
 renderTeamWalletInputs();
 updatePreview();
@@ -937,7 +1026,10 @@ updateTeamAllocationTotal();
 updatePreview();
 });
 
-$("builderBond")?.addEventListener("input", updatePreview);
+$("builderBond")?.addEventListener("input", () => {
+clearBuilderBondCache();
+updatePreview();
+});
 }
 
 init();

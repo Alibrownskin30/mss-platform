@@ -685,6 +685,17 @@ line-height:1.6;
 color:rgba(255,255,255,.76);
 }
 
+.builder-bond-note{
+margin-top:12px;
+padding:12px 14px;
+border-radius:16px;
+border:1px solid rgba(255,209,102,.16);
+background:rgba(255,209,102,.07);
+font-size:12px;
+line-height:1.6;
+color:rgba(255,245,220,.92);
+}
+
 .team-wallet-list{
 display:grid;
 gap:12px;
@@ -867,6 +878,9 @@ Template economics are fixed by MSS by default. The Builder template unlocks mor
 <div class="builder-highlight-copy">
 Builder launches use MSS-approved supply presets, visible team wallet breakdowns, capped team allocation, and a minimum builder bond. Reserve adjusts automatically against team allocation.
 </div>
+<div class="builder-bond-note">
+Builder bond is currently configured on creation and shown across the launch flow. The actual wallet-sign and bond collection step is the next backend wiring stage, so bond state may show as not yet collected until that flow is enabled.
+</div>
 </div>
 </div>
 
@@ -877,7 +891,7 @@ Builder launches use MSS-approved supply presets, visible team wallet breakdowns
 </div>
 <div class="side-stat">
 <div class="k">Builder Template</div>
-<div class="v">Preset supply, labeled wallets, capped allocation, and 90-day bond</div>
+<div class="v">Preset supply, labeled wallets, capped allocation, and tracked builder bond state</div>
 </div>
 <div class="side-stat">
 <div class="k">After Create</div>
@@ -998,7 +1012,7 @@ Builder launches use MSS-approved supply presets, visible team wallet breakdowns
 <div class="field">
 <label for="builderBond">Builder Bond (SOL)</label>
 <input id="builderBond" name="builderBond" type="number" min="5" step="1" placeholder="Minimum 5 SOL" />
-<div class="hint">Minimum 5 SOL. Builder bond is tracked and only refundable if launch fails.</div>
+<div class="hint">Minimum 5 SOL. Bond is tracked now and will move into signed wallet collection in the next launch flow update.</div>
 </div>
 </div>
 
@@ -1098,7 +1112,11 @@ Builder launches use MSS-approved supply presets, visible team wallet breakdowns
 </div>
 <div class="mini-item">
 <div class="title">Builder Controls</div>
-<div class="copy">Builder template supports supply presets, labeled team wallets, capped wallet allocation, and a builder bond.</div>
+<div class="copy">Builder template supports supply presets, labeled team wallets, capped wallet allocation, and tracked builder bond state.</div>
+</div>
+<div class="mini-item">
+<div class="title">Builder Bond State</div>
+<div class="copy">Current flow records builder bond settings on launch creation. Wallet-signed bond collection is the next step to be wired into the create flow.</div>
 </div>
 </div>
 </div>
@@ -1106,6 +1124,8 @@ Builder launches use MSS-approved supply presets, visible team wallet breakdowns
 </section>
 </div>
 
-<script type="module" src="./assets/pages/launch-create.js"></script>
+<script src="https://unpkg.com/@solana/web3.js@latest/lib/index.iife.js"></script>
+<script type="module" src="/assets/pages/launch-create.js"></script>
+
 </body>
 </html>
