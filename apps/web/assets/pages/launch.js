@@ -833,8 +833,8 @@ const bondLine = safeNum(data.builderBondRefunded, 0) > 0
 : "";
 
 setStatus(
-`Refund recorded.\n\nRefunded: ${data.refundedSol} SOL${bondLine}\nTotal committed: ${data.totalCommitted} SOL\nParticipants: ${data.participants}\n\nNote: on-chain outbound refund execution still needs to be wired if this is meant to move real SOL automatically.`,
-"warn"
+`Refund successful.\n\nRefunded: ${data.refundedSolActual || data.refundedSol} SOL${bondLine}\nTotal committed: ${data.totalCommitted} SOL\nParticipants: ${data.participants}\nTransaction: ${data.refundTxSignature || "Recorded"}`,
+"good"
 );
 
 await refresh();

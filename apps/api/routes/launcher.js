@@ -1,9 +1,17 @@
 import express from "express";
-import { Connection, Keypair, PublicKey, SystemProgram, Transaction } from "@solana/web3.js";
+import {
+Connection,
+Keypair,
+PublicKey,
+SystemProgram,
+Transaction,
+TransactionInstruction,
+} from "@solana/web3.js";
 import bs58 from "bs58";
 import db from "../db/index.js";
 import { buildLaunchAllocations } from "../services/launcher/allocationService.js";
 import { verifyCommitTransfer } from "../services/launcher/commitVerifier.js";
+import { finalizeLaunch } from "../services/launcher/finalizeLaunch.js";
 
 const router = express.Router();
 
@@ -20,6 +28,10 @@ founder: 0.5,
 buyback: 0.3,
 treasury: 0.2,
 };
+
+const MEMO_PROGRAM_ID = new PublicKey(
+"MemoSq4gqABAXKb96qnH8TysNcWxMyWCqXgDLGmfcHr"
+);
 
 function cleanText(value, max = 280) {
 return String(value ?? "").trim().slice(0, max);
@@ -158,8 +170,8 @@ const configs = {
 degen: {
 launch_type: "degen",
 supply: "1000000000",
-min_raise_sol: 10,
-hard_cap_sol: 50,
+min_raise_sol: 1,
+hard_cap_sol: 1,
 liquidity_pct: 20,
 participants_pct: 45,
 reserve_pct: 30,
@@ -168,8 +180,8 @@ builder_pct: 5,
 degen_zone: {
 launch_type: "degen",
 supply: "1000000000",
-min_raise_sol: 10,
-hard_cap_sol: 50,
+min_raise_sol: 1,
+hard_cap_sol: 1.1,
 liquidity_pct: 20,
 participants_pct: 45,
 reserve_pct: 30,
@@ -796,27 +808,12 @@ if (!countdownCheck || Number(countdownCheck.ready) !== 1) {
 return launch;
 }
 
-const stats = await syncLaunchStats(launchId);
-launch = await getLaunchById(launchId);
+const result = await finalizeLaunch(launchId);
 
-if (Number(stats.totalCommitted) < Number(launch.min_raise_sol || 0)) {
-await markLaunchFailed(launchId);
-const refunded = await autoRefundFailedLaunch(launchId);
-return refunded?.launch || getLaunchById(launchId);
+if (result?.ok) {
+return getLaunchById(launchId);
 }
 
-await db.run(
-`
-UPDATE launches
-SET status = 'live',
-live_at = CURRENT_TIMESTAMP,
-updated_at = CURRENT_TIMESTAMP
-WHERE id = ?
-`,
-[launchId]
-);
-
-await buildLaunchAllocations(launchId);
 return getLaunchById(launchId);
 }
 
@@ -1044,6 +1041,41 @@ const escrowWallet = getEscrowWallet();
 const reference = `mss-launch-${launchId}`;
 const expectedLamports = solToLamports(solAmount);
 
+const connection = new Connection(getRpcUrl(), "confirmed");
+const fromPubkey = new PublicKey(wallet);
+const escrowPubkey = new PublicKey(escrowWallet);
+
+const transaction = new Transaction();
+
+transaction.add(
+SystemProgram.transfer({
+fromPubkey,
+toPubkey: escrowPubkey,
+lamports: expectedLamports,
+})
+);
+
+transaction.add(
+new TransactionInstruction({
+keys: [],
+programId: MEMO_PROGRAM_ID,
+data: Buffer.from(reference, "utf8"),
+})
+);
+
+const { blockhash, lastValidBlockHeight } =
+await connection.getLatestBlockhash("confirmed");
+
+transaction.feePayer = fromPubkey;
+transaction.recentBlockhash = blockhash;
+
+const transactionBase64 = Buffer.from(
+transaction.serialize({
+requireAllSignatures: false,
+verifySignatures: false,
+})
+).toString("base64");
+
 return res.json({
 ok: true,
 launchId,
@@ -1051,6 +1083,8 @@ wallet,
 escrowWallet,
 expectedLamports,
 reference,
+transaction: transactionBase64,
+lastValidBlockHeight,
 maxWalletCommitSol: MAX_WALLET_COMMIT_SOL,
 currentWalletCommitted: currentWalletTotal,
 remainingWalletCommit: Math.max(0, MAX_WALLET_COMMIT_SOL - currentWalletTotal),
@@ -1068,9 +1102,18 @@ try {
 const launchId = Number(req.body.launchId);
 const wallet = cleanText(req.body.wallet, 100);
 const solAmount = Number(req.body.solAmount);
-const txSignature = cleanText(req.body.txSignature, 140);
+const txSignatureInput = cleanText(req.body.txSignature, 140);
+const signedTransactionBase64 = cleanText(
+req.body.signedTransaction ?? req.body.signedBase64 ?? req.body.signedTx,
+50000
+);
 
-if (!launchId || !wallet || !Number.isFinite(solAmount) || !txSignature) {
+if (
+!launchId ||
+!wallet ||
+!Number.isFinite(solAmount) ||
+(!txSignatureInput && !signedTransactionBase64)
+) {
 return res.status(400).json({ ok: false, error: "missing or invalid fields" });
 }
 
@@ -1086,6 +1129,23 @@ return res.status(404).json({ ok: false, error: "launch not found" });
 
 if (launch.status !== "commit") {
 return res.status(400).json({ ok: false, error: "commit phase closed" });
+}
+
+let txSignature = txSignatureInput;
+
+if (!txSignature) {
+const connection = new Connection(getRpcUrl(), "confirmed");
+const rawSignedTx = Buffer.from(signedTransactionBase64, "base64");
+
+txSignature = await connection.sendRawTransaction(rawSignedTx, {
+skipPreflight: false,
+preflightCommitment: "confirmed",
+});
+
+const confirmation = await connection.confirmTransaction(txSignature, "confirmed");
+if (confirmation?.value?.err) {
+throw new Error("signed transaction confirmation failed");
+}
 }
 
 const reusedTx = await db.get(

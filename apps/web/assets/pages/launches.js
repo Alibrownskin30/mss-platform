@@ -161,6 +161,30 @@ out.push(`<span class="small-chip">Bond ${fmtSol(launch.builder_bond_sol)} SOL${
 return out.join("");
 }
 
+function getSafeguardsHtml(launch) {
+const safeguards = [
+"Min Raise Enforced",
+"Hard Cap Locked",
+"Countdown Protection",
+"Max Wallet Rule",
+];
+
+const status = String(launch.status || "");
+if (["commit", "countdown", "failed", "failed_refunded"].includes(status)) {
+safeguards.push("Refund Path");
+}
+
+if (safeNum(launch.builder_bond_sol) > 0) {
+safeguards.push("Builder Bond");
+}
+
+return `
+<div class="safeguards">
+${safeguards.map((label) => `<span class="safe-chip">${escapeHtml(label)}</span>`).join("")}
+</div>
+`;
+}
+
 function trendingScore(launch) {
 const participants = safeNum(launch.participants_count, 0);
 const progress = safeNum(launch.commitPercent, 0);
@@ -240,6 +264,7 @@ ${getLogoHtml(launch)}
 </div>
 
 <div class="builder-badges">${getBuilderBadges(launch)}</div>
+${getSafeguardsHtml(launch)}
 
 <div class="kv">
 <div>
@@ -335,6 +360,7 @@ ${getLogoHtml(launch)}
 ${builderHtml} • Score ${builderScore} • ${trust.label}
 </div>
 <div class="builder-badges" style="margin-top:10px;">${getBuilderBadges(launch)}</div>
+<div style="margin-top:10px;">${getSafeguardsHtml(launch)}</div>
 </div>
 </div>
 
@@ -640,9 +666,9 @@ return;
 }
 
 try {
-setActionStatus("warn", `Submitting ${amount} SOL commit...`);
+setActionStatus("warn", `Preparing ${amount} SOL quick commit...`);
 
-const data = await fetchJson(`/api/launcher/commit`, {
+const prepare = await fetchJson(`/api/launcher/prepare-commit`, {
 method: "POST",
 headers: {
 "Content-Type": "application/json",
@@ -654,9 +680,59 @@ solAmount: Number(amount),
 }),
 });
 
+const transactionBase64 =
+prepare.transaction ||
+prepare.serializedTransaction ||
+prepare.tx ||
+"";
+
+if (!transactionBase64) {
+throw new Error("Prepared transaction was not returned by the server.");
+}
+
+const provider =
+(window.getPhantomProvider && window.getPhantomProvider()) ||
+window.solana;
+
+if (!provider?.signTransaction) {
+throw new Error("Wallet signing is not available.");
+}
+
+setActionStatus("warn", "Awaiting wallet approval...");
+
+const txBytes = Uint8Array.from(atob(transactionBase64), (c) =>
+c.charCodeAt(0)
+);
+const transaction = solanaWeb3.Transaction.from(txBytes);
+
+const signedTransaction = await provider.signTransaction(transaction);
+const signedBase64 = btoa(
+String.fromCharCode(...signedTransaction.serialize())
+);
+
+setActionStatus("warn", "Confirming quick commit...");
+
+const data = await fetchJson(`/api/launcher/confirm-commit`, {
+method: "POST",
+headers: {
+"Content-Type": "application/json",
+},
+body: JSON.stringify({
+launchId: Number(launchId),
+wallet,
+solAmount: Number(amount),
+signedTransaction: signedBase64,
+}),
+});
+
+const countdownLine =
+data.status === "countdown" && data.countdownEndsAt
+? `\nCountdown ends at: ${data.countdownEndsAt}`
+: "";
+
 setActionStatus(
 "good",
-`Commit successful.\n\nWallet total: ${data.walletCommittedTotal} SOL\nTotal committed: ${data.totalCommitted} SOL\nParticipants: ${data.participants}`
+`Commit successful.\n\nWallet total: ${data.walletCommittedTotal} SOL\nTotal committed: ${data.totalCommitted} SOL\nParticipants: ${data.participants}${countdownLine}`
 );
 
 await loadLaunches();
