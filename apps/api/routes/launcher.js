@@ -22,6 +22,7 @@ const MAX_TEAM_WALLETS = 5;
 const MAX_TEAM_ALLOCATION_PCT = 15;
 const MIN_BUILDER_BOND_SOL = 5;
 const TEAM_PCT_PRECISION = 6;
+const RECONCILE_INTERVAL_MS = 15000;
 
 const LAUNCH_FEE_SPLIT = {
 founder: 0.5,
@@ -430,10 +431,7 @@ team_allocation_pct: Number(row?.team_allocation_pct || 0),
 builder_bond_sol: Number(row?.builder_bond_sol || 0),
 builder_bond_refunded: Number(row?.builder_bond_refunded || 0),
 builder_bond_paid: Number(row?.builder_bond_paid || 0),
-builder_bond_tx_signature: cleanText(
-row?.builder_bond_tx_signature ?? row?.builder_bond_tx_signature,
-140
-),
+builder_bond_tx_signature: cleanText(row?.builder_bond_tx_signature, 140),
 team_wallets: teamWallets,
 team_wallet_breakdown: teamWalletBreakdown,
 };
@@ -452,6 +450,15 @@ const launch = parseLaunchJsonFields(row);
 if (String(launch.template || "") !== "builder") return true;
 if (Number(launch.builder_bond_sol || 0) <= 0) return false;
 return Number(launch.builder_bond_paid || 0) === 1;
+}
+
+function isValidSolanaAddress(value) {
+try {
+new PublicKey(String(value || "").trim());
+return true;
+} catch {
+return false;
+}
 }
 
 function shapeLaunchForList(row) {
@@ -590,6 +597,12 @@ lastValidBlockHeight,
 }
 
 async function sendRefundTransfer({ destinationWallet, solAmount }) {
+const destination = String(destinationWallet || "").trim();
+if (!isValidSolanaAddress(destination)) {
+console.log("Skipping refund for non-wallet address:", destination);
+return null;
+}
+
 const rpcUrl = getRpcUrl();
 const connection = new Connection(rpcUrl, "confirmed");
 const escrowKeypair = getEscrowKeypair();
@@ -599,7 +612,7 @@ if (!Number.isFinite(lamports) || lamports <= 0) {
 throw new Error("invalid refund lamports");
 }
 
-const destinationPubkey = new PublicKey(destinationWallet);
+const destinationPubkey = new PublicKey(destination);
 const { blockhash, lastValidBlockHeight } = await connection.getLatestBlockhash("confirmed");
 
 const feeBufferLamports = 10000;
@@ -816,6 +829,8 @@ destinationWallet: refund.wallet,
 solAmount: refund.totalRefundSol,
 });
 
+if (!refundTransfer) continue;
+
 refund.txSignature = refundTransfer.signature;
 refund.refundedSolActual = refundTransfer.refundedSol;
 }
@@ -953,6 +968,42 @@ return refunded?.launch || getLaunchById(launchId);
 }
 
 return launch;
+}
+
+async function reconcileActiveLaunchesWorker() {
+try {
+const rows = await db.all(
+`
+SELECT id
+FROM launches
+WHERE status IN ('commit', 'countdown', 'failed')
+ORDER BY id ASC
+`
+);
+
+for (const row of rows) {
+try {
+await reconcileLaunchState(Number(row.id));
+} catch (err) {
+console.error(`Launch reconcile worker failed for launch ${row.id}:`, err);
+}
+}
+} catch (err) {
+console.error("Launch reconcile worker tick failed:", err);
+}
+}
+
+function startLaunchReconcileWorker() {
+if (globalThis.__mssLaunchReconcileWorkerStarted) return;
+globalThis.__mssLaunchReconcileWorkerStarted = true;
+
+setTimeout(() => {
+void reconcileActiveLaunchesWorker();
+}, 3000);
+
+setInterval(() => {
+void reconcileActiveLaunchesWorker();
+}, RECONCILE_INTERVAL_MS);
 }
 
 router.post("/prepare-builder-bond", async (req, res) => {
@@ -1436,8 +1487,8 @@ return res.status(409).json({
 ok: false,
 error: "launch not found after transfer verification; funds refunded",
 txSignature,
-refundTxSignature: refundTransfer.signature,
-refundedSol: refundTransfer.refundedSol,
+refundTxSignature: refundTransfer?.signature || null,
+refundedSol: refundTransfer?.refundedSol || 0,
 });
 } catch (refundErr) {
 console.error("Late confirm refund failed after missing launch:", refundErr);
@@ -1460,8 +1511,8 @@ return res.status(409).json({
 ok: false,
 error: "commit phase closed before confirmation completed; funds refunded",
 txSignature,
-refundTxSignature: refundTransfer.signature,
-refundedSol: refundTransfer.refundedSol,
+refundTxSignature: refundTransfer?.signature || null,
+refundedSol: refundTransfer?.refundedSol || 0,
 status: launch.status,
 });
 } catch (refundErr) {
@@ -1486,8 +1537,8 @@ return res.status(409).json({
 ok: false,
 error: "builder bond no longer satisfied; funds refunded",
 txSignature,
-refundTxSignature: refundTransfer.signature,
-refundedSol: refundTransfer.refundedSol,
+refundTxSignature: refundTransfer?.signature || null,
+refundedSol: refundTransfer?.refundedSol || 0,
 status: launch.status,
 });
 } catch (refundErr) {
@@ -1648,9 +1699,9 @@ ok: true,
 launchId,
 wallet,
 refundedSol: refundAmount,
-refundedSolActual: refundTransfer.refundedSol,
+refundedSolActual: refundTransfer?.refundedSol || 0,
 builderBondRefunded,
-refundTxSignature: refundTransfer.signature,
+refundTxSignature: refundTransfer?.signature || null,
 totalCommitted: stats.totalCommitted,
 participants: stats.participants,
 commitPercent: buildCommitPercent(
@@ -1868,7 +1919,7 @@ history: shaped,
 });
 } catch (err) {
 console.error("GET /api/launcher/list failed:", err);
-return res.status(500).json({ ok: false, error: "failed to fetch launches" });
+return res.status(500).json({ ok: false, error: err.message || "failed to fetch launches" });
 }
 });
 
@@ -2029,5 +2080,7 @@ console.error("GET /api/launcher/:id failed:", err);
 return res.status(500).json({ ok: false, error: "internal server error" });
 }
 });
+
+startLaunchReconcileWorker();
 
 export default router;
