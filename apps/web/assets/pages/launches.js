@@ -6,6 +6,7 @@ getConnectedPublicKey,
 onWalletChange,
 restoreWalletIfTrusted,
 getMobileWalletHelpText,
+sendSolTransfer,
 } from "../wallet.js";
 
 function $(id) {
@@ -657,7 +658,7 @@ list.innerHTML = items.map(buildListRow).join("");
 bindQuickCommitButtons();
 }
 
-async function quickCommit(launchId, amount) {
+async function quickCommit(launchId, amount, btn = null) {
 const wallet = getConnectedPublicKey();
 
 if (!wallet) {
@@ -665,7 +666,21 @@ setActionStatus("warn", "Connect your wallet before using quick commit.");
 return;
 }
 
+const originalText = btn ? btn.textContent : "";
+const allQuickButtons = Array.from(
+document.querySelectorAll(`.quick-commit-btn[data-launch-id="${Number(launchId)}"]`)
+);
+
 try {
+allQuickButtons.forEach((el) => {
+el.disabled = true;
+el.classList.add("is-loading");
+});
+
+if (btn) {
+btn.textContent = "Opening Wallet...";
+}
+
 setActionStatus("warn", `Preparing ${amount} SOL quick commit...`);
 
 const prepare = await fetchJson(`/api/launcher/prepare-commit`, {
@@ -680,35 +695,37 @@ solAmount: Number(amount),
 }),
 });
 
-const transactionBase64 =
-prepare.transaction ||
-prepare.serializedTransaction ||
-prepare.tx ||
-"";
+const destinationWallet = String(
+prepare.escrowWallet || prepare.destinationWallet || prepare.to || ""
+).trim();
 
-if (!transactionBase64) {
-throw new Error("Prepared transaction was not returned by the server.");
+if (!destinationWallet) {
+throw new Error("Escrow wallet was not returned by the server.");
 }
 
-const provider =
-(window.getPhantomProvider && window.getPhantomProvider()) ||
-window.solana;
+const lamports = Math.round(Number(amount) * 1_000_000_000);
+if (!Number.isFinite(lamports) || lamports <= 0) {
+throw new Error("Invalid quick commit amount.");
+}
 
-if (!provider?.signTransaction) {
-throw new Error("Wallet signing is not available.");
+if (btn) {
+btn.textContent = "Approve in Wallet...";
 }
 
 setActionStatus("warn", "Awaiting wallet approval...");
 
-const txBytes = Uint8Array.from(atob(transactionBase64), (c) =>
-c.charCodeAt(0)
-);
-const transaction = solanaWeb3.Transaction.from(txBytes);
+const transfer = await sendSolTransfer({
+destination: destinationWallet,
+lamports,
+});
 
-const signedTransaction = await provider.signTransaction(transaction);
-const signedBase64 = btoa(
-String.fromCharCode(...signedTransaction.serialize())
-);
+if (!transfer?.signature) {
+throw new Error("Wallet transaction failed.");
+}
+
+if (btn) {
+btn.textContent = "Confirming...";
+}
 
 setActionStatus("warn", "Confirming quick commit...");
 
@@ -721,7 +738,7 @@ body: JSON.stringify({
 launchId: Number(launchId),
 wallet,
 solAmount: Number(amount),
-signedTransaction: signedBase64,
+txSignature: transfer.signature,
 }),
 });
 
@@ -732,13 +749,30 @@ data.status === "countdown" && data.countdownEndsAt
 
 setActionStatus(
 "good",
-`Commit successful.\n\nWallet total: ${data.walletCommittedTotal} SOL\nTotal committed: ${data.totalCommitted} SOL\nParticipants: ${data.participants}${countdownLine}`
+`Quick commit confirmed.\n\nCommitted: ${amount} SOL\nWallet total: ${data.walletCommittedTotal} SOL\nTotal committed: ${data.totalCommitted} SOL\nParticipants: ${data.participants}${countdownLine}`
 );
+
+if (btn) {
+btn.textContent = "Confirmed";
+btn.classList.add("is-success");
+}
 
 await loadLaunches();
 } catch (err) {
 console.error(err);
 setActionStatus("bad", err.message || "Quick commit failed.");
+} finally {
+setTimeout(() => {
+allQuickButtons.forEach((el) => {
+el.disabled = false;
+el.classList.remove("is-loading");
+});
+
+if (btn) {
+btn.textContent = originalText || `${amount} SOL Quick Commit`;
+btn.classList.remove("is-success");
+}
+}, 900);
 }
 }
 
@@ -746,10 +780,13 @@ function bindQuickCommitButtons() {
 document.querySelectorAll(".quick-commit-btn").forEach((btn) => {
 btn.onclick = async () => {
 if (btn.disabled) return;
+
 const launchId = Number(btn.getAttribute("data-launch-id"));
 const amount = Number(btn.getAttribute("data-amount"));
+
 if (!launchId || !amount) return;
-await quickCommit(launchId, amount);
+
+await quickCommit(launchId, amount, btn);
 };
 });
 }
