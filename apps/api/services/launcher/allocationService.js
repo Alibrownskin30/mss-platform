@@ -3,7 +3,7 @@ import db from "../../db/index.js";
 const BASE_PARTICIPANT_PCT = 42;
 const BONUS_PARTICIPANT_PCT = 3;
 const INTERNAL_POOL_LIQUIDITY_PCT = 10;
-const RAYDIUM_RESERVED_LIQUIDITY_PCT = 10;
+const RAYDIUM_RESERVED_LIQDIUITY_PCT = 10;
 
 function floorBig(n) {
 return Math.floor(Number(n || 0));
@@ -61,6 +61,34 @@ wallet: String(row?.wallet || "").trim(),
 sol_amount: safeNum(row?.sol_amount, 0),
 }))
 .filter((row) => row.wallet && row.sol_amount > 0);
+}
+
+function normalizeLaunch(row) {
+if (!row) return null;
+
+return {
+...row,
+committed_sol: safeNum(row.committed_sol, 0),
+participants_count: safeNum(row.participants_count, 0),
+min_raise_sol: safeNum(row.min_raise_sol, 0),
+hard_cap_sol: safeNum(row.hard_cap_sol, 0),
+launch_fee_pct: safeNum(row.launch_fee_pct, 5),
+participants_pct: safeNum(row.participants_pct, 45),
+liquidity_pct: safeNum(row.liquidity_pct, 0),
+reserve_pct: safeNum(row.reserve_pct, 0),
+builder_pct: safeNum(row.builder_pct, 0),
+team_allocation_pct: safeNum(row.team_allocation_pct, 0),
+builder_bond_sol: safeNum(row.builder_bond_sol, 0),
+builder_bond_paid: safeNum(row.builder_bond_paid, 0),
+team_wallet_breakdown: parseJsonArray(row.team_wallet_breakdown),
+};
+}
+
+function isBuilderLaunchPaid(launch) {
+if (!launch) return false;
+if (String(launch.template || "") !== "builder") return true;
+if (safeNum(launch.builder_bond_sol, 0) <= 0) return false;
+return safeNum(launch.builder_bond_paid, 0) === 1;
 }
 
 function buildParticipantBaseAllocations(commits, totalCommitted, baseParticipantTokens) {
@@ -170,28 +198,46 @@ rows: [],
 };
 }
 
+const validRows = teamWalletBreakdown
+.map((item) => ({
+wallet: String(item?.wallet || "").trim(),
+pct: safeNum(item?.pct, 0),
+}))
+.filter((item) => item.wallet && item.pct > 0);
+
+if (!validRows.length) {
+return {
+teamTokens: 0,
+rows: [],
+};
+}
+
+const totalBreakdownPct = sum(validRows, (x) => x.pct);
+if (totalBreakdownPct <= 0) {
+return {
+teamTokens: 0,
+rows: [],
+};
+}
+
 const teamTokens = toTokenAmount(totalSupply, teamAllocationPct);
 
 let distributed = 0;
 const rows = [];
 
-for (let i = 0; i < teamWalletBreakdown.length; i++) {
-const item = teamWalletBreakdown[i];
-const wallet = String(item?.wallet || "").trim();
-const pct = safeNum(item?.pct, 0);
-
-if (!wallet || pct <= 0) continue;
+for (let i = 0; i < validRows.length; i++) {
+const item = validRows[i];
 
 let tokenAmount;
-if (i === teamWalletBreakdown.length - 1) {
+if (i === validRows.length - 1) {
 tokenAmount = Math.max(0, teamTokens - distributed);
 } else {
-tokenAmount = floorBig((teamTokens * pct) / teamAllocationPct);
+tokenAmount = floorBig((teamTokens * item.pct) / totalBreakdownPct);
 distributed += tokenAmount;
 }
 
 rows.push({
-wallet,
+wallet: item.wallet,
 allocation_type: "team",
 token_amount: tokenAmount,
 sol_amount: 0,
@@ -204,11 +250,108 @@ rows,
 };
 }
 
+function buildSystemAllocations({
+launchId,
+builderWallet,
+builderTokens,
+teamRows,
+reserveTokens,
+internalPoolTokens,
+internalPoolSol,
+raydiumLiquidityTokensReserved,
+unsoldParticipantTokensBurned,
+unusedBonusTokensBurned,
+}) {
+const rows = [];
+
+rows.push({
+wallet: builderWallet || `BUILDER_LAUNCH_${launchId}`,
+allocation_type: "builder",
+token_amount: builderTokens,
+sol_amount: 0,
+});
+
+for (const row of teamRows) {
+rows.push(row);
+}
+
+rows.push({
+wallet: `RESERVE_LAUNCH_${launchId}`,
+allocation_type: "reserve",
+token_amount: reserveTokens,
+sol_amount: 0,
+});
+
+rows.push({
+wallet: `INTERNAL_POOL_LAUNCH_${launchId}`,
+allocation_type: "internal_pool",
+token_amount: internalPoolTokens,
+sol_amount: internalPoolSol,
+});
+
+rows.push({
+wallet: `RAYDIUM_RESERVED_LAUNCH_${launchId}`,
+allocation_type: "raydium_reserved",
+token_amount: raydiumLiquidityTokensReserved,
+sol_amount: 0,
+});
+
+if (unsoldParticipantTokensBurned > 0) {
+rows.push({
+wallet: "11111111111111111111111111111111",
+allocation_type: "burn_unsold_participants",
+token_amount: unsoldParticipantTokensBurned,
+sol_amount: 0,
+});
+}
+
+if (unusedBonusTokensBurned > 0) {
+rows.push({
+wallet: "11111111111111111111111111111111",
+allocation_type: "burn_unused_bonus",
+token_amount: unusedBonusTokensBurned,
+sol_amount: 0,
+});
+}
+
+return rows;
+}
+
+function assertAllocationMath({
+totalSupply,
+participantDistributedTotal,
+unsoldParticipantTokensBurned,
+unusedBonusTokensBurned,
+internalPoolTokens,
+raydiumLiquidityTokensReserved,
+reserveTokens,
+builderTokens,
+teamTokens,
+}) {
+const totalAccounted =
+participantDistributedTotal +
+unsoldParticipantTokensBurned +
+unusedBonusTokensBurned +
+internalPoolTokens +
+raydiumLiquidityTokensReserved +
+reserveTokens +
+builderTokens +
+teamTokens;
+
+if (totalAccounted > totalSupply) {
+throw new Error("allocation math exceeds total supply");
+}
+
+return totalAccounted;
+}
+
 export async function buildLaunchAllocations(launchId) {
-const launch = await db.get(
+let launch = await db.get(
 `SELECT * FROM launches WHERE id = ?`,
 [launchId]
 );
+
+launch = normalizeLaunch(launch);
 
 if (!launch) {
 throw new Error("launch not found");
@@ -216,6 +359,10 @@ throw new Error("launch not found");
 
 if (launch.status !== "live") {
 throw new Error("launch must be live before allocations can be built");
+}
+
+if (!isBuilderLaunchPaid(launch)) {
+throw new Error("builder bond not paid for builder launch");
 }
 
 const existing = await db.get(
@@ -243,6 +390,11 @@ if (totalCommitted <= 0) {
 throw new Error("invalid committed total");
 }
 
+const summedCommitSol = roundSol(sum(commits, (x) => x.sol_amount));
+if (Math.abs(summedCommitSol - roundSol(totalCommitted)) > 0.000001) {
+throw new Error("commit rows do not match launch committed total");
+}
+
 const launchFeeSol = roundSol((totalCommitted * launchFeePct) / 100);
 const netCommittedAfterLaunchFee = roundSol(totalCommitted - launchFeeSol);
 
@@ -256,7 +408,10 @@ isBuilderLaunch && teamAllocationPct > 0
 ? Math.max(0, rawReservePct - teamAllocationPct)
 : rawReservePct;
 
-const participantTotalTokens = toTokenAmount(totalSupply, safeNum(launch.participants_pct, 45));
+const participantTotalTokens = toTokenAmount(
+totalSupply,
+safeNum(launch.participants_pct, 45)
+);
 const participantBaseTokens = toTokenAmount(totalSupply, BASE_PARTICIPANT_PCT);
 const participantBonusPoolTokens = toTokenAmount(totalSupply, BONUS_PARTICIPANT_PCT);
 
@@ -267,18 +422,17 @@ throw new Error("participant allocation math exceeds configured participant pct"
 const internalPoolTokens = toTokenAmount(totalSupply, INTERNAL_POOL_LIQUIDITY_PCT);
 const raydiumLiquidityTokensReserved = toTokenAmount(
 totalSupply,
-RAYDIUM_RESERVED_LIQUIDITY_PCT
+RAYDIUM_RESERVED_LIQDIUITY_PCT
 );
 
 const reserveTokens = toTokenAmount(totalSupply, effectiveReservePct);
 const builderTokens = toTokenAmount(totalSupply, builderPct);
 
-const teamWalletBreakdown = parseJsonArray(launch.team_wallet_breakdown);
 const { teamTokens, rows: teamRows } = buildTeamAllocations({
 isBuilderLaunch,
 totalSupply,
 teamAllocationPct,
-teamWalletBreakdown,
+teamWalletBreakdown: launch.team_wallet_breakdown,
 });
 
 const baseAllocs = buildParticipantBaseAllocations(
@@ -327,7 +481,22 @@ const unusedBonusTokensBurned = Math.max(
 participantBonusPoolTokens - participantDistributedBonus
 );
 
-const totalBurned = unsoldParticipantTokensBurned + unusedBonusTokensBurned;
+const totalBurned =
+unsoldParticipantTokensBurned + unusedBonusTokensBurned;
+
+const totalAccounted = assertAllocationMath({
+totalSupply,
+participantDistributedTotal,
+unsoldParticipantTokensBurned,
+unusedBonusTokensBurned,
+internalPoolTokens,
+raydiumLiquidityTokensReserved,
+reserveTokens,
+builderTokens,
+teamTokens,
+});
+
+const unallocatedRemainder = Math.max(0, totalSupply - totalAccounted);
 const finalSupply = Math.max(0, totalSupply - totalBurned);
 
 const builder = await db.get(
@@ -340,66 +509,28 @@ WHERE l.id = ?
 [launchId]
 );
 
-const allocationRows = [];
+const systemAllocationRows = buildSystemAllocations({
+launchId,
+builderWallet: builder?.wallet || "",
+builderTokens,
+teamRows,
+reserveTokens,
+internalPoolTokens,
+internalPoolSol: netCommittedAfterLaunchFee,
+raydiumLiquidityTokensReserved,
+unsoldParticipantTokensBurned,
+unusedBonusTokensBurned,
+});
 
-for (const row of participantRows) {
-allocationRows.push({
+const allocationRows = [
+...participantRows.map((row) => ({
 wallet: row.wallet,
 allocation_type: "participant",
 token_amount: row.token_amount,
 sol_amount: row.committed_sol,
-});
-}
-
-allocationRows.push({
-wallet: builder?.wallet || `BUILDER_LAUNCH_${launchId}`,
-allocation_type: "builder",
-token_amount: builderTokens,
-sol_amount: 0,
-});
-
-for (const row of teamRows) {
-allocationRows.push(row);
-}
-
-allocationRows.push({
-wallet: `RESERVE_LAUNCH_${launchId}`,
-allocation_type: "reserve",
-token_amount: reserveTokens,
-sol_amount: 0,
-});
-
-allocationRows.push({
-wallet: `INTERNAL_POOL_LAUNCH_${launchId}`,
-allocation_type: "internal_pool",
-token_amount: internalPoolTokens,
-sol_amount: netCommittedAfterLaunchFee,
-});
-
-allocationRows.push({
-wallet: `RAYDIUM_RESERVED_LAUNCH_${launchId}`,
-allocation_type: "raydium_reserved",
-token_amount: raydiumLiquidityTokensReserved,
-sol_amount: 0,
-});
-
-if (unsoldParticipantTokensBurned > 0) {
-allocationRows.push({
-wallet: "11111111111111111111111111111111",
-allocation_type: "burn_unsold_participants",
-token_amount: unsoldParticipantTokensBurned,
-sol_amount: 0,
-});
-}
-
-if (unusedBonusTokensBurned > 0) {
-allocationRows.push({
-wallet: "11111111111111111111111111111111",
-allocation_type: "burn_unused_bonus",
-token_amount: unusedBonusTokensBurned,
-sol_amount: 0,
-});
-}
+})),
+...systemAllocationRows,
+];
 
 for (const row of allocationRows) {
 await db.run(
@@ -438,6 +569,9 @@ participantDistributedBonus,
 participantDistributedTotal,
 unsoldParticipantTokensBurned,
 unusedBonusTokensBurned,
+totalBurned,
+totalAccounted,
+unallocatedRemainder,
 internalPoolSol: netCommittedAfterLaunchFee,
 internalPoolTokens,
 raydiumLiquidityTokensReserved,
@@ -446,6 +580,6 @@ builderTokens,
 teamTokens,
 effectiveReservePct,
 allocations: participantRows,
-systemAllocations: allocationRows.filter((x) => x.allocation_type !== "participant"),
+systemAllocations: systemAllocationRows,
 };
 }

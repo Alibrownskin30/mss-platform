@@ -430,7 +430,10 @@ team_allocation_pct: Number(row?.team_allocation_pct || 0),
 builder_bond_sol: Number(row?.builder_bond_sol || 0),
 builder_bond_refunded: Number(row?.builder_bond_refunded || 0),
 builder_bond_paid: Number(row?.builder_bond_paid || 0),
-builder_bond_tx_signature: cleanText(row?.builder_bond_tx_signature, 140),
+builder_bond_tx_signature: cleanText(
+row?.builder_bond_tx_signature ?? row?.builder_bond_tx_signature,
+140
+),
 team_wallets: teamWallets,
 team_wallet_breakdown: teamWalletBreakdown,
 };
@@ -442,6 +445,13 @@ return Boolean(
 Number(launch.builder_bond_paid || 0) === 1 ||
 cleanText(launch.builder_bond_tx_signature || "", 140)
 );
+}
+
+function isBuilderBondSatisfied(row) {
+const launch = parseLaunchJsonFields(row);
+if (String(launch.template || "") !== "builder") return true;
+if (Number(launch.builder_bond_sol || 0) <= 0) return false;
+return Number(launch.builder_bond_paid || 0) === 1;
 }
 
 function shapeLaunchForList(row) {
@@ -706,6 +716,10 @@ async function beginCountdown(launchId) {
 const launch = await getLaunchById(launchId);
 if (!launch) return null;
 
+if (!isBuilderBondSatisfied(launch)) {
+throw new Error("builder bond not satisfied");
+}
+
 if (launch.status === "countdown") {
 return launch;
 }
@@ -880,6 +894,16 @@ return getLaunchById(launchId);
 export async function reconcileLaunchState(launchId) {
 let launch = await getLaunchById(launchId);
 if (!launch) return null;
+
+if (
+String(launch.template || "") === "builder" &&
+["commit", "countdown"].includes(String(launch.status || "")) &&
+!isBuilderBondSatisfied(launch)
+) {
+await markLaunchFailed(launchId);
+const refunded = await autoRefundFailedLaunch(launchId);
+return refunded?.launch || getLaunchById(launchId);
+}
 
 if (launch.status === "commit") {
 const stats = await syncLaunchStats(launchId);
@@ -1235,6 +1259,10 @@ if (launch.status !== "commit") {
 return res.status(400).json({ ok: false, error: "commit phase closed" });
 }
 
+if (!isBuilderBondSatisfied(launch)) {
+return res.status(400).json({ ok: false, error: "builder bond not satisfied" });
+}
+
 const existing = await db.get(
 `
 SELECT COALESCE(SUM(sol_amount), 0) AS total
@@ -1320,6 +1348,10 @@ return res.status(404).json({ ok: false, error: "launch not found" });
 
 if (launch.status !== "commit") {
 return res.status(400).json({ ok: false, error: "commit phase closed" });
+}
+
+if (!isBuilderBondSatisfied(launch)) {
+return res.status(400).json({ ok: false, error: "builder bond not satisfied" });
 }
 
 let txSignature = txSignatureInput;
@@ -1437,6 +1469,32 @@ console.error("Late confirm refund failed after commit phase closure:", refundEr
 return res.status(409).json({
 ok: false,
 error: `commit phase closed before confirmation completed and refund failed: ${refundErr?.message || refundErr}`,
+txSignature,
+status: launch.status,
+});
+}
+}
+
+if (!isBuilderBondSatisfied(launch)) {
+try {
+const refundTransfer = await sendRefundTransfer({
+destinationWallet: wallet,
+solAmount,
+});
+
+return res.status(409).json({
+ok: false,
+error: "builder bond no longer satisfied; funds refunded",
+txSignature,
+refundTxSignature: refundTransfer.signature,
+refundedSol: refundTransfer.refundedSol,
+status: launch.status,
+});
+} catch (refundErr) {
+console.error("Late confirm refund failed after builder bond check:", refundErr);
+return res.status(409).json({
+ok: false,
+error: `builder bond no longer satisfied and refund failed: ${refundErr?.message || refundErr}`,
 txSignature,
 status: launch.status,
 });
@@ -1623,6 +1681,10 @@ error: "countdown can only start from commit phase",
 });
 }
 
+if (!isBuilderBondSatisfied(launch)) {
+return res.status(400).json({ ok: false, error: "builder bond not satisfied" });
+}
+
 if (Number(launch.min_raise_sol) <= 0) {
 return res.status(400).json({ ok: false, error: "invalid minimum raise" });
 }
@@ -1661,7 +1723,7 @@ updatedLaunch.hard_cap_sol
 });
 } catch (err) {
 console.error("POST /api/launcher/:id/start-countdown failed:", err);
-return res.status(500).json({ ok: false, error: "failed to start countdown" });
+return res.status(500).json({ ok: false, error: err.message || "failed to start countdown" });
 }
 });
 
@@ -1785,7 +1847,10 @@ ORDER BY l.id DESC
 `
 );
 
-const shaped = rows.map(shapeLaunchForList);
+const shaped = rows
+.filter((row) => isBuilderBondSatisfied(row) || String(row.template || "") !== "builder")
+.map(shapeLaunchForList);
+
 const visible = shaped.filter((x) => x.status !== "failed_refunded");
 
 const grouped = {
@@ -1940,6 +2005,10 @@ WHERE l.id = ?
 );
 
 if (!launch) {
+return res.status(404).json({ ok: false, error: "launch not found" });
+}
+
+if (!isBuilderBondSatisfied(launch)) {
 return res.status(404).json({ ok: false, error: "launch not found" });
 }
 

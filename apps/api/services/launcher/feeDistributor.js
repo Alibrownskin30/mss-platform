@@ -7,6 +7,9 @@ buyback: 0.3,
 treasury: 0.2,
 };
 
+const LAMPORTS_PER_SOL = 1_000_000_000;
+const ESCROW_FEE_BUFFER_LAMPORTS = 10000;
+
 function clean(value, max = 5000) {
 return String(value ?? "").trim().slice(0, max);
 }
@@ -17,7 +20,15 @@ return Number.isFinite(n) ? n : fallback;
 }
 
 function solToLamports(solAmount) {
-return Math.round(Number(solAmount) * 1_000_000_000);
+const sol = Number(solAmount);
+if (!Number.isFinite(sol) || sol <= 0) return 0;
+return Math.round(sol * LAMPORTS_PER_SOL);
+}
+
+function lamportsToSol(lamports) {
+const n = Number(lamports);
+if (!Number.isFinite(n) || n <= 0) return 0;
+return n / LAMPORTS_PER_SOL;
 }
 
 function getRpcUrl() {
@@ -45,22 +56,39 @@ throw new Error("ESCROW_PRIVATE_KEY is not configured");
 try {
 if (raw.startsWith("[")) {
 const arr = JSON.parse(raw);
+if (!Array.isArray(arr) || !arr.length) {
+throw new Error("invalid secret key array");
+}
 return Keypair.fromSecretKey(Uint8Array.from(arr));
 }
+
 return Keypair.fromSecretKey(bs58.decode(raw));
 } catch (err) {
 throw new Error(`ESCROW_PRIVATE_KEY is invalid: ${err?.message || err}`);
 }
 }
 
-async function sendSol({ connection, signer, destinationWallet, solAmount }) {
-const lamports = solToLamports(solAmount);
+function assertValidPublicKey(wallet, label) {
+try {
+return new PublicKey(wallet);
+} catch (err) {
+throw new Error(`${label} is invalid: ${err?.message || err}`);
+}
+}
+
+async function sendLamports({
+connection,
+signer,
+destinationWallet,
+lamports,
+}) {
 if (!Number.isFinite(lamports) || lamports <= 0) {
 return null;
 }
 
 const toPubkey = new PublicKey(destinationWallet);
-const { blockhash, lastValidBlockHeight } = await connection.getLatestBlockhash("confirmed");
+const { blockhash, lastValidBlockHeight } =
+await connection.getLatestBlockhash("confirmed");
 
 const tx = new Transaction({
 feePayer: signer.publicKey,
@@ -111,6 +139,59 @@ netRaiseAfterFee,
 };
 }
 
+function buildTransferPlan(breakdown) {
+const coreWallet = getRequiredWallet("CORE_WALLET");
+const buybackWallet = getRequiredWallet("BUYBACK_WALLET");
+const treasuryWallet = getRequiredWallet("TREASURY_WALLET");
+
+assertValidPublicKey(coreWallet, "CORE_WALLET");
+assertValidPublicKey(buybackWallet, "BUYBACK_WALLET");
+assertValidPublicKey(treasuryWallet, "TREASURY_WALLET");
+
+const rawPlan = [
+{
+bucket: "core",
+wallet: coreWallet,
+solAmount: breakdown.coreFee,
+lamports: solToLamports(breakdown.coreFee),
+},
+{
+bucket: "buyback",
+wallet: buybackWallet,
+solAmount: breakdown.buybackFee,
+lamports: solToLamports(breakdown.buybackFee),
+},
+{
+bucket: "treasury",
+wallet: treasuryWallet,
+solAmount: breakdown.treasuryFee,
+lamports: solToLamports(breakdown.treasuryFee),
+},
+];
+
+const merged = new Map();
+
+for (const item of rawPlan) {
+if (item.lamports <= 0) continue;
+
+const existing = merged.get(item.wallet);
+if (existing) {
+existing.lamports += item.lamports;
+existing.solAmount = lamportsToSol(existing.lamports);
+existing.buckets.push(item.bucket);
+} else {
+merged.set(item.wallet, {
+wallet: item.wallet,
+lamports: item.lamports,
+solAmount: lamportsToSol(item.lamports),
+buckets: [item.bucket],
+});
+}
+}
+
+return Array.from(merged.values());
+}
+
 export async function distributeLaunchFees({
 totalCommitted,
 launchFeePct = 5,
@@ -129,56 +210,53 @@ transfers: [],
 
 const connection = new Connection(getRpcUrl(), "confirmed");
 const signer = getEscrowKeypair();
+const transferPlan = buildTransferPlan(breakdown);
 
-const coreWallet = getRequiredWallet("CORE_WALLET");
-const buybackWallet = getRequiredWallet("BUYBACK_WALLET");
-const treasuryWallet = getRequiredWallet("TREASURY_WALLET");
+if (!transferPlan.length) {
+return {
+ok: true,
+skipped: true,
+reason: "all fee buckets rounded to zero lamports",
+breakdown,
+transfers: [],
+};
+}
+
+const escrowBalanceLamports = await connection.getBalance(
+signer.publicKey,
+"confirmed"
+);
+
+const requiredLamports =
+transferPlan.reduce((sum, row) => sum + row.lamports, 0) +
+ESCROW_FEE_BUFFER_LAMPORTS;
+
+if (escrowBalanceLamports < requiredLamports) {
+throw new Error(
+`escrow wallet lacks fee reserve for fee distribution: balance=${escrowBalanceLamports}, required=${requiredLamports}`
+);
+}
 
 const transfers = [];
 
-const coreSig = await sendSol({
+for (const row of transferPlan) {
+const txSignature = await sendLamports({
 connection,
 signer,
-destinationWallet: coreWallet,
-solAmount: breakdown.coreFee,
+destinationWallet: row.wallet,
+lamports: row.lamports,
 });
-if (coreSig) {
+
+if (txSignature) {
 transfers.push({
-bucket: "core",
-wallet: coreWallet,
-solAmount: breakdown.coreFee,
-txSignature: coreSig,
+bucket: row.buckets.join("+"),
+buckets: row.buckets,
+wallet: row.wallet,
+solAmount: row.solAmount,
+lamports: row.lamports,
+txSignature,
 });
 }
-
-const buybackSig = await sendSol({
-connection,
-signer,
-destinationWallet: buybackWallet,
-solAmount: breakdown.buybackFee,
-});
-if (buybackSig) {
-transfers.push({
-bucket: "buyback",
-wallet: buybackWallet,
-solAmount: breakdown.buybackFee,
-txSignature: buybackSig,
-});
-}
-
-const treasurySig = await sendSol({
-connection,
-signer,
-destinationWallet: treasuryWallet,
-solAmount: breakdown.treasuryFee,
-});
-if (treasurySig) {
-transfers.push({
-bucket: "treasury",
-wallet: treasuryWallet,
-solAmount: breakdown.treasuryFee,
-txSignature: treasurySig,
-});
 }
 
 return {

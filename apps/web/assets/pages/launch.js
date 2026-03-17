@@ -208,7 +208,10 @@ const res = await fetch(`${apiBase}${path}`, options);
 const data = await res.json().catch(() => null);
 
 if (!res.ok || (data && data.ok === false)) {
-throw new Error(data?.error || `HTTP ${res.status}`);
+const err = new Error(data?.error || `HTTP ${res.status}`);
+err.data = data;
+err.status = res.status;
+throw err;
 }
 
 return data;
@@ -815,6 +818,21 @@ updateWalletUi();
 setStatus("Wallet disconnected.", "warn");
 }
 
+function buildLateRefundMessage(err, fallbackSignature = "") {
+const data = err?.data || {};
+const refundedSol = data.refundedSol;
+const refundTxSignature = data.refundTxSignature || "";
+const originalTx = data.txSignature || fallbackSignature || "";
+const status = data.status ? `\nLaunch status: ${data.status}` : "";
+const refundLine = Number.isFinite(Number(refundedSol))
+? `\nRefunded: ${refundedSol} SOL`
+: "";
+const originalTxLine = originalTx ? `\nOriginal transaction: ${originalTx}` : "";
+const refundTxLine = refundTxSignature ? `\nRefund transaction: ${refundTxSignature}` : "";
+
+return `${err.message || "Commit could not be completed."}${status}${refundLine}${originalTxLine}${refundTxLine}`;
+}
+
 async function onCommitSubmit(e) {
 e.preventDefault();
 setStatus("");
@@ -835,6 +853,8 @@ return;
 
 const btn = $("commitBtn");
 if (btn) btn.disabled = true;
+
+let transferSignature = "";
 
 try {
 setStatus("Preparing secure commit request…", "warn");
@@ -868,6 +888,8 @@ destination: destinationWallet,
 lamports,
 });
 
+transferSignature = transfer.signature || "";
+
 setStatus("Verifying on-chain transfer…", "warn");
 
 const data = await fetchJson(`/api/launcher/confirm-commit`, {
@@ -879,7 +901,7 @@ body: JSON.stringify({
 launchId: Number(id),
 wallet,
 solAmount,
-txSignature: transfer.signature,
+txSignature: transferSignature,
 }),
 });
 
@@ -889,7 +911,7 @@ data.status === "countdown" && data.countdownEndsAt
 : "";
 
 setStatus(
-`Commit successful.\n\nWallet total: ${data.walletCommittedTotal} SOL\nTotal committed: ${data.totalCommitted} SOL\nParticipants: ${data.participants}\nTransaction: ${data.txSignature || transfer.signature}${countdownLine}`,
+`Commit successful.\n\nWallet total: ${data.walletCommittedTotal} SOL\nTotal committed: ${data.totalCommitted} SOL\nParticipants: ${data.participants}\nTransaction: ${data.txSignature || transferSignature}${countdownLine}`,
 "good"
 );
 
@@ -900,7 +922,26 @@ $("commitAmount").value = "";
 await refresh();
 } catch (err) {
 console.error(err);
+
+const lateRefund =
+Number(err?.status) === 409 &&
+(err?.data?.refundTxSignature || Number.isFinite(Number(err?.data?.refundedSol)));
+
+if (lateRefund) {
+setStatus(buildLateRefundMessage(err, transferSignature), "warn");
+try {
+await refresh();
+} catch (refreshErr) {
+console.error(refreshErr);
+}
+} else {
 setStatus(err.message || "Commit failed.", "bad");
+try {
+await refresh();
+} catch (refreshErr) {
+console.error(refreshErr);
+}
+}
 } finally {
 if (btn && currentLaunch?.status === "commit") btn.disabled = false;
 }
