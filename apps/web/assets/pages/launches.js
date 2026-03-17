@@ -229,6 +229,16 @@ return `<div class="feed-line"><span>${escapeHtml(wallet)} committed</span><span
 }).join("");
 }
 
+function buildQuickButtons(launch) {
+const status = String(launch.status || "");
+const disabled = status !== "commit" ? "disabled" : "";
+const amounts = [0.1, 0.25, 0.5, 0.75, 1];
+
+return amounts.map((amount) => {
+return `<button type="button" class="quick-commit-btn" data-launch-id="${launch.id}" data-amount="${amount}" ${disabled}>${amount} SOL</button>`;
+}).join("");
+}
+
 function buildCard(launch) {
 const name = escapeHtml(launch.token_name || "Untitled Launch");
 const symbol = escapeHtml(launch.symbol || "N/A");
@@ -246,6 +256,7 @@ const minRaise = safeNum(launch.min_raise_sol);
 const participants = safeNum(launch.participants_count);
 const percent = clamp(safeNum(launch.commitPercent), 0, 100);
 const timing = getTimingMeta(launch);
+const walletConnected = getConnectedWallet().isConnected;
 
 const builderHtml = builderWallet
 ? `<a href="./builder.html?wallet=${encodeURIComponent(builderWallet)}" style="color:rgba(255,255,255,.92);text-decoration:none;">${builderName}</a>`
@@ -291,6 +302,20 @@ Score ${builderScore} • ${trust.label}
 </div>
 </div>
 
+<div class="live-feed">
+${getFeedLines(launch)}
+</div>
+
+<div class="quick-commit">
+<div class="quick-title">Quick Commit</div>
+<div class="quick-row">
+${buildQuickButtons(launch)}
+</div>
+<div style="margin-top:8px;font-size:12px;color:rgba(255,255,255,.62);">
+${walletConnected ? "Connected wallet can quick commit up to 1 SOL total." : "Connect wallet to enable quick commit."}
+</div>
+</div>
+
 <div class="kv">
 <div>
 <div class="k">Participants</div>
@@ -307,22 +332,14 @@ Score ${builderScore} • ${trust.label}
 <span>Hard Cap: ${fmtSol(hardCap)} SOL</span>
 <span>•</span>
 <span>Template: ${template}</span>
+<span>•</span>
+<span>Trending ${Math.round(trendingScore(launch))}</span>
 </div>
 
 <a class="btn primary" href="./launch.html?id=${encodeURIComponent(launch.id)}">View</a>
 </div>
 </div>
 `;
-}
-
-function buildQuickButtons(launch) {
-const status = String(launch.status || "");
-const disabled = status !== "commit" ? "disabled" : "";
-const amounts = [0.1, 0.25, 0.5, 0.75, 1];
-
-return amounts.map((amount) => {
-return `<button type="button" class="quick-commit-btn" data-launch-id="${launch.id}" data-amount="${amount}" ${disabled}>${amount} SOL</button>`;
-}).join("");
 }
 
 function buildListRow(launch) {
