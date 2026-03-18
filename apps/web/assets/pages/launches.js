@@ -109,7 +109,7 @@ return imageUrl
 : `<div class="logo-box">Logo</div>`;
 }
 
-function getTimingMeta(launch) {
+function getLiveTimingValue(launch) {
 const status = String(launch.status || "commit");
 const commitEndsAt = parseTs(launch.commit_ends_at);
 const countdownEndsAt = parseTs(launch.countdown_ends_at);
@@ -145,6 +145,20 @@ value: "Refunded",
 return {
 label: "Status",
 value: stageLabel(status),
+};
+}
+
+function getTimingMeta(launch) {
+const live = getLiveTimingValue(launch);
+return {
+label: live.label,
+value: live.value,
+endAt:
+live.label === "Commit Ends"
+? parseTs(launch.commit_ends_at)
+: live.label === "Countdown"
+? parseTs(launch.countdown_ends_at)
+: null,
 };
 }
 
@@ -288,7 +302,12 @@ Score ${builderScore} • ${trust.label}
 </div>
 <div>
 <div class="k">${escapeHtml(timing.label)}</div>
-<div class="v">${escapeHtml(timing.value)}</div>
+<div
+class="v"
+data-timing-label="${escapeHtml(timing.label)}"
+data-status="${escapeHtml(status)}"
+${timing.endAt ? `data-end-at="${timing.endAt}"` : ""}
+>${escapeHtml(timing.value)}</div>
 </div>
 </div>
 
@@ -385,7 +404,13 @@ ${builderHtml} • Score ${builderScore} • ${trust.label}
 <div class="list-mid">
 <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
 <div class="badge ${badgeClass(status)}">${stageLabel(status)}</div>
-<div class="small-chip">${escapeHtml(timing.label)}: ${escapeHtml(timing.value)}</div>
+<div
+class="small-chip"
+data-timing-chip="1"
+data-timing-label="${escapeHtml(timing.label)}"
+data-status="${escapeHtml(status)}"
+${timing.endAt ? `data-end-at="${timing.endAt}"` : ""}
+>${escapeHtml(timing.label)}: ${escapeHtml(timing.value)}</div>
 <div class="small-chip">Trending ${Math.round(trendingScore(launch))}</div>
 </div>
 
@@ -450,6 +475,10 @@ ${walletConnected ? "Quick commit enabled" : "Connect wallet to commit"}
 let ALL_LAUNCHES = [];
 let CURRENT_VIEW = localStorage.getItem("mss_launchpad_view") || "grid";
 const PREV_PROGRESS = new Map();
+let loadLaunchesInFlight = false;
+let quickCommitInFlight = false;
+let liveTimerIntervalId = null;
+let fullRefreshIntervalId = null;
 
 function setActionStatus(kind, message) {
 const el = $("launchActionStatus");
@@ -498,6 +527,9 @@ return allLaunches.map((x) => byId.get(x.id) || { ...x, recent: [] });
 }
 
 async function loadLaunches() {
+if (loadLaunchesInFlight) return;
+loadLaunchesInFlight = true;
+
 const meta = $("listMeta");
 
 try {
@@ -527,6 +559,8 @@ ALL_LAUNCHES = [];
 if (meta) {
 meta.textContent = "Unable to load launch data";
 }
+} finally {
+loadLaunchesInFlight = false;
 }
 
 render();
@@ -620,6 +654,24 @@ ${rows.map(buildListRow).join("")}
 return html || `<div class="empty">No launches found.</div>`;
 }
 
+function updateLiveTimers() {
+document.querySelectorAll("[data-end-at]").forEach((el) => {
+const endAt = Number(el.getAttribute("data-end-at"));
+const label = el.getAttribute("data-timing-label") || "Status";
+const status = el.getAttribute("data-status") || "";
+
+if (!Number.isFinite(endAt)) return;
+
+const nextValue = fmtTime(endAt - Date.now());
+
+if (el.hasAttribute("data-timing-chip")) {
+el.textContent = `${label}: ${status === "countdown" ? nextValue : nextValue}`;
+} else {
+el.textContent = nextValue;
+}
+});
+}
+
 function render() {
 const grid = $("launchGrid");
 const list = $("launchList");
@@ -673,15 +725,20 @@ list.innerHTML = items.map(buildListRow).join("");
 }
 
 bindQuickCommitButtons();
+updateLiveTimers();
 }
 
 async function quickCommit(launchId, amount, btn = null) {
+if (quickCommitInFlight) return;
+
 const wallet = getConnectedPublicKey();
 
 if (!wallet) {
 setActionStatus("warn", "Connect your wallet before using quick commit.");
 return;
 }
+
+quickCommitInFlight = true;
 
 const originalText = btn ? btn.textContent : "";
 const allQuickButtons = Array.from(
@@ -779,9 +836,13 @@ await loadLaunches();
 console.error(err);
 setActionStatus("bad", err.message || "Quick commit failed.");
 } finally {
+quickCommitInFlight = false;
+
 setTimeout(() => {
 allQuickButtons.forEach((el) => {
-el.disabled = false;
+const launch = ALL_LAUNCHES.find((x) => Number(x.id) === Number(el.getAttribute("data-launch-id")));
+const isCommitOpen = String(launch?.status || "") === "commit";
+el.disabled = !isCommitOpen;
 el.classList.remove("is-loading");
 });
 
@@ -796,7 +857,7 @@ btn.classList.remove("is-success");
 function bindQuickCommitButtons() {
 document.querySelectorAll(".quick-commit-btn").forEach((btn) => {
 btn.onclick = async () => {
-if (btn.disabled) return;
+if (btn.disabled || quickCommitInFlight) return;
 
 const launchId = Number(btn.getAttribute("data-launch-id"));
 const amount = Number(btn.getAttribute("data-amount"));
@@ -822,10 +883,12 @@ pill.textContent = walletState.isConnected
 
 if (connectBtn) {
 connectBtn.style.display = walletState.isConnected ? "none" : "inline-flex";
+connectBtn.disabled = quickCommitInFlight;
 }
 
 if (disconnectBtn) {
 disconnectBtn.style.display = walletState.isConnected ? "inline-flex" : "none";
+disconnectBtn.disabled = quickCommitInFlight;
 }
 }
 
@@ -899,7 +962,16 @@ applyViewState();
 
 await loadLaunches();
 
-setInterval(loadLaunches, 5000);
+if (liveTimerIntervalId) clearInterval(liveTimerIntervalId);
+if (fullRefreshIntervalId) clearInterval(fullRefreshIntervalId);
+
+liveTimerIntervalId = setInterval(() => {
+updateLiveTimers();
+}, 1000);
+
+fullRefreshIntervalId = setInterval(() => {
+void loadLaunches();
+}, 5000);
 }
 
 init();
