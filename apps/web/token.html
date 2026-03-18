@@ -39,6 +39,8 @@ window.API_BASE = isLocalDev
 })();
 </script>
 
+<link rel="stylesheet" href="./assets/chart.css?v=1" />
+
 <style>
 :root{
 --bg0:#05070c;
@@ -1193,6 +1195,124 @@ actionable alerts, and Cassie intelligence — engineered for serious participan
 </div>
 </div>
 
+<section id="tokenMarketSection" class="launch-market-wrap" style="display:none; margin-top:18px;">
+<section id="tokenMarketCard" class="market-card phase-live">
+<div class="market-card-frame"></div>
+<div class="market-card-glow"></div>
+<div class="market-card-top-shine"></div>
+
+<div class="market-card-header">
+<div class="market-card-header-left">
+<div class="market-title-row">
+<div class="market-title-stack">
+<div class="market-kicker">Token Market</div>
+<h2 class="market-card-title">Live Trading</h2>
+</div>
+
+<div class="market-live-pill-wrap">
+<span id="tokenMarketStatusPill" class="market-status-pill phase-live">
+<span id="tokenMarketStatusDot" class="market-status-dot phase-live"></span>
+<span id="tokenMarketStatusLabel" class="market-status-label">Live Trading</span>
+</span>
+</div>
+</div>
+
+<div class="market-subrow" style="display:flex; gap:10px; flex-wrap:wrap; align-items:center;">
+<span class="badge">Token: <b id="tokenMarketName">—</b></span>
+<span class="badge">Symbol: <b id="tokenMarketSymbol">—</b></span>
+
+<button id="tokenMarketCaCopyBtn" class="chart-ca-chip" type="button" style="width:auto; min-width:220px;">
+<span class="chart-ca-chip-left">
+<span class="chart-ca-chip-label">CA</span>
+<span id="tokenMarketCaText">Pending</span>
+</span>
+<span class="chart-ca-chip-copy">Copy</span>
+</button>
+</div>
+
+<div id="tokenMarketLinks" class="launch-external-links" style="margin-top:12px;">
+<span class="launch-link-chip" aria-disabled="true">No external links added</span>
+</div>
+</div>
+
+<div class="market-card-header-right">
+<div id="tokenMarketTimeframes" class="market-timeframes">
+<button class="token-market-timeframe market-timeframe active" data-interval="1m" type="button">1m</button>
+<button class="token-market-timeframe market-timeframe" data-interval="5m" type="button">5m</button>
+<button class="token-market-timeframe market-timeframe" data-interval="15m" type="button">15m</button>
+<button class="token-market-timeframe market-timeframe" data-interval="1h" type="button">1h</button>
+<button class="token-market-timeframe market-timeframe" data-interval="4h" type="button">4h</button>
+<button class="token-market-timeframe market-timeframe" data-interval="1d" type="button">1d</button>
+</div>
+</div>
+</div>
+
+<div class="market-card-body">
+<div id="tokenMarketChartShell" class="market-chart-shell">
+<div class="market-chart-bg-orb orb-a"></div>
+<div class="market-chart-bg-orb orb-b"></div>
+<div class="market-chart-grid"></div>
+<div class="market-chart-vignette"></div>
+
+<div id="tokenMarketOverlay" class="market-overlay hidden">
+<div class="market-overlay-inner">
+<div id="tokenMarketOverlayEyebrow" class="market-overlay-eyebrow">TRADING COUNTDOWN</div>
+<div id="tokenMarketOverlayTitle" class="market-overlay-title">Trading Opens In</div>
+<div id="tokenMarketOverlayText" class="market-overlay-text">
+Commit phase closed. Market activation is imminent.
+</div>
+
+<div id="tokenMarketCountdownBox" class="market-countdown-box hidden">
+<div class="market-countdown-label">Trading Opens In</div>
+<div id="tokenMarketCountdownValue" class="market-countdown-value">05:00</div>
+<div class="market-countdown-subtext">Market transitions here without redirect.</div>
+</div>
+</div>
+</div>
+
+<div id="tokenMarketLiveLayer" class="market-live-layer">
+<div id="tokenMarketChartCanvas" class="market-chart-canvas"></div>
+<div id="tokenMarketVolumeCanvas" class="market-volume-canvas"></div>
+</div>
+</div>
+</div>
+
+<div class="market-card-footer">
+<div id="tokenMarketStatsGrid" class="market-stats-grid">
+<div class="market-stat">
+<div class="market-stat-topline"></div>
+<div class="market-stat-label" id="tokenMarketStat1Label">Price</div>
+<div class="market-stat-value" id="tokenMarketStat1Value">—</div>
+</div>
+
+<div class="market-stat">
+<div class="market-stat-topline"></div>
+<div class="market-stat-label" id="tokenMarketStat2Label">Change</div>
+<div class="market-stat-value" id="tokenMarketStat2Value">—</div>
+</div>
+
+<div class="market-stat">
+<div class="market-stat-topline"></div>
+<div class="market-stat-label" id="tokenMarketStat3Label">Liquidity</div>
+<div class="market-stat-value" id="tokenMarketStat3Value">—</div>
+</div>
+
+<div class="market-stat">
+<div class="market-stat-topline"></div>
+<div class="market-stat-label" id="tokenMarketStat4Label">Market Cap</div>
+<div class="market-stat-value" id="tokenMarketStat4Value">—</div>
+</div>
+</div>
+
+<div class="chipbar" style="margin-top:14px">
+<span class="chip"><b id="tokenMarketVolumeText">Volume —</b></span>
+<span class="chip"><b id="tokenMarketTradesText">Buys — • Sells —</b></span>
+<span class="chip"><b id="tokenMarketHighLowText">H — • L —</b></span>
+</div>
+</div>
+</section>
+</section>
+
 <div class="grid">
 <div class="card">
 <div class="card-inner">
@@ -1708,6 +1828,6 @@ window.location.reload();
 });
 </script>
 
-<script type="module" src="./assets/token.js?v=13"></script>
+<script type="module" src="./assets/token.js?v=15"></script>
 </body>
 </html>

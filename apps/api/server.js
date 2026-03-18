@@ -19,7 +19,11 @@ import tokenMarketRoutes from "./routes/token-market.js";
 
 import { Connection, PublicKey } from "@solana/web3.js";
 import pkg from "@metaplex-foundation/mpl-token-metadata";
-import { AccountLayout } from "@solana/spl-token";
+import {
+AccountLayout,
+TOKEN_PROGRAM_ID,
+TOKEN_2022_PROGRAM_ID,
+} from "@solana/spl-token";
 
 import {
 db,
@@ -43,6 +47,19 @@ app.set("trust proxy", 1);
 app.disable("x-powered-by");
 
 const NODE_ENV = process.env.NODE_ENV || "development";
+
+const TOKEN_PROGRAM_IDS = new Set([
+TOKEN_PROGRAM_ID.toBase58(),
+TOKEN_2022_PROGRAM_ID.toBase58(),
+]);
+
+class InvalidMintError extends Error {
+constructor(message, statusCode = 400) {
+super(message);
+this.name = "InvalidMintError";
+this.statusCode = statusCode;
+}
+}
 
 // ---- Security headers ----
 app.use(
@@ -166,6 +183,43 @@ return new PublicKey(mintStr);
 } catch {
 return null;
 }
+}
+
+function isMintValidationError(error) {
+return error instanceof InvalidMintError;
+}
+
+function mintErrorMessage(error) {
+const raw = String(error?.message || error || "");
+const lower = raw.toLowerCase();
+
+if (lower.includes("could not be unpacked")) {
+return "Address is not a valid SPL token mint";
+}
+if (lower.includes("failed to find account")) {
+return "Mint not found";
+}
+if (lower.includes("invalid param")) {
+return "Invalid token mint";
+}
+return raw || "Invalid token mint";
+}
+
+function respondMintRouteError(res, error) {
+if (isRateLimitError(error)) {
+return res.status(429).json({ error: "RPC rate limited (429). Try again shortly." });
+}
+
+if (isMintValidationError(error)) {
+return res.status(error.statusCode || 400).json({ error: mintErrorMessage(error) });
+}
+
+const friendly = mintErrorMessage(error);
+if (friendly !== String(error?.message || error || "")) {
+return res.status(400).json({ error: friendly });
+}
+
+return res.status(500).json({ error: String(error?.message || error) });
 }
 
 function fmtUsdCompact(n) {
@@ -1103,18 +1157,80 @@ const CLUSTER_TTL_MS = 180_000;
 const marketCache = new Map();
 const MARKET_TTL_MS = 30_000;
 
+const mintProfileCache = new Map();
+const MINT_PROFILE_TTL_MS = 120_000;
+
 // ---- Shared data loaders ----
-async function fetchTokenData(mint) {
-const info = await rpcRetry(() => connection.getParsedAccountInfo(mint));
-if (!info.value) return null;
+async function fetchMintProfile(mint, mintStr) {
+const cached = mintProfileCache.get(mintStr);
+if (cached && Date.now() - cached.ts < MINT_PROFILE_TTL_MS) {
+return cached.data;
+}
 
-const mintParsed = info.value.data?.parsed?.info;
-if (!mintParsed) return null;
+const parsedInfo = await rpcRetry(() => connection.getParsedAccountInfo(mint));
+if (!parsedInfo?.value) {
+throw new InvalidMintError("Mint not found", 404);
+}
 
-const mintAuthority = mintParsed.mintAuthority ?? null;
-const freezeAuthority = mintParsed.freezeAuthority ?? null;
-const supply = mintParsed.supply;
-const decimals = mintParsed.decimals;
+const ownerProgram = parsedInfo.value.owner?.toBase58?.() || null;
+
+if (ownerProgram && !TOKEN_PROGRAM_IDS.has(ownerProgram)) {
+throw new InvalidMintError("Address is not a supported SPL token mint", 400);
+}
+
+const parsed = parsedInfo.value.data?.parsed || null;
+const parsedType = parsed?.type || null;
+const mintParsed = parsed?.info || null;
+
+if (mintParsed && parsedType === "mint") {
+const out = {
+mint: mint.toBase58(),
+ownerProgram,
+parsedType,
+mintAuthority: mintParsed.mintAuthority ?? null,
+freezeAuthority: mintParsed.freezeAuthority ?? null,
+supply: mintParsed.supply,
+decimals: mintParsed.decimals,
+isToken2022: ownerProgram === TOKEN_2022_PROGRAM_ID.toBase58(),
+};
+
+mintProfileCache.set(mintStr, { ts: Date.now(), data: out });
+return out;
+}
+
+const rawInfo = await rpcRetry(() => connection.getAccountInfo(mint));
+if (!rawInfo) {
+throw new InvalidMintError("Mint not found", 404);
+}
+
+const rawOwnerProgram = rawInfo.owner?.toBase58?.() || ownerProgram || null;
+if (rawOwnerProgram && !TOKEN_PROGRAM_IDS.has(rawOwnerProgram)) {
+throw new InvalidMintError("Address is not a supported SPL token mint", 400);
+}
+
+const dataLength = rawInfo.data?.length || 0;
+
+if (dataLength < 82) {
+throw new InvalidMintError("Address is not a valid SPL token mint", 400);
+}
+
+const out = {
+mint: mint.toBase58(),
+ownerProgram: rawOwnerProgram,
+parsedType: "mint-raw",
+mintAuthority: null,
+freezeAuthority: null,
+supply: null,
+decimals: null,
+isToken2022: rawOwnerProgram === TOKEN_2022_PROGRAM_ID.toBase58(),
+};
+
+mintProfileCache.set(mintStr, { ts: Date.now(), data: out });
+return out;
+}
+
+async function fetchTokenData(mint, mintStr = mint.toBase58()) {
+const profile = await fetchMintProfile(mint, mintStr);
 
 let metadata = null;
 try {
@@ -1125,6 +1241,21 @@ metadata = metaAcc?.data?.data || null;
 metadata = null;
 }
 
+let supply = profile.supply;
+let decimals = profile.decimals;
+const mintAuthority = profile.mintAuthority;
+const freezeAuthority = profile.freezeAuthority;
+
+if (supply == null || decimals == null) {
+try {
+const supplyResp = await rpcRetry(() => connection.getTokenSupply(mint));
+supply = supplyResp?.value?.amount ?? null;
+decimals = supplyResp?.value?.decimals ?? null;
+} catch {
+// leave null if unavailable
+}
+}
+
 return {
 mint: mint.toBase58(),
 chain: "solana",
@@ -1132,6 +1263,7 @@ supply,
 decimals,
 mintAuthority,
 freezeAuthority,
+program: profile.isToken2022 ? "Token-2022" : "SPL Token",
 safety: {
 mintRevoked: !mintAuthority,
 freezeRevoked: !freezeAuthority,
@@ -1191,10 +1323,19 @@ return holdersInFlight.get(mintStr);
 }
 
 const task = (async () => {
-const [supplyResp, largest] = await Promise.all([
+await fetchMintProfile(mint, mintStr);
+
+let supplyResp;
+let largest;
+
+try {
+[supplyResp, largest] = await Promise.all([
 rpcRetry(() => connection.getTokenSupply(mint)),
 rpcRetry(() => connection.getTokenLargestAccounts(mint)),
 ]);
+} catch (error) {
+throw new InvalidMintError(mintErrorMessage(error), 400);
+}
 
 const totalUi = supplyResp?.value?.uiAmount ?? null;
 const decimals = supplyResp?.value?.decimals ?? null;
@@ -1307,12 +1448,12 @@ try {
 const mint = assertMint(req.params.mint);
 if (!mint) return res.status(400).json({ error: "Invalid mint" });
 
-const tokenJson = await fetchTokenData(mint);
+const tokenJson = await fetchTokenData(mint, req.params.mint);
 if (!tokenJson) return res.status(404).json({ error: "Mint not found" });
 
 return res.json(tokenJson);
 } catch (e) {
-return res.status(500).json({ error: String(e?.message || e) });
+return respondMintRouteError(res, e);
 }
 });
 
@@ -1341,10 +1482,7 @@ if (!mint) return res.status(400).json({ error: "Invalid mint" });
 const data = await fetchHoldersData(mint, mintStr);
 return res.json(data);
 } catch (e) {
-if (isRateLimitError(e)) {
-return res.status(429).json({ error: "RPC rate limited (429). Try again shortly." });
-}
-return res.status(500).json({ error: String(e?.message || e) });
+return respondMintRouteError(res, e);
 }
 });
 
@@ -1356,13 +1494,11 @@ try {
 const mint = assertMint(mintStr);
 if (!mint) return res.status(400).json({ error: "Invalid mint" });
 
+await fetchMintProfile(mint, mintStr);
 const intel = await fetchClusterData(mint, mintStr);
 return res.json(intel);
 } catch (e) {
-if (isRateLimitError(e)) {
-return res.status(429).json({ error: "RPC rate limited (429). Try again shortly." });
-}
-return res.status(500).json({ error: String(e?.message || e) });
+return respondMintRouteError(res, e);
 }
 });
 
@@ -1375,7 +1511,7 @@ const mint = assertMint(mintStr);
 if (!mint) return res.status(400).json({ error: "Invalid mint" });
 
 const [tokenJson, marketJson, holdersJson, clusterJson] = await Promise.all([
-fetchTokenData(mint),
+fetchTokenData(mint, mintStr),
 fetchMarketData(mintStr),
 fetchHoldersData(mint, mintStr),
 fetchClusterData(mint, mintStr),
@@ -1464,10 +1600,7 @@ securityModel,
 cassie: cassieIntelResult,
 });
 } catch (e) {
-if (isRateLimitError(e)) {
-return res.status(429).json({ error: "RPC rate limited (429). Try again shortly." });
-}
-return res.status(500).json({ error: String(e?.message || e) });
+return respondMintRouteError(res, e);
 }
 });
 
@@ -1480,7 +1613,7 @@ const mint = assertMint(mintStr);
 if (!mint) return res.status(400).json({ error: "Invalid mint" });
 
 const [tokenJson, marketJson, holdersJson, clusterJson] = await Promise.all([
-fetchTokenData(mint),
+fetchTokenData(mint, mintStr),
 fetchMarketData(mintStr),
 fetchHoldersData(mint, mintStr),
 fetchClusterData(mint, mintStr),
@@ -1556,10 +1689,7 @@ imageUrl: `${req.protocol}://${req.get("host")}/api/sol/share-image/${mintStr}`,
 scanUrl: `https://www.mssprotocol.com/token.html?mint=${encodeURIComponent(mintStr)}`,
 });
 } catch (e) {
-if (isRateLimitError(e)) {
-return res.status(429).json({ error: "RPC rate limited (429). Try again shortly." });
-}
-return res.status(500).json({ error: String(e?.message || e) });
+return respondMintRouteError(res, e);
 }
 });
 
@@ -1720,7 +1850,5 @@ console.log(`🛡️ Cassie: enabled (defensive middleware + intel layer)`);
 });
 
 startLaunchWorker();
-
 startWatcher();
-
 startGraduationWatcher();

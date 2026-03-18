@@ -1,10 +1,13 @@
 import { apiGet, apiPost, getApiBase } from "./api.js";
 import { downloadShareCardPNG } from "./sharecard.js";
+import { initTokenMarket } from "./token-market.js";
 
 (() => {
 const $ = (id) => document.getElementById(id);
 
 const SAMPLE_MINT = "So11111111111111111111111111111111111111112";
+
+let tokenMarketController = null;
 
 const fmtUsd = (n) => {
 if (n == null || n === "" || Number.isNaN(Number(n))) return "—";
@@ -1347,6 +1350,20 @@ fdvUsd: Number(marketJson?.fdv || 0),
 }
 }
 
+async function syncTokenMarket(mint) {
+try {
+if (!tokenMarketController) {
+tokenMarketController = await initTokenMarket({ mint });
+} else {
+await tokenMarketController.loadForMint(mint);
+}
+} catch (error) {
+console.error("token market sync failed:", error);
+const section = $("tokenMarketSection");
+if (section) section.style.display = "none";
+}
+}
+
 async function runScan(mint) {
 setBadge(null, "scanDot", "scanStatusText", "warn", "Scanning…");
 setText("scanMetaText", `mint: ${mint.slice(0, 4)}…${mint.slice(-4)}`);
@@ -1450,6 +1467,8 @@ window.history.replaceState({}, "", url.toString());
 setText("apiMeta", `API: ${getApiBase()}`);
 setBadge(null, "scanDot", "scanStatusText", "good", "Scan complete");
 
+await syncTokenMarket(mint);
+
 bestEffortRecordRisk({ mint, rm, conc, marketJson });
 } catch (e) {
 renderRaw({ mint, error: e?.message || String(e) });
@@ -1468,6 +1487,9 @@ renderCassieList("cassieSignalsList", [{ tone: "bad", text: "Cassie scan unavail
 renderCassieList("cassieSimList", [{ tone: "warn", text: "No simulation outlook available." }]);
 renderCassieList("cassieRiskFactorsList", [{ tone: "warn", text: "No risk-factor synthesis available." }]);
 renderCassieList("cassieRadarList", [{ tone: "warn", text: "No operational notes available." }]);
+
+const section = $("tokenMarketSection");
+if (section) section.style.display = "none";
 }
 }
 

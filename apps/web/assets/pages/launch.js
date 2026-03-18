@@ -217,6 +217,14 @@ pending: builderBondSol > 0 && !builderBondPaid && !builderBondRefunded,
 };
 }
 
+function getCountdownEndsMs(launch, stats) {
+return parseTs(stats?.countdownEndsAt || launch?.countdown_ends_at);
+}
+
+function getCommitEndsMs(launch, stats) {
+return parseTs(stats?.commitEndsAt || launch?.commit_ends_at);
+}
+
 function getLaunchStateMessage(launch, stats) {
 const status = String(launch?.status || "");
 const bondState = getBuilderBondState(launch, stats);
@@ -229,7 +237,7 @@ message: "Commit phase is open.",
 }
 
 if (status === "countdown") {
-const ends = parseTs(stats?.countdownEndsAt || launch?.countdown_ends_at);
+const ends = getCountdownEndsMs(launch, stats);
 const timePart = Number.isFinite(ends)
 ? ` Countdown ends in ${fmtCountdown(ends - Date.now())}.`
 : "";
@@ -297,6 +305,7 @@ let loadRequestSeq = 0;
 let commitActionInFlight = false;
 let refundActionInFlight = false;
 let walletActionInFlight = false;
+let refreshInFlight = false;
 
 async function fetchJson(path, options = {}) {
 const apiBase = getApiBase();
@@ -546,7 +555,7 @@ note += ` Builder bond of ${fmtSol(bondState.amount)} is not marked as collected
 }
 }
 } else if (status === "countdown") {
-const ends = parseTs(launch.countdown_ends_at);
+const ends = getCountdownEndsMs(launch, stats);
 const msLeft = (ends ?? 0) - Date.now();
 timeStat.textContent = fmtCountdown(msLeft);
 
@@ -802,14 +811,41 @@ walletHint.textContent = walletState.isConnected
 }
 
 function renderActionPanelState(launch, stats) {
+const commitForm = $("commitForm");
 const commitBtn = $("commitBtn");
 const refundBtn = $("refundBtn");
 const amountInput = $("commitAmount");
+const amountField = amountInput?.closest(".field") || null;
+const quickWrap = document.querySelector(".quick");
+const walletField = $("commitWallet")?.closest(".field") || null;
+const actionStack = commitBtn?.closest(".action-stack") || null;
 const quickButtons = Array.from(document.querySelectorAll(".quick button[data-amount]"));
 const stateInfo = getLaunchStateMessage(launch, stats);
 
-const commitOpen = canCommitForStatus(launch.status);
-const refundOpen = canRefundForStatus(launch.status);
+const status = String(launch.status || "");
+const commitOpen = canCommitForStatus(status);
+const refundOpen = canRefundForStatus(status);
+const refundOnly = status === "failed";
+
+if (commitForm) {
+commitForm.style.display = commitOpen || refundOpen ? "" : "none";
+}
+
+if (walletField) {
+walletField.style.display = commitOpen || refundOpen ? "" : "none";
+}
+
+if (amountField) {
+amountField.style.display = commitOpen ? "" : "none";
+}
+
+if (quickWrap) {
+quickWrap.style.display = commitOpen ? "" : "none";
+}
+
+if (actionStack) {
+actionStack.style.display = commitOpen || refundOpen ? "" : "none";
+}
 
 if (commitBtn) {
 commitBtn.style.display = commitOpen ? "inline-flex" : "none";
@@ -823,16 +859,21 @@ refundBtn.disabled = !refundOpen || refundActionInFlight;
 
 if (amountInput) {
 amountInput.disabled = !commitOpen || commitActionInFlight;
-if (!commitOpen) {
-amountInput.setAttribute("placeholder", badgeText(launch.status));
-} else {
-amountInput.setAttribute("placeholder", "0.50");
-}
+amountInput.setAttribute("placeholder", commitOpen ? "0.50" : badgeText(status));
 }
 
 quickButtons.forEach((btn) => {
 btn.disabled = !commitOpen || commitActionInFlight;
 });
+
+if (refundOnly) {
+setStatus(
+"Launch failed. Refund remains available for wallets with tracked commit balance.",
+"warn",
+{ auto: true, preserveManual: true }
+);
+return;
+}
 
 if (!commitOpen) {
 setStatus(stateInfo.message, stateInfo.kind, { auto: true, preserveManual: true });
@@ -852,7 +893,7 @@ const committed = safeNum(stats.totalCommitted, safeNum(launch.committed_sol));
 const hardCap = safeNum(stats.hardCap, safeNum(launch.hard_cap_sol));
 const minRaise = safeNum(stats.minRaise, safeNum(launch.min_raise_sol));
 const participants = safeNum(stats.participants, safeNum(launch.participants_count));
-const commitEndsAt = parseTs(stats.commitEndsAt || launch.commit_ends_at);
+const commitEndsAt = getCommitEndsMs(launch, stats);
 const pct = hardCap > 0
 ? Math.max(0, Math.min(100, Math.floor((committed / hardCap) * 100)))
 : 0;
@@ -909,13 +950,19 @@ setClosureNote("");
 }
 
 async function refresh() {
+if (refreshInFlight) return;
+refreshInFlight = true;
+
+try {
 await loadLaunch();
 render();
+} finally {
+refreshInFlight = false;
+}
 }
 
 async function refreshStateBeforeAction() {
-await loadLaunch();
-render();
+await refresh();
 return {
 launch: currentLaunch,
 stats: currentCommitStats,
@@ -943,6 +990,7 @@ setStatus(msg.includes("No supported wallet") ? getMobileWalletHelpText() : msg,
 } finally {
 walletActionInFlight = false;
 updateWalletUi();
+if (currentLaunch && currentCommitStats) render();
 }
 }
 
@@ -958,6 +1006,7 @@ await disconnectAnyWallet();
 } finally {
 walletActionInFlight = false;
 updateWalletUi();
+if (currentLaunch && currentCommitStats) render();
 }
 
 setStatus("Wallet disconnected.", "warn");
@@ -987,7 +1036,6 @@ setStatus("");
 const id = qs("id");
 const wallet = getConnectedPublicKey() || $("commitWallet")?.value?.trim() || "";
 const solAmount = Number($("commitAmount")?.value);
-const btn = $("commitBtn");
 
 if (!wallet) {
 setStatus("Connect your wallet before committing.", "bad");
@@ -1107,9 +1155,6 @@ console.error(refreshErr);
 }
 } finally {
 commitActionInFlight = false;
-if (btn && canCommitForStatus(currentLaunch?.status)) {
-btn.disabled = false;
-}
 render();
 }
 }
@@ -1121,7 +1166,6 @@ setStatus("");
 
 const id = qs("id");
 const wallet = getConnectedPublicKey() || $("commitWallet")?.value?.trim() || "";
-const refundBtn = $("refundBtn");
 
 if (!wallet) {
 setStatus("Connect your wallet before refunding.", "bad");
@@ -1177,9 +1221,6 @@ console.error(refreshErr);
 }
 } finally {
 refundActionInFlight = false;
-if (refundBtn && canRefundForStatus(currentLaunch?.status)) {
-refundBtn.disabled = false;
-}
 render();
 }
 }
@@ -1239,8 +1280,16 @@ console.error(err);
 }, 5000);
 
 renderIntervalId = setInterval(() => {
-if (["commit", "countdown"].includes(currentLaunch?.status || "")) {
+if (!currentLaunch || !currentCommitStats) return;
+
 render();
+
+const status = String(currentLaunch.status || "");
+if (status === "countdown") {
+const countdownEndsMs = getCountdownEndsMs(currentLaunch, currentCommitStats);
+if (Number.isFinite(countdownEndsMs) && countdownEndsMs <= Date.now() && !refreshInFlight) {
+void refresh().catch((err) => console.error(err));
+}
 }
 }, 1000);
 }
