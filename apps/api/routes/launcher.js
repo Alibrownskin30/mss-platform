@@ -17,7 +17,7 @@ const router = express.Router();
 
 const COMMIT_PHASE_MINUTES = 4;
 const COUNTDOWN_MINUTES = 4;
-const MAX_WALLET_COMMIT_SOL = 1;
+const MAX_WALLET_COMMIT_SOL = 100;
 const MAX_TEAM_WALLETS = 5;
 const MAX_TEAM_ALLOCATION_PCT = 15;
 const MIN_BUILDER_BOND_SOL = 5;

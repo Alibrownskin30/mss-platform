@@ -145,11 +145,19 @@ if (w.length <= 12) return w;
 return `${w.slice(0, 4)}...${w.slice(-4)}`;
 }
 
-function setStatus(message, type = "") {
+function setStatus(message, type = "", options = {}) {
 const el = $("commitStatus");
 if (!el) return;
 
+const { auto = false, preserveManual = false } = options;
+
+if (preserveManual && el.textContent && el.dataset.autoState !== "1") {
+return;
+}
+
 el.className = "status";
+el.dataset.autoState = auto ? "1" : "";
+
 if (!message) {
 el.textContent = "";
 return;
@@ -159,6 +167,16 @@ if (type === "good") el.classList.add("good");
 if (type === "bad") el.classList.add("bad");
 if (type === "warn") el.classList.add("warn");
 el.textContent = message;
+}
+
+function clearAutoStatus() {
+const el = $("commitStatus");
+if (!el) return;
+if (el.dataset.autoState === "1") {
+el.className = "status";
+el.textContent = "";
+el.dataset.autoState = "";
+}
 }
 
 function setClosureNote(message, type = "") {
@@ -275,6 +293,10 @@ let currentLaunch = null;
 let currentCommitStats = null;
 let refreshIntervalId = null;
 let renderIntervalId = null;
+let loadRequestSeq = 0;
+let commitActionInFlight = false;
+let refundActionInFlight = false;
+let walletActionInFlight = false;
 
 async function fetchJson(path, options = {}) {
 const apiBase = getApiBase();
@@ -297,10 +319,16 @@ if (!id) {
 throw new Error("Missing launch id in URL.");
 }
 
+const requestSeq = ++loadRequestSeq;
+
 const [launchRes, commitsRes] = await Promise.all([
 fetchJson(`/api/launcher/${id}`),
 fetchJson(`/api/launcher/commits/${id}`),
 ]);
+
+if (requestSeq !== loadRequestSeq) {
+return;
+}
 
 currentLaunch = launchRes.launch;
 currentCommitStats = commitsRes;
@@ -758,10 +786,12 @@ walletPill.textContent = walletState.isConnected
 
 if (connectBtn) {
 connectBtn.style.display = walletState.isConnected ? "none" : "inline-flex";
+connectBtn.disabled = walletActionInFlight;
 }
 
 if (disconnectBtn) {
 disconnectBtn.style.display = walletState.isConnected ? "inline-flex" : "none";
+disconnectBtn.disabled = walletActionInFlight;
 }
 
 if (walletHint) {
@@ -783,16 +813,16 @@ const refundOpen = canRefundForStatus(launch.status);
 
 if (commitBtn) {
 commitBtn.style.display = commitOpen ? "inline-flex" : "none";
-commitBtn.disabled = !commitOpen;
+commitBtn.disabled = !commitOpen || commitActionInFlight;
 }
 
 if (refundBtn) {
 refundBtn.style.display = refundOpen ? "inline-flex" : "none";
-refundBtn.disabled = !refundOpen;
+refundBtn.disabled = !refundOpen || refundActionInFlight;
 }
 
 if (amountInput) {
-amountInput.disabled = !commitOpen;
+amountInput.disabled = !commitOpen || commitActionInFlight;
 if (!commitOpen) {
 amountInput.setAttribute("placeholder", badgeText(launch.status));
 } else {
@@ -801,11 +831,13 @@ amountInput.setAttribute("placeholder", "0.50");
 }
 
 quickButtons.forEach((btn) => {
-btn.disabled = !commitOpen;
+btn.disabled = !commitOpen || commitActionInFlight;
 });
 
 if (!commitOpen) {
-setStatus(stateInfo.message, stateInfo.kind);
+setStatus(stateInfo.message, stateInfo.kind, { auto: true, preserveManual: true });
+} else {
+clearAutoStatus();
 }
 }
 
@@ -891,6 +923,10 @@ stats: currentCommitStats,
 }
 
 async function connectWallet() {
+if (walletActionInFlight) return;
+walletActionInFlight = true;
+updateWalletUi();
+
 try {
 const wallet = await connectAnyWallet();
 updateWalletUi();
@@ -904,17 +940,26 @@ setStatus("Wallet connection cancelled.", "warn");
 } catch (err) {
 const msg = err?.message || "Wallet connection failed.";
 setStatus(msg.includes("No supported wallet") ? getMobileWalletHelpText() : msg, "bad");
+} finally {
+walletActionInFlight = false;
+updateWalletUi();
 }
 }
 
 async function disconnectWallet() {
+if (walletActionInFlight) return;
+walletActionInFlight = true;
+updateWalletUi();
+
 try {
 await disconnectAnyWallet();
 } catch {
 // ignore
+} finally {
+walletActionInFlight = false;
+updateWalletUi();
 }
 
-updateWalletUi();
 setStatus("Wallet disconnected.", "warn");
 }
 
@@ -935,6 +980,8 @@ return `${err.message || "Commit could not be completed."}${status}${refundLine}
 
 async function onCommitSubmit(e) {
 e.preventDefault();
+if (commitActionInFlight) return;
+
 setStatus("");
 
 const id = qs("id");
@@ -952,7 +999,8 @@ setStatus("Enter a valid SOL amount.", "bad");
 return;
 }
 
-if (btn) btn.disabled = true;
+commitActionInFlight = true;
+render();
 
 let transferSignature = "";
 
@@ -1058,13 +1106,17 @@ console.error(refreshErr);
 }
 }
 } finally {
+commitActionInFlight = false;
 if (btn && canCommitForStatus(currentLaunch?.status)) {
 btn.disabled = false;
 }
+render();
 }
 }
 
 async function refundCommit() {
+if (refundActionInFlight) return;
+
 setStatus("");
 
 const id = qs("id");
@@ -1076,7 +1128,8 @@ setStatus("Connect your wallet before refunding.", "bad");
 return;
 }
 
-if (refundBtn) refundBtn.disabled = true;
+refundActionInFlight = true;
+render();
 
 try {
 const latest = await refreshStateBeforeAction();
@@ -1123,9 +1176,11 @@ await refresh();
 console.error(refreshErr);
 }
 } finally {
+refundActionInFlight = false;
 if (refundBtn && canRefundForStatus(currentLaunch?.status)) {
 refundBtn.disabled = false;
 }
+render();
 }
 }
 
@@ -1136,7 +1191,7 @@ setStatus("");
 function bindQuickAmounts() {
 document.querySelectorAll(".quick button[data-amount]").forEach((btn) => {
 btn.addEventListener("click", () => {
-if (btn.disabled) return;
+if (btn.disabled || commitActionInFlight) return;
 const amount = btn.getAttribute("data-amount") || "";
 if ($("commitAmount")) $("commitAmount").value = amount;
 });
@@ -1149,7 +1204,9 @@ $("disconnectWalletBtn")?.addEventListener("click", disconnectWallet);
 
 onWalletChange(() => {
 updateWalletUi();
+if (currentLaunch && currentCommitStats) {
 render();
+}
 });
 }
 
