@@ -616,12 +616,12 @@ flex-direction:column;
 gap:16px;
 background:var(--cardStrong);
 box-shadow:var(--shadow), inset 0 1px 0 rgba(255,255,255,.04);
-transition:.18s ease;
+transition:border-color .18s ease, box-shadow .18s ease;
 }
 .token-card:hover{
-transform:translateY(-2px);
+transform:none;
 border-color:rgba(255,255,255,.14);
-box-shadow:0 26px 70px rgba(0,0,0,.44), 0 0 22px rgba(0,255,209,.05);
+box-shadow:0 22px 58px rgba(0,0,0,.40);
 }
 
 .token-head{
@@ -765,7 +765,7 @@ height:100%;
 width:0%;
 background:linear-gradient(90deg, rgba(0,255,209,.98), rgba(58,160,255,.96));
 box-shadow:0 0 20px rgba(0,255,209,.18), 0 0 26px rgba(58,160,255,.10);
-transition:width .25s ease, transform .25s ease;
+transition:width .25s ease;
 position:relative;
 }
 .progress-fill::after{
@@ -779,12 +779,7 @@ background:linear-gradient(90deg, rgba(255,255,255,0), rgba(255,255,255,.28));
 filter:blur(3px);
 }
 .progress-fill.hot{
-animation:mssPulse 1.1s ease infinite;
-}
-@keyframes mssPulse{
-0%{ filter:brightness(1); transform:scaleY(1); }
-50%{ filter:brightness(1.22); transform:scaleY(1.04); }
-100%{ filter:brightness(1); transform:scaleY(1); }
+animation:none;
 }
 
 .token-footer{
@@ -820,6 +815,28 @@ font-weight:700;
 border:1px solid rgba(255,255,255,.10);
 background:rgba(255,255,255,.04);
 color:rgba(255,255,255,.84);
+}
+
+.safeguards{
+display:flex;
+gap:8px;
+flex-wrap:wrap;
+position:relative;
+z-index:1;
+}
+
+.safe-chip{
+display:inline-flex;
+align-items:center;
+gap:6px;
+padding:6px 9px;
+border-radius:999px;
+font-size:11px;
+font-weight:700;
+border:1px solid rgba(255,255,255,.10);
+background:rgba(255,255,255,.04);
+color:rgba(255,255,255,.84);
+white-space:nowrap;
 }
 
 .quick-commit{
@@ -867,7 +884,7 @@ box-shadow:inset 0 1px 0 rgba(255,255,255,.04);
 .quick-row button:hover,
 .quick-commit-btn:hover{
 background:rgba(255,255,255,.09);
-transform:translateY(-1px);
+transform:none;
 }
 .quick-row button[disabled],
 .quick-commit-btn[disabled]{
@@ -913,12 +930,12 @@ padding:16px;
 display:grid;
 gap:14px;
 background:var(--cardStrong);
-transition:.18s ease;
+transition:border-color .18s ease, box-shadow .18s ease;
 }
 .list-row:hover{
-transform:translateY(-2px);
+transform:none;
 border-color:rgba(255,255,255,.14);
-box-shadow:0 26px 70px rgba(0,0,0,.44), 0 0 22px rgba(58,160,255,.04);
+box-shadow:0 22px 58px rgba(0,0,0,.40);
 }
 
 .list-row-top{
@@ -1106,9 +1123,6 @@ width:100%;
 .kv{ grid-template-columns:1fr 1fr; }
 .list-stats{
 grid-template-columns:1fr;
-}
-.quick-row{
-grid-template-columns:1fr 1fr;
 }
 }
 </style>

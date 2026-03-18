@@ -241,15 +241,15 @@ return Math.max(0, Math.min(100, Math.floor((total / cap) * 100)));
 }
 
 function buildFeeBreakdown(totalCommitted, launchFeePct = 5) {
-const feeTotal = (totalCommitted * Number(launchFeePct)) / 100;
+const feeTotal = Number(totalCommitted) * (Number(launchFeePct) / 100);
 const founderFee = feeTotal * LAUNCH_FEE_SPLIT.founder;
 const buybackFee = feeTotal * LAUNCH_FEE_SPLIT.buyback;
 const treasuryFee = feeTotal * LAUNCH_FEE_SPLIT.treasury;
-const netRaiseAfterFee = totalCommitted - feeTotal;
+const netRaiseAfterFee = Number(totalCommitted) - feeTotal;
 
 return {
 launchFeePct: Number(launchFeePct),
-totalCommitted,
+totalCommitted: Number(totalCommitted),
 feeTotal,
 founderFee,
 buybackFee,
@@ -461,6 +461,11 @@ return false;
 }
 }
 
+function isLikelyBlockhashExpiredError(err) {
+const msg = String(err?.message || err || "").toLowerCase();
+return msg.includes("blockhash not found") || msg.includes("block height exceeded");
+}
+
 function shapeLaunchForList(row) {
 const parsed = parseLaunchJsonFields(row);
 const totalCommitted = Number(parsed.committed_sol || 0);
@@ -592,6 +597,7 @@ escrowWallet,
 expectedLamports,
 reference,
 transaction: transactionBase64,
+blockhash,
 lastValidBlockHeight,
 };
 }
@@ -613,10 +619,14 @@ throw new Error("invalid refund lamports");
 }
 
 const destinationPubkey = new PublicKey(destination);
-const { blockhash, lastValidBlockHeight } = await connection.getLatestBlockhash("confirmed");
+const { blockhash, lastValidBlockHeight } =
+await connection.getLatestBlockhash("confirmed");
 
 const feeBufferLamports = 10000;
-const escrowBalance = await connection.getBalance(escrowKeypair.publicKey, "confirmed");
+const escrowBalance = await connection.getBalance(
+escrowKeypair.publicKey,
+"confirmed"
+);
 
 if (escrowBalance < lamports + feeBufferLamports) {
 throw new Error(
@@ -963,8 +973,7 @@ return finalizeLaunchIfReady(launchId);
 }
 
 if (launch.status === "failed") {
-const refunded = await autoRefundFailedLaunch(launchId);
-return refunded?.launch || getLaunchById(launchId);
+return launch;
 }
 
 return launch;
@@ -976,7 +985,7 @@ const rows = await db.all(
 `
 SELECT id
 FROM launches
-WHERE status IN ('commit', 'countdown', 'failed')
+WHERE status IN ('commit', 'countdown')
 ORDER BY id ASC
 `
 );
@@ -1078,10 +1087,30 @@ if (!txSignature) {
 const connection = new Connection(getRpcUrl(), "confirmed");
 const rawSignedTx = Buffer.from(signedTransactionBase64, "base64");
 
+try {
+const decodedTx = Transaction.from(rawSignedTx);
+const sigBuf = decodedTx.signatures?.[0]?.signature;
+if (sigBuf) {
+txSignature = bs58.encode(sigBuf);
+}
+} catch {
+// ignore extraction failure; sendRawTransaction below is source of truth
+}
+
+try {
 txSignature = await connection.sendRawTransaction(rawSignedTx, {
 skipPreflight: false,
 preflightCommitment: "confirmed",
 });
+} catch (sendErr) {
+if (isLikelyBlockhashExpiredError(sendErr)) {
+return res.status(409).json({
+ok: false,
+error: "builder bond approval expired. please prepare and approve the builder bond again",
+});
+}
+throw sendErr;
+}
 
 const confirmation = await connection.confirmTransaction(txSignature, "confirmed");
 if (confirmation?.value?.err) {
@@ -1411,10 +1440,20 @@ if (!txSignature) {
 const connection = new Connection(getRpcUrl(), "confirmed");
 const rawSignedTx = Buffer.from(signedTransactionBase64, "base64");
 
+try {
 txSignature = await connection.sendRawTransaction(rawSignedTx, {
 skipPreflight: false,
 preflightCommitment: "confirmed",
 });
+} catch (sendErr) {
+if (isLikelyBlockhashExpiredError(sendErr)) {
+return res.status(409).json({
+ok: false,
+error: "commit approval expired. please prepare the commit again",
+});
+}
+throw sendErr;
+}
 
 const confirmation = await connection.confirmTransaction(txSignature, "confirmed");
 if (confirmation?.value?.err) {
@@ -1880,11 +1919,6 @@ error: err.message || "finalize failed",
 
 router.get("/list", async (_req, res) => {
 try {
-const ids = await db.all(`SELECT id FROM launches ORDER BY id DESC`);
-for (const row of ids) {
-await reconcileLaunchState(row.id);
-}
-
 const rows = await db.all(
 `
 SELECT
@@ -1899,7 +1933,10 @@ ORDER BY l.id DESC
 );
 
 const shaped = rows
-.filter((row) => isBuilderBondSatisfied(row) || String(row.template || "") !== "builder")
+.filter(
+(row) =>
+isBuilderBondSatisfied(row) || String(row.template || "") !== "builder"
+)
 .map(shapeLaunchForList);
 
 const visible = shaped.filter((x) => x.status !== "failed_refunded");
@@ -1931,7 +1968,7 @@ if (!launchId) {
 return res.status(400).json({ ok: false, error: "invalid launchId" });
 }
 
-let launch = await reconcileLaunchState(launchId);
+const launch = await getLaunchById(launchId);
 
 if (!launch) {
 return res.status(404).json({ ok: false, error: "launch not found" });
@@ -2022,7 +2059,6 @@ return res.status(400).json({ ok: false, error: err.message });
 router.get("/:id/allocations", async (req, res) => {
 try {
 const launchId = Number(req.params.id);
-await reconcileLaunchState(launchId);
 
 const rows = await db.all(
 `SELECT * FROM allocations WHERE launch_id = ? ORDER BY id ASC`,
@@ -2039,7 +2075,6 @@ return res.status(500).json({ ok: false, error: "internal server error" });
 router.get("/:id", async (req, res) => {
 try {
 const id = Number(req.params.id);
-await reconcileLaunchState(id);
 
 const launch = await db.get(
 `

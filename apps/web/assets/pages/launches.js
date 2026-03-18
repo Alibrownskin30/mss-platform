@@ -105,7 +105,7 @@ return `${w.slice(0, 4)}...${w.slice(-4)}`;
 function getLogoHtml(launch) {
 const imageUrl = String(launch.image_url || "").trim();
 return imageUrl
-? `<div class="logo-box"><img src="${escapeHtml(imageUrl)}" alt="${escapeHtml(launch.token_name || "Launch")} logo" /></div>`
+? `<div class="logo-box"><img src="${escapeHtml(imageUrl)}" alt="${escapeHtml(launch.token_name || "Launch")} logo" loading="lazy" decoding="async" /></div>`
 : `<div class="logo-box">Logo</div>`;
 }
 
@@ -786,7 +786,7 @@ el.classList.remove("is-loading");
 });
 
 if (btn) {
-btn.textContent = originalText || `${amount} SOL Quick Commit`;
+btn.textContent = originalText || `${amount} SOL`;
 btn.classList.remove("is-success");
 }
 }, 900);
@@ -899,7 +899,6 @@ applyViewState();
 
 await loadLaunches();
 
-setInterval(render, 1000);
 setInterval(loadLaunches, 5000);
 }
 

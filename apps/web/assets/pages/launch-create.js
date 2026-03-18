@@ -223,10 +223,10 @@ return Array.from(document.querySelectorAll(".team-wallet-row"));
 
 function getTeamWalletBreakdown() {
 return getTeamWalletRows().map((row, index) => {
-const labelSelect = row.querySelector(`[data-role="label-select"]`);
-const labelCustom = row.querySelector(`[data-role="label-custom"]`);
-const walletInput = row.querySelector(`[data-role="wallet"]`);
-const allocationInput = row.querySelector(`[data-role="allocation"]`);
+const labelSelect = row.querySelector('[data-role="label-select"]');
+const labelCustom = row.querySelector('[data-role="label-custom"]');
+const walletInput = row.querySelector('[data-role="wallet"]');
+const allocationInput = row.querySelector('[data-role="allocation"]');
 
 const selectedLabel = labelSelect?.value || "";
 const label =
@@ -851,6 +851,11 @@ if (uploadedLogoUrl) {
 finalImageUrl = uploadedLogoUrl;
 }
 
+const teamWallets = Array.isArray(values.teamWallets) ? values.teamWallets : [];
+const teamWalletBreakdown = Array.isArray(values.teamWalletBreakdown)
+? values.teamWalletBreakdown
+: [];
+
 const payload = {
 wallet: values.wallet,
 template: values.template,
@@ -862,8 +867,8 @@ supply: Number(values.supply),
 min_raise_sol: Number(values.minRaiseSol),
 hard_cap_sol: Number(values.hardCapSol),
 team_allocation_pct: values.template === "builder" ? Number(values.teamAllocation) : 0,
-team_wallets: values.template === "builder" ? values.teamWallets : [],
-team_wallet_breakdown: values.template === "builder" ? values.teamWalletBreakdown : [],
+team_wallets: values.template === "builder" ? teamWallets : [],
+team_wallet_breakdown: values.template === "builder" ? teamWalletBreakdown : [],
 builder_bond_sol: values.template === "builder" ? Number(values.builderBond) : 0,
 builder_bond_tx_signature: builderBondTxSignature,
 };
