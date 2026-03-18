@@ -670,6 +670,45 @@ refundedLamports: lamports,
 };
 }
 
+async function refundRejectedCommit({
+wallet,
+solAmount,
+txSignature,
+reason,
+status = null,
+logLabel = "Late confirm refund failed",
+}) {
+try {
+const refundTransfer = await sendRefundTransfer({
+destinationWallet: wallet,
+solAmount,
+});
+
+return {
+httpStatus: 409,
+body: {
+ok: false,
+error: `${reason}; funds refunded`,
+txSignature,
+refundTxSignature: refundTransfer?.signature || null,
+refundedSol: refundTransfer?.refundedSol || 0,
+status,
+},
+};
+} catch (refundErr) {
+console.error(`${logLabel}:`, refundErr);
+return {
+httpStatus: 409,
+body: {
+ok: false,
+error: `${reason} and refund failed: ${refundErr?.message || refundErr}`,
+txSignature,
+status,
+},
+};
+}
+}
+
 async function getLaunchById(launchId) {
 return db.get(`SELECT * FROM launches WHERE id = ?`, [launchId]);
 }
@@ -1420,23 +1459,52 @@ if (solAmount <= 0) {
 return res.status(400).json({ ok: false, error: "solAmount must be greater than 0" });
 }
 
+const txWasAlreadySentByWallet = Boolean(txSignatureInput);
 let launch = await reconcileLaunchState(launchId);
 
-if (!launch) {
+if (!launch && !txWasAlreadySentByWallet) {
 return res.status(404).json({ ok: false, error: "launch not found" });
 }
 
-if (launch.status !== "commit") {
+if (launch && launch.status !== "commit" && !txWasAlreadySentByWallet) {
 return res.status(400).json({ ok: false, error: "commit phase closed" });
 }
 
-if (!isBuilderBondSatisfied(launch)) {
+if (launch && !isBuilderBondSatisfied(launch) && !txWasAlreadySentByWallet) {
 return res.status(400).json({ ok: false, error: "builder bond not satisfied" });
 }
 
 let txSignature = txSignatureInput;
 
 if (!txSignature) {
+const existing = await db.get(
+`
+SELECT COALESCE(SUM(sol_amount), 0) AS total
+FROM commits
+WHERE launch_id = ? AND wallet = ?
+`,
+[launchId, wallet]
+);
+
+const currentWalletTotal = Number(existing?.total || 0);
+
+if (currentWalletTotal + solAmount > MAX_WALLET_COMMIT_SOL) {
+return res.status(400).json({
+ok: false,
+error: `max commit per wallet is ${MAX_WALLET_COMMIT_SOL} SOL`,
+});
+}
+
+const currentLaunchTotal = Number(launch?.committed_sol || 0);
+const hardCap = Number(launch?.hard_cap_sol || 0);
+
+if (currentLaunchTotal + solAmount > hardCap) {
+return res.status(400).json({
+ok: false,
+error: "hard cap reached",
+});
+}
+
 const connection = new Connection(getRpcUrl(), "confirmed");
 const rawSignedTx = Buffer.from(signedTransactionBase64, "base64");
 
@@ -1474,34 +1542,6 @@ if (reusedTx) {
 return res.status(400).json({ ok: false, error: "transaction already used" });
 }
 
-const existing = await db.get(
-`
-SELECT COALESCE(SUM(sol_amount), 0) AS total
-FROM commits
-WHERE launch_id = ? AND wallet = ?
-`,
-[launchId, wallet]
-);
-
-const currentWalletTotal = Number(existing?.total || 0);
-
-if (currentWalletTotal + solAmount > MAX_WALLET_COMMIT_SOL) {
-return res.status(400).json({
-ok: false,
-error: `max commit per wallet is ${MAX_WALLET_COMMIT_SOL} SOL`,
-});
-}
-
-const currentLaunchTotal = Number(launch.committed_sol || 0);
-const hardCap = Number(launch.hard_cap_sol || 0);
-
-if (currentLaunchTotal + solAmount > hardCap) {
-return res.status(400).json({
-ok: false,
-error: "hard cap reached",
-});
-}
-
 const escrowWallet = getEscrowWallet();
 const expectedLamports = solToLamports(solAmount);
 
@@ -1516,79 +1556,76 @@ reference: `mss-launch-${launchId}`,
 launch = await reconcileLaunchState(launchId);
 
 if (!launch) {
-try {
-const refundTransfer = await sendRefundTransfer({
-destinationWallet: wallet,
+const refunded = await refundRejectedCommit({
+wallet,
 solAmount,
-});
-
-return res.status(409).json({
-ok: false,
-error: "launch not found after transfer verification; funds refunded",
 txSignature,
-refundTxSignature: refundTransfer?.signature || null,
-refundedSol: refundTransfer?.refundedSol || 0,
+reason: "launch not found after transfer verification",
+logLabel: "Late confirm refund failed after missing launch",
 });
-} catch (refundErr) {
-console.error("Late confirm refund failed after missing launch:", refundErr);
-return res.status(409).json({
-ok: false,
-error: `launch not found after transfer verification and refund failed: ${refundErr?.message || refundErr}`,
-txSignature,
-});
-}
+return res.status(refunded.httpStatus).json(refunded.body);
 }
 
 if (launch.status !== "commit") {
-try {
-const refundTransfer = await sendRefundTransfer({
-destinationWallet: wallet,
+const refunded = await refundRejectedCommit({
+wallet,
 solAmount,
-});
-
-return res.status(409).json({
-ok: false,
-error: "commit phase closed before confirmation completed; funds refunded",
 txSignature,
-refundTxSignature: refundTransfer?.signature || null,
-refundedSol: refundTransfer?.refundedSol || 0,
+reason: "commit phase closed before confirmation completed",
 status: launch.status,
+logLabel: "Late confirm refund failed after commit phase closure",
 });
-} catch (refundErr) {
-console.error("Late confirm refund failed after commit phase closure:", refundErr);
-return res.status(409).json({
-ok: false,
-error: `commit phase closed before confirmation completed and refund failed: ${refundErr?.message || refundErr}`,
-txSignature,
-status: launch.status,
-});
-}
+return res.status(refunded.httpStatus).json(refunded.body);
 }
 
 if (!isBuilderBondSatisfied(launch)) {
-try {
-const refundTransfer = await sendRefundTransfer({
-destinationWallet: wallet,
+const refunded = await refundRejectedCommit({
+wallet,
 solAmount,
-});
-
-return res.status(409).json({
-ok: false,
-error: "builder bond no longer satisfied; funds refunded",
 txSignature,
-refundTxSignature: refundTransfer?.signature || null,
-refundedSol: refundTransfer?.refundedSol || 0,
+reason: "builder bond no longer satisfied",
 status: launch.status,
+logLabel: "Late confirm refund failed after builder bond check",
 });
-} catch (refundErr) {
-console.error("Late confirm refund failed after builder bond check:", refundErr);
-return res.status(409).json({
-ok: false,
-error: `builder bond no longer satisfied and refund failed: ${refundErr?.message || refundErr}`,
-txSignature,
-status: launch.status,
-});
+return res.status(refunded.httpStatus).json(refunded.body);
 }
+
+const existing = await db.get(
+`
+SELECT COALESCE(SUM(sol_amount), 0) AS total
+FROM commits
+WHERE launch_id = ? AND wallet = ?
+`,
+[launchId, wallet]
+);
+
+const currentWalletTotal = Number(existing?.total || 0);
+
+if (currentWalletTotal + solAmount > MAX_WALLET_COMMIT_SOL) {
+const refunded = await refundRejectedCommit({
+wallet,
+solAmount,
+txSignature,
+reason: `max commit per wallet is ${MAX_WALLET_COMMIT_SOL} SOL`,
+status: launch.status,
+logLabel: "Late confirm refund failed after wallet max check",
+});
+return res.status(refunded.httpStatus).json(refunded.body);
+}
+
+const currentLaunchTotal = Number(launch.committed_sol || 0);
+const hardCap = Number(launch.hard_cap_sol || 0);
+
+if (currentLaunchTotal + solAmount > hardCap) {
+const refunded = await refundRejectedCommit({
+wallet,
+solAmount,
+txSignature,
+reason: "hard cap reached before confirmation completed",
+status: launch.status,
+logLabel: "Late confirm refund failed after hard cap check",
+});
+return res.status(refunded.httpStatus).json(refunded.body);
 }
 
 await db.run(

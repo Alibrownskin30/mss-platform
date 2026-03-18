@@ -199,8 +199,82 @@ pending: builderBondSol > 0 && !builderBondPaid && !builderBondRefunded,
 };
 }
 
+function getLaunchStateMessage(launch, stats) {
+const status = String(launch?.status || "");
+const bondState = getBuilderBondState(launch, stats);
+
+if (status === "commit") {
+return {
+kind: "warn",
+message: "Commit phase is open.",
+};
+}
+
+if (status === "countdown") {
+const ends = parseTs(stats?.countdownEndsAt || launch?.countdown_ends_at);
+const timePart = Number.isFinite(ends)
+? ` Countdown ends in ${fmtCountdown(ends - Date.now())}.`
+: "";
+return {
+kind: "warn",
+message: `Launch moved to countdown. Commits and refunds are closed.${timePart}`,
+};
+}
+
+if (status === "live") {
+return {
+kind: "good",
+message: "Launch is now live. Commit and refund actions are closed.",
+};
+}
+
+if (status === "graduated") {
+return {
+kind: "good",
+message: "This launch has already graduated beyond the initial launch flow.",
+};
+}
+
+if (status === "failed_refunded") {
+const bondLine =
+bondState.refunded && bondState.amount > 0
+? ` Builder bond of ${fmtSol(bondState.amount)} was refunded as well.`
+: "";
+return {
+kind: "warn",
+message: `This launch failed and all tracked commits were refunded. This launch is now closed.${bondLine}`,
+};
+}
+
+if (status === "failed") {
+const bondLine =
+bondState.paid && !bondState.refunded && bondState.amount > 0
+? ` Builder bond of ${fmtSol(bondState.amount)} is still awaiting failed-launch handling.`
+: "";
+return {
+kind: "warn",
+message: `This launch failed to reach requirements before commit expiry.${bondLine}`,
+};
+}
+
+return {
+kind: "warn",
+message: `Launch status: ${badgeText(status)}`,
+};
+}
+
+function canCommitForStatus(status) {
+return String(status || "") === "commit";
+}
+
+function canRefundForStatus(status) {
+return ["commit", "failed"].includes(String(status || ""));
+}
+
 let currentLaunch = null;
 let currentCommitStats = null;
+let refreshIntervalId = null;
+let renderIntervalId = null;
 
 async function fetchJson(path, options = {}) {
 const apiBase = getApiBase();
@@ -288,7 +362,7 @@ function buildFeeBreakdown(launch, committed) {
 const launchFeePct = safeNum(launch.launch_fee_pct, 5);
 const totalCommitted = safeNum(committed, 0);
 const feeTotal = totalCommitted * (launchFeePct / 100);
-const founderFee = feeTotal * 0.5;
+const coreFee = feeTotal * 0.5;
 const buybackFee = feeTotal * 0.3;
 const treasuryFee = feeTotal * 0.2;
 const netRaiseAfterFee = totalCommitted - feeTotal;
@@ -298,7 +372,7 @@ return {
 launchFeePct,
 totalCommitted,
 feeTotal,
-founderFee,
+coreFee,
 buybackFee,
 treasuryFee,
 netRaiseAfterFee,
@@ -331,7 +405,7 @@ const fee = buildFeeBreakdown(launch, committed);
 
 launchFeePctEl.textContent = `${fee.launchFeePct}%`;
 totalFeeSolEl.textContent = fmtSol(fee.feeTotal);
-founderFeeSolEl.textContent = fmtSol(fee.founderFee);
+founderFeeSolEl.textContent = fmtSol(fee.coreFee);
 buybackFeeSolEl.textContent = fmtSol(fee.buybackFee);
 treasuryFeeSolEl.textContent = fmtSol(fee.treasuryFee);
 netRaiseAfterFeeEl.textContent = fmtSol(fee.netRaiseAfterFee);
@@ -368,13 +442,13 @@ const bondState = getBuilderBondState(launch, stats);
 teamAllocationPctStat.textContent = `${teamAllocationPct}%`;
 
 if (bondState.refunded) {
-builderBondStat.innerHTML = `${bondState.amount} SOL<div style="margin-top:6px;font-size:12px;color:rgba(255,255,255,.62);font-weight:600;">Refunded</div>`;
+builderBondStat.innerHTML = `${fmtSol(bondState.amount)}<div style="margin-top:6px;font-size:12px;color:rgba(255,255,255,.62);font-weight:600;">Refunded</div>`;
 } else if (bondState.paid) {
-builderBondStat.innerHTML = `${bondState.amount} SOL<div style="margin-top:6px;font-size:12px;color:rgba(255,255,255,.62);font-weight:600;">Collected</div>`;
+builderBondStat.innerHTML = `${fmtSol(bondState.amount)}<div style="margin-top:6px;font-size:12px;color:rgba(255,255,255,.62);font-weight:600;">Collected</div>`;
 } else if (bondState.pending) {
-builderBondStat.innerHTML = `${bondState.amount} SOL<div style="margin-top:6px;font-size:12px;color:rgba(255,255,255,.62);font-weight:600;">Pending</div>`;
+builderBondStat.innerHTML = `${fmtSol(bondState.amount)}<div style="margin-top:6px;font-size:12px;color:rgba(255,255,255,.62);font-weight:600;">Pending</div>`;
 } else {
-builderBondStat.textContent = `${bondState.amount} SOL`;
+builderBondStat.textContent = fmtSol(bondState.amount);
 }
 
 if (!breakdown.length) {
@@ -486,7 +560,7 @@ note += ` Builder bond of ${fmtSol(bondState.amount)} has already been refunded.
 } else if (bondState.paid) {
 note += ` Builder bond of ${fmtSol(bondState.amount)} was collected and is eligible for refund handling.`;
 } else if (bondState.pending) {
-note += ` No collected builder bond is recorded for refund.`;
+note += " No collected builder bond is recorded for refund.";
 }
 }
 } else if (status === "failed_refunded") {
@@ -497,9 +571,9 @@ if (isBuilder) {
 if (bondState.refunded) {
 note += ` Builder bond of ${fmtSol(bondState.amount)} was also refunded.`;
 } else if (bondState.paid) {
-note += ` Builder bond was collected earlier but is not marked refunded.`;
+note += " Builder bond was collected earlier but is not marked refunded.";
 } else if (bondState.pending) {
-note += ` No collected builder bond was recorded on this launch.`;
+note += " No collected builder bond was recorded on this launch.";
 }
 }
 } else {
@@ -569,9 +643,9 @@ subline.textContent = `${minRemaining} SOL until minimum raise • ${participant
 
 if (isBuilder) {
 if (bondState.paid) {
-subline.textContent += ` • Bond collected`;
+subline.textContent += " • Bond collected";
 } else if (bondState.pending) {
-subline.textContent += ` • Bond pending`;
+subline.textContent += " • Bond pending";
 }
 }
 } else if (launch.status === "countdown") {
@@ -581,7 +655,7 @@ fillDurationMs != null
 : `Countdown active • ${participants} participant${participants === 1 ? "" : "s"}`;
 
 if (isBuilder && bondState.paid) {
-subline.textContent += ` • Bond locked`;
+subline.textContent += " • Bond locked";
 }
 } else if (launch.status === "live") {
 subline.textContent =
@@ -590,18 +664,18 @@ fillDurationMs != null
 : `Launch is live • ${participants} participant${participants === 1 ? "" : "s"}`;
 
 if (isBuilder && bondState.paid) {
-subline.textContent += ` • Bond collected`;
+subline.textContent += " • Bond collected";
 }
 } else if (launch.status === "failed") {
 subline.textContent = `Launch failed • ${participants} participant${participants === 1 ? "" : "s"}`;
 
 if (isBuilder) {
 if (bondState.refunded) {
-subline.textContent += ` • Bond refunded`;
+subline.textContent += " • Bond refunded";
 } else if (bondState.paid) {
-subline.textContent += ` • Bond collected`;
+subline.textContent += " • Bond collected";
 } else if (bondState.pending) {
-subline.textContent += ` • Bond not collected`;
+subline.textContent += " • Bond not collected";
 }
 }
 } else if (launch.status === "failed_refunded") {
@@ -609,11 +683,11 @@ subline.textContent = "Launch refunded and closed";
 
 if (isBuilder) {
 if (bondState.refunded) {
-subline.textContent += ` • Bond refunded`;
+subline.textContent += " • Bond refunded";
 } else if (bondState.paid) {
-subline.textContent += ` • Bond collected`;
+subline.textContent += " • Bond collected";
 } else if (bondState.pending) {
-subline.textContent += ` • No bond collected`;
+subline.textContent += " • No bond collected";
 }
 }
 } else {
@@ -648,7 +722,7 @@ if (reservePctStat) reservePctStat.textContent = `${effectiveReservePct}%`;
 
 if (builderPctStat) {
 if (isBuilder) {
-let bondLabel = `Bond ${bondState.amount} SOL`;
+let bondLabel = `Bond ${fmtSol(bondState.amount)}`;
 if (bondState.refunded) {
 bondLabel += " • Refunded";
 } else if (bondState.paid) {
@@ -697,6 +771,44 @@ walletHint.textContent = walletState.isConnected
 }
 }
 
+function renderActionPanelState(launch, stats) {
+const commitBtn = $("commitBtn");
+const refundBtn = $("refundBtn");
+const amountInput = $("commitAmount");
+const quickButtons = Array.from(document.querySelectorAll(".quick button[data-amount]"));
+const stateInfo = getLaunchStateMessage(launch, stats);
+
+const commitOpen = canCommitForStatus(launch.status);
+const refundOpen = canRefundForStatus(launch.status);
+
+if (commitBtn) {
+commitBtn.style.display = commitOpen ? "inline-flex" : "none";
+commitBtn.disabled = !commitOpen;
+}
+
+if (refundBtn) {
+refundBtn.style.display = refundOpen ? "inline-flex" : "none";
+refundBtn.disabled = !refundOpen;
+}
+
+if (amountInput) {
+amountInput.disabled = !commitOpen;
+if (!commitOpen) {
+amountInput.setAttribute("placeholder", badgeText(launch.status));
+} else {
+amountInput.setAttribute("placeholder", "0.50");
+}
+}
+
+quickButtons.forEach((btn) => {
+btn.disabled = !commitOpen;
+});
+
+if (!commitOpen) {
+setStatus(stateInfo.message, stateInfo.kind);
+}
+}
+
 function render() {
 if (!currentLaunch || !currentCommitStats) return;
 
@@ -734,28 +846,7 @@ $("hardCapStat").textContent = `${hardCap} SOL`;
 renderPhase(launch, committed, minRaise, hardCap, commitEndsAt, stats);
 renderRecent(stats.recent || []);
 updateWalletUi();
-
-const commitBtn = $("commitBtn");
-const refundBtn = $("refundBtn");
-const startCountdownBtn = $("startCountdownBtn");
-
-const commitOpen = launch.status === "commit";
-const refundOpen = launch.status === "commit" || launch.status === "failed";
-
-if (commitBtn) {
-commitBtn.style.display = commitOpen ? "inline-flex" : "none";
-commitBtn.disabled = !commitOpen;
-}
-
-if (refundBtn) {
-refundBtn.style.display = refundOpen ? "inline-flex" : "none";
-refundBtn.disabled = !refundOpen;
-}
-
-if (startCountdownBtn) {
-startCountdownBtn.style.display = "none";
-startCountdownBtn.disabled = true;
-}
+renderActionPanelState(launch, stats);
 
 if (launch.status === "failed_refunded") {
 setClosureNote(
@@ -774,7 +865,7 @@ setClosureNote(
 );
 } else if (bondState.pending) {
 setClosureNote(
-`This builder launch failed. No collected builder bond is recorded on this launch.`,
+"This builder launch failed. No collected builder bond is recorded on this launch.",
 "warn"
 );
 } else {
@@ -788,6 +879,15 @@ setClosureNote("");
 async function refresh() {
 await loadLaunch();
 render();
+}
+
+async function refreshStateBeforeAction() {
+await loadLaunch();
+render();
+return {
+launch: currentLaunch,
+stats: currentCommitStats,
+};
 }
 
 async function connectWallet() {
@@ -840,6 +940,7 @@ setStatus("");
 const id = qs("id");
 const wallet = getConnectedPublicKey() || $("commitWallet")?.value?.trim() || "";
 const solAmount = Number($("commitAmount")?.value);
+const btn = $("commitBtn");
 
 if (!wallet) {
 setStatus("Connect your wallet before committing.", "bad");
@@ -851,12 +952,25 @@ setStatus("Enter a valid SOL amount.", "bad");
 return;
 }
 
-const btn = $("commitBtn");
 if (btn) btn.disabled = true;
 
 let transferSignature = "";
 
 try {
+const latest = await refreshStateBeforeAction();
+const launch = latest.launch;
+const stats = latest.stats;
+
+if (!launch) {
+throw new Error("Launch not found.");
+}
+
+if (!canCommitForStatus(launch.status)) {
+const stateInfo = getLaunchStateMessage(launch, stats);
+setStatus(stateInfo.message, stateInfo.kind);
+return;
+}
+
 setStatus("Preparing secure commit request…", "warn");
 
 const prepare = await fetchJson(`/api/launcher/prepare-commit`, {
@@ -935,7 +1049,8 @@ await refresh();
 console.error(refreshErr);
 }
 } else {
-setStatus(err.message || "Commit failed.", "bad");
+const message = err?.message || "Commit failed.";
+setStatus(message, "bad");
 try {
 await refresh();
 } catch (refreshErr) {
@@ -943,7 +1058,9 @@ console.error(refreshErr);
 }
 }
 } finally {
-if (btn && currentLaunch?.status === "commit") btn.disabled = false;
+if (btn && canCommitForStatus(currentLaunch?.status)) {
+btn.disabled = false;
+}
 }
 }
 
@@ -952,21 +1069,30 @@ setStatus("");
 
 const id = qs("id");
 const wallet = getConnectedPublicKey() || $("commitWallet")?.value?.trim() || "";
+const refundBtn = $("refundBtn");
 
 if (!wallet) {
 setStatus("Connect your wallet before refunding.", "bad");
 return;
 }
 
-if (!["commit", "failed"].includes(currentLaunch?.status || "")) {
-setStatus("Refunds are only available during commit phase or after failure.", "bad");
-return;
-}
-
-const refundBtn = $("refundBtn");
 if (refundBtn) refundBtn.disabled = true;
 
 try {
+const latest = await refreshStateBeforeAction();
+const launch = latest.launch;
+const stats = latest.stats;
+
+if (!launch) {
+throw new Error("Launch not found.");
+}
+
+if (!canRefundForStatus(launch.status)) {
+const stateInfo = getLaunchStateMessage(launch, stats);
+setStatus(stateInfo.message, stateInfo.kind);
+return;
+}
+
 const data = await fetchJson(`/api/launcher/refund`, {
 method: "POST",
 headers: {
@@ -991,8 +1117,13 @@ await refresh();
 } catch (err) {
 console.error(err);
 setStatus(err.message || "Refund failed.", "bad");
+try {
+await refresh();
+} catch (refreshErr) {
+console.error(refreshErr);
+}
 } finally {
-if (refundBtn && ["commit", "failed"].includes(currentLaunch?.status || "")) {
+if (refundBtn && canRefundForStatus(currentLaunch?.status)) {
 refundBtn.disabled = false;
 }
 }
@@ -1005,6 +1136,7 @@ setStatus("");
 function bindQuickAmounts() {
 document.querySelectorAll(".quick button[data-amount]").forEach((btn) => {
 btn.addEventListener("click", () => {
+if (btn.disabled) return;
 const amount = btn.getAttribute("data-amount") || "";
 if ($("commitAmount")) $("commitAmount").value = amount;
 });
@@ -1017,6 +1149,7 @@ $("disconnectWalletBtn")?.addEventListener("click", disconnectWallet);
 
 onWalletChange(() => {
 updateWalletUi();
+render();
 });
 }
 
@@ -1037,7 +1170,10 @@ console.error(err);
 setStatus(err.message || "Failed to load launch.", "bad");
 }
 
-setInterval(async () => {
+if (refreshIntervalId) clearInterval(refreshIntervalId);
+if (renderIntervalId) clearInterval(renderIntervalId);
+
+refreshIntervalId = setInterval(async () => {
 try {
 await refresh();
 } catch (err) {
@@ -1045,7 +1181,7 @@ console.error(err);
 }
 }, 5000);
 
-setInterval(() => {
+renderIntervalId = setInterval(() => {
 if (["commit", "countdown"].includes(currentLaunch?.status || "")) {
 render();
 }

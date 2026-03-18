@@ -14,6 +14,8 @@ import tokenRoutes from "./routes/token.js";
 import { startGraduationWatcher } from "./services/launcher/graduationWatcher.js";
 import uploadRoutes from "./routes/upload.js";
 import { startLaunchWorker } from "./workers/launchWorker.js";
+import chartRoutes from "./routes/chart.js";
+import tokenMarketRoutes from "./routes/token-market.js";
 
 import { Connection, PublicKey } from "@solana/web3.js";
 import pkg from "@metaplex-foundation/mpl-token-metadata";
@@ -119,6 +121,8 @@ app.use(cassie);
 // ---- Route mounts (after protection middleware) ----
 app.use("/api/builders", builderRoutes);
 app.use("/api/launcher", launcherRoutes);
+app.use("/api/chart", chartRoutes);
+app.use("/api/token-market", tokenMarketRoutes);
 app.use("/api/token", tokenRoutes);
 app.use("/api/market", marketRoutes);
 app.use("/api/cila", cilaRoutes);
