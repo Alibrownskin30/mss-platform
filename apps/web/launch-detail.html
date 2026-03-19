@@ -152,7 +152,9 @@ Trading is not open yet. Commitments are being collected before market activatio
 <div id="marketCountdownBox" class="market-countdown-box hidden">
 <div class="market-countdown-label">Trading Opens In</div>
 <div id="marketCountdownValue" class="market-countdown-value">05:00</div>
-<div class="market-countdown-subtext">Commit phase closed. Market activation is imminent.</div>
+<div class="market-countdown-subtext">
+Commit phase closed. Market activation is imminent.
+</div>
 </div>
 </div>
 </div>
@@ -190,6 +192,86 @@ Trading is not open yet. Commitments are being collected before market activatio
 <div class="market-stat-value" id="stat4Value">0%</div>
 </div>
 </div>
+</div>
+</section>
+
+<section id="tradePanelCard" class="trade-panel-card hidden">
+<div class="trade-panel-frame"></div>
+<div class="trade-panel-glow"></div>
+
+<div class="trade-panel-header">
+<div>
+<div class="trade-panel-kicker">MSS Internal Market</div>
+<h3 class="trade-panel-title">Trade</h3>
+</div>
+
+<div id="tradePanelPhasePill" class="trade-panel-phase-pill phase-commit">
+Market Locked
+</div>
+</div>
+
+<div class="trade-panel-tabs">
+<button id="tradeTabBuy" class="trade-tab active" type="button">Buy</button>
+<button id="tradeTabSell" class="trade-tab" type="button">Sell</button>
+</div>
+
+<div class="trade-panel-body">
+<div class="trade-panel-field">
+<label id="tradeAmountLabel" for="tradeAmountInput">Amount (SOL)</label>
+<input
+id="tradeAmountInput"
+class="trade-panel-input"
+type="number"
+min="0"
+step="any"
+placeholder="0.00"
+/>
+</div>
+
+<div id="tradeQuickBuyRow" class="trade-quick-row">
+<button class="trade-quick-btn" data-amount="0.1" type="button">0.1</button>
+<button class="trade-quick-btn" data-amount="0.25" type="button">0.25</button>
+<button class="trade-quick-btn" data-amount="0.5" type="button">0.5</button>
+<button class="trade-quick-btn" data-amount="1" type="button">1</button>
+</div>
+
+<div class="trade-quote-card">
+<div class="trade-quote-row">
+<span id="tradeQuotePrimaryLabel">You Receive</span>
+<span id="tradeQuotePrimaryValue">—</span>
+</div>
+<div class="trade-quote-row">
+<span id="tradeQuotePriceLabel">Estimated Price</span>
+<span id="tradeQuotePriceValue">—</span>
+</div>
+<div class="trade-quote-row">
+<span id="tradeQuoteFeeLabel">Fee</span>
+<span id="tradeQuoteFeeValue">—</span>
+</div>
+<div class="trade-quote-row">
+<span id="tradeQuoteWalletLimitLabel">Wallet Limit</span>
+<span id="tradeQuoteWalletLimitValue">—</span>
+</div>
+</div>
+
+<div id="tradePanelMessage" class="trade-panel-message hidden"></div>
+
+<button id="tradeSubmitBtn" class="trade-submit-btn" type="button">
+Get Quote
+</button>
+</div>
+</section>
+
+<section id="recentTradesCard" class="recent-trades-card hidden">
+<div class="recent-trades-header">
+<div>
+<div class="recent-trades-kicker">Market Feed</div>
+<h3 class="recent-trades-title">Recent Trades</h3>
+</div>
+</div>
+
+<div id="recentTradesList" class="recent-trades-list">
+<div class="recent-trades-empty">No trades yet.</div>
 </div>
 </section>
 </section>

@@ -4,6 +4,8 @@
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width,initial-scale=1" />
 <title>MSS Protocol — Launch</title>
+<link rel="stylesheet" href="./assets/app.css" />
+<link rel="stylesheet" href="./assets/chart.css" />
 <style>
 :root{
 --bg0:#05070c;
@@ -655,6 +657,10 @@ font-size:12px;
 overflow-wrap:anywhere;
 }
 
+.launch-market-shell{
+margin-top:22px;
+}
+
 @media (max-width:920px){
 .layout{
 grid-template-columns:1fr;
@@ -904,6 +910,204 @@ grid-template-columns:1fr;
 <div class="section-title">Recent Commits</div>
 <div id="recentList" class="recent"></div>
 </div>
+
+<div class="launch-market-shell">
+<section class="launch-market-wrap">
+<section class="launch-hero-shell">
+<div class="launch-hero-backdrop"></div>
+<div class="launch-hero-noise"></div>
+
+<div id="launchTokenHero" class="launch-token-hero">
+<div class="launch-token-hero-left">
+<div class="launch-token-brand">
+<div class="launch-token-logo-shell">
+<div class="launch-token-logo-ring"></div>
+<div id="launchTokenLogo" class="launch-token-logo">M</div>
+</div>
+
+<div class="launch-token-meta">
+<div class="launch-token-title-row">
+<div class="launch-token-title-stack">
+<h1 id="launchTokenName" class="launch-token-name">Token Name</h1>
+<div class="launch-token-subrow">
+<span id="launchTokenSymbol" class="launch-token-symbol">$MSS</span>
+<span class="launch-token-divider">•</span>
+<span id="launchBuilderLabel" class="launch-builder-label">Builder</span>
+<span id="launchBuilderWalletShort" class="launch-builder-wallet">...</span>
+</div>
+</div>
+
+<div class="launch-phase-wrap">
+<span id="launchPhaseBadge" class="launch-phase-badge phase-commit">
+<span class="launch-phase-badge-dot"></span>
+<span id="launchPhaseBadgeText">COMMIT</span>
+</span>
+</div>
+</div>
+
+<div class="launch-token-meta-strip">
+<div class="launch-meta-pill">
+<span class="launch-meta-pill-label">Status</span>
+<span id="launchStatusText2" class="launch-meta-pill-value">Commit Phase</span>
+</div>
+<div class="launch-meta-pill">
+<span class="launch-meta-pill-label">Market</span>
+<span id="launchMarketModeText" class="launch-meta-pill-value">Pre-Live</span>
+</div>
+<div class="launch-meta-pill">
+<span class="launch-meta-pill-label">Access</span>
+<span class="launch-meta-pill-value">Public</span>
+</div>
+</div>
+</div>
+</div>
+</div>
+
+<div class="launch-token-hero-right">
+<div class="launch-ca-card">
+<div class="launch-ca-card-top">
+<div class="launch-ca-label">Contract Address</div>
+<div id="launchCaState" class="launch-ca-state">Ready</div>
+</div>
+
+<button id="launchCaCopyBtn" class="launch-ca-pill" type="button">
+<span id="launchCaText">Pending</span>
+<span class="launch-ca-copy-wrap">
+<span class="launch-ca-copy-icon">⧉</span>
+<span class="launch-ca-copy">Copy</span>
+</span>
+</button>
+</div>
+
+<div class="launch-links-card">
+<div class="launch-links-card-top">
+<div class="launch-links-title">External Links</div>
+<button
+id="manageLaunchLinksBtn"
+class="launch-manage-links-btn hidden"
+type="button"
+>
+Manage Links
+</button>
+</div>
+
+<div id="launchExternalLinks" class="launch-external-links">
+<!-- populated by JS -->
+</div>
+</div>
+</div>
+</div>
+</section>
+
+<section id="marketCard" class="market-card phase-commit">
+<div class="market-card-frame"></div>
+<div class="market-card-glow"></div>
+<div class="market-card-top-shine"></div>
+
+<div class="market-card-header">
+<div class="market-card-header-left">
+<div class="market-title-row">
+<div class="market-title-stack">
+<div class="market-kicker">Launch Market</div>
+<h2 class="market-card-title">Trading Activity</h2>
+</div>
+
+<div class="market-live-pill-wrap">
+<span id="marketStatusPill" class="market-status-pill phase-commit">
+<span id="marketStatusDot" class="market-status-dot phase-commit"></span>
+<span id="marketStatusLabel" class="market-status-label">Commit Phase</span>
+</span>
+</div>
+</div>
+
+<div class="market-subrow">
+<button id="chartCaCopyBtn" class="chart-ca-chip" type="button">
+<span class="chart-ca-chip-left">
+<span class="chart-ca-chip-label">CA</span>
+<span id="chartCaChipText">Pending</span>
+</span>
+<span class="chart-ca-chip-copy">Copy</span>
+</button>
+</div>
+</div>
+
+<div class="market-card-header-right">
+<div id="marketTimeframes" class="market-timeframes disabled">
+<button class="market-timeframe active" data-interval="1m" type="button">1m</button>
+<button class="market-timeframe" data-interval="5m" type="button">5m</button>
+<button class="market-timeframe" data-interval="15m" type="button">15m</button>
+<button class="market-timeframe" data-interval="1h" type="button">1h</button>
+<button class="market-timeframe" data-interval="4h" type="button">4h</button>
+<button class="market-timeframe" data-interval="1d" type="button">1d</button>
+</div>
+</div>
+</div>
+
+<div class="market-card-body">
+<div id="marketChartShell" class="market-chart-shell">
+<div class="market-chart-bg-orb orb-a"></div>
+<div class="market-chart-bg-orb orb-b"></div>
+<div class="market-chart-grid"></div>
+<div class="market-chart-vignette"></div>
+
+<div id="marketOverlay" class="market-overlay overlay-commit">
+<div class="market-overlay-inner">
+<div id="marketOverlayEyebrow" class="market-overlay-eyebrow">COMMIT PHASE</div>
+<div id="marketOverlayTitle" class="market-overlay-title">Commit Phase In Progress</div>
+<div id="marketOverlayText" class="market-overlay-text">
+Trading is not open yet. Commitments are being collected before market activation.
+</div>
+
+<div class="market-overlay-badges">
+<span class="market-overlay-badge">Chart Locked</span>
+<span class="market-overlay-badge">Market Pending</span>
+</div>
+
+<div id="marketCountdownBox" class="market-countdown-box hidden">
+<div class="market-countdown-label">Trading Opens In</div>
+<div id="marketCountdownValue" class="market-countdown-value">05:00</div>
+<div class="market-countdown-subtext">Commit phase closed. Market activation is imminent.</div>
+</div>
+</div>
+</div>
+
+<div id="marketLiveLayer" class="market-live-layer hidden">
+<div id="marketChartCanvas" class="market-chart-canvas"></div>
+<div id="marketVolumeCanvas" class="market-volume-canvas"></div>
+</div>
+</div>
+</div>
+
+<div class="market-card-footer">
+<div id="marketStatsGrid" class="market-stats-grid">
+<div class="market-stat">
+<div class="market-stat-topline"></div>
+<div class="market-stat-label" id="stat1Label">Committed</div>
+<div class="market-stat-value" id="stat1Value">0 SOL</div>
+</div>
+
+<div class="market-stat">
+<div class="market-stat-topline"></div>
+<div class="market-stat-label" id="stat2Label">Participants</div>
+<div class="market-stat-value" id="stat2Value">0</div>
+</div>
+
+<div class="market-stat">
+<div class="market-stat-topline"></div>
+<div class="market-stat-label" id="stat3Label">Hard Cap</div>
+<div class="market-stat-value" id="stat3Value">0 SOL</div>
+</div>
+
+<div class="market-stat">
+<div class="market-stat-topline"></div>
+<div class="market-stat-label" id="stat4Label">Progress</div>
+<div class="market-stat-value" id="stat4Value">0%</div>
+</div>
+</div>
+</div>
+</section>
+</section>
+</div>
 </section>
 
 <aside class="panel">
@@ -952,7 +1156,61 @@ countdown-based go-live transitions, automatic lifecycle transitions, and refund
 </div>
 </div>
 
+<div id="launchLinksModal" class="launch-links-modal hidden">
+<div class="launch-links-modal-backdrop"></div>
+
+<div class="launch-links-modal-card">
+<div class="launch-links-modal-card-shine"></div>
+
+<div class="launch-links-modal-header">
+<div>
+<div class="launch-links-modal-kicker">Builder Controls</div>
+<h3>Manage External Links</h3>
+</div>
+<button id="closeLaunchLinksModalBtn" class="launch-links-close-btn" type="button">×</button>
+</div>
+
+<div class="launch-links-form">
+<label class="launch-links-field">
+<span>Website</span>
+<input id="linkWebsiteInput" type="text" placeholder="https://yourproject.com" />
+</label>
+
+<label class="launch-links-field">
+<span>X</span>
+<input id="linkXInput" type="text" placeholder="https://x.com/yourproject" />
+</label>
+
+<label class="launch-links-field">
+<span>Telegram</span>
+<input id="linkTelegramInput" type="text" placeholder="https://t.me/yourproject" />
+</label>
+
+<label class="launch-links-field">
+<span>Discord</span>
+<input id="linkDiscordInput" type="text" placeholder="https://discord.gg/yourproject" />
+</label>
+</div>
+
+<div class="launch-links-modal-actions">
+<button id="saveLaunchLinksBtn" class="launch-links-save-btn" type="button">Save Links</button>
+</div>
+</div>
+</div>
+
 <script src="https://unpkg.com/@solana/web3.js@latest/lib/index.iife.min.js"></script>
 <script type="module" src="./assets/pages/launch.js"></script>
+<script>
+const launchStatusText = document.getElementById("launchStatusText");
+const launchStatusText2 = document.getElementById("launchStatusText2");
+if (launchStatusText && launchStatusText2) {
+const syncStatusMirror = () => {
+launchStatusText2.textContent = launchStatusText.textContent || "Commit Phase";
+};
+syncStatusMirror();
+const observer = new MutationObserver(syncStatusMirror);
+observer.observe(launchStatusText, { childList: true, characterData: true, subtree: true });
+}
+</script>
 </body>
 </html>

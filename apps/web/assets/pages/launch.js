@@ -8,6 +8,7 @@ restoreWalletIfTrusted,
 getMobileWalletHelpText,
 sendSolTransfer,
 } from "../wallet.js";
+import { initLaunchMarket } from "../../js/launch-market.js";
 
 function $(id) {
 return document.getElementById(id);
@@ -306,6 +307,7 @@ let commitActionInFlight = false;
 let refundActionInFlight = false;
 let walletActionInFlight = false;
 let refreshInFlight = false;
+let launchMarketController = null;
 
 async function fetchJson(path, options = {}) {
 const apiBase = getApiBase();
@@ -882,6 +884,29 @@ clearAutoStatus();
 }
 }
 
+async function syncLaunchMarketController() {
+const id = qs("id");
+if (!id) return;
+if (!$("marketCard")) return;
+
+const connectedWallet = getConnectedPublicKey() || "";
+
+if (!launchMarketController) {
+launchMarketController = await initLaunchMarket({
+launchId: Number(id),
+connectedWallet,
+launch: currentLaunch || null,
+});
+return;
+}
+
+launchMarketController.setConnectedWallet(connectedWallet);
+if (currentLaunch) {
+launchMarketController.launch = currentLaunch;
+launchMarketController.applyAll();
+}
+}
+
 function render() {
 if (!currentLaunch || !currentCommitStats) return;
 
@@ -898,11 +923,19 @@ const pct = hardCap > 0
 ? Math.max(0, Math.min(100, Math.floor((committed / hardCap) * 100)))
 : 0;
 
+if ($("launchName")) {
 $("launchName").textContent = launch.token_name || "Untitled Launch";
+}
+if ($("launchSubline")) {
 $("launchSubline").textContent =
 `${launch.symbol || "—"} • ${String(launch.template || "—").replaceAll("_", " ")} • ${badgeText(launch.status)}`;
+}
+if ($("launchDesc")) {
 $("launchDesc").textContent = launch.description || "No description provided.";
+}
+if ($("launchStatusText")) {
 $("launchStatusText").textContent = badgeText(launch.status);
+}
 
 renderBuilderInfo(launch);
 renderAllocationStructure(launch, stats);
@@ -912,9 +945,9 @@ renderTeamWalletBreakdown(launch, stats);
 renderLogo(launch.image_url);
 renderProgressCard(launch, committed, hardCap, minRaise, participants, pct, commitEndsAt, stats);
 
-$("participantsStat").textContent = String(participants);
-$("minRaiseStat").textContent = `${minRaise} SOL`;
-$("hardCapStat").textContent = `${hardCap} SOL`;
+if ($("participantsStat")) $("participantsStat").textContent = String(participants);
+if ($("minRaiseStat")) $("minRaiseStat").textContent = `${minRaise} SOL`;
+if ($("hardCapStat")) $("hardCapStat").textContent = `${hardCap} SOL`;
 
 renderPhase(launch, committed, minRaise, hardCap, commitEndsAt, stats);
 renderRecent(stats.recent || []);
@@ -947,6 +980,8 @@ setClosureNote("");
 } else {
 setClosureNote("");
 }
+
+void syncLaunchMarketController();
 }
 
 async function refresh() {
@@ -980,6 +1015,7 @@ updateWalletUi();
 
 if (wallet?.isConnected) {
 setStatus(`Wallet connected: ${shortenWallet(wallet.publicKey)}`, "good");
+await syncLaunchMarketController();
 return;
 }
 
@@ -1007,6 +1043,7 @@ await disconnectAnyWallet();
 walletActionInFlight = false;
 updateWalletUi();
 if (currentLaunch && currentCommitStats) render();
+await syncLaunchMarketController();
 }
 
 setStatus("Wallet disconnected.", "warn");
@@ -1243,11 +1280,12 @@ function bindWalletEvents() {
 $("connectWalletBtn")?.addEventListener("click", connectWallet);
 $("disconnectWalletBtn")?.addEventListener("click", disconnectWallet);
 
-onWalletChange(() => {
+onWalletChange(async () => {
 updateWalletUi();
 if (currentLaunch && currentCommitStats) {
 render();
 }
+await syncLaunchMarketController();
 });
 }
 
@@ -1263,6 +1301,7 @@ updateWalletUi();
 
 try {
 await refresh();
+await syncLaunchMarketController();
 } catch (err) {
 console.error(err);
 setStatus(err.message || "Failed to load launch.", "bad");
