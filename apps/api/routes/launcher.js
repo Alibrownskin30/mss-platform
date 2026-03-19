@@ -12,11 +12,12 @@ import db from "../db/index.js";
 import { buildLaunchAllocations } from "../services/launcher/allocationService.js";
 import { verifyCommitTransfer } from "../services/launcher/commitVerifier.js";
 import { finalizeLaunch } from "../services/launcher/finalizeLaunch.js";
+import { bootstrapLiveMarket } from "../services/launcher/mintLifecycle.js";
 
 const router = express.Router();
 
 const COMMIT_PHASE_MINUTES = 4;
-const COUNTDOWN_MINUTES = 4;
+const COUNTDOWN_MINUTES = 10;
 const MAX_WALLET_COMMIT_SOL = 100;
 const MAX_TEAM_WALLETS = 5;
 const MAX_TEAM_ALLOCATION_PCT = 15;
@@ -1133,7 +1134,6 @@ if (sigBuf) {
 txSignature = bs58.encode(sigBuf);
 }
 } catch {
-// ignore extraction failure; sendRawTransaction below is source of truth
 }
 
 try {
@@ -1950,6 +1950,28 @@ console.error("POST /api/launcher/:id/finalize failed:", err);
 return res.status(400).json({
 ok: false,
 error: err.message || "finalize failed",
+});
+}
+});
+
+router.post("/:id/bootstrap-market", async (req, res) => {
+try {
+const launchId = Number(req.params.id);
+
+if (!launchId) {
+return res.status(400).json({ ok: false, error: "invalid launch id" });
+}
+
+const result = await bootstrapLiveMarket(launchId);
+return res.json({
+ok: true,
+result,
+});
+} catch (err) {
+console.error("POST /api/launcher/:id/bootstrap-market failed:", err);
+return res.status(400).json({
+ok: false,
+error: err.message || "market bootstrap failed",
 });
 }
 });

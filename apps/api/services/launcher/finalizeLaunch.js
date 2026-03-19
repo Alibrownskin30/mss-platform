@@ -1,6 +1,7 @@
 import db from "../../db/index.js";
 import { buildLaunchAllocations } from "./allocationService.js";
 import { buildLaunchFeeBreakdown, distributeLaunchFees } from "./feeDistributor.js";
+import { bootstrapLiveMarket } from "./mintLifecycle.js";
 
 function safeNum(value, fallback = 0) {
 const n = Number(value);
@@ -377,6 +378,16 @@ throw err;
 }
 }
 
+let marketBootstrap = null;
+
+try {
+marketBootstrap = await bootstrapLiveMarket(launchId);
+console.log("Market bootstrap complete:", marketBootstrap);
+} catch (err) {
+console.error(`Market bootstrap failed for launch ${launchId}:`, err);
+throw err;
+}
+
 const finalLaunch = normalizeLaunch(
 await db.get(`SELECT * FROM launches WHERE id = ?`, [launchId])
 );
@@ -396,6 +407,11 @@ treasuryFee: feePlan.treasuryFee,
 netRaise: feePlan.netRaiseAfterFee,
 feeDistribution: finalLaunch?.fee_distribution_json || feeDistribution,
 allocationsBuilt,
+marketBootstrap,
+mintAddress:
+marketBootstrap?.mintAddress || String(finalLaunch?.contract_address || ""),
+tokenId: marketBootstrap?.tokenId || null,
+poolId: marketBootstrap?.poolId || null,
 finalSupply: String(finalLaunch?.final_supply || allocationResult?.finalSupply || ""),
 unsoldParticipantTokensBurned: String(
 finalLaunch?.unsold_participant_tokens_burned ||
@@ -421,9 +437,6 @@ finalLaunch?.raydium_liquidity_tokens_reserved ||
 allocationResult?.raydiumLiquidityTokensReserved ||
 "0"
 ),
-launchResult:
-finalLaunch?.launch_result_json ||
-allocationResult ||
-null,
+launchResult: finalLaunch?.launch_result_json || allocationResult || null,
 };
 }
