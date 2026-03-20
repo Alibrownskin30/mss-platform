@@ -1,4 +1,4 @@
-import { createEliteChartRenderer } from "./chart-renderer.js";
+import { createEliteChartRenderer } from "../assets/chart-renderer.js";
 
 const PHASES = {
 COMMIT: "commit",
@@ -20,6 +20,20 @@ const EXTERNAL_LINK_TYPES = [
 
 function $(id) {
 return document.getElementById(id);
+}
+
+function getApiBase() {
+const { protocol, hostname, port } = window.location;
+
+if (port === "3000") {
+return `${protocol}//${hostname}:8787`;
+}
+
+if (hostname.includes("-3000.app.github.dev")) {
+return `${protocol}//${hostname.replace("-3000.app.github.dev", "-8787.app.github.dev")}`;
+}
+
+return `${protocol}//${hostname}${port ? `:${port}` : ""}`;
 }
 
 function toNumber(value, fallback = 0) {
@@ -203,11 +217,10 @@ const marketCard = $("marketCard");
 const launchPhaseBadge = $("launchPhaseBadge");
 const marketStatusPill = $("marketStatusPill");
 const marketStatusDot = $("marketStatusDot");
-const tradePanelPhasePill = $("tradePanelPhasePill");
 
 const phaseClasses = ["phase-commit", "phase-countdown", "phase-live"];
 
-for (const el of [marketCard, launchPhaseBadge, marketStatusPill, marketStatusDot, tradePanelPhasePill]) {
+for (const el of [marketCard, launchPhaseBadge, marketStatusPill, marketStatusDot]) {
 if (!el) continue;
 el.classList.remove(...phaseClasses);
 el.classList.add(`phase-${phase}`);
@@ -218,7 +231,7 @@ function updatePhaseContent(phase) {
 const meta = getPhaseMeta(phase);
 
 const launchPhaseBadgeText = $("launchPhaseBadgeText");
-const launchStatusText2 = $("launchStatusText2");
+const launchStatusText = $("launchStatusText2");
 const launchMarketModeText = $("launchMarketModeText");
 const marketStatusLabel = $("marketStatusLabel");
 const marketOverlayEyebrow = $("marketOverlayEyebrow");
@@ -226,7 +239,7 @@ const marketOverlayTitle = $("marketOverlayTitle");
 const marketOverlayText = $("marketOverlayText");
 
 if (launchPhaseBadgeText) launchPhaseBadgeText.textContent = meta.badgeText;
-if (launchStatusText2) launchStatusText2.textContent = meta.statusText;
+if (launchStatusText) launchStatusText.textContent = meta.statusText;
 if (launchMarketModeText) launchMarketModeText.textContent = meta.marketModeText;
 if (marketStatusLabel) marketStatusLabel.textContent = meta.statusText;
 if (marketOverlayEyebrow) marketOverlayEyebrow.textContent = meta.overlayEyebrow;
@@ -263,8 +276,18 @@ const launchTokenSymbol = $("launchTokenSymbol");
 const launchBuilderWalletShort = $("launchBuilderWalletShort");
 const launchTokenLogo = $("launchTokenLogo");
 
-const tokenName = launch?.token_name || tokenStats?.token?.name || "Token Name";
-const tokenSymbol = String(launch?.symbol || tokenStats?.token?.symbol || "TOKEN").replace(/^\$/, "");
+const tokenName =
+launch?.token_name ||
+tokenStats?.token?.name ||
+"Token Name";
+
+const tokenSymbol = String(
+launch?.symbol ||
+tokenStats?.token?.symbol ||
+tokenStats?.token?.ticker ||
+"TOKEN"
+).replace(/^\$/, "");
+
 const builderWallet = launch?.builder_wallet || "";
 
 if (launchTokenName) launchTokenName.textContent = tokenName;
@@ -278,11 +301,11 @@ launchTokenLogo.textContent = (tokenSymbol[0] || "M").toUpperCase();
 }
 
 function updateContractAddress(launch, tokenStats = null) {
-const ca =
-String(
+const ca = String(
 launch?.contract_address ||
 launch?.mint_address ||
 tokenStats?.token?.mint_address ||
+tokenStats?.token?.mint ||
 ""
 ).trim() || "Pending";
 
@@ -342,10 +365,52 @@ rel="noopener noreferrer"
 .join("");
 }
 
-function updateStatsForCommit(launch) {
-const committedSol = toNumber(launch?.committed_sol ?? 0, 0);
-const participantCount = toNumber(launch?.participants_count ?? 0, 0);
-const hardCapSol = toNumber(launch?.hard_cap_sol ?? 0, 0);
+function getCommitMetrics(launch, commitStats = {}) {
+const committedSol = toNumber(
+commitStats?.totalCommitted ??
+launch?.committed_sol ??
+launch?.commit_total_sol,
+0
+);
+
+const participantCount = toNumber(
+commitStats?.participants ??
+launch?.participants_count ??
+launch?.participant_count ??
+launch?.participants,
+0
+);
+
+const hardCapSol = toNumber(
+commitStats?.hardCap ??
+launch?.hard_cap_sol ??
+launch?.hard_cap,
+0
+);
+
+const minRaiseSol = toNumber(
+commitStats?.minRaise ??
+launch?.min_raise_sol ??
+launch?.min_raise,
+0
+);
+
+const countdownEndsAt =
+commitStats?.countdownEndsAt ||
+launch?.countdown_ends_at ||
+launch?.live_at;
+
+return {
+committedSol,
+participantCount,
+hardCapSol,
+minRaiseSol,
+countdownEndsAt,
+};
+}
+
+function updateStatsForCommit(launch, commitStats = {}) {
+const { committedSol, participantCount, hardCapSol } = getCommitMetrics(launch, commitStats);
 const progress = hardCapSol > 0 ? Math.min(100, (committedSol / hardCapSol) * 100) : 0;
 
 if ($("stat1Label")) $("stat1Label").textContent = "Committed";
@@ -361,9 +426,8 @@ if ($("stat4Label")) $("stat4Label").textContent = "Progress";
 if ($("stat4Value")) $("stat4Value").textContent = formatPercent(progress, 1);
 }
 
-function updateStatsForCountdown(launch) {
-const committedSol = toNumber(launch?.committed_sol ?? 0, 0);
-const participantCount = toNumber(launch?.participants_count ?? 0, 0);
+function updateStatsForCountdown(launch, commitStats = {}) {
+const { committedSol, participantCount, countdownEndsAt } = getCommitMetrics(launch, commitStats);
 
 if ($("stat1Label")) $("stat1Label").textContent = "Committed";
 if ($("stat1Value")) $("stat1Value").textContent = formatSol(committedSol, 2);
@@ -372,18 +436,18 @@ if ($("stat2Label")) $("stat2Label").textContent = "Participants";
 if ($("stat2Value")) $("stat2Value").textContent = formatNumber(participantCount, { maximumFractionDigits: 0 });
 
 if ($("stat3Label")) $("stat3Label").textContent = "Opens At";
-if ($("stat3Value")) $("stat3Value").textContent = formatDateTime(launch?.live_at || launch?.countdown_ends_at);
+if ($("stat3Value")) $("stat3Value").textContent = formatDateTime(countdownEndsAt);
 
 if ($("stat4Label")) $("stat4Label").textContent = "Time Left";
-if ($("stat4Value")) $("stat4Value").textContent = getCountdownText(launch);
+if ($("stat4Value")) $("stat4Value").textContent = getCountdownText(launch, commitStats);
 }
 
 function updateStatsForLive(tokenPayload = {}, chartStats = {}) {
 const tokenStats = tokenPayload?.stats || {};
 const priceInSol = toNumber(tokenStats?.priceInSol ?? chartStats?.last_price ?? 0, 0);
-const liquidityInSol = toNumber(tokenStats?.liquidityInSol ?? 0, 0);
-const marketCapInSol = toNumber(tokenStats?.marketCapInSol ?? 0, 0);
-const tradeCount = toNumber(tokenStats?.tradeCount ?? 0, 0);
+const liquidityInSol = toNumber(tokenStats?.liquidityInSol ?? chartStats?.liquidity ?? 0, 0);
+const marketCapInSol = toNumber(tokenStats?.marketCapInSol ?? chartStats?.market_cap ?? 0, 0);
+const tradeCount = toNumber(tokenStats?.tradeCount ?? chartStats?.trade_count ?? 0, 0);
 
 if ($("stat1Label")) $("stat1Label").textContent = "Price";
 if ($("stat1Value")) {
@@ -404,13 +468,16 @@ marketCapInSol > 0 ? formatSol(marketCapInSol, 3) : "—";
 }
 
 if ($("stat4Label")) $("stat4Label").textContent = "Trades";
-if ($("stat4Value")) {
-$("stat4Value").textContent = formatNumber(tradeCount, { maximumFractionDigits: 0 });
-}
+if ($("stat4Value")) $("stat4Value").textContent = formatNumber(tradeCount, { maximumFractionDigits: 0 });
 }
 
-function getCountdownParts(launch) {
-const tradingOpenMs = parseDateMs(launch?.live_at || launch?.countdown_ends_at);
+function getCountdownParts(launch, commitStats = {}) {
+const target =
+commitStats?.countdownEndsAt ||
+launch?.live_at ||
+launch?.countdown_ends_at;
+
+const tradingOpenMs = parseDateMs(target);
 if (!tradingOpenMs) return { totalMs: 0, minutes: 0, seconds: 0 };
 
 const diff = Math.max(0, tradingOpenMs - getNowMs());
@@ -420,20 +487,19 @@ const seconds = Math.floor((diff % 60000) / 1000);
 return { totalMs: diff, minutes, seconds };
 }
 
-function getCountdownText(launch) {
-const { totalMs, minutes, seconds } = getCountdownParts(launch);
+function getCountdownText(launch, commitStats = {}) {
+const { totalMs, minutes, seconds } = getCountdownParts(launch, commitStats);
 if (totalMs <= 0) return "00:00";
 return `${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
 }
 
-function updateCountdownUi(launch) {
+function updateCountdownUi(launch, commitStats = {}) {
 const marketCountdownValue = $("marketCountdownValue");
-if (marketCountdownValue) {
-marketCountdownValue.textContent = getCountdownText(launch);
-}
+if (!marketCountdownValue) return;
+marketCountdownValue.textContent = getCountdownText(launch, commitStats);
 
 if ($("stat4Value") && inferPhase(launch) === PHASES.COUNTDOWN) {
-$("stat4Value").textContent = getCountdownText(launch);
+$("stat4Value").textContent = getCountdownText(launch, commitStats);
 }
 }
 
@@ -530,29 +596,31 @@ return `
 function setTradePanelVisibility(phase) {
 const tradePanelCard = $("tradePanelCard");
 const recentTradesCard = $("recentTradesCard");
+const tradePanelPhasePill = $("tradePanelPhasePill");
 const tradeSubmitBtn = $("tradeSubmitBtn");
+const quickRow = $("tradeQuickBuyRow");
+
+if (!tradePanelCard || !recentTradesCard || !tradePanelPhasePill) return;
 
 const isLive = phase === PHASES.LIVE;
-
-if (tradePanelCard) {
 tradePanelCard.classList.toggle("hidden", !isLive);
-}
-
-if (recentTradesCard) {
 recentTradesCard.classList.toggle("hidden", !isLive);
-}
 
-if ($("tradePanelPhasePill")) {
-$("tradePanelPhasePill").textContent =
+tradePanelPhasePill.classList.remove("phase-commit", "phase-countdown", "phase-live");
+tradePanelPhasePill.classList.add(`phase-${phase}`);
+tradePanelPhasePill.textContent =
 phase === PHASES.LIVE
 ? "Market Active"
 : phase === PHASES.COUNTDOWN
 ? "Countdown"
 : "Market Locked";
-}
 
 if (tradeSubmitBtn) {
 tradeSubmitBtn.disabled = !isLive;
+}
+
+if (quickRow) {
+quickRow.classList.toggle("hidden", false);
 }
 }
 
@@ -561,6 +629,7 @@ const buyTab = $("tradeTabBuy");
 const sellTab = $("tradeTabSell");
 const amountLabel = $("tradeAmountLabel");
 const amountInput = $("tradeAmountInput");
+const primaryLabel = $("tradeQuotePrimaryLabel");
 const walletLimitLabel = $("tradeQuoteWalletLimitLabel");
 const quickRow = $("tradeQuickBuyRow");
 
@@ -573,6 +642,10 @@ amountLabel.textContent = mode === TRADE_MODES.BUY ? "Amount (SOL)" : "Amount (T
 
 if (amountInput) {
 amountInput.placeholder = mode === TRADE_MODES.BUY ? "0.00" : "0";
+}
+
+if (primaryLabel) {
+primaryLabel.textContent = "You Receive";
 }
 
 if (walletLimitLabel) {
@@ -591,8 +664,10 @@ if ($("tradeQuoteFeeValue")) $("tradeQuoteFeeValue").textContent = "—";
 if ($("tradeQuoteWalletLimitValue")) $("tradeQuoteWalletLimitValue").textContent = "—";
 }
 
-async function fetchJson(url, options = {}) {
-const response = await fetch(url, {
+async function fetchJson(path, options = {}) {
+const apiBase = window.API_BASE || getApiBase();
+
+const response = await fetch(`${apiBase}${path}`, {
 credentials: "include",
 ...options,
 });
@@ -607,6 +682,14 @@ return response.json();
 
 async function defaultFetchLaunch(launchId) {
 return fetchJson(`/api/launcher/${encodeURIComponent(launchId)}`);
+}
+
+async function defaultFetchCommitStats(launchId) {
+try {
+return await fetchJson(`/api/launcher/commits/${encodeURIComponent(launchId)}`);
+} catch {
+return {};
+}
 }
 
 async function defaultFetchTokenStats(launchId) {
@@ -705,6 +788,7 @@ constructor(options = {}) {
 this.launchId = options.launchId || "";
 this.connectedWallet = options.connectedWallet || "";
 this.fetchLaunch = options.fetchLaunch || defaultFetchLaunch;
+this.fetchCommitStats = options.fetchCommitStats || defaultFetchCommitStats;
 this.fetchTokenStats = options.fetchTokenStats || defaultFetchTokenStats;
 this.fetchTokenTrades = options.fetchTokenTrades || defaultFetchTokenTrades;
 this.fetchChartStats = options.fetchChartStats || defaultFetchChartStats;
@@ -718,6 +802,7 @@ this.executeSell = options.executeSell || defaultExecuteSell;
 this.onPhaseChange = typeof options.onPhaseChange === "function" ? options.onPhaseChange : null;
 
 this.launch = options.launch || null;
+this.commitStats = options.commitStats || {};
 this.phase = PHASES.COMMIT;
 this.currentInterval = options.initialInterval || "1m";
 this.candleLimit = Number(options.candleLimit || 120);
@@ -818,7 +903,6 @@ $("tradeTabBuy")?.addEventListener("click", this._boundHandleTradeTabClick);
 $("tradeTabSell")?.addEventListener("click", this._boundHandleTradeTabClick);
 $("tradeSubmitBtn")?.addEventListener("click", this._boundHandleTradeSubmitClick);
 $("tradeAmountInput")?.addEventListener("input", this._boundHandleTradeAmountInput);
-
 document.querySelectorAll(".trade-quick-btn").forEach((btn) => {
 btn.addEventListener("click", this._boundHandleTradeQuickClick);
 });
@@ -841,7 +925,6 @@ $("tradeTabBuy")?.removeEventListener("click", this._boundHandleTradeTabClick);
 $("tradeTabSell")?.removeEventListener("click", this._boundHandleTradeTabClick);
 $("tradeSubmitBtn")?.removeEventListener("click", this._boundHandleTradeSubmitClick);
 $("tradeAmountInput")?.removeEventListener("input", this._boundHandleTradeAmountInput);
-
 document.querySelectorAll(".trade-quick-btn").forEach((btn) => {
 btn.removeEventListener("click", this._boundHandleTradeQuickClick);
 });
@@ -888,10 +971,10 @@ this.startCountdownTicker();
 startCountdownTicker() {
 if (this.countdownTimer) clearInterval(this.countdownTimer);
 
-updateCountdownUi(this.launch);
+updateCountdownUi(this.launch, this.commitStats);
 
 this.countdownTimer = setInterval(async () => {
-updateCountdownUi(this.launch);
+updateCountdownUi(this.launch, this.commitStats);
 const nextPhase = inferPhase(this.launch);
 if (nextPhase !== this.phase) {
 await this.refreshLaunch();
@@ -928,19 +1011,26 @@ stats: this.chartStats,
 async refreshLiveMarketOnly() {
 if (!this.launchId || this.phase !== PHASES.LIVE) return;
 
-const payload = await this.fetchMarketSnapshot(
-this.launchId,
-this.currentInterval,
-this.candleLimit
-);
+const [launchPayload, commitStats, payload] = await Promise.all([
+this.fetchLaunch(this.launchId),
+this.fetchCommitStats(this.launchId),
+this.fetchMarketSnapshot(this.launchId, this.currentInterval, this.candleLimit),
+]);
 
+this.launch = launchPayload?.launch || launchPayload || this.launch;
+this.commitStats = commitStats || {};
 this.tokenPayload = payload?.tokenPayload || {};
 this.chartStats = payload?.chartStats || {};
 this.candles = payload?.candles || [];
 this.trades = payload?.tokenTrades || [];
 
+this.phase = inferPhase(this.launch);
+
 updateTokenIdentity(this.launch, this.tokenPayload);
 updateContractAddress(this.launch, this.tokenPayload);
+updatePhaseClasses(this.phase);
+updatePhaseContent(this.phase);
+setTradePanelVisibility(this.phase);
 updateStatsForLive(this.tokenPayload, this.chartStats);
 renderRecentTrades(this.trades);
 
@@ -951,13 +1041,20 @@ trades: this.trades,
 stats: this.chartStats,
 });
 }
+
+this.renderTradePanel();
 }
 
 async refreshLaunch() {
 if (!this.launchId) return;
 
-const payload = await this.fetchLaunch(this.launchId);
-this.launch = payload?.launch || payload;
+const [launchPayload, commitStatsPayload] = await Promise.all([
+this.fetchLaunch(this.launchId),
+this.fetchCommitStats(this.launchId),
+]);
+
+this.launch = launchPayload?.launch || launchPayload;
+this.commitStats = commitStatsPayload || {};
 
 const previousPhase = this.phase;
 this.phase = inferPhase(this.launch);
@@ -988,14 +1085,13 @@ updatePhaseContent(this.phase);
 setTradePanelVisibility(this.phase);
 
 if (this.phase === PHASES.COMMIT) {
-updateStatsForCommit(this.launch);
+updateStatsForCommit(this.launch, this.commitStats);
 } else if (this.phase === PHASES.COUNTDOWN) {
-updateStatsForCountdown(this.launch);
-updateCountdownUi(this.launch);
+updateStatsForCountdown(this.launch, this.commitStats);
+updateCountdownUi(this.launch, this.commitStats);
 } else {
 updateStatsForLive(this.tokenPayload, this.chartStats);
 renderRecentTrades(this.trades);
-
 if (this.chartRenderer) {
 this.chartRenderer.setInterval(this.currentInterval);
 this.chartRenderer.setData({
@@ -1169,7 +1265,10 @@ if ($("tradeQuoteFeeValue")) {
 $("tradeQuoteFeeValue").textContent = formatSol(quote?.feeSol || 0, 6);
 }
 if ($("tradeQuoteWalletLimitValue")) {
-$("tradeQuoteWalletLimitValue").textContent = "Applies";
+$("tradeQuoteWalletLimitValue").textContent =
+quote?.maxWallet
+? formatTokenAmount(quote.maxWallet, 0)
+: "Applies";
 }
 } else {
 if ($("tradeQuotePrimaryValue")) {
@@ -1209,6 +1308,7 @@ async handleTradeSubmitClick() {
 if (this.phase !== PHASES.LIVE || this.tradeBusy) return;
 
 const submitBtn = $("tradeSubmitBtn");
+const originalText = submitBtn?.textContent || "Get Quote";
 
 try {
 this.tradeBusy = true;
@@ -1248,6 +1348,7 @@ console.error("trade submit failed:", error);
 setTradeMessage(error?.message || "Trade failed", "error");
 } finally {
 this.tradeBusy = false;
+if (submitBtn) submitBtn.textContent = originalText;
 this.renderTradePanel();
 }
 }

@@ -78,19 +78,33 @@ const rawOrigins = (process.env.CORS_ORIGINS || "")
 .map((s) => s.trim())
 .filter(Boolean);
 
-const corsOptions =
-NODE_ENV !== "production" || rawOrigins.length === 0
-? { origin: true, credentials: false }
-: {
+const defaultDevOrigins = [
+"http://127.0.0.1:3000",
+"http://localhost:3000",
+];
+
+const allowedOrigins =
+NODE_ENV !== "production"
+? Array.from(new Set([...defaultDevOrigins, ...rawOrigins]))
+: rawOrigins;
+
+const corsOptions = {
 origin(origin, cb) {
 if (!origin) return cb(null, true);
-if (rawOrigins.includes(origin)) return cb(null, true);
+
+if (NODE_ENV !== "production") {
+if (allowedOrigins.includes(origin)) return cb(null, true);
+return cb(null, true);
+}
+
+if (allowedOrigins.includes(origin)) return cb(null, true);
 return cb(new Error("Not allowed by CORS"));
 },
-credentials: false,
+credentials: true,
 };
 
 app.use(cors(corsOptions));
+app.options(/.*/, cors(corsOptions));
 
 // ---- Uploads ----
 app.use("/api/upload", uploadRoutes);

@@ -884,7 +884,7 @@ clearAutoStatus();
 }
 }
 
-async function syncLaunchMarketController() {
+async function syncLaunchMarketController(forceRefresh = false) {
 const id = qs("id");
 if (!id) return;
 if (!$("marketCard")) return;
@@ -896,13 +896,29 @@ launchMarketController = await initLaunchMarket({
 launchId: Number(id),
 connectedWallet,
 launch: currentLaunch || null,
+commitStats: currentCommitStats || {},
 });
+
+if (forceRefresh && typeof launchMarketController.refreshLaunch === "function") {
+await launchMarketController.refreshLaunch();
+}
 return;
 }
 
 launchMarketController.setConnectedWallet(connectedWallet);
-if (currentLaunch) {
-launchMarketController.launch = currentLaunch;
+launchMarketController.launch = currentLaunch || null;
+launchMarketController.commitStats = currentCommitStats || {};
+
+if (forceRefresh) {
+if (
+String(currentLaunch?.status || "") === "live" &&
+typeof launchMarketController.refreshLiveMarketOnly === "function"
+) {
+await launchMarketController.refreshLiveMarketOnly();
+} else if (typeof launchMarketController.refreshLaunch === "function") {
+await launchMarketController.refreshLaunch();
+}
+} else if (typeof launchMarketController.applyAll === "function") {
 launchMarketController.applyAll();
 }
 }
@@ -980,8 +996,6 @@ setClosureNote("");
 } else {
 setClosureNote("");
 }
-
-void syncLaunchMarketController();
 }
 
 async function refresh() {
@@ -991,6 +1005,7 @@ refreshInFlight = true;
 try {
 await loadLaunch();
 render();
+await syncLaunchMarketController(true);
 } finally {
 refreshInFlight = false;
 }
@@ -1015,7 +1030,7 @@ updateWalletUi();
 
 if (wallet?.isConnected) {
 setStatus(`Wallet connected: ${shortenWallet(wallet.publicKey)}`, "good");
-await syncLaunchMarketController();
+await syncLaunchMarketController(true);
 return;
 }
 
@@ -1026,7 +1041,9 @@ setStatus(msg.includes("No supported wallet") ? getMobileWalletHelpText() : msg,
 } finally {
 walletActionInFlight = false;
 updateWalletUi();
-if (currentLaunch && currentCommitStats) render();
+if (currentLaunch && currentCommitStats) {
+render();
+}
 }
 }
 
@@ -1042,8 +1059,10 @@ await disconnectAnyWallet();
 } finally {
 walletActionInFlight = false;
 updateWalletUi();
-if (currentLaunch && currentCommitStats) render();
-await syncLaunchMarketController();
+if (currentLaunch && currentCommitStats) {
+render();
+}
+await syncLaunchMarketController(true);
 }
 
 setStatus("Wallet disconnected.", "warn");
@@ -1285,11 +1304,13 @@ updateWalletUi();
 if (currentLaunch && currentCommitStats) {
 render();
 }
-await syncLaunchMarketController();
+await syncLaunchMarketController(true);
 });
 }
 
 async function init() {
+window.API_BASE = getApiBase();
+
 bindQuickAmounts();
 bindWalletEvents();
 $("commitForm")?.addEventListener("submit", onCommitSubmit);
@@ -1301,7 +1322,6 @@ updateWalletUi();
 
 try {
 await refresh();
-await syncLaunchMarketController();
 } catch (err) {
 console.error(err);
 setStatus(err.message || "Failed to load launch.", "bad");
