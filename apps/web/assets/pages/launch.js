@@ -242,6 +242,32 @@ function getCommitEndsMs(launch, stats) {
 return parseTs(stats?.commitEndsAt || launch?.commit_ends_at);
 }
 
+function syncPageMarketLayout(status) {
+const body = document.body;
+const liveTerminalMount = $("liveTerminalMount");
+const launchMarketHome = $("launchMarketHome");
+const launchMarketShell = $("launchMarketShell");
+
+if (!body || !liveTerminalMount || !launchMarketHome || !launchMarketShell) return;
+
+body.classList.remove("phase-commit", "phase-countdown", "phase-live");
+body.classList.add(`phase-${String(status || "commit")}`);
+
+const promote = status === "countdown" || status === "live";
+
+if (promote) {
+liveTerminalMount.classList.remove("hidden");
+if (liveTerminalMount.firstElementChild !== launchMarketShell) {
+liveTerminalMount.appendChild(launchMarketShell);
+}
+} else {
+liveTerminalMount.classList.add("hidden");
+if (launchMarketHome.firstElementChild !== launchMarketShell) {
+launchMarketHome.appendChild(launchMarketShell);
+}
+}
+}
+
 function getLaunchStateMessage(launch, stats) {
 const status = String(launch?.status || "");
 const bondState = getBuilderBondState(launch, stats);
@@ -915,6 +941,9 @@ launchId: Number(id),
 connectedWallet,
 launch: currentLaunch || null,
 commitStats: currentCommitStats || {},
+onPhaseChange: (phase) => {
+syncPageMarketLayout(phase);
+},
 });
 
 if (forceRefresh && typeof launchMarketController.refreshLaunch === "function") {
@@ -956,6 +985,8 @@ const commitEndsAt = getCommitEndsMs(launch, stats);
 const pct = hardCap > 0
 ? Math.max(0, Math.min(100, Math.floor((committed / hardCap) * 100)))
 : 0;
+
+syncPageMarketLayout(launch.status);
 
 if ($("launchName")) {
 $("launchName").textContent = launch.token_name || "Untitled Launch";

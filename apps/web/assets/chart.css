@@ -471,6 +471,10 @@ linear-gradient(180deg, rgba(255,255,255,.06), rgba(255,255,255,.022));
 box-shadow:var(--shadow-lg);
 }
 
+.market-card.market-priority{
+order:-1;
+}
+
 .market-card-frame{
 position:absolute;
 inset:0;
@@ -761,6 +765,15 @@ word-break:break-word;
 white-space:pre-line;
 }
 
+.market-meta-grid{
+display:grid;
+grid-template-columns:minmax(0,1.15fr) minmax(300px,.85fr);
+gap:14px;
+padding:18px 22px 0;
+position:relative;
+z-index:2;
+}
+
 .market-card-body{
 position:relative;
 z-index:1;
@@ -995,6 +1008,135 @@ white-space:pre-line;
 word-break:break-word;
 }
 
+.market-wallet-summary{
+display:grid;
+grid-template-columns:repeat(3, minmax(0,1fr));
+gap:12px;
+position:relative;
+z-index:2;
+}
+
+.market-wallet-chip{
+min-height:62px;
+border-radius:16px;
+border:1px solid rgba(255,255,255,.09);
+background:linear-gradient(180deg, rgba(255,255,255,.045), rgba(255,255,255,.022));
+padding:12px 14px;
+display:grid;
+gap:6px;
+}
+
+.market-wallet-chip-label{
+color:var(--text-faint);
+font-size:11px;
+letter-spacing:.08em;
+text-transform:uppercase;
+}
+
+.market-wallet-chip-value{
+color:#fff;
+font-size:18px;
+font-weight:800;
+line-height:1.12;
+word-break:break-word;
+white-space:pre-line;
+}
+
+.market-access-card{
+position:relative;
+overflow:hidden;
+border-radius:18px;
+border:1px solid rgba(255,255,255,.09);
+background:
+radial-gradient(circle at top right, rgba(53,245,163,.06), transparent 30%),
+linear-gradient(180deg, rgba(255,255,255,.05), rgba(255,255,255,.026));
+padding:16px;
+box-shadow:inset 0 1px 0 rgba(255,255,255,.05);
+}
+
+.market-access-card-top{
+display:flex;
+align-items:flex-start;
+justify-content:space-between;
+gap:12px;
+margin-bottom:14px;
+}
+
+.market-access-kicker{
+font-size:11px;
+letter-spacing:.16em;
+text-transform:uppercase;
+color:var(--text-faint);
+margin-bottom:6px;
+}
+
+.market-access-title{
+font-size:22px;
+font-weight:800;
+line-height:1.05;
+letter-spacing:-.03em;
+color:#fff;
+}
+
+.market-access-state-pill{
+min-height:32px;
+padding:0 12px;
+border-radius:999px;
+display:inline-flex;
+align-items:center;
+justify-content:center;
+font-size:11px;
+font-weight:800;
+letter-spacing:.10em;
+text-transform:uppercase;
+color:var(--countdown);
+background:rgba(255,91,107,.08);
+border:1px solid rgba(255,91,107,.18);
+}
+
+.market-access-state-pill.is-open{
+color:var(--live);
+background:rgba(53,245,163,.08);
+border-color:rgba(53,245,163,.18);
+}
+
+.market-access-grid{
+display:grid;
+grid-template-columns:repeat(2, minmax(0,1fr));
+gap:12px;
+}
+
+.market-access-metric{
+border-radius:14px;
+border:1px solid rgba(255,255,255,.08);
+background:rgba(255,255,255,.03);
+padding:12px;
+min-width:0;
+}
+
+.market-access-metric-label{
+font-size:11px;
+letter-spacing:.10em;
+text-transform:uppercase;
+color:var(--text-faint);
+margin-bottom:8px;
+}
+
+.market-access-metric-value{
+font-size:16px;
+font-weight:800;
+line-height:1.15;
+color:#fff;
+word-break:break-word;
+}
+
+.market-access-note{
+margin-top:12px;
+color:var(--text-soft);
+font-size:13px;
+line-height:1.5;
+}
+
 /* =========================
 LAUNCH LINKS MODAL
 ========================= */
@@ -1215,9 +1357,7 @@ box-shadow:
 }
 
 .trade-panel-header,
-.trade-panel-top,
-.recent-trades-header,
-.recent-trades-head{
+.recent-trades-header{
 position:relative;
 z-index:2;
 display:flex;
@@ -1279,8 +1419,7 @@ background:rgba(53,245,163,.08);
 border-color:rgba(53,245,163,.20);
 }
 
-.trade-panel-tabs,
-.trade-tabs{
+.trade-panel-tabs{
 display:flex;
 gap:10px;
 padding:16px 20px 0;
@@ -1321,22 +1460,19 @@ gap:14px;
 padding:18px 20px 20px;
 }
 
-.trade-panel-field,
-.trade-field{
+.trade-panel-field{
 display:grid;
 gap:8px;
 padding:18px 20px 0;
 }
 
-.trade-panel-field label,
-.trade-field label{
+.trade-panel-field label{
 color:var(--text-soft);
 font-size:13px;
 font-weight:700;
 }
 
-.trade-panel-input,
-.trade-field input{
+.trade-panel-input{
 min-height:50px;
 width:100%;
 border-radius:14px;
@@ -1348,8 +1484,7 @@ padding:0 14px;
 outline:none;
 }
 
-.trade-panel-input:focus,
-.trade-field input:focus{
+.trade-panel-input:focus{
 border-color:rgba(255,255,255,.18);
 background:
 linear-gradient(180deg, rgba(255,255,255,.07), rgba(255,255,255,.03));
@@ -1417,22 +1552,6 @@ font-size:18px;
 font-weight:800;
 line-height:1.15;
 word-break:break-word;
-}
-
-.trade-quote-row{
-display:flex;
-align-items:center;
-justify-content:space-between;
-gap:12px;
-color:#fff;
-font-size:13px;
-}
-
-.trade-quote-row span:first-child{
-color:var(--text-faint);
-text-transform:uppercase;
-letter-spacing:.08em;
-font-size:11px;
 }
 
 .trade-panel-message{
@@ -1573,41 +1692,6 @@ text-overflow:ellipsis;
 white-space:nowrap;
 }
 
-/* optional future wallet summary block */
-.market-wallet-summary{
-display:grid;
-grid-template-columns:repeat(3, minmax(0,1fr));
-gap:12px;
-padding:0 22px 18px;
-position:relative;
-z-index:2;
-}
-
-.market-wallet-chip{
-min-height:62px;
-border-radius:16px;
-border:1px solid rgba(255,255,255,.09);
-background:linear-gradient(180deg, rgba(255,255,255,.045), rgba(255,255,255,.022));
-padding:12px 14px;
-display:grid;
-gap:6px;
-}
-
-.market-wallet-chip-label{
-color:var(--text-faint);
-font-size:11px;
-letter-spacing:.08em;
-text-transform:uppercase;
-}
-
-.market-wallet-chip-value{
-color:#fff;
-font-size:18px;
-font-weight:800;
-line-height:1.12;
-word-break:break-word;
-}
-
 .hidden{
 display:none !important;
 }
@@ -1615,6 +1699,10 @@ display:none !important;
 @media (max-width: 1180px){
 .market-live-kpis{
 grid-template-columns:repeat(2, minmax(0,1fr));
+}
+
+.market-meta-grid{
+grid-template-columns:1fr;
 }
 
 .market-wallet-summary{
@@ -1664,6 +1752,10 @@ height:380px;
 
 .market-volume-canvas{
 height:140px;
+}
+
+.market-access-grid{
+grid-template-columns:1fr;
 }
 }
 
@@ -1729,15 +1821,17 @@ padding:16px 18px 18px;
 grid-template-columns:1fr;
 }
 
+.market-meta-grid{
+padding:14px 18px 0;
+}
+
 .chart-ca-chip{
 min-width:0;
 width:100%;
 }
 
 .trade-panel-header,
-.trade-panel-top,
-.recent-trades-header,
-.recent-trades-head{
+.recent-trades-header{
 padding:18px 18px 14px;
 }
 
@@ -1746,8 +1840,7 @@ padding:18px 18px 14px;
 font-size:22px;
 }
 
-.trade-panel-tabs,
-.trade-tabs{
+.trade-panel-tabs{
 padding:14px 18px 0;
 }
 
@@ -1755,8 +1848,7 @@ padding:14px 18px 0;
 padding:16px 18px 18px;
 }
 
-.trade-panel-field,
-.trade-field{
+.trade-panel-field{
 padding:16px 18px 0;
 }
 
