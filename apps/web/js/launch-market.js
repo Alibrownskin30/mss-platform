@@ -568,10 +568,10 @@ list.innerHTML = trades
 .map((trade) => {
 const side = String(trade?.side || "").toLowerCase();
 const wallet = shortAddress(String(trade?.wallet || ""));
-const solAmount = formatSol(trade?.sol_amount || 0, 4);
+const solAmount = formatSol(trade?.sol_amount || trade?.base_amount || 0, 4);
 const tokenAmount = formatTokenAmount(trade?.token_amount || 0, 0);
-const price = formatNumber(trade?.price || 0, { maximumFractionDigits: 8 });
-const createdAt = formatDateTime(trade?.created_at);
+const price = formatNumber(trade?.price || trade?.price_sol || 0, { maximumFractionDigits: 8 });
+const createdAt = formatDateTime(trade?.created_at || trade?.timestamp);
 
 return `
 <div class="recent-trade-row side-${escapeHtml(side)}">
@@ -672,12 +672,21 @@ credentials: "include",
 ...options,
 });
 
+const json = await response.json().catch(() => null);
+
 if (!response.ok) {
-const text = await response.text().catch(() => "");
-throw new Error(text || `Request failed (${response.status})`);
+throw new Error(
+json?.error ||
+json?.message ||
+`Request failed (${response.status})`
+);
 }
 
-return response.json();
+if (json && json.ok === false) {
+throw new Error(json.error || json.message || "Request failed");
+}
+
+return json ?? {};
 }
 
 async function defaultFetchLaunch(launchId) {
@@ -751,19 +760,19 @@ body: JSON.stringify(payload),
 });
 }
 
-async function defaultQuoteBuy(launchId, solAmount) {
+async function defaultQuoteBuy(launchId, solAmount, wallet = "") {
 return fetchJson(`/api/market/quote-buy`, {
 method: "POST",
 headers: { "Content-Type": "application/json" },
-body: JSON.stringify({ launchId, solAmount }),
+body: JSON.stringify({ launchId, solAmount, wallet }),
 });
 }
 
-async function defaultQuoteSell(launchId, tokenAmount) {
+async function defaultQuoteSell(launchId, tokenAmount, wallet = "") {
 return fetchJson(`/api/market/quote-sell`, {
 method: "POST",
 headers: { "Content-Type": "application/json" },
-body: JSON.stringify({ launchId, tokenAmount }),
+body: JSON.stringify({ launchId, tokenAmount, wallet }),
 });
 }
 
@@ -1244,10 +1253,10 @@ throw new Error(this.tradeMode === TRADE_MODES.BUY ? "Enter a SOL amount" : "Ent
 }
 
 if (this.tradeMode === TRADE_MODES.BUY) {
-return this.quoteBuy(this.launchId, amount);
+return this.quoteBuy(this.launchId, amount, this.connectedWallet || "");
 }
 
-return this.quoteSell(this.launchId, amount);
+return this.quoteSell(this.launchId, amount, this.connectedWallet || "");
 }
 
 applyQuoteToUi(quotePayload) {
@@ -1265,10 +1274,16 @@ if ($("tradeQuoteFeeValue")) {
 $("tradeQuoteFeeValue").textContent = formatSol(quote?.feeSol || 0, 6);
 }
 if ($("tradeQuoteWalletLimitValue")) {
-$("tradeQuoteWalletLimitValue").textContent =
-quote?.maxWallet
-? formatTokenAmount(quote.maxWallet, 0)
-: "Applies";
+if (quote?.maxWallet) {
+const maxWalletText = formatTokenAmount(quote.maxWallet, 0);
+const afterText =
+quote?.walletBalanceAfter != null
+? ` / After ${formatTokenAmount(quote.walletBalanceAfter, 0)}`
+: "";
+$("tradeQuoteWalletLimitValue").textContent = `${maxWalletText}${afterText}`;
+} else {
+$("tradeQuoteWalletLimitValue").textContent = "Applies";
+}
 }
 } else {
 if ($("tradeQuotePrimaryValue")) {
@@ -1281,7 +1296,10 @@ if ($("tradeQuoteFeeValue")) {
 $("tradeQuoteFeeValue").textContent = formatSol(quote?.feeSol || 0, 6);
 }
 if ($("tradeQuoteWalletLimitValue")) {
-$("tradeQuoteWalletLimitValue").textContent = "—";
+$("tradeQuoteWalletLimitValue").textContent =
+quote?.walletBalanceAfter != null
+? formatTokenAmount(quote.walletBalanceAfter, 0)
+: "—";
 }
 }
 
@@ -1316,6 +1334,10 @@ this.renderTradePanel();
 setTradeMessage("");
 
 if (!this.lastQuote) {
+if (!this.connectedWallet) {
+throw new Error("Connect wallet first");
+}
+
 if (submitBtn) submitBtn.textContent = "Quoting...";
 const quotePayload = await this.getTradeQuote();
 this.applyQuoteToUi(quotePayload);
