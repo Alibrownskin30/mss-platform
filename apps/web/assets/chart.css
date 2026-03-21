@@ -252,7 +252,8 @@ font-weight:700;
 }
 
 .launch-ca-card,
-.launch-links-card{
+.launch-links-card,
+.cassie-card{
 width:100%;
 border-radius:18px;
 border:1px solid rgba(255,255,255,.09);
@@ -263,7 +264,8 @@ box-shadow:inset 0 1px 0 rgba(255,255,255,.04);
 }
 
 .launch-ca-card-top,
-.launch-links-card-top{
+.launch-links-card-top,
+.cassie-card-top{
 display:flex;
 align-items:center;
 justify-content:space-between;
@@ -272,14 +274,16 @@ margin-bottom:10px;
 }
 
 .launch-ca-label,
-.launch-links-title{
+.launch-links-title,
+.cassie-title{
 font-size:12px;
 letter-spacing:.12em;
 text-transform:uppercase;
 color:var(--text-faint);
 }
 
-.launch-ca-state{
+.launch-ca-state,
+.cassie-state{
 font-size:12px;
 color:rgba(255,255,255,.68);
 }
@@ -363,6 +367,85 @@ color:#fff;
 cursor:pointer;
 font-size:13px;
 font-weight:700;
+}
+
+.cassie-card{
+position:relative;
+overflow:hidden;
+background:
+radial-gradient(circle at 12% 10%, rgba(0,255,209,.09), transparent 24%),
+radial-gradient(circle at 88% 18%, rgba(58,160,255,.10), transparent 22%),
+linear-gradient(180deg, rgba(255,255,255,.05), rgba(255,255,255,.026));
+}
+
+.cassie-card::after{
+content:"";
+position:absolute;
+inset:0;
+pointer-events:none;
+background:linear-gradient(180deg, rgba(255,255,255,.035), transparent 30%);
+}
+
+.cassie-badge{
+min-height:28px;
+padding:0 10px;
+border-radius:999px;
+display:inline-flex;
+align-items:center;
+gap:8px;
+color:var(--live);
+background:rgba(53,245,163,.10);
+border:1px solid rgba(53,245,163,.20);
+font-size:11px;
+font-weight:800;
+letter-spacing:.10em;
+text-transform:uppercase;
+}
+
+.cassie-badge-dot{
+width:7px;
+height:7px;
+border-radius:999px;
+background:currentColor;
+box-shadow:0 0 12px currentColor;
+}
+
+.cassie-grid{
+display:grid;
+grid-template-columns:repeat(2, minmax(0,1fr));
+gap:10px;
+margin-top:10px;
+}
+
+.cassie-metric{
+border-radius:14px;
+border:1px solid rgba(255,255,255,.08);
+background:rgba(255,255,255,.03);
+padding:12px;
+min-width:0;
+}
+
+.cassie-metric-label{
+color:var(--text-faint);
+font-size:11px;
+letter-spacing:.10em;
+text-transform:uppercase;
+margin-bottom:6px;
+}
+
+.cassie-metric-value{
+color:#fff;
+font-size:14px;
+font-weight:800;
+line-height:1.2;
+word-break:break-word;
+}
+
+.cassie-note{
+margin-top:12px;
+color:var(--text-soft);
+font-size:13px;
+line-height:1.55;
 }
 
 .market-card{
@@ -823,11 +906,13 @@ margin-bottom:10px;
 }
 
 .market-stat-value{
-font-size:22px;
+font-size:20px;
 font-weight:800;
-line-height:1.08;
+line-height:1.22;
 color:#fff;
 letter-spacing:-.02em;
+white-space:pre-line;
+word-break:break-word;
 }
 
 .launch-links-modal{
@@ -960,11 +1045,11 @@ font-weight:800;
 }
 
 .elite-chart-tooltip-card{
-min-width:220px;
+min-width:236px;
 padding:12px 12px 10px;
 border-radius:14px;
 border:1px solid rgba(255,255,255,.10);
-background:linear-gradient(180deg, rgba(7,11,18,.94), rgba(7,11,18,.84));
+background:linear-gradient(180deg, rgba(7,11,18,.96), rgba(7,11,18,.86));
 box-shadow:0 14px 34px rgba(0,0,0,.28);
 backdrop-filter:blur(8px);
 }
@@ -1041,7 +1126,6 @@ box-shadow:
 0 0 34px rgba(53,245,163,.05);
 }
 
-/* supports both old and current class names */
 .trade-panel-header,
 .trade-panel-top,
 .recent-trades-header,
@@ -1107,7 +1191,6 @@ background:rgba(53,245,163,.08);
 border-color:rgba(53,245,163,.20);
 }
 
-/* supports both old and current class names */
 .trade-panel-tabs,
 .trade-tabs{
 display:flex;
@@ -1142,7 +1225,6 @@ border-color:rgba(255,255,255,.16);
 color:#fff;
 }
 
-/* supports both old and current class names */
 .trade-panel-body{
 position:relative;
 z-index:2;
@@ -1213,7 +1295,6 @@ background:
 linear-gradient(180deg, rgba(255,255,255,.08), rgba(255,255,255,.03));
 }
 
-/* current launch.html structure */
 .trade-quote-grid{
 display:grid;
 grid-template-columns:repeat(2, minmax(0,1fr));
@@ -1250,7 +1331,6 @@ line-height:1.15;
 word-break:break-word;
 }
 
-/* optional row style support */
 .trade-quote-row{
 display:flex;
 align-items:center;
@@ -1272,7 +1352,8 @@ border-radius:14px;
 border:1px solid rgba(255,255,255,.10);
 padding:12px 14px;
 font-size:13px;
-line-height:1.5;
+line-height:1.55;
+white-space:pre-line;
 background:rgba(255,255,255,.04);
 color:#fff;
 margin:14px 20px 20px;
@@ -1447,6 +1528,10 @@ font-size:28px;
 
 .launch-token-title-row{
 gap:12px;
+}
+
+.cassie-grid{
+grid-template-columns:1fr;
 }
 
 .market-card-header{

@@ -79,6 +79,44 @@ const num = toNumber(value, 0);
 return `${formatNumber(num, { maximumFractionDigits })} SOL`;
 }
 
+function formatUsd(value, maximumFractionDigits = 2) {
+const num = toNumber(value, 0);
+return new Intl.NumberFormat(undefined, {
+style: "currency",
+currency: "USD",
+minimumFractionDigits: 0,
+maximumFractionDigits,
+}).format(num);
+}
+
+function formatUsdCompact(value, maximumFractionDigits = 2) {
+const num = toNumber(value, 0);
+if (num <= 0) return "$0";
+return new Intl.NumberFormat(undefined, {
+style: "currency",
+currency: "USD",
+notation: "compact",
+minimumFractionDigits: 0,
+maximumFractionDigits,
+}).format(num);
+}
+
+function formatPriceSol(value) {
+const num = toNumber(value, 0);
+if (num <= 0) return "—";
+if (num >= 1) return formatNumber(num, { maximumFractionDigits: 4 });
+if (num >= 0.01) return formatNumber(num, { maximumFractionDigits: 6 });
+return formatNumber(num, { maximumFractionDigits: 10 });
+}
+
+function formatPriceUsd(value) {
+const num = toNumber(value, 0);
+if (num <= 0) return "—";
+if (num >= 1) return formatUsd(num, 4);
+if (num >= 0.01) return formatUsd(num, 6);
+return formatUsd(num, 8);
+}
+
 function formatTokenAmount(value, maximumFractionDigits = 0) {
 const num = toNumber(value, 0);
 return formatNumber(num, { maximumFractionDigits });
@@ -94,6 +132,12 @@ day: "2-digit",
 hour: "2-digit",
 minute: "2-digit",
 });
+}
+
+function formatDualMetric(primaryValue, secondaryValue) {
+if (!primaryValue && !secondaryValue) return "—";
+if (!secondaryValue) return primaryValue || "—";
+return `${primaryValue}\n${secondaryValue}`;
 }
 
 function normalizeUrl(raw, typeKey = "") {
@@ -177,6 +221,51 @@ overlayTitle: "Commit Phase In Progress",
 overlayText: "Trading is not open yet. Commitments are being collected before market activation.",
 };
 }
+}
+
+function getCassieMeta(phase, tokenPayload = {}, chartStats = {}) {
+const cassie = tokenPayload?.cassie || {};
+const priceChangePct = toNumber(chartStats?.price_change_pct, 0);
+const buys24h = toNumber(chartStats?.buys_24h, 0);
+const sells24h = toNumber(chartStats?.sells_24h, 0);
+
+if (phase === PHASES.COMMIT) {
+return {
+status: "Monitoring Active",
+posture: "Structure Review",
+note: "CassIE is monitoring launch structure, builder-linked signals, and opening conditions.",
+};
+}
+
+if (phase === PHASES.COUNTDOWN) {
+return {
+status: "Monitoring Active",
+posture: "Opening Watch",
+note: "CassIE is tracking countdown integrity, participant concentration, and market-open posture.",
+};
+}
+
+const elevatedFlow = Math.abs(priceChangePct) >= 25 || Math.abs(buys24h - sells24h) >= 10;
+return {
+status: cassie?.monitoring_active ? "Monitoring Active" : "Monitoring",
+posture: elevatedFlow ? "Elevated Flow" : "Normal Flow",
+note: elevatedFlow
+? "CassIE has detected elevated live market activity. Review execution details before confirming."
+: "CassIE is actively monitoring live market structure, execution flow, and concentration drift.",
+};
+}
+
+function renderCassiePanel(phase, tokenPayload = {}, chartStats = {}) {
+const statusEl = $("cassieStatusValue");
+const postureEl = $("cassiePostureValue");
+const noteEl = $("cassieNote");
+if (!statusEl && !postureEl && !noteEl) return;
+
+const cassieMeta = getCassieMeta(phase, tokenPayload, chartStats);
+
+if (statusEl) statusEl.textContent = cassieMeta.status;
+if (postureEl) postureEl.textContent = cassieMeta.posture;
+if (noteEl) noteEl.textContent = cassieMeta.note;
 }
 
 async function copyText(text) {
@@ -444,31 +533,50 @@ if ($("stat4Value")) $("stat4Value").textContent = getCountdownText(launch, comm
 
 function updateStatsForLive(tokenPayload = {}, chartStats = {}) {
 const tokenStats = tokenPayload?.stats || {};
-const priceInSol = toNumber(tokenStats?.priceInSol ?? chartStats?.last_price ?? 0, 0);
-const liquidityInSol = toNumber(tokenStats?.liquidityInSol ?? chartStats?.liquidity ?? 0, 0);
-const marketCapInSol = toNumber(tokenStats?.marketCapInSol ?? chartStats?.market_cap ?? 0, 0);
-const tradeCount = toNumber(tokenStats?.tradeCount ?? chartStats?.trade_count ?? 0, 0);
+
+const priceUsd = toNumber(tokenStats?.price_usd ?? chartStats?.price_usd, 0);
+const priceSol = toNumber(tokenStats?.price_sol ?? chartStats?.price_sol, 0);
+
+const marketCapUsd = toNumber(tokenStats?.market_cap_usd ?? chartStats?.market_cap_usd, 0);
+const marketCapSol = toNumber(tokenStats?.market_cap_sol ?? chartStats?.market_cap_sol, 0);
+
+const liquidityUsd = toNumber(tokenStats?.liquidity_usd ?? chartStats?.liquidity_usd, 0);
+const liquiditySol = toNumber(tokenStats?.liquidity_sol ?? chartStats?.liquidity_sol, 0);
+
+const volume24hUsd = toNumber(tokenStats?.volume_24h_usd ?? chartStats?.volume_24h_usd, 0);
+const volume24hSol = toNumber(tokenStats?.volume_24h_sol ?? chartStats?.volume_24h_sol, 0);
 
 if ($("stat1Label")) $("stat1Label").textContent = "Price";
 if ($("stat1Value")) {
-$("stat1Value").textContent =
-priceInSol > 0 ? formatNumber(priceInSol, { maximumFractionDigits: 8 }) : "—";
+$("stat1Value").textContent = formatDualMetric(
+priceUsd > 0 ? formatPriceUsd(priceUsd) : "—",
+priceSol > 0 ? `${formatPriceSol(priceSol)} SOL` : ""
+);
 }
 
-if ($("stat2Label")) $("stat2Label").textContent = "Liquidity";
+if ($("stat2Label")) $("stat2Label").textContent = "Market Cap";
 if ($("stat2Value")) {
-$("stat2Value").textContent =
-liquidityInSol > 0 ? formatSol(liquidityInSol, 3) : "—";
+$("stat2Value").textContent = formatDualMetric(
+marketCapUsd > 0 ? formatUsdCompact(marketCapUsd, 2) : "—",
+marketCapSol > 0 ? formatSol(marketCapSol, 2) : ""
+);
 }
 
-if ($("stat3Label")) $("stat3Label").textContent = "Market Cap";
+if ($("stat3Label")) $("stat3Label").textContent = "Liquidity";
 if ($("stat3Value")) {
-$("stat3Value").textContent =
-marketCapInSol > 0 ? formatSol(marketCapInSol, 3) : "—";
+$("stat3Value").textContent = formatDualMetric(
+liquidityUsd > 0 ? formatUsdCompact(liquidityUsd, 2) : "—",
+liquiditySol > 0 ? formatSol(liquiditySol, 2) : ""
+);
 }
 
-if ($("stat4Label")) $("stat4Label").textContent = "Trades";
-if ($("stat4Value")) $("stat4Value").textContent = formatNumber(tradeCount, { maximumFractionDigits: 0 });
+if ($("stat4Label")) $("stat4Label").textContent = "24H Volume";
+if ($("stat4Value")) {
+$("stat4Value").textContent = formatDualMetric(
+volume24hUsd > 0 ? formatUsdCompact(volume24hUsd, 2) : "—",
+volume24hSol > 0 ? formatSol(volume24hSol, 2) : ""
+);
+}
 }
 
 function getCountdownParts(launch, commitStats = {}) {
@@ -554,7 +662,7 @@ el.textContent = text;
 el.dataset.state = type;
 }
 
-function renderRecentTrades(trades = []) {
+function renderRecentTrades(trades = [], tokenPayload = {}, chartStats = {}) {
 const list = $("recentTradesList");
 if (!list) return;
 
@@ -563,14 +671,21 @@ list.innerHTML = `<div class="recent-trades-empty">No trades yet.</div>`;
 return;
 }
 
+const solUsdPrice = toNumber(
+tokenPayload?.stats?.sol_usd_price ??
+chartStats?.sol_usd_price,
+0
+);
+
 list.innerHTML = trades
 .slice(0, 20)
 .map((trade) => {
 const side = String(trade?.side || "").toLowerCase();
 const wallet = shortAddress(String(trade?.wallet || ""));
-const solAmount = formatSol(trade?.sol_amount || trade?.base_amount || 0, 4);
-const tokenAmount = formatTokenAmount(trade?.token_amount || 0, 0);
-const price = formatNumber(trade?.price || trade?.price_sol || 0, { maximumFractionDigits: 8 });
+const solAmountNum = toNumber(trade?.sol_amount ?? trade?.base_amount, 0);
+const tokenAmountNum = toNumber(trade?.token_amount, 0);
+const priceSolNum = toNumber(trade?.price ?? trade?.price_sol, 0);
+const tradeUsdValue = solUsdPrice > 0 ? solAmountNum * solUsdPrice : 0;
 const createdAt = formatDateTime(trade?.created_at || trade?.timestamp);
 
 return `
@@ -580,11 +695,11 @@ return `
 <div class="recent-trade-wallet">${escapeHtml(wallet)}</div>
 </div>
 <div class="recent-trade-metrics">
-<div class="recent-trade-value">${escapeHtml(solAmount)}</div>
-<div class="recent-trade-sub">${escapeHtml(tokenAmount)} tokens</div>
+<div class="recent-trade-value">${escapeHtml(formatSol(solAmountNum, 4))}</div>
+<div class="recent-trade-sub">${tradeUsdValue > 0 ? escapeHtml(formatUsd(tradeUsdValue, 2)) : escapeHtml(`${formatTokenAmount(tokenAmountNum, 0)} tokens`)}</div>
 </div>
 <div class="recent-trade-meta">
-<div class="recent-trade-price">@ ${escapeHtml(price)}</div>
+<div class="recent-trade-price">@ ${escapeHtml(priceSolNum > 0 ? `${formatPriceSol(priceSolNum)} SOL` : "—")}</div>
 <div class="recent-trade-time">${escapeHtml(createdAt)}</div>
 </div>
 </div>
@@ -649,7 +764,7 @@ primaryLabel.textContent = "You Receive";
 }
 
 if (walletLimitLabel) {
-walletLimitLabel.textContent = mode === TRADE_MODES.BUY ? "Wallet Limit" : "Post-Sell Balance";
+walletLimitLabel.textContent = mode === TRADE_MODES.BUY ? "Wallet Limit After" : "Balance After";
 }
 
 if (quickRow) {
@@ -1005,7 +1120,8 @@ this.chartStats = payload?.chartStats || {};
 this.candles = payload?.candles || [];
 this.trades = payload?.tokenTrades || [];
 
-renderRecentTrades(this.trades);
+renderRecentTrades(this.trades, this.tokenPayload, this.chartStats);
+renderCassiePanel(this.phase, this.tokenPayload, this.chartStats);
 
 if (this.chartRenderer) {
 this.chartRenderer.setInterval(this.currentInterval);
@@ -1041,7 +1157,8 @@ updatePhaseClasses(this.phase);
 updatePhaseContent(this.phase);
 setTradePanelVisibility(this.phase);
 updateStatsForLive(this.tokenPayload, this.chartStats);
-renderRecentTrades(this.trades);
+renderRecentTrades(this.trades, this.tokenPayload, this.chartStats);
+renderCassiePanel(this.phase, this.tokenPayload, this.chartStats);
 
 if (this.chartRenderer) {
 this.chartRenderer.updateData({
@@ -1095,12 +1212,15 @@ setTradePanelVisibility(this.phase);
 
 if (this.phase === PHASES.COMMIT) {
 updateStatsForCommit(this.launch, this.commitStats);
+renderCassiePanel(this.phase, this.tokenPayload, this.chartStats);
 } else if (this.phase === PHASES.COUNTDOWN) {
 updateStatsForCountdown(this.launch, this.commitStats);
 updateCountdownUi(this.launch, this.commitStats);
+renderCassiePanel(this.phase, this.tokenPayload, this.chartStats);
 } else {
 updateStatsForLive(this.tokenPayload, this.chartStats);
-renderRecentTrades(this.trades);
+renderRecentTrades(this.trades, this.tokenPayload, this.chartStats);
+renderCassiePanel(this.phase, this.tokenPayload, this.chartStats);
 if (this.chartRenderer) {
 this.chartRenderer.setInterval(this.currentInterval);
 this.chartRenderer.setData({
@@ -1128,7 +1248,9 @@ submitBtn.textContent = this.lastQuote
 ? this.tradeMode === TRADE_MODES.BUY
 ? "Execute Buy"
 : "Execute Sell"
-: "Get Quote";
+: this.tradeMode === TRADE_MODES.BUY
+? "Preview Buy"
+: "Preview Sell";
 }
 }
 
@@ -1211,6 +1333,7 @@ if (this.phase === PHASES.LIVE) {
 try {
 await this.loadLiveMarketData();
 updateStatsForLive(this.tokenPayload, this.chartStats);
+renderCassiePanel(this.phase, this.tokenPayload, this.chartStats);
 } catch (error) {
 console.error("timeframe refresh failed:", error);
 }
@@ -1268,7 +1391,7 @@ if ($("tradeQuotePrimaryValue")) {
 $("tradeQuotePrimaryValue").textContent = `${formatTokenAmount(quote?.tokensBought || 0, 0)} tokens`;
 }
 if ($("tradeQuotePriceValue")) {
-$("tradeQuotePriceValue").textContent = formatNumber(quote?.price || 0, { maximumFractionDigits: 8 });
+$("tradeQuotePriceValue").textContent = quote?.price > 0 ? `${formatPriceSol(quote.price)} SOL` : "—";
 }
 if ($("tradeQuoteFeeValue")) {
 $("tradeQuoteFeeValue").textContent = formatSol(quote?.feeSol || 0, 6);
@@ -1290,7 +1413,7 @@ if ($("tradeQuotePrimaryValue")) {
 $("tradeQuotePrimaryValue").textContent = formatSol(quote?.netSolOut || 0, 6);
 }
 if ($("tradeQuotePriceValue")) {
-$("tradeQuotePriceValue").textContent = formatNumber(quote?.price || 0, { maximumFractionDigits: 8 });
+$("tradeQuotePriceValue").textContent = quote?.price > 0 ? `${formatPriceSol(quote.price)} SOL` : "—";
 }
 if ($("tradeQuoteFeeValue")) {
 $("tradeQuoteFeeValue").textContent = formatSol(quote?.feeSol || 0, 6);
@@ -1326,7 +1449,7 @@ async handleTradeSubmitClick() {
 if (this.phase !== PHASES.LIVE || this.tradeBusy) return;
 
 const submitBtn = $("tradeSubmitBtn");
-const originalText = submitBtn?.textContent || "Get Quote";
+const originalText = submitBtn?.textContent || "Preview Buy";
 
 try {
 this.tradeBusy = true;
@@ -1338,22 +1461,31 @@ if (!this.connectedWallet) {
 throw new Error("Connect wallet first");
 }
 
-if (submitBtn) submitBtn.textContent = "Quoting...";
+if (submitBtn) {
+submitBtn.textContent = this.tradeMode === TRADE_MODES.BUY ? "Preparing Buy Preview..." : "Preparing Sell Preview...";
+}
+
 const quotePayload = await this.getTradeQuote();
 this.applyQuoteToUi(quotePayload);
-setTradeMessage("Quote ready. Review and submit again to execute.", "success");
+setTradeMessage(
+this.tradeMode === TRADE_MODES.BUY
+? "Buy preview ready. Review execution details and submit again to execute."
+: "Sell preview ready. Review execution details and submit again to execute.",
+"success"
+);
 return;
 }
 
 if (submitBtn) {
-submitBtn.textContent = this.tradeMode === TRADE_MODES.BUY ? "Buying..." : "Selling...";
+submitBtn.textContent = this.tradeMode === TRADE_MODES.BUY ? "Executing Buy..." : "Executing Sell...";
 }
 
 const result = await this.executeTrade();
+
 const message =
 this.tradeMode === TRADE_MODES.BUY
-? `Buy executed: received ${formatTokenAmount(result?.tokensReceived || 0, 0)} tokens`
-: `Sell executed: received ${formatSol(result?.solReceived || 0, 6)}`;
+? `Buy Executed\nReceived: ${formatTokenAmount(result?.tokensReceived || 0, 0)} tokens\nPaid: ${formatSol(this.getTradeAmountValue(), 6)}\nFee: ${formatSol(result?.feeSol || 0, 6)}`
+: `Sell Executed\nReceived: ${formatSol(result?.solReceived || 0, 6)}\nSold: ${formatTokenAmount(this.getTradeAmountValue(), 0)} tokens\nFee: ${formatSol(result?.feeSol || 0, 6)}`;
 
 setTradeMessage(message, "success");
 

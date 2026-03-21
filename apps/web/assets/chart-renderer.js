@@ -29,6 +29,28 @@ maximumFractionDigits: 2,
 }).format(toNumber(value, 0));
 }
 
+function formatAxisTime(value, interval = "1m") {
+const d = new Date(value);
+if (!Number.isFinite(d.getTime())) return "";
+
+if (interval === "1d") {
+return d.toLocaleDateString([], { month: "short", day: "2-digit" });
+}
+
+if (interval === "4h" || interval === "1h") {
+return d.toLocaleString([], {
+month: "short",
+day: "2-digit",
+hour: "2-digit",
+});
+}
+
+return d.toLocaleTimeString([], {
+hour: "2-digit",
+minute: "2-digit",
+});
+}
+
 function getCanvasSize(canvas) {
 const rect = canvas.getBoundingClientRect();
 const dpr = window.devicePixelRatio || 1;
@@ -117,17 +139,21 @@ this.stats = {};
 this.activeIndex = -1;
 this.activeInterval = "1m";
 this.resizeObserver = null;
+this.visibleCandles = [];
 
 this.palette = {
 up: "#35f5a3",
 down: "#ff5b6b",
-grid: "rgba(255,255,255,.08)",
-text: "rgba(255,255,255,.72)",
+grid: "rgba(255,255,255,.06)",
+gridStrong: "rgba(255,255,255,.10)",
+text: "rgba(255,255,255,.74)",
 faint: "rgba(255,255,255,.42)",
 line: "rgba(255,255,255,.16)",
-crosshair: "rgba(255,255,255,.18)",
-lastPrice: "rgba(255,255,255,.9)",
+crosshair: "rgba(255,255,255,.20)",
+lastPrice: "rgba(255,255,255,.92)",
 volume: "rgba(255,255,255,.18)",
+bgPanel: "rgba(7,11,18,.92)",
+white: "#ffffff",
 };
 }
 
@@ -208,12 +234,12 @@ this.draw();
 }
 
 onPointerMove(event) {
-if (!this.candles.length) return;
+if (!this.visibleCandles.length) return;
 
 const rect = this.chartCanvas.getBoundingClientRect();
 const x = event.clientX - rect.left;
-const candleWidth = rect.width / Math.max(this.candles.length, 1);
-const index = clamp(Math.floor(x / candleWidth), 0, this.candles.length - 1);
+const candleWidth = rect.width / Math.max(this.visibleCandles.length, 1);
+const index = clamp(Math.floor(x / candleWidth), 0, this.visibleCandles.length - 1);
 
 this.activeIndex = index;
 this.draw();
@@ -242,6 +268,8 @@ return;
 }
 
 const visibleCandles = this.candles.slice(-this.options.maxCandles);
+this.visibleCandles = visibleCandles;
+
 const priceBounds = this.getPriceBounds(visibleCandles);
 const volumeBounds = this.getVolumeBounds(visibleCandles);
 
@@ -250,15 +278,14 @@ this.drawVolumeGrid(volumeSize);
 this.drawCandles(chartSize, visibleCandles, priceBounds);
 this.drawVolumes(volumeSize, visibleCandles, volumeBounds);
 this.drawAxes(chartSize, priceBounds);
+this.drawXAxis(chartSize, visibleCandles);
 this.drawVolumeAxis(volumeSize, volumeBounds);
 this.drawTradeMarkers(chartSize, visibleCandles, priceBounds);
 this.drawLastPriceLine(chartSize, visibleCandles, priceBounds);
 
-if (this.activeIndex >= 0) {
-const visibleIndex = Math.max(0, visibleCandles.length - this.options.maxCandles);
-const localIndex = clamp(this.activeIndex - visibleIndex, 0, visibleCandles.length - 1);
-this.drawCrosshair(chartSize, volumeSize, visibleCandles, priceBounds, localIndex);
-this.drawTooltip(visibleCandles[localIndex]);
+if (this.activeIndex >= 0 && this.activeIndex < visibleCandles.length) {
+this.drawCrosshair(chartSize, volumeSize, visibleCandles, priceBounds, this.activeIndex);
+this.drawTooltip(visibleCandles[this.activeIndex], false);
 } else {
 this.drawTooltip(visibleCandles[visibleCandles.length - 1], true);
 }
@@ -282,8 +309,20 @@ ctx.fillText(subtitle, width / 2, height / 2 + 18);
 ctx.restore();
 };
 
-drawLabel(this.chartCtx, chartSize.width, chartSize.height, "Waiting for market data", "Candles will appear once live trading begins.");
-drawLabel(this.volumeCtx, volumeSize.width, volumeSize.height, "Volume pending", "Executed trades will populate this area.");
+drawLabel(
+this.chartCtx,
+chartSize.width,
+chartSize.height,
+"Waiting for market data",
+"Candles will appear once live trading begins."
+);
+drawLabel(
+this.volumeCtx,
+volumeSize.width,
+volumeSize.height,
+"Volume pending",
+"Executed trades will populate this area."
+);
 }
 
 getPriceBounds(candles) {
@@ -327,7 +366,7 @@ max: padded || 1,
 yForPrice(height, price, bounds) {
 const range = bounds.max - bounds.min || 1;
 const top = 16;
-const bottom = height - 28;
+const bottom = height - 30;
 const usable = bottom - top;
 const pct = (price - bounds.min) / range;
 return bottom - usable * pct;
@@ -336,7 +375,7 @@ return bottom - usable * pct;
 yForVolume(height, volume, bounds) {
 const range = bounds.max - bounds.min || 1;
 const top = 10;
-const bottom = height - 18;
+const bottom = height - 22;
 const usable = bottom - top;
 const pct = (volume - bounds.min) / range;
 return bottom - usable * pct;
@@ -391,7 +430,7 @@ const ctx = this.chartCtx;
 const width = size.width;
 const height = size.height;
 const candleSlot = width / Math.max(candles.length, 1);
-const bodyWidth = Math.max(3, candleSlot - this.options.candleGap);
+const bodyWidth = Math.max(4, candleSlot - this.options.candleGap);
 
 ctx.save();
 
@@ -408,19 +447,26 @@ const color = isUp ? this.palette.up : this.palette.down;
 ctx.strokeStyle = color;
 ctx.lineWidth = this.options.wickWidth;
 ctx.beginPath();
-ctx.moveTo(centerX + 0.5, highY);
-ctx.lineTo(centerX + 0.5, lowY);
+ctx.moveTo(Math.round(centerX) + 0.5, highY);
+ctx.lineTo(Math.round(centerX) + 0.5, lowY);
 ctx.stroke();
 
 const bodyTop = Math.min(openY, closeY);
 const bodyHeight = Math.max(2, Math.abs(closeY - openY));
 const bodyLeft = centerX - bodyWidth / 2;
 
-ctx.fillStyle = rgba(color, 0.9);
+ctx.fillStyle = rgba(color, 0.88);
 ctx.fillRect(bodyLeft, bodyTop, bodyWidth, bodyHeight);
 
 ctx.strokeStyle = rgba(color, 1);
+ctx.lineWidth = 1;
 ctx.strokeRect(bodyLeft + 0.5, bodyTop + 0.5, Math.max(1, bodyWidth - 1), Math.max(1, bodyHeight - 1));
+
+if (this.activeIndex === index) {
+ctx.strokeStyle = rgba("#ffffff", 0.18);
+ctx.lineWidth = 1;
+ctx.strokeRect(bodyLeft - 1.5, bodyTop - 1.5, bodyWidth + 3, bodyHeight + 3);
+}
 });
 
 ctx.restore();
@@ -431,7 +477,7 @@ const ctx = this.volumeCtx;
 const width = size.width;
 const height = size.height;
 const slot = width / Math.max(candles.length, 1);
-const barWidth = Math.max(3, slot - this.options.candleGap);
+const barWidth = Math.max(4, slot - this.options.candleGap);
 
 ctx.save();
 
@@ -439,9 +485,9 @@ candles.forEach((candle, index) => {
 const centerX = index * slot + slot / 2;
 const left = centerX - barWidth / 2;
 const top = this.yForVolume(height, candle.volumeBase, bounds);
-const barHeight = Math.max(2, height - 18 - top);
+const barHeight = Math.max(2, height - 22 - top);
 const isUp = candle.close >= candle.open;
-const color = isUp ? rgba(this.palette.up, 0.34) : rgba(this.palette.down, 0.34);
+const color = isUp ? rgba(this.palette.up, 0.28) : rgba(this.palette.down, 0.28);
 
 ctx.fillStyle = color;
 ctx.fillRect(left, top, barWidth, barHeight);
@@ -462,8 +508,30 @@ ctx.textAlign = "right";
 for (let i = 0; i < levels; i += 1) {
 const pct = i / (levels - 1);
 const price = bounds.max - (bounds.max - bounds.min) * pct;
-const y = 16 + (size.height - 44) * pct;
+const y = 16 + (size.height - 46) * pct;
 ctx.fillText(formatPrice(price), size.width - 8, y + 4);
+}
+
+ctx.restore();
+}
+
+drawXAxis(size, candles) {
+if (!candles.length) return;
+
+const ctx = this.volumeCtx;
+const labelsToShow = Math.min(4, candles.length);
+if (labelsToShow <= 1) return;
+
+ctx.save();
+ctx.fillStyle = this.palette.faint;
+ctx.font = "500 10px Inter, system-ui, sans-serif";
+ctx.textAlign = "center";
+
+for (let i = 0; i < labelsToShow; i += 1) {
+const idx = Math.round((i * (candles.length - 1)) / (labelsToShow - 1));
+const x = (idx / Math.max(candles.length - 1, 1)) * (size.width - 24) + 12;
+const label = formatAxisTime(candles[idx]?.time, this.activeInterval);
+ctx.fillText(label, x, size.height - 6);
 }
 
 ctx.restore();
@@ -478,7 +546,7 @@ ctx.font = "500 11px Inter, system-ui, sans-serif";
 ctx.textAlign = "right";
 
 ctx.fillText(formatCompact(bounds.max), size.width - 8, 16);
-ctx.fillText("0", size.width - 8, size.height - 8);
+ctx.fillText("0", size.width - 8, size.height - 28);
 
 ctx.restore();
 }
@@ -502,18 +570,18 @@ ctx.setLineDash([]);
 
 const label = formatPrice(last.close);
 ctx.font = "700 11px Inter, system-ui, sans-serif";
-const labelWidth = ctx.measureText(label).width + 14;
+const labelWidth = ctx.measureText(label).width + 16;
 const x = Math.max(6, size.width - labelWidth - 8);
 const h = 22;
 
-ctx.fillStyle = "rgba(7,11,18,.92)";
-ctx.strokeStyle = rgba(this.palette.lastPrice, 0.28);
+ctx.fillStyle = this.palette.bgPanel;
+ctx.strokeStyle = rgba(this.palette.lastPrice, 0.24);
 ctx.lineWidth = 1;
 this.roundRect(ctx, x, y - h / 2, labelWidth, h, 10);
 ctx.fill();
 ctx.stroke();
 
-ctx.fillStyle = "#ffffff";
+ctx.fillStyle = this.palette.white;
 ctx.textAlign = "center";
 ctx.fillText(label, x + labelWidth / 2, y + 4);
 
@@ -535,7 +603,7 @@ const range = Math.max(1, maxTime - minTime);
 
 ctx.save();
 
-for (const trade of this.trades.slice(-24)) {
+for (const trade of this.trades.slice(-20)) {
 const time = new Date(trade.time).getTime();
 if (!Number.isFinite(time)) continue;
 if (time < minTime || time > maxTime) continue;
@@ -546,10 +614,10 @@ const color = trade.side === "sell" ? this.palette.down : this.palette.up;
 
 ctx.fillStyle = rgba(color, 0.95);
 ctx.beginPath();
-ctx.arc(x, y, 4, 0, Math.PI * 2);
+ctx.arc(x, y, 3, 0, Math.PI * 2);
 ctx.fill();
 
-ctx.strokeStyle = rgba("#ffffff", 0.9);
+ctx.strokeStyle = rgba("#ffffff", 0.65);
 ctx.lineWidth = 1;
 ctx.stroke();
 }
@@ -611,16 +679,18 @@ minute: "2-digit",
 })
 : "—";
 
+const changeText = `${changePct >= 0 ? "+" : ""}${changePct.toFixed(2)}%`;
+
 this.tooltipHost.innerHTML = `
 <div class="elite-chart-tooltip-card ${pinned ? "is-pinned" : ""}">
 <div class="elite-chart-tooltip-time">${timeText}</div>
 <div class="elite-chart-tooltip-grid">
-<div><span>O</span><strong>${formatPrice(candle.open)}</strong></div>
-<div><span>H</span><strong>${formatPrice(candle.high)}</strong></div>
-<div><span>L</span><strong>${formatPrice(candle.low)}</strong></div>
-<div><span>C</span><strong>${formatPrice(candle.close)}</strong></div>
-<div><span>Vol</span><strong>${formatCompact(candle.volumeBase)}</strong></div>
-<div><span>Δ</span><strong>${changePct >= 0 ? "+" : ""}${changePct.toFixed(2)}%</strong></div>
+<div><span>Open</span><strong>${formatPrice(candle.open)}</strong></div>
+<div><span>High</span><strong>${formatPrice(candle.high)}</strong></div>
+<div><span>Low</span><strong>${formatPrice(candle.low)}</strong></div>
+<div><span>Close</span><strong>${formatPrice(candle.close)}</strong></div>
+<div><span>Volume</span><strong>${formatCompact(candle.volumeBase)}</strong></div>
+<div><span>Change</span><strong>${changeText}</strong></div>
 </div>
 </div>
 `;
