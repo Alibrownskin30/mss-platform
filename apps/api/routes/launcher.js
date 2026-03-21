@@ -167,6 +167,15 @@ const parsed = parseJsonMaybe(value, []);
 return Array.isArray(parsed) ? parsed : [];
 }
 
+function isBuilderTemplate(value) {
+const template =
+typeof value === "string"
+? value
+: String(value?.template || "").trim();
+
+return template === "builder";
+}
+
 function getTemplateConfig(template) {
 const configs = {
 degen: {
@@ -260,7 +269,7 @@ netRaiseAfterFee,
 }
 
 function shapeBuilderConfig(template, reqBody) {
-if (template !== "builder") {
+if (!isBuilderTemplate(template)) {
 return {
 team_allocation_pct: 0,
 team_wallets: [],
@@ -319,7 +328,7 @@ if (Number(cfg.hard_cap_sol) <= Number(cfg.min_raise_sol)) {
 throw new Error("hard cap must be greater than minimum raise");
 }
 
-if (template !== "builder") {
+if (!isBuilderTemplate(template)) {
 return;
 }
 
@@ -440,16 +449,24 @@ team_wallet_breakdown: teamWalletBreakdown,
 
 function hasCollectedBuilderBond(row) {
 const launch = parseLaunchJsonFields(row);
+if (!isBuilderTemplate(launch)) return false;
+
 return Boolean(
 Number(launch.builder_bond_paid || 0) === 1 ||
 cleanText(launch.builder_bond_tx_signature || "", 140)
 );
 }
 
+function requiresBuilderBond(row) {
+const launch = parseLaunchJsonFields(row);
+if (!isBuilderTemplate(launch)) return false;
+return Number(launch.builder_bond_sol || 0) > 0;
+}
+
 function isBuilderBondSatisfied(row) {
 const launch = parseLaunchJsonFields(row);
-if (String(launch.template || "") !== "builder") return true;
-if (Number(launch.builder_bond_sol || 0) <= 0) return false;
+if (!isBuilderTemplate(launch)) return true;
+if (!requiresBuilderBond(launch)) return true;
 return Number(launch.builder_bond_paid || 0) === 1;
 }
 
@@ -846,7 +863,7 @@ refundedSolActual: 0,
 }));
 
 const shouldRefundBuilderBond =
-String(parsedLaunch.template || "") === "builder" &&
+isBuilderTemplate(parsedLaunch) &&
 Number(parsedLaunch.builder_bond_sol || 0) > 0 &&
 Number(parsedLaunch.builder_bond_refunded || 0) !== 1 &&
 hasCollectedBuilderBond(parsedLaunch) &&
@@ -961,8 +978,9 @@ let launch = await getLaunchById(launchId);
 if (!launch) return null;
 
 if (
-String(launch.template || "") === "builder" &&
+isBuilderTemplate(launch) &&
 ["commit", "countdown"].includes(String(launch.status || "")) &&
+requiresBuilderBond(launch) &&
 !isBuilderBondSatisfied(launch)
 ) {
 await markLaunchFailed(launchId);
@@ -1133,8 +1151,7 @@ const sigBuf = decodedTx.signatures?.[0]?.signature;
 if (sigBuf) {
 txSignature = bs58.encode(sigBuf);
 }
-} catch {
-}
+} catch {}
 
 try {
 txSignature = await connection.sendRawTransaction(rawSignedTx, {
@@ -1246,7 +1263,7 @@ error: validationErr.message,
 let builderBondPaid = 0;
 let finalBuilderBondTxSignature = "";
 
-if (template === "builder") {
+if (isBuilderTemplate(template)) {
 if (!builderBondTxSignature) {
 return res.status(400).json({
 ok: false,
@@ -1322,7 +1339,7 @@ tokenName,
 symbol,
 description,
 imageUrl,
-template === "builder"
+isBuilderTemplate(template)
 ? normalizeSupply(req.body.supply, cfg.supply)
 : cfg.supply,
 cfg.min_raise_sol,
@@ -1727,7 +1744,7 @@ const parsedLaunch = parseLaunchJsonFields(launch);
 
 if (
 launch.status === "failed" &&
-String(parsedLaunch.template || "") === "builder" &&
+isBuilderTemplate(parsedLaunch) &&
 Number(parsedLaunch.builder_bond_sol || 0) > 0 &&
 Number(parsedLaunch.builder_bond_refunded || 0) !== 1 &&
 hasCollectedBuilderBond(parsedLaunch)
@@ -1994,7 +2011,7 @@ ORDER BY l.id DESC
 const shaped = rows
 .filter(
 (row) =>
-isBuilderBondSatisfied(row) || String(row.template || "") !== "builder"
+isBuilderBondSatisfied(row) || !isBuilderTemplate(row)
 )
 .map(shapeLaunchForList);
 
@@ -2150,10 +2167,6 @@ WHERE l.id = ?
 );
 
 if (!launch) {
-return res.status(404).json({ ok: false, error: "launch not found" });
-}
-
-if (!isBuilderBondSatisfied(launch)) {
 return res.status(404).json({ ok: false, error: "launch not found" });
 }
 

@@ -15,12 +15,25 @@ id: row.id,
 launch_id: row.launch_id,
 token_id: row.token_id,
 wallet: row.wallet,
-side: row.side,
+side: String(row.side || "").toLowerCase() === "sell" ? "sell" : "buy",
 price_sol: toNumber(row.price, 0),
 token_amount: toNumber(row.token_amount, 0),
 base_amount: toNumber(row.sol_amount, 0),
+sol_amount: toNumber(row.sol_amount, 0),
 timestamp: row.created_at,
+created_at: row.created_at,
 };
+}
+
+function inferCassieRisk(stats = {}) {
+const priceChangePct = Math.abs(toNumber(stats.price_change_pct, 0));
+const buys24h = toNumber(stats.buys_24h, 0);
+const sells24h = toNumber(stats.sells_24h, 0);
+const flowImbalance = Math.abs(buys24h - sells24h);
+
+if (priceChangePct >= 25 || flowImbalance >= 10) return "elevated";
+if (priceChangePct >= 12 || flowImbalance >= 5) return "active";
+return "normal";
 }
 
 router.get("/:launchId", async (req, res) => {
@@ -28,46 +41,50 @@ try {
 const launchId = Number(req.params.launchId);
 
 if (!launchId) {
-return res.status(400).json({ error: "Invalid launchId" });
+return res.status(400).json({ ok: false, error: "Invalid launchId" });
 }
 
 const launch = await db.get(
 `
 SELECT
-id,
-token_name,
-symbol,
-status,
-contract_address,
-builder_wallet,
-supply,
-final_supply,
-circulating_supply,
-committed_sol,
-participants_count,
-hard_cap_sol,
-internal_pool_sol,
-liquidity,
-liquidity_usd,
-current_liquidity_usd,
-website_url,
-x_url,
-telegram_url,
-discord_url,
-countdown_started_at,
-countdown_ends_at,
-live_at,
-commit_started_at,
-commit_ends_at
-FROM launches
-WHERE id = ?
+l.id,
+l.token_name,
+l.symbol,
+l.status,
+l.template,
+l.contract_address,
+l.builder_wallet,
+l.supply,
+l.final_supply,
+l.circulating_supply,
+l.committed_sol,
+l.participants_count,
+l.hard_cap_sol,
+l.internal_pool_sol,
+l.liquidity,
+l.liquidity_usd,
+l.current_liquidity_usd,
+l.website_url,
+l.x_url,
+l.telegram_url,
+l.discord_url,
+l.countdown_started_at,
+l.countdown_ends_at,
+l.live_at,
+l.commit_started_at,
+l.commit_ends_at,
+b.alias AS builder_alias,
+b.builder_score AS builder_score
+FROM launches l
+LEFT JOIN builders b ON b.id = l.builder_id
+WHERE l.id = ?
 LIMIT 1
 `,
 [launchId]
 );
 
 if (!launch) {
-return res.status(404).json({ error: "Launch not found" });
+return res.status(404).json({ ok: false, error: "Launch not found" });
 }
 
 const token = await db.get(
@@ -81,10 +98,6 @@ LIMIT 1
 [launchId]
 );
 
-if (!token) {
-return res.status(404).json({ error: "Token not found" });
-}
-
 const pool = await db.get(
 `
 SELECT *
@@ -95,10 +108,6 @@ LIMIT 1
 `,
 [launchId]
 );
-
-if (!pool) {
-return res.status(404).json({ error: "Pool not found" });
-}
 
 const tradeRows = await db.all(
 `
@@ -114,7 +123,7 @@ price,
 created_at
 FROM trades
 WHERE launch_id = ?
-ORDER BY datetime(created_at) ASC
+ORDER BY datetime(created_at) ASC, id ASC
 LIMIT 2000
 `,
 [launchId]
@@ -122,18 +131,25 @@ LIMIT 2000
 
 const trades = Array.isArray(tradeRows) ? tradeRows.map(normalizeTradeRow) : [];
 
-const tokenReserve = toNumber(pool.token_reserve, 0);
-const solReserve = toNumber(pool.sol_reserve, 0);
-const kValue = toNumber(pool.k_value, 0);
+const tokenReserve = toNumber(pool?.token_reserve, 0);
+const solReserve = toNumber(pool?.sol_reserve, 0);
+const kValue = toNumber(pool?.k_value, 0);
 
 const launchForStats = {
 ...launch,
-total_supply: toNumber(token.supply ?? launch.final_supply ?? launch.supply, 0),
+total_supply: toNumber(
+token?.supply ?? launch.final_supply ?? launch.supply,
+0
+),
 circulating_supply: toNumber(
-launch.circulating_supply ?? token.supply ?? launch.final_supply ?? launch.supply,
+launch.circulating_supply ??
+token?.supply ??
+launch.final_supply ??
+launch.supply,
 0
 ),
 liquidity_sol: solReserve,
+internal_pool_sol: solReserve,
 };
 
 const stats = buildMarketStats({
@@ -142,33 +158,65 @@ trades,
 candles: [],
 });
 
+const cassieRisk = inferCassieRisk(stats);
+
 return res.json({
+ok: true,
 success: true,
+launch: {
+id: launch.id,
+token_name: launch.token_name,
+symbol: launch.symbol,
+status: launch.status,
+template: launch.template || null,
+contract_address: launch.contract_address || null,
+builder_wallet: launch.builder_wallet || null,
+builder_alias: launch.builder_alias || null,
+builder_score: toNumber(launch.builder_score, 0),
+website_url: launch.website_url || "",
+x_url: launch.x_url || "",
+telegram_url: launch.telegram_url || "",
+discord_url: launch.discord_url || "",
+committed_sol: toNumber(launch.committed_sol, 0),
+participants_count: toNumber(launch.participants_count, 0),
+hard_cap_sol: toNumber(launch.hard_cap_sol, 0),
+countdown_started_at: launch.countdown_started_at || null,
+countdown_ends_at: launch.countdown_ends_at || null,
+live_at: launch.live_at || null,
+commit_started_at: launch.commit_started_at || null,
+commit_ends_at: launch.commit_ends_at || null,
+},
 token: {
-id: token.id,
-launch_id: token.launch_id,
-name: token.name,
-symbol: token.symbol,
-supply: token.supply,
-mint_address: token.mint_address || null,
+id: token?.id || null,
+launch_id: token?.launch_id || launchId,
+name: token?.name || launch.token_name || null,
+symbol: token?.symbol || launch.symbol || null,
+ticker: token?.symbol || launch.symbol || null,
+supply: toNumber(token?.supply ?? launch.final_supply ?? launch.supply, 0),
+mint_address: token?.mint_address || launch.contract_address || null,
+mint: token?.mint_address || launch.contract_address || null,
 },
 stats,
-pool: {
+pool: pool
+? {
 id: pool.id,
 status: pool.status,
 token_reserve: tokenReserve,
 sol_reserve: solReserve,
 k_value: kValue,
-},
+}
+: null,
 cassie: {
 monitoring_active: true,
 phase: String(launch.status || "").toLowerCase() || "commit",
 layer: "market-intelligence",
+risk_state: cassieRisk,
 },
 });
 } catch (err) {
 console.error("TOKEN STATS error:", err);
 return res.status(500).json({
+ok: false,
 error: "Failed to fetch token stats",
 message: err?.message || String(err),
 });
@@ -180,27 +228,38 @@ try {
 const launchId = Number(req.params.launchId);
 
 if (!launchId) {
-return res.status(400).json({ error: "Invalid launchId" });
+return res.status(400).json({ ok: false, error: "Invalid launchId" });
 }
 
 const trades = await db.all(
 `
-SELECT *
+SELECT
+id,
+launch_id,
+token_id,
+wallet,
+side,
+sol_amount,
+token_amount,
+price,
+created_at
 FROM trades
 WHERE launch_id = ?
-ORDER BY id DESC
+ORDER BY datetime(created_at) DESC, id DESC
 LIMIT 50
 `,
 [launchId]
 );
 
 return res.json({
+ok: true,
 success: true,
-trades: Array.isArray(trades) ? trades : [],
+trades: Array.isArray(trades) ? trades.map(normalizeTradeRow).reverse() : [],
 });
 } catch (err) {
 console.error("TOKEN TRADES error:", err);
 return res.status(500).json({
+ok: false,
 error: "Failed to fetch trades",
 message: err?.message || String(err),
 });

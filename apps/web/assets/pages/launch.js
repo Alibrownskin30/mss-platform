@@ -48,8 +48,17 @@ return Number.isFinite(n) ? n : fallback;
 
 function parseTs(v) {
 if (!v) return null;
-const ms = Date.parse(String(v).replace(" ", "T") + "Z");
-return Number.isFinite(ms) ? ms : null;
+const raw = String(v).trim();
+if (!raw) return null;
+
+const direct = Date.parse(raw);
+if (Number.isFinite(direct)) return direct;
+
+const sqliteUtc = Date.parse(raw.replace(" ", "T") + "Z");
+if (Number.isFinite(sqliteUtc)) return sqliteUtc;
+
+const sqliteLocal = Date.parse(raw.replace(" ", "T"));
+return Number.isFinite(sqliteLocal) ? sqliteLocal : null;
 }
 
 function fmtCountdown(ms) {
@@ -75,14 +84,8 @@ const hours = Math.floor(totalSeconds / 3600);
 const minutes = Math.floor((totalSeconds % 3600) / 60);
 const seconds = totalSeconds % 60;
 
-if (hours > 0) {
-return `${hours}h ${minutes}m ${seconds}s`;
-}
-
-if (minutes > 0) {
-return `${minutes}m ${seconds}s`;
-}
-
+if (hours > 0) return `${hours}h ${minutes}m ${seconds}s`;
+if (minutes > 0) return `${minutes}m ${seconds}s`;
 return `${seconds}s`;
 }
 
@@ -121,18 +124,21 @@ return "commit";
 
 function getBuilderTrust(score) {
 const n = safeNum(score, 0);
+
 if (n >= 80) {
 return {
 label: "Strong",
 note: "Builder profile currently shows strong trust alignment.",
 };
 }
+
 if (n >= 55) {
 return {
 label: "Moderate",
 note: "Builder profile currently shows moderate trust alignment.",
 };
 }
+
 return {
 label: "Early",
 note: "Builder profile is still early-stage and building trust history.",
@@ -337,9 +343,7 @@ fetchJson(`/api/launcher/${id}`),
 fetchJson(`/api/launcher/commits/${id}`),
 ]);
 
-if (requestSeq !== loadRequestSeq) {
-return;
-}
+if (requestSeq !== loadRequestSeq) return;
 
 currentLaunch = launchRes.launch;
 currentCommitStats = commitsRes;
@@ -372,7 +376,7 @@ list.innerHTML = items
 (row) => `
 <div class="recent-item">
 <div style="min-width:0;">
-<div class="recent-wallet">${escapeHtml(row.wallet || "Unknown")}</div>
+<div class="recent-wallet">${escapeHtml(shortenWallet(row.wallet || "Unknown"))}</div>
 <div class="recent-meta">${escapeHtml(row.created_at || "")}</div>
 </div>
 <div class="recent-wallet">${safeNum(row.sol_amount)} SOL</div>
@@ -390,10 +394,7 @@ if (!Number.isFinite(commitStartedAt) || !Number.isFinite(countdownStartedAt)) {
 return null;
 }
 
-if (countdownStartedAt <= commitStartedAt) {
-return null;
-}
-
+if (countdownStartedAt <= commitStartedAt) return null;
 return countdownStartedAt - commitStartedAt;
 }
 
@@ -626,6 +627,7 @@ phaseNote.textContent = note;
 function renderBuilderInfo(launch) {
 const builderAliasEl = $("builderAlias");
 const builderScoreEl = $("builderScore");
+const launchBuilderLabelEl = $("launchBuilderLabel");
 
 if (!builderAliasEl || !builderScoreEl) return;
 
@@ -641,6 +643,10 @@ builderAliasEl.textContent = `${launch.builder_alias || launch.builder_wallet ||
 }
 
 builderScoreEl.textContent = `${builderScore} (${builderTrust.label})`;
+
+if (launchBuilderLabelEl) {
+launchBuilderLabelEl.textContent = launch.builder_alias || "Builder";
+}
 }
 
 function renderProgressCard(launch, committed, hardCap, minRaise, participants, pct, commitEndsAt, stats) {
@@ -664,7 +670,8 @@ pill.textContent = badgeText(launch.status);
 pill.className = `status-pill ${pillClass(launch.status)}`;
 }
 
-if (subline) {
+if (!subline) return;
+
 if (launch.status === "commit") {
 const minRemaining = Math.max(0, minRaise - committed);
 const hardRemaining = Math.max(0, hardCap - committed);
@@ -733,7 +740,6 @@ subline.textContent += " • No bond collected";
 subline.textContent = `Launch status • ${participants} participant${participants === 1 ? "" : "s"}`;
 }
 }
-}
 
 function renderAllocationStructure(launch, stats) {
 const participantsPctStat = $("participantsPctStat");
@@ -759,7 +765,8 @@ if (participantsPctStat) participantsPctStat.textContent = `${participantsPct}%`
 if (liquidityPctStat) liquidityPctStat.textContent = `${liquidityPct}%`;
 if (reservePctStat) reservePctStat.textContent = `${effectiveReservePct}%`;
 
-if (builderPctStat) {
+if (!builderPctStat) return;
+
 if (isBuilder) {
 let bondLabel = `Bond ${fmtSol(bondState.amount)}`;
 if (bondState.refunded) {
@@ -775,7 +782,6 @@ builderPctStat.innerHTML = `${baseBuilderPct}%<div style="margin-top:6px;font-si
 builderPctStat.textContent = `${baseBuilderPct}%`;
 }
 }
-}
 
 function updateWalletUi() {
 const walletInput = $("commitWallet");
@@ -785,9 +791,7 @@ const disconnectBtn = $("disconnectWalletBtn");
 const walletHint = $("walletHint");
 const walletState = getConnectedWallet();
 
-if (walletInput) {
-walletInput.value = walletState.publicKey || "";
-}
+if (walletInput) walletInput.value = walletState.publicKey || "";
 
 if (walletPill) {
 walletPill.textContent = walletState.isConnected
@@ -829,25 +833,11 @@ const commitOpen = canCommitForStatus(status);
 const refundOpen = canRefundForStatus(status);
 const refundOnly = status === "failed";
 
-if (commitForm) {
-commitForm.style.display = commitOpen || refundOpen ? "" : "none";
-}
-
-if (walletField) {
-walletField.style.display = commitOpen || refundOpen ? "" : "none";
-}
-
-if (amountField) {
-amountField.style.display = commitOpen ? "" : "none";
-}
-
-if (quickWrap) {
-quickWrap.style.display = commitOpen ? "" : "none";
-}
-
-if (actionStack) {
-actionStack.style.display = commitOpen || refundOpen ? "" : "none";
-}
+if (commitForm) commitForm.style.display = commitOpen || refundOpen ? "" : "none";
+if (walletField) walletField.style.display = commitOpen || refundOpen ? "" : "none";
+if (amountField) amountField.style.display = commitOpen ? "" : "none";
+if (quickWrap) quickWrap.style.display = commitOpen ? "" : "none";
+if (actionStack) actionStack.style.display = commitOpen || refundOpen ? "" : "none";
 
 if (commitBtn) {
 commitBtn.style.display = commitOpen ? "inline-flex" : "none";
@@ -942,13 +932,16 @@ const pct = hardCap > 0
 if ($("launchName")) {
 $("launchName").textContent = launch.token_name || "Untitled Launch";
 }
+
 if ($("launchSubline")) {
 $("launchSubline").textContent =
 `${launch.symbol || "—"} • ${String(launch.template || "—").replaceAll("_", " ")} • ${badgeText(launch.status)}`;
 }
+
 if ($("launchDesc")) {
 $("launchDesc").textContent = launch.description || "No description provided.";
 }
+
 if ($("launchStatusText")) {
 $("launchStatusText").textContent = badgeText(launch.status);
 }
@@ -957,7 +950,6 @@ renderBuilderInfo(launch);
 renderAllocationStructure(launch, stats);
 renderLaunchEconomics(launch, committed);
 renderTeamWalletBreakdown(launch, stats);
-
 renderLogo(launch.image_url);
 renderProgressCard(launch, committed, hardCap, minRaise, participants, pct, commitEndsAt, stats);
 
@@ -1041,9 +1033,7 @@ setStatus(msg.includes("No supported wallet") ? getMobileWalletHelpText() : msg,
 } finally {
 walletActionInFlight = false;
 updateWalletUi();
-if (currentLaunch && currentCommitStats) {
-render();
-}
+if (currentLaunch && currentCommitStats) render();
 }
 }
 
@@ -1059,9 +1049,7 @@ await disconnectAnyWallet();
 } finally {
 walletActionInFlight = false;
 updateWalletUi();
-if (currentLaunch && currentCommitStats) {
-render();
-}
+if (currentLaunch && currentCommitStats) render();
 await syncLaunchMarketController(true);
 }
 
@@ -1201,8 +1189,7 @@ await refresh();
 console.error(refreshErr);
 }
 } else {
-const message = err?.message || "Commit failed.";
-setStatus(message, "bad");
+setStatus(err?.message || "Commit failed.", "bad");
 try {
 await refresh();
 } catch (refreshErr) {
@@ -1269,7 +1256,7 @@ setStatus(
 await refresh();
 } catch (err) {
 console.error(err);
-setStatus(err.message || "Refund failed.", "bad");
+setStatus(err?.message || "Refund failed.", "bad");
 try {
 await refresh();
 } catch (refreshErr) {
@@ -1279,10 +1266,6 @@ console.error(refreshErr);
 refundActionInFlight = false;
 render();
 }
-}
-
-async function startCountdown() {
-setStatus("");
 }
 
 function bindQuickAmounts() {
@@ -1301,9 +1284,7 @@ $("disconnectWalletBtn")?.addEventListener("click", disconnectWallet);
 
 onWalletChange(async () => {
 updateWalletUi();
-if (currentLaunch && currentCommitStats) {
-render();
-}
+if (currentLaunch && currentCommitStats) render();
 await syncLaunchMarketController(true);
 });
 }
@@ -1315,7 +1296,6 @@ bindQuickAmounts();
 bindWalletEvents();
 $("commitForm")?.addEventListener("submit", onCommitSubmit);
 $("refundBtn")?.addEventListener("click", refundCommit);
-$("startCountdownBtn")?.addEventListener("click", startCountdown);
 
 await restoreWalletIfTrusted();
 updateWalletUi();
@@ -1324,7 +1304,7 @@ try {
 await refresh();
 } catch (err) {
 console.error(err);
-setStatus(err.message || "Failed to load launch.", "bad");
+setStatus(err?.message || "Failed to load launch.", "bad");
 }
 
 if (refreshIntervalId) clearInterval(refreshIntervalId);

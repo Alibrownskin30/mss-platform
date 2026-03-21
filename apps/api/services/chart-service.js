@@ -9,25 +9,47 @@ return Number.isFinite(num) ? num : fallback;
 function pickLaunchRow(row) {
 if (!row) return null;
 
+const liquiditySol = toNumber(
+row.sol_reserve ?? row.internal_pool_sol ?? row.liquidity ?? 0,
+0
+);
+
 return {
 id: row.id,
 name: row.token_name,
+token_name: row.token_name,
 symbol: row.symbol,
 status: row.status,
+template: row.template,
 contract_address: row.contract_address,
+mint_address: row.mint_address || null,
 builder_wallet: row.builder_wallet,
+
+supply: toNumber(row.supply, 0),
+final_supply: toNumber(row.final_supply || row.supply, 0),
 total_supply: toNumber(row.final_supply || row.supply, 0),
-circulating_supply: toNumber(row.circulating_supply || row.final_supply || row.supply, 0),
-liquidity: toNumber(row.liquidity || row.internal_pool_sol, 0),
+circulating_supply: toNumber(
+row.circulating_supply || row.final_supply || row.supply,
+0
+),
+
+liquidity: liquiditySol,
+liquidity_sol: liquiditySol,
+internal_pool_sol: toNumber(row.internal_pool_sol, 0),
 liquidity_usd: toNumber(row.liquidity_usd, 0),
 current_liquidity_usd: toNumber(row.current_liquidity_usd, 0),
+sol_usd_price: toNumber(row.sol_usd_price, 0),
+
 website_url: row.website_url,
 x_url: row.x_url,
 telegram_url: row.telegram_url,
 discord_url: row.discord_url,
+
 committed_sol: toNumber(row.committed_sol, 0),
 participant_count: toNumber(row.participants_count, 0),
+participants_count: toNumber(row.participants_count, 0),
 hard_cap_sol: toNumber(row.hard_cap_sol, 0),
+
 countdown_started_at: row.countdown_started_at,
 countdown_ends_at: row.countdown_ends_at,
 live_at: row.live_at,
@@ -46,7 +68,9 @@ side: row.side,
 price_sol: toNumber(row.price, 0),
 token_amount: toNumber(row.token_amount, 0),
 base_amount: toNumber(row.sol_amount, 0),
+sol_amount: toNumber(row.sol_amount, 0),
 timestamp: row.created_at,
+created_at: row.created_at,
 };
 }
 
@@ -54,33 +78,40 @@ async function getLaunchById(db, launchId) {
 const row = await db.get(
 `
 SELECT
-id,
-token_name,
-symbol,
-status,
-contract_address,
-builder_wallet,
-supply,
-final_supply,
-circulating_supply,
-committed_sol,
-participants_count,
-hard_cap_sol,
-internal_pool_sol,
-liquidity,
-liquidity_usd,
-current_liquidity_usd,
-website_url,
-x_url,
-telegram_url,
-discord_url,
-countdown_started_at,
-countdown_ends_at,
-live_at,
-commit_started_at,
-commit_ends_at
-FROM launches
-WHERE id = ?
+l.id,
+l.token_name,
+l.symbol,
+l.template,
+l.status,
+l.contract_address,
+l.mint_address,
+l.builder_wallet,
+l.supply,
+l.final_supply,
+l.circulating_supply,
+l.committed_sol,
+l.participants_count,
+l.hard_cap_sol,
+l.internal_pool_sol,
+l.liquidity,
+l.liquidity_usd,
+l.current_liquidity_usd,
+l.sol_usd_price,
+l.website_url,
+l.x_url,
+l.telegram_url,
+l.discord_url,
+l.countdown_started_at,
+l.countdown_ends_at,
+l.live_at,
+l.commit_started_at,
+l.commit_ends_at,
+p.sol_reserve,
+p.token_reserve
+FROM launches l
+LEFT JOIN pools p ON p.launch_id = l.id
+WHERE l.id = ?
+ORDER BY p.id DESC
 LIMIT 1
 `,
 [launchId]
@@ -104,7 +135,7 @@ price,
 created_at
 FROM trades
 WHERE launch_id = ?
-ORDER BY datetime(created_at) ASC
+ORDER BY datetime(created_at) ASC, id ASC
 LIMIT ?
 `,
 [launchId, limit]
@@ -156,7 +187,10 @@ trades,
 candles,
 });
 
-return { stats };
+return {
+launch,
+stats,
+};
 }
 
 export async function getChartSnapshot({
