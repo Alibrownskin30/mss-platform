@@ -223,48 +223,95 @@ overlayText: "Trading is not open yet. Commitments are being collected before ma
 }
 }
 
-function getCassieMeta(phase, tokenPayload = {}, chartStats = {}) {
+function getCassieMeta(phase, launch = {}, tokenPayload = {}, chartStats = {}) {
 const cassie = tokenPayload?.cassie || {};
 const priceChangePct = toNumber(chartStats?.price_change_pct, 0);
 const buys24h = toNumber(chartStats?.buys_24h, 0);
 const sells24h = toNumber(chartStats?.sells_24h, 0);
+const builderWallet = String(launch?.builder_wallet || "").trim();
+const builderScore = toNumber(launch?.builder_score, 0);
+
+let state = cassie?.monitoring_active ? "Monitoring" : "Standby";
+let badge = "LIVE INTELLIGENCE";
+let riskState = "Watching";
+let builderSignal = builderWallet ? "Linked" : "Pending";
+let structureSignal = "Reviewing";
+let marketSignal = "Standby";
+let note =
+"CassIE is attached to this launch and continuously surfaces builder, structure, and live market intelligence as the lifecycle progresses.";
+
+if (builderScore >= 80) {
+builderSignal = "Strong";
+} else if (builderScore >= 55) {
+builderSignal = "Moderate";
+} else if (builderWallet) {
+builderSignal = "Early";
+}
 
 if (phase === PHASES.COMMIT) {
+state = cassie?.monitoring_active ? "Monitoring" : "Standby";
+badge = "STRUCTURE WATCH";
+riskState = "Watching";
+structureSignal = "Commit Review";
+marketSignal = "Pre-Live";
+note =
+"CassIE is monitoring builder-linked signals, launch structure, wallet concentration, and commit integrity before market activation.";
+} else if (phase === PHASES.COUNTDOWN) {
+state = "Monitoring";
+badge = "OPENING WATCH";
+riskState = "Elevated";
+structureSignal = "Countdown Armed";
+marketSignal = "Opening Soon";
+note =
+"CassIE is tracking countdown integrity, final participation posture, and opening conditions before live trading begins.";
+} else if (phase === PHASES.LIVE) {
+state = cassie?.monitoring_active ? "Monitoring" : "Live";
+badge = "LIVE INTELLIGENCE";
+
+const elevatedFlow =
+Math.abs(priceChangePct) >= 25 || Math.abs(buys24h - sells24h) >= 10;
+
+riskState = elevatedFlow ? "Elevated" : "Normal";
+structureSignal = "Live";
+marketSignal = elevatedFlow ? "Active Flow" : "Balanced";
+
+note = elevatedFlow
+? "CassIE has detected elevated live market activity. Review price movement, flow imbalance, and execution details before confirming."
+: "CassIE is actively monitoring live flow, price behaviour, and structure changes as this market trades.";
+}
+
 return {
-status: "Monitoring Active",
-posture: "Structure Review",
-note: "CassIE is monitoring launch structure, builder-linked signals, and opening conditions.",
+state,
+badge,
+riskState,
+builderSignal,
+structureSignal,
+marketSignal,
+note,
 };
 }
 
-if (phase === PHASES.COUNTDOWN) {
-return {
-status: "Monitoring Active",
-posture: "Opening Watch",
-note: "CassIE is tracking countdown integrity, participant concentration, and market-open posture.",
-};
-}
-
-const elevatedFlow = Math.abs(priceChangePct) >= 25 || Math.abs(buys24h - sells24h) >= 10;
-return {
-status: cassie?.monitoring_active ? "Monitoring Active" : "Monitoring",
-posture: elevatedFlow ? "Elevated Flow" : "Normal Flow",
-note: elevatedFlow
-? "CassIE has detected elevated live market activity. Review execution details before confirming."
-: "CassIE is actively monitoring live market structure, execution flow, and concentration drift.",
-};
-}
-
-function renderCassiePanel(phase, tokenPayload = {}, chartStats = {}) {
-const statusEl = $("cassieStatusValue");
-const postureEl = $("cassiePostureValue");
+function renderCassiePanel(phase, launch = {}, tokenPayload = {}, chartStats = {}) {
+const stateEl = $("cassieState");
+const badgeEl = $("cassieBadgeText");
+const riskEl = $("cassieRiskState");
+const builderEl = $("cassieBuilderSignal");
+const structureEl = $("cassieStructureSignal");
+const marketEl = $("cassieMarketSignal");
 const noteEl = $("cassieNote");
-if (!statusEl && !postureEl && !noteEl) return;
 
-const cassieMeta = getCassieMeta(phase, tokenPayload, chartStats);
+if (!stateEl && !badgeEl && !riskEl && !builderEl && !structureEl && !marketEl && !noteEl) {
+return;
+}
 
-if (statusEl) statusEl.textContent = cassieMeta.status;
-if (postureEl) postureEl.textContent = cassieMeta.posture;
+const cassieMeta = getCassieMeta(phase, launch, tokenPayload, chartStats);
+
+if (stateEl) stateEl.textContent = cassieMeta.state;
+if (badgeEl) badgeEl.textContent = cassieMeta.badge;
+if (riskEl) riskEl.textContent = cassieMeta.riskState;
+if (builderEl) builderEl.textContent = cassieMeta.builderSignal;
+if (structureEl) structureEl.textContent = cassieMeta.structureSignal;
+if (marketEl) marketEl.textContent = cassieMeta.marketSignal;
 if (noteEl) noteEl.textContent = cassieMeta.note;
 }
 
@@ -1121,7 +1168,7 @@ this.candles = payload?.candles || [];
 this.trades = payload?.tokenTrades || [];
 
 renderRecentTrades(this.trades, this.tokenPayload, this.chartStats);
-renderCassiePanel(this.phase, this.tokenPayload, this.chartStats);
+renderCassiePanel(this.phase, this.launch, this.tokenPayload, this.chartStats);
 
 if (this.chartRenderer) {
 this.chartRenderer.setInterval(this.currentInterval);
@@ -1158,7 +1205,7 @@ updatePhaseContent(this.phase);
 setTradePanelVisibility(this.phase);
 updateStatsForLive(this.tokenPayload, this.chartStats);
 renderRecentTrades(this.trades, this.tokenPayload, this.chartStats);
-renderCassiePanel(this.phase, this.tokenPayload, this.chartStats);
+renderCassiePanel(this.phase, this.launch, this.tokenPayload, this.chartStats);
 
 if (this.chartRenderer) {
 this.chartRenderer.updateData({
@@ -1212,15 +1259,15 @@ setTradePanelVisibility(this.phase);
 
 if (this.phase === PHASES.COMMIT) {
 updateStatsForCommit(this.launch, this.commitStats);
-renderCassiePanel(this.phase, this.tokenPayload, this.chartStats);
+renderCassiePanel(this.phase, this.launch, this.tokenPayload, this.chartStats);
 } else if (this.phase === PHASES.COUNTDOWN) {
 updateStatsForCountdown(this.launch, this.commitStats);
 updateCountdownUi(this.launch, this.commitStats);
-renderCassiePanel(this.phase, this.tokenPayload, this.chartStats);
+renderCassiePanel(this.phase, this.launch, this.tokenPayload, this.chartStats);
 } else {
 updateStatsForLive(this.tokenPayload, this.chartStats);
 renderRecentTrades(this.trades, this.tokenPayload, this.chartStats);
-renderCassiePanel(this.phase, this.tokenPayload, this.chartStats);
+renderCassiePanel(this.phase, this.launch, this.tokenPayload, this.chartStats);
 if (this.chartRenderer) {
 this.chartRenderer.setInterval(this.currentInterval);
 this.chartRenderer.setData({
@@ -1333,7 +1380,7 @@ if (this.phase === PHASES.LIVE) {
 try {
 await this.loadLiveMarketData();
 updateStatsForLive(this.tokenPayload, this.chartStats);
-renderCassiePanel(this.phase, this.tokenPayload, this.chartStats);
+renderCassiePanel(this.phase, this.launch, this.tokenPayload, this.chartStats);
 } catch (error) {
 console.error("timeframe refresh failed:", error);
 }
