@@ -113,6 +113,16 @@ if (status === "failed_refunded") return "Refunded";
 return String(status || "Unknown");
 }
 
+function phaseDisplayText(status) {
+if (status === "commit") return "Commit";
+if (status === "countdown") return "Countdown";
+if (status === "live") return "Live";
+if (status === "graduated") return "Graduated";
+if (status === "failed") return "Failed";
+if (status === "failed_refunded") return "Refunded";
+return String(status || "Unknown");
+}
+
 function pillClass(status) {
 if (status === "commit") return "commit";
 if (status === "countdown") return "countdown";
@@ -225,7 +235,7 @@ pending: builderBondSol > 0 && !builderBondPaid && !builderBondRefunded,
 }
 
 function getCountdownEndsMs(launch, stats) {
-return parseTs(stats?.countdownEndsAt || launch?.countdown_ends_at);
+return parseTs(stats?.countdownEndsAt || launch?.countdown_ends_at || launch?.live_at);
 }
 
 function getCommitEndsMs(launch, stats) {
@@ -302,6 +312,24 @@ return String(status || "") === "commit";
 
 function canRefundForStatus(status) {
 return ["commit", "failed"].includes(String(status || ""));
+}
+
+function hideLaunchEconomicsBlock() {
+const sectionTitle = Array.from(document.querySelectorAll(".section-title")).find(
+(el) => String(el.textContent || "").trim().toLowerCase() === "launch economics"
+);
+
+const economicsGrid = document.querySelector(".economics-grid");
+
+if (sectionTitle) {
+const wrapper = sectionTitle.parentElement;
+if (wrapper) wrapper.style.display = "none";
+}
+
+if (economicsGrid) {
+const wrapper = economicsGrid.parentElement;
+if (wrapper) wrapper.style.display = "none";
+}
 }
 
 let currentLaunch = null;
@@ -527,8 +555,8 @@ const fillDurationMs = getFillDurationMs(launch, stats);
 const isBuilder = String(launch.template || "") === "builder";
 const bondState = getBuilderBondState(launch, stats);
 
-phaseValue.textContent = badgeText(status);
-phasePill.textContent = badgeText(status);
+phaseValue.textContent = phaseDisplayText(status);
+phasePill.textContent = phaseDisplayText(status);
 phasePill.className = `status-pill ${pillClass(status)}`;
 
 let note = "";
@@ -617,7 +645,7 @@ note += " No collected builder bond was recorded on this launch.";
 }
 }
 } else {
-timeStat.textContent = badgeText(status);
+timeStat.textContent = phaseDisplayText(status);
 note = "Launch state loaded.";
 }
 
@@ -666,7 +694,7 @@ if (pctEl) pctEl.textContent = `${pct}%`;
 if (fill) fill.style.width = `${pct}%`;
 
 if (pill) {
-pill.textContent = badgeText(launch.status);
+pill.textContent = phaseDisplayText(launch.status);
 pill.className = `status-pill ${pillClass(launch.status)}`;
 }
 
@@ -935,7 +963,7 @@ $("launchName").textContent = launch.token_name || "Untitled Launch";
 
 if ($("launchSubline")) {
 $("launchSubline").textContent =
-`${launch.symbol || "—"} • ${String(launch.template || "—").replaceAll("_", " ")} • ${badgeText(launch.status)}`;
+`${launch.symbol || "—"} • ${String(launch.template || "—").replaceAll("_", " ")} • ${phaseDisplayText(launch.status)}`;
 }
 
 if ($("launchDesc")) {
@@ -943,7 +971,7 @@ $("launchDesc").textContent = launch.description || "No description provided.";
 }
 
 if ($("launchStatusText")) {
-$("launchStatusText").textContent = badgeText(launch.status);
+$("launchStatusText").textContent = phaseDisplayText(launch.status);
 }
 
 renderBuilderInfo(launch);
@@ -1292,6 +1320,7 @@ await syncLaunchMarketController(true);
 async function init() {
 window.API_BASE = getApiBase();
 
+hideLaunchEconomicsBlock();
 bindQuickAmounts();
 bindWalletEvents();
 $("commitForm")?.addEventListener("submit", onCommitSubmit);

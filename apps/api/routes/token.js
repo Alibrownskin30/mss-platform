@@ -17,11 +17,13 @@ token_id: row.token_id,
 wallet: row.wallet,
 side: String(row.side || "").toLowerCase() === "sell" ? "sell" : "buy",
 price_sol: toNumber(row.price, 0),
+price: toNumber(row.price, 0),
 token_amount: toNumber(row.token_amount, 0),
 base_amount: toNumber(row.sol_amount, 0),
 sol_amount: toNumber(row.sol_amount, 0),
 timestamp: row.created_at,
 created_at: row.created_at,
+tx_signature: row.tx_signature || null,
 };
 }
 
@@ -64,6 +66,7 @@ l.internal_pool_sol,
 l.liquidity,
 l.liquidity_usd,
 l.current_liquidity_usd,
+l.sol_usd_price,
 l.website_url,
 l.x_url,
 l.telegram_url,
@@ -89,7 +92,8 @@ return res.status(404).json({ ok: false, error: "Launch not found" });
 
 const token = await db.get(
 `
-SELECT *
+SELECT
+*
 FROM tokens
 WHERE launch_id = ?
 ORDER BY id DESC
@@ -100,7 +104,8 @@ LIMIT 1
 
 const pool = await db.get(
 `
-SELECT *
+SELECT
+*
 FROM pools
 WHERE launch_id = ?
 ORDER BY id DESC
@@ -120,6 +125,7 @@ side,
 sol_amount,
 token_amount,
 price,
+tx_signature,
 created_at
 FROM trades
 WHERE launch_id = ?
@@ -135,8 +141,11 @@ const tokenReserve = toNumber(pool?.token_reserve, 0);
 const solReserve = toNumber(pool?.sol_reserve, 0);
 const kValue = toNumber(pool?.k_value, 0);
 
+const mintAddress = token?.mint_address || launch.contract_address || null;
+
 const launchForStats = {
 ...launch,
+mint_address: mintAddress,
 total_supply: toNumber(
 token?.supply ?? launch.final_supply ?? launch.supply,
 0
@@ -148,6 +157,7 @@ launch.final_supply ??
 launch.supply,
 0
 ),
+liquidity: solReserve,
 liquidity_sol: solReserve,
 internal_pool_sol: solReserve,
 };
@@ -170,16 +180,28 @@ symbol: launch.symbol,
 status: launch.status,
 template: launch.template || null,
 contract_address: launch.contract_address || null,
+mint_address: mintAddress,
 builder_wallet: launch.builder_wallet || null,
 builder_alias: launch.builder_alias || null,
 builder_score: toNumber(launch.builder_score, 0),
+supply: toNumber(launch.supply, 0),
+final_supply: toNumber(launch.final_supply ?? launch.supply, 0),
+circulating_supply: toNumber(
+launch.circulating_supply ?? launch.final_supply ?? launch.supply,
+0
+),
+committed_sol: toNumber(launch.committed_sol, 0),
+participants_count: toNumber(launch.participants_count, 0),
+hard_cap_sol: toNumber(launch.hard_cap_sol, 0),
+internal_pool_sol: toNumber(launch.internal_pool_sol, 0),
+liquidity: toNumber(launch.liquidity, 0),
+liquidity_usd: toNumber(launch.liquidity_usd, 0),
+current_liquidity_usd: toNumber(launch.current_liquidity_usd, 0),
+sol_usd_price: toNumber(launch.sol_usd_price, 0),
 website_url: launch.website_url || "",
 x_url: launch.x_url || "",
 telegram_url: launch.telegram_url || "",
 discord_url: launch.discord_url || "",
-committed_sol: toNumber(launch.committed_sol, 0),
-participants_count: toNumber(launch.participants_count, 0),
-hard_cap_sol: toNumber(launch.hard_cap_sol, 0),
 countdown_started_at: launch.countdown_started_at || null,
 countdown_ends_at: launch.countdown_ends_at || null,
 live_at: launch.live_at || null,
@@ -193,14 +215,15 @@ name: token?.name || launch.token_name || null,
 symbol: token?.symbol || launch.symbol || null,
 ticker: token?.symbol || launch.symbol || null,
 supply: toNumber(token?.supply ?? launch.final_supply ?? launch.supply, 0),
-mint_address: token?.mint_address || launch.contract_address || null,
-mint: token?.mint_address || launch.contract_address || null,
+mint_address: mintAddress,
+mint: mintAddress,
+created_at: token?.created_at || null,
 },
 stats,
 pool: pool
 ? {
 id: pool.id,
-status: pool.status,
+status: pool.status || null,
 token_reserve: tokenReserve,
 sol_reserve: solReserve,
 k_value: kValue,
@@ -242,11 +265,12 @@ side,
 sol_amount,
 token_amount,
 price,
+tx_signature,
 created_at
 FROM trades
 WHERE launch_id = ?
 ORDER BY datetime(created_at) DESC, id DESC
-LIMIT 50
+LIMIT 100
 `,
 [launchId]
 );

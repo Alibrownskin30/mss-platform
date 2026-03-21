@@ -22,7 +22,7 @@ symbol: row.symbol,
 status: row.status,
 template: row.template,
 contract_address: row.contract_address,
-mint_address: row.mint_address || null,
+mint_address: row.token_mint_address || row.contract_address || null,
 builder_wallet: row.builder_wallet,
 
 supply: toNumber(row.supply, 0),
@@ -58,6 +58,33 @@ commit_ends_at: row.commit_ends_at,
 };
 }
 
+function pickTokenRow(row) {
+if (!row) return null;
+
+return {
+id: row.id,
+launch_id: row.launch_id,
+name: row.name,
+symbol: row.symbol,
+supply: toNumber(row.supply, 0),
+mint_address: row.mint_address || null,
+created_at: row.created_at || null,
+};
+}
+
+function pickPoolRow(row) {
+if (!row) return null;
+
+return {
+id: row.id,
+launch_id: row.launch_id,
+status: row.status || null,
+token_reserve: toNumber(row.token_reserve, 0),
+sol_reserve: toNumber(row.sol_reserve, 0),
+k_value: toNumber(row.k_value, 0),
+};
+}
+
 function normalizeTradeRow(row) {
 return {
 id: row.id,
@@ -66,11 +93,13 @@ token_id: row.token_id,
 wallet: row.wallet,
 side: row.side,
 price_sol: toNumber(row.price, 0),
+price: toNumber(row.price, 0),
 token_amount: toNumber(row.token_amount, 0),
 base_amount: toNumber(row.sol_amount, 0),
 sol_amount: toNumber(row.sol_amount, 0),
 timestamp: row.created_at,
 created_at: row.created_at,
+tx_signature: row.tx_signature || null,
 };
 }
 
@@ -84,7 +113,6 @@ l.symbol,
 l.template,
 l.status,
 l.contract_address,
-l.mint_address,
 l.builder_wallet,
 l.supply,
 l.final_supply,
@@ -107,17 +135,75 @@ l.live_at,
 l.commit_started_at,
 l.commit_ends_at,
 p.sol_reserve,
-p.token_reserve
+p.token_reserve,
+t.mint_address AS token_mint_address
 FROM launches l
-LEFT JOIN pools p ON p.launch_id = l.id
+LEFT JOIN pools p
+ON p.id = (
+SELECT p2.id
+FROM pools p2
+WHERE p2.launch_id = l.id
+ORDER BY p2.id DESC
+LIMIT 1
+)
+LEFT JOIN tokens t
+ON t.id = (
+SELECT t2.id
+FROM tokens t2
+WHERE t2.launch_id = l.id
+ORDER BY t2.id DESC
+LIMIT 1
+)
 WHERE l.id = ?
-ORDER BY p.id DESC
 LIMIT 1
 `,
 [launchId]
 );
 
 return pickLaunchRow(row);
+}
+
+async function getTokenByLaunchId(db, launchId) {
+const row = await db.get(
+`
+SELECT
+id,
+launch_id,
+name,
+symbol,
+supply,
+mint_address,
+created_at
+FROM tokens
+WHERE launch_id = ?
+ORDER BY id DESC
+LIMIT 1
+`,
+[launchId]
+);
+
+return pickTokenRow(row);
+}
+
+async function getPoolByLaunchId(db, launchId) {
+const row = await db.get(
+`
+SELECT
+id,
+launch_id,
+status,
+token_reserve,
+sol_reserve,
+k_value
+FROM pools
+WHERE launch_id = ?
+ORDER BY id DESC
+LIMIT 1
+`,
+[launchId]
+);
+
+return pickPoolRow(row);
 }
 
 async function getTradeRows(db, launchId, limit = 2000) {
@@ -132,6 +218,7 @@ side,
 sol_amount,
 token_amount,
 price,
+tx_signature,
 created_at
 FROM trades
 WHERE launch_id = ?
@@ -142,6 +229,14 @@ LIMIT ?
 );
 
 return rows.map(normalizeTradeRow);
+}
+
+function buildCassiePayload(launch = {}) {
+return {
+monitoring_active: true,
+phase: String(launch?.status || "").toLowerCase() || "commit",
+layer: "market-intelligence",
+};
 }
 
 export async function getChartCandles({
@@ -177,7 +272,12 @@ export async function getChartStats({
 db,
 launchId,
 }) {
-const launch = await getLaunchById(db, launchId);
+const [launch, token, pool] = await Promise.all([
+getLaunchById(db, launchId),
+getTokenByLaunchId(db, launchId),
+getPoolByLaunchId(db, launchId),
+]);
+
 const trades = await getTradeRows(db, launchId, 2000);
 const candles = buildCandlesFromTrades(trades, "1m");
 
@@ -189,6 +289,9 @@ candles,
 
 return {
 launch,
+token,
+pool,
+cassie: buildCassiePayload(launch),
 stats,
 };
 }
@@ -200,7 +303,12 @@ interval = "1m",
 candleLimit = 120,
 tradeLimit = 50,
 }) {
-const launch = await getLaunchById(db, launchId);
+const [launch, token, pool] = await Promise.all([
+getLaunchById(db, launchId),
+getTokenByLaunchId(db, launchId),
+getPoolByLaunchId(db, launchId),
+]);
+
 const trades = await getTradeRows(db, launchId, 2000);
 
 const candles = fillMissingCandles(
@@ -219,6 +327,9 @@ candles,
 
 return {
 launch,
+token,
+pool,
+cassie: buildCassiePayload(launch),
 stats,
 candles,
 trades: recentTrades,

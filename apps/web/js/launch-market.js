@@ -165,8 +165,17 @@ return "";
 
 function parseDateMs(value) {
 if (!value) return null;
-const ms = new Date(value).getTime();
-return Number.isFinite(ms) ? ms : null;
+const raw = String(value).trim();
+if (!raw) return null;
+
+const direct = Date.parse(raw);
+if (Number.isFinite(direct)) return direct;
+
+const sqliteUtc = Date.parse(raw.replace(" ", "T") + "Z");
+if (Number.isFinite(sqliteUtc)) return sqliteUtc;
+
+const sqliteLocal = Date.parse(raw.replace(" ", "T"));
+return Number.isFinite(sqliteLocal) ? sqliteLocal : null;
 }
 
 function getNowMs() {
@@ -199,7 +208,8 @@ statusText: "Trading Countdown",
 marketModeText: "Arming",
 overlayEyebrow: "TRADING COUNTDOWN",
 overlayTitle: "Trading Opens In",
-overlayText: "Commit phase closed. Market activation is imminent.",
+overlayText: "",
+overlaySubtext: "Market activation is imminent.",
 };
 case PHASES.LIVE:
 return {
@@ -209,6 +219,7 @@ marketModeText: "Active",
 overlayEyebrow: "LIVE MARKET",
 overlayTitle: "Live Trading",
 overlayText: "Market is now open.",
+overlaySubtext: "",
 };
 case PHASES.COMMIT:
 default:
@@ -219,6 +230,7 @@ marketModeText: "Pre-Live",
 overlayEyebrow: "COMMIT PHASE",
 overlayTitle: "Commit Phase In Progress",
 overlayText: "Trading is not open yet. Commitments are being collected before market activation.",
+overlaySubtext: "",
 };
 }
 }
@@ -373,6 +385,7 @@ const marketStatusLabel = $("marketStatusLabel");
 const marketOverlayEyebrow = $("marketOverlayEyebrow");
 const marketOverlayTitle = $("marketOverlayTitle");
 const marketOverlayText = $("marketOverlayText");
+const marketCountdownSubtext = document.querySelector(".market-countdown-subtext");
 
 if (launchPhaseBadgeText) launchPhaseBadgeText.textContent = meta.badgeText;
 if (launchStatusText) launchStatusText.textContent = meta.statusText;
@@ -380,7 +393,13 @@ if (launchMarketModeText) launchMarketModeText.textContent = meta.marketModeText
 if (marketStatusLabel) marketStatusLabel.textContent = meta.statusText;
 if (marketOverlayEyebrow) marketOverlayEyebrow.textContent = meta.overlayEyebrow;
 if (marketOverlayTitle) marketOverlayTitle.textContent = meta.overlayTitle;
-if (marketOverlayText) marketOverlayText.textContent = meta.overlayText;
+if (marketOverlayText) {
+marketOverlayText.textContent = meta.overlayText;
+marketOverlayText.classList.toggle("hidden", !meta.overlayText);
+}
+if (marketCountdownSubtext) {
+marketCountdownSubtext.textContent = meta.overlaySubtext || "Market activation is imminent.";
+}
 
 const marketTimeframes = $("marketTimeframes");
 const marketLiveLayer = $("marketLiveLayer");
@@ -406,7 +425,7 @@ marketOverlay.classList.toggle("hidden", phase === PHASES.LIVE);
 }
 }
 
-function updateTokenIdentity(launch, tokenStats = null) {
+function updateTokenIdentity(launch, tokenPayload = null) {
 const launchTokenName = $("launchTokenName");
 const launchTokenSymbol = $("launchTokenSymbol");
 const launchBuilderWalletShort = $("launchBuilderWalletShort");
@@ -414,13 +433,13 @@ const launchTokenLogo = $("launchTokenLogo");
 
 const tokenName =
 launch?.token_name ||
-tokenStats?.token?.name ||
+tokenPayload?.token?.name ||
 "Token Name";
 
 const tokenSymbol = String(
 launch?.symbol ||
-tokenStats?.token?.symbol ||
-tokenStats?.token?.ticker ||
+tokenPayload?.token?.symbol ||
+tokenPayload?.token?.ticker ||
 "TOKEN"
 ).replace(/^\$/, "");
 
@@ -436,12 +455,12 @@ launchTokenLogo.textContent = (tokenSymbol[0] || "M").toUpperCase();
 }
 }
 
-function updateContractAddress(launch, tokenStats = null) {
+function updateContractAddress(launch, tokenPayload = null) {
 const ca = String(
 launch?.contract_address ||
 launch?.mint_address ||
-tokenStats?.token?.mint_address ||
-tokenStats?.token?.mint ||
+tokenPayload?.token?.mint_address ||
+tokenPayload?.token?.mint ||
 ""
 ).trim() || "Pending";
 
@@ -650,8 +669,9 @@ return `${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`
 
 function updateCountdownUi(launch, commitStats = {}) {
 const marketCountdownValue = $("marketCountdownValue");
-if (!marketCountdownValue) return;
+if (marketCountdownValue) {
 marketCountdownValue.textContent = getCountdownText(launch, commitStats);
+}
 
 if ($("stat4Value") && inferPhase(launch) === PHASES.COUNTDOWN) {
 $("stat4Value").textContent = getCountdownText(launch, commitStats);
@@ -724,8 +744,10 @@ chartStats?.sol_usd_price,
 0
 );
 
-list.innerHTML = trades
-.slice(0, 20)
+const ordered = [...trades].reverse();
+
+list.innerHTML = ordered
+.slice(0, 50)
 .map((trade) => {
 const side = String(trade?.side || "").toLowerCase();
 const wallet = shortAddress(String(trade?.wallet || ""));
@@ -826,6 +848,49 @@ if ($("tradeQuoteFeeValue")) $("tradeQuoteFeeValue").textContent = "—";
 if ($("tradeQuoteWalletLimitValue")) $("tradeQuoteWalletLimitValue").textContent = "—";
 }
 
+function syncMarketShellLayout(phase) {
+const shell = document.querySelector(".launch-market-wrap");
+const hero = document.querySelector(".launch-hero-shell");
+const market = $("marketCard");
+
+if (!shell || !hero || !market) return;
+
+if (phase === PHASES.COUNTDOWN || phase === PHASES.LIVE) {
+if (shell.firstElementChild !== market) {
+shell.prepend(market);
+}
+market.classList.add("market-priority");
+} else {
+if (shell.firstElementChild !== hero) {
+shell.prepend(hero);
+shell.appendChild(market);
+}
+market.classList.remove("market-priority");
+}
+}
+
+function syncChartSizing(phase) {
+const chartShell = $("marketChartShell");
+const chartCanvas = $("marketChartCanvas");
+const volumeCanvas = $("marketVolumeCanvas");
+
+if (!chartShell || !chartCanvas || !volumeCanvas) return;
+
+if (phase === PHASES.LIVE) {
+chartShell.style.minHeight = "620px";
+chartCanvas.style.height = "440px";
+volumeCanvas.style.height = "140px";
+} else if (phase === PHASES.COUNTDOWN) {
+chartShell.style.minHeight = "520px";
+chartCanvas.style.height = "360px";
+volumeCanvas.style.height = "120px";
+} else {
+chartShell.style.minHeight = "460px";
+chartCanvas.style.height = "340px";
+volumeCanvas.style.height = "120px";
+}
+}
+
 async function fetchJson(path, options = {}) {
 const apiBase = window.API_BASE || getApiBase();
 
@@ -897,20 +962,20 @@ return { candles: [] };
 }
 }
 
-async function defaultFetchMarketSnapshot(launchId, interval = "1m", candleLimit = 120) {
-const [tokenPayload, tokenTradesPayload, chartStatsPayload, chartCandlesPayload] =
-await Promise.all([
+async function defaultFetchMarketSnapshot(launchId, interval = "1m", candleLimit = 120, tradeLimit = 50) {
+const [tokenPayload, snapshotPayload] = await Promise.all([
 defaultFetchTokenStats(launchId),
-defaultFetchTokenTrades(launchId),
-defaultFetchChartStats(launchId),
-defaultFetchChartCandles(launchId, interval, candleLimit),
+fetchJson(
+`/api/chart/${encodeURIComponent(launchId)}/snapshot?interval=${encodeURIComponent(interval)}&candle_limit=${encodeURIComponent(candleLimit)}&trade_limit=${encodeURIComponent(tradeLimit)}`
+).catch(() => ({})),
 ]);
 
 return {
 tokenPayload: tokenPayload || {},
-tokenTrades: tokenTradesPayload?.trades || [],
-chartStats: chartStatsPayload?.stats || chartStatsPayload || {},
-candles: chartCandlesPayload?.candles || [],
+tokenTrades: snapshotPayload?.trades || [],
+chartStats: snapshotPayload?.stats || {},
+candles: snapshotPayload?.candles || [],
+chartLaunch: snapshotPayload?.launch || null,
 };
 }
 
@@ -976,11 +1041,11 @@ this.launch = options.launch || null;
 this.commitStats = options.commitStats || {};
 this.phase = PHASES.COMMIT;
 this.currentInterval = options.initialInterval || "1m";
-this.candleLimit = Number(options.candleLimit || 120);
+this.candleLimit = Number(options.candleLimit || 180);
 
 this.commitPollMs = Number(options.commitPollMs || 15000);
-this.countdownPollMs = Number(options.countdownPollMs || 5000);
-this.livePollMs = Number(options.livePollMs || 8000);
+this.countdownPollMs = Number(options.countdownPollMs || 1000);
+this.livePollMs = Number(options.livePollMs || 6000);
 
 this.tokenPayload = {};
 this.chartStats = {};
@@ -1159,13 +1224,18 @@ if (!this.launchId) return;
 const payload = await this.fetchMarketSnapshot(
 this.launchId,
 this.currentInterval,
-this.candleLimit
+this.candleLimit,
+50
 );
 
 this.tokenPayload = payload?.tokenPayload || {};
 this.chartStats = payload?.chartStats || {};
 this.candles = payload?.candles || [];
-this.trades = payload?.tokenTrades || [];
+this.trades = payload?.tokenTrades || payload?.trades || [];
+
+if (payload?.chartLaunch && !this.launch?.contract_address) {
+this.launch = { ...payload.chartLaunch, ...this.launch };
+}
 
 renderRecentTrades(this.trades, this.tokenPayload, this.chartStats);
 renderCassiePanel(this.phase, this.launch, this.tokenPayload, this.chartStats);
@@ -1186,15 +1256,15 @@ if (!this.launchId || this.phase !== PHASES.LIVE) return;
 const [launchPayload, commitStats, payload] = await Promise.all([
 this.fetchLaunch(this.launchId),
 this.fetchCommitStats(this.launchId),
-this.fetchMarketSnapshot(this.launchId, this.currentInterval, this.candleLimit),
+this.fetchMarketSnapshot(this.launchId, this.currentInterval, this.candleLimit, 50),
 ]);
 
-this.launch = launchPayload?.launch || launchPayload || this.launch;
+this.launch = { ...(payload?.chartLaunch || {}), ...(launchPayload?.launch || launchPayload || this.launch || {}) };
 this.commitStats = commitStats || {};
 this.tokenPayload = payload?.tokenPayload || {};
 this.chartStats = payload?.chartStats || {};
 this.candles = payload?.candles || [];
-this.trades = payload?.tokenTrades || [];
+this.trades = payload?.tokenTrades || payload?.trades || [];
 
 this.phase = inferPhase(this.launch);
 
@@ -1203,6 +1273,8 @@ updateContractAddress(this.launch, this.tokenPayload);
 updatePhaseClasses(this.phase);
 updatePhaseContent(this.phase);
 setTradePanelVisibility(this.phase);
+syncMarketShellLayout(this.phase);
+syncChartSizing(this.phase);
 updateStatsForLive(this.tokenPayload, this.chartStats);
 renderRecentTrades(this.trades, this.tokenPayload, this.chartStats);
 renderCassiePanel(this.phase, this.launch, this.tokenPayload, this.chartStats);
@@ -1256,6 +1328,8 @@ setManageLinksVisibility(this.launch, this.connectedWallet);
 updatePhaseClasses(this.phase);
 updatePhaseContent(this.phase);
 setTradePanelVisibility(this.phase);
+syncMarketShellLayout(this.phase);
+syncChartSizing(this.phase);
 
 if (this.phase === PHASES.COMMIT) {
 updateStatsForCommit(this.launch, this.commitStats);

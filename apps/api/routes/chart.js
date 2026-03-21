@@ -9,17 +9,42 @@ getChartSnapshot,
 
 const router = express.Router();
 
+const ALLOWED_INTERVALS = new Set(["1m", "5m", "15m", "1h", "4h", "1d"]);
+
 function clampInt(value, fallback, min, max) {
 const num = Number.parseInt(value, 10);
 if (!Number.isFinite(num)) return fallback;
 return Math.min(max, Math.max(min, num));
 }
 
+function parseLaunchId(raw) {
+const launchId = Number.parseInt(String(raw || ""), 10);
+if (!Number.isFinite(launchId) || launchId <= 0) {
+return null;
+}
+return launchId;
+}
+
+function normalizeInterval(raw) {
+const interval = String(raw || "1m").trim();
+if (!ALLOWED_INTERVALS.has(interval)) {
+return "1m";
+}
+return interval;
+}
+
 router.get("/:launchId/candles", async (req, res) => {
 try {
-const { launchId } = req.params;
-const interval = String(req.query.interval || "1m");
+const launchId = parseLaunchId(req.params.launchId);
+const interval = normalizeInterval(req.query.interval);
 const limit = clampInt(req.query.limit, 120, 1, 500);
+
+if (!launchId) {
+return res.status(400).json({
+ok: false,
+error: "Invalid launch id",
+});
+}
 
 const payload = await getChartCandles({
 db: launcherDb,
@@ -30,23 +55,30 @@ limit,
 
 return res.json({
 ok: true,
-launch_id: Number(launchId),
+launch_id: launchId,
 interval,
-candles: payload.candles || [],
+candles: payload?.candles || [],
 });
 } catch (error) {
 console.error("GET /api/chart/:launchId/candles failed", error);
 return res.status(500).json({
 ok: false,
-error: "Failed to fetch candles",
+error: error?.message || "Failed to fetch candles",
 });
 }
 });
 
 router.get("/:launchId/trades", async (req, res) => {
 try {
-const { launchId } = req.params;
+const launchId = parseLaunchId(req.params.launchId);
 const limit = clampInt(req.query.limit, 50, 1, 200);
+
+if (!launchId) {
+return res.status(400).json({
+ok: false,
+error: "Invalid launch id",
+});
+}
 
 const payload = await getChartTrades({
 db: launcherDb,
@@ -56,21 +88,28 @@ limit,
 
 return res.json({
 ok: true,
-launch_id: Number(launchId),
-trades: payload.trades || [],
+launch_id: launchId,
+trades: payload?.trades || [],
 });
 } catch (error) {
 console.error("GET /api/chart/:launchId/trades failed", error);
 return res.status(500).json({
 ok: false,
-error: "Failed to fetch trades",
+error: error?.message || "Failed to fetch trades",
 });
 }
 });
 
 router.get("/:launchId/stats", async (req, res) => {
 try {
-const { launchId } = req.params;
+const launchId = parseLaunchId(req.params.launchId);
+
+if (!launchId) {
+return res.status(400).json({
+ok: false,
+error: "Invalid launch id",
+});
+}
 
 const payload = await getChartStats({
 db: launcherDb,
@@ -79,24 +118,35 @@ launchId,
 
 return res.json({
 ok: true,
-launch_id: Number(launchId),
-stats: payload.stats || {},
+launch_id: launchId,
+stats: payload?.stats || {},
+launch: payload?.launch || null,
+token: payload?.token || null,
+pool: payload?.pool || null,
+cassie: payload?.cassie || null,
 });
 } catch (error) {
 console.error("GET /api/chart/:launchId/stats failed", error);
 return res.status(500).json({
 ok: false,
-error: "Failed to fetch chart stats",
+error: error?.message || "Failed to fetch chart stats",
 });
 }
 });
 
 router.get("/:launchId/snapshot", async (req, res) => {
 try {
-const { launchId } = req.params;
-const interval = String(req.query.interval || "1m");
+const launchId = parseLaunchId(req.params.launchId);
+const interval = normalizeInterval(req.query.interval);
 const candleLimit = clampInt(req.query.candle_limit, 120, 1, 500);
 const tradeLimit = clampInt(req.query.trade_limit, 50, 1, 200);
+
+if (!launchId) {
+return res.status(400).json({
+ok: false,
+error: "Invalid launch id",
+});
+}
 
 const payload = await getChartSnapshot({
 db: launcherDb,
@@ -108,17 +158,21 @@ tradeLimit,
 
 return res.json({
 ok: true,
-launch_id: Number(launchId),
-launch: payload.launch || null,
-stats: payload.stats || {},
-candles: payload.candles || [],
-trades: payload.trades || [],
+launch_id: launchId,
+interval,
+launch: payload?.launch || null,
+token: payload?.token || null,
+pool: payload?.pool || null,
+stats: payload?.stats || {},
+candles: payload?.candles || [],
+trades: payload?.trades || [],
+cassie: payload?.cassie || null,
 });
 } catch (error) {
 console.error("GET /api/chart/:launchId/snapshot failed", error);
 return res.status(500).json({
 ok: false,
-error: "Failed to fetch chart snapshot",
+error: error?.message || "Failed to fetch chart snapshot",
 });
 }
 });
