@@ -9,6 +9,12 @@ const num = Number(value);
 return Number.isFinite(num) ? num : fallback;
 }
 
+function clampNumber(value, min, max, fallback) {
+const num = Number(value);
+if (!Number.isFinite(num)) return fallback;
+return Math.min(max, Math.max(min, num));
+}
+
 function pickLaunchRow(row) {
 if (!row) return null;
 
@@ -29,6 +35,8 @@ hard_cap_sol: toNumber(row.hard_cap_sol, 0),
 countdown_started_at: row.countdown_started_at,
 countdown_ends_at: row.countdown_ends_at,
 live_at: row.live_at,
+commit_started_at: row.commit_started_at,
+commit_ends_at: row.commit_ends_at,
 supply: row.supply,
 final_supply: row.final_supply,
 circulating_supply: toNumber(row.circulating_supply, 0),
@@ -41,6 +49,7 @@ current_liquidity_usd: toNumber(row.current_liquidity_usd, 0),
 router.get("/:mint", async (req, res) => {
 try {
 const mint = String(req.params.mint || "").trim();
+
 if (!mint) {
 return res.status(400).json({
 ok: false,
@@ -91,6 +100,8 @@ hard_cap_sol,
 countdown_started_at,
 countdown_ends_at,
 live_at,
+commit_started_at,
+commit_ends_at,
 supply,
 final_supply,
 circulating_supply,
@@ -104,14 +115,25 @@ LIMIT 1
 [tokenRow.launch_id]
 );
 
+if (!launchRow) {
+return res.status(404).json({
+ok: false,
+error: "Launch not found for token",
+});
+}
+
+const interval = String(req.query.interval || "1m");
+const candleLimit = clampNumber(req.query.candle_limit, 1, 500, 120);
+const tradeLimit = clampNumber(req.query.trade_limit, 1, 200, 50);
+
 const launch = pickLaunchRow(launchRow);
 
 const snapshot = await getChartSnapshot({
 db: launcherDb,
 launchId: tokenRow.launch_id,
-interval: String(req.query.interval || "1m"),
-candleLimit: Math.min(500, Math.max(1, Number(req.query.candle_limit || 120))),
-tradeLimit: Math.min(200, Math.max(1, Number(req.query.trade_limit || 50))),
+interval,
+candleLimit,
+tradeLimit,
 });
 
 return res.json({
@@ -128,9 +150,14 @@ created_at: tokenRow.created_at,
 },
 launch,
 chart: {
-stats: snapshot.stats || {},
-candles: snapshot.candles || [],
-trades: snapshot.trades || [],
+stats: snapshot?.stats || {},
+candles: snapshot?.candles || [],
+trades: snapshot?.trades || [],
+},
+cassie: {
+monitoring_active: true,
+phase: String(launch?.status || "").toLowerCase() || "commit",
+layer: "token-market",
 },
 });
 } catch (error) {
@@ -138,6 +165,7 @@ console.error("GET /api/token-market/:mint failed", error);
 return res.status(500).json({
 ok: false,
 error: "Failed to resolve token market",
+message: error?.message || String(error),
 });
 }
 });
