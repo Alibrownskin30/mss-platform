@@ -1276,24 +1276,5 @@ countdown-based go-live transitions, automatic lifecycle transitions, and refund
 
 <script src="https://unpkg.com/@solana/web3.js@latest/lib/index.iife.min.js"></script>
 <script type="module" src="./assets/pages/launch.js"></script>
-<script>
-const launchStatusText = document.getElementById("launchStatusText");
-const launchStatusText2 = document.getElementById("launchStatusText2");
-
-if (launchStatusText && launchStatusText2) {
-const syncStatusMirror = () => {
-launchStatusText2.textContent = launchStatusText.textContent || "Commit Phase";
-};
-
-syncStatusMirror();
-
-const observer = new MutationObserver(syncStatusMirror);
-observer.observe(launchStatusText, {
-childList: true,
-characterData: true,
-subtree: true
-});
-}
-</script>
 </body>
 </html>

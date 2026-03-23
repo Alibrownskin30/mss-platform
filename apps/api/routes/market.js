@@ -27,6 +27,10 @@ function floorToken(value) {
 return Math.floor(safeNum(value, 0));
 }
 
+function cleanText(value, max = 200) {
+return String(value ?? "").trim().slice(0, max);
+}
+
 function getFeeBreakdown(totalFeeSol) {
 const fee = roundSol(totalFeeSol);
 return {
@@ -38,11 +42,13 @@ treasury: roundSol(fee * FEE_SPLIT.treasury),
 }
 
 function getDaysSinceLaunch(launch) {
-const launchStart = new Date(launch.live_at || launch.updated_at || launch.created_at).getTime();
-const now = Date.now();
+const launchStart = new Date(
+launch.live_at || launch.updated_at || launch.created_at
+).getTime();
 
 if (!Number.isFinite(launchStart)) return 0;
 
+const now = Date.now();
 return Math.max(0, Math.floor((now - launchStart) / (24 * 60 * 60 * 1000)));
 }
 
@@ -52,7 +58,7 @@ return BUILDER_MAX_WALLET_PERCENT;
 }
 
 const daysSinceLaunch = getDaysSinceLaunch(launch);
-return BASE_MAX_WALLET_PERCENT + (daysSinceLaunch * DAILY_INCREASE_PERCENT);
+return BASE_MAX_WALLET_PERCENT + daysSinceLaunch * DAILY_INCREASE_PERCENT;
 }
 
 function getMaxBuySol(launch, isBuilderWallet = false) {
@@ -62,20 +68,37 @@ return Number.MAX_SAFE_INTEGER;
 
 const daysSinceLaunch = getDaysSinceLaunch(launch);
 
-if (daysSinceLaunch <= 0) return 0.5; // Day 1
-if (daysSinceLaunch === 1) return 1.0; // Day 2
-return 1.0; // Day 3+ for now
+if (daysSinceLaunch <= 0) return 0.5; // day 1
+if (daysSinceLaunch === 1) return 1.0; // day 2
+return 1.0;
 }
 
 function isLiveLaunch(launch) {
 return String(launch?.status || "").toLowerCase() === "live";
 }
 
-async function getTokenLaunchAndPool(launchId) {
-const launch = await db.get(
-`SELECT * FROM launches WHERE id = ?`,
-[launchId]
+function getEffectiveTotalSupply(launch, token) {
+return floorToken(
+token?.supply ??
+launch?.final_supply ??
+launch?.circulating_supply ??
+launch?.supply ??
+0
 );
+}
+
+function getMaxWalletTokens(launch, token, isBuilderWallet = false) {
+const totalSupply = getEffectiveTotalSupply(launch, token);
+const maxWalletPercent = getMaxWalletPercent(launch, isBuilderWallet);
+return {
+totalSupply,
+maxWalletPercent,
+maxWalletTokens: floorToken(totalSupply * maxWalletPercent),
+};
+}
+
+async function getTokenLaunchAndPool(launchId) {
+const launch = await db.get(`SELECT * FROM launches WHERE id = ?`, [launchId]);
 
 if (!launch) {
 return { error: "Launch not found" };
@@ -103,6 +126,9 @@ return { launch, token, pool };
 }
 
 async function getBuilderWalletByLaunch(launch) {
+const direct = cleanText(launch?.builder_wallet || "");
+if (direct) return direct;
+
 if (!launch?.builder_id) return "";
 
 const builder = await db.get(
@@ -110,17 +136,19 @@ const builder = await db.get(
 [launch.builder_id]
 );
 
-return String(builder?.wallet || "").trim();
+return cleanText(builder?.wallet || "");
 }
 
 async function getOrCreateWalletBalance(launchId, wallet) {
+const walletStr = cleanText(wallet, 120);
+
 let walletBalance = await db.get(
 `
 SELECT token_amount
 FROM wallet_balances
 WHERE launch_id = ? AND wallet = ?
 `,
-[launchId, wallet]
+[launchId, walletStr]
 );
 
 if (!walletBalance) {
@@ -129,13 +157,32 @@ await db.run(
 INSERT INTO wallet_balances (launch_id, wallet, token_amount)
 VALUES (?, ?, 0)
 `,
-[launchId, wallet]
+[launchId, walletStr]
 );
 
 walletBalance = { token_amount: 0 };
 }
 
-return walletBalance;
+return {
+wallet: walletStr,
+token_amount: floorToken(walletBalance.token_amount),
+};
+}
+
+async function setWalletBalance(launchId, wallet, tokenAmount) {
+const walletStr = cleanText(wallet, 120);
+const nextAmount = Math.max(0, floorToken(tokenAmount));
+
+await db.run(
+`
+UPDATE wallet_balances
+SET token_amount = ?
+WHERE launch_id = ? AND wallet = ?
+`,
+[nextAmount, launchId, walletStr]
+);
+
+return nextAmount;
 }
 
 function buildBuyQuote({ solIn, tokenReserve, solReserve }) {
@@ -159,17 +206,17 @@ throw new Error("Trade too small after fee");
 }
 
 const k = x * y;
-const newSolReserve = y + netSolIn;
-const newTokenReserve = k / newSolReserve;
-const tokensBoughtRaw = x - newTokenReserve;
-const tokensBought = floorToken(tokensBoughtRaw);
+const newSolReserveRaw = y + netSolIn;
+const newTokenReserveRaw = k / newSolReserveRaw;
+const tokensBought = floorToken(x - newTokenReserveRaw);
 
 if (!Number.isFinite(tokensBought) || tokensBought <= 0) {
 throw new Error("Invalid trade output");
 }
 
-const normalizedNewTokenReserve = x - tokensBought;
-const normalizedK = normalizedNewTokenReserve * newSolReserve;
+const newTokenReserve = x - tokensBought;
+const newSolReserve = newSolReserveRaw;
+const newKValue = String(Math.floor(newTokenReserve * newSolReserve));
 const price = grossSolIn / tokensBought;
 
 return {
@@ -178,8 +225,8 @@ feeSol: roundSol(feeSol),
 netSolIn: roundSol(netSolIn),
 tokensBought,
 newSolReserve: roundSol(newSolReserve),
-newTokenReserve: floorToken(normalizedNewTokenReserve),
-newKValue: String(Math.floor(normalizedK)),
+newTokenReserve: floorToken(newTokenReserve),
+newKValue,
 price,
 feeBreakdown: getFeeBreakdown(feeSol),
 };
@@ -199,8 +246,8 @@ throw new Error("Pool reserves are invalid");
 }
 
 const k = x * y;
-const newTokenReserveBeforeFee = x + grossTokensIn;
-const newSolReserveBeforeFee = k / newTokenReserveBeforeFee;
+const newTokenReserveRaw = x + grossTokensIn;
+const newSolReserveBeforeFee = k / newTokenReserveRaw;
 const grossSolOut = y - newSolReserveBeforeFee;
 
 if (!Number.isFinite(grossSolOut) || grossSolOut <= 0) {
@@ -216,7 +263,7 @@ throw new Error("Invalid trade output");
 
 const finalSolReserve = y - netSolOut;
 const finalTokenReserve = x + grossTokensIn;
-const finalK = finalTokenReserve * finalSolReserve;
+const finalK = String(Math.floor(finalTokenReserve * finalSolReserve));
 const price = netSolOut / grossTokensIn;
 
 return {
@@ -226,9 +273,39 @@ feeSol: roundSol(feeSol),
 netSolOut: roundSol(netSolOut),
 newSolReserve: roundSol(finalSolReserve),
 newTokenReserve: floorToken(finalTokenReserve),
-newKValue: String(Math.floor(finalK)),
+newKValue: finalK,
 price,
 feeBreakdown: getFeeBreakdown(feeSol),
+};
+}
+
+function buildWalletLimitPayload({
+launch,
+token,
+isBuilderWallet,
+walletBalanceBefore,
+tokensAdded = 0,
+}) {
+const { totalSupply, maxWalletPercent, maxWalletTokens } = getMaxWalletTokens(
+launch,
+token,
+isBuilderWallet
+);
+
+const currentBalance = floorToken(walletBalanceBefore);
+const afterBalance = floorToken(currentBalance + floorToken(tokensAdded));
+const walletCapacityRemaining = Math.max(0, maxWalletTokens - currentBalance);
+const exceedsMaxWallet = afterBalance > maxWalletTokens;
+
+return {
+totalSupply,
+maxWalletPercent,
+maxWallet: maxWalletTokens,
+maxWalletTokens,
+walletBalanceBefore: currentBalance,
+walletBalanceAfter: afterBalance,
+walletCapacityRemaining,
+exceedsMaxWallet,
 };
 }
 
@@ -243,7 +320,18 @@ if (!launchId || !solAmount) {
 return res.status(400).json({ error: "Missing parameters" });
 }
 
-const result = await getTokenLaunchAndPool(Number(launchId));
+const launchIdNum = Number(launchId);
+const requestedSol = Number(solAmount);
+
+if (!Number.isFinite(launchIdNum) || launchIdNum <= 0) {
+return res.status(400).json({ error: "Invalid launchId" });
+}
+
+if (!Number.isFinite(requestedSol) || requestedSol <= 0) {
+return res.status(400).json({ error: "Invalid solAmount" });
+}
+
+const result = await getTokenLaunchAndPool(launchIdNum);
 
 if (result.error) {
 return res.status(404).json({ error: result.error });
@@ -255,7 +343,7 @@ if (!isLiveLaunch(launch)) {
 return res.status(400).json({ error: "Market is not live" });
 }
 
-const walletStr = String(wallet || "").trim();
+const walletStr = cleanText(wallet, 120);
 const builderWallet = await getBuilderWalletByLaunch(launch);
 const isBuilderWallet =
 walletStr &&
@@ -263,11 +351,6 @@ builderWallet &&
 walletStr.toLowerCase() === builderWallet.toLowerCase();
 
 const maxBuySol = getMaxBuySol(launch, isBuilderWallet);
-const requestedSol = Number(solAmount);
-
-if (!Number.isFinite(requestedSol) || requestedSol <= 0) {
-return res.status(400).json({ error: "Invalid solAmount" });
-}
 
 if (!isBuilderWallet && requestedSol > maxBuySol) {
 return res.status(400).json({
@@ -282,21 +365,19 @@ tokenReserve: Number(pool.token_reserve),
 solReserve: Number(pool.sol_reserve),
 });
 
-const maxWalletPercent = getMaxWalletPercent(launch, isBuilderWallet);
-const maxWallet = safeNum(token.supply, 0) * maxWalletPercent;
-
 let walletBalanceBefore = 0;
-let walletBalanceAfter = quote.tokensBought;
-let walletCapacityRemaining = maxWallet;
-let exceedsMaxWallet = false;
-
 if (walletStr) {
-const walletBalance = await getOrCreateWalletBalance(Number(launchId), walletStr);
+const walletBalance = await getOrCreateWalletBalance(launchIdNum, walletStr);
 walletBalanceBefore = safeNum(walletBalance.token_amount, 0);
-walletBalanceAfter = walletBalanceBefore + quote.tokensBought;
-walletCapacityRemaining = Math.max(0, maxWallet - walletBalanceBefore);
-exceedsMaxWallet = walletBalanceAfter > maxWallet;
 }
+
+const walletLimit = buildWalletLimitPayload({
+launch,
+token,
+isBuilderWallet,
+walletBalanceBefore,
+tokensAdded: quote.tokensBought,
+});
 
 return res.json({
 success: true,
@@ -304,13 +385,8 @@ side: "buy",
 quote: {
 ...quote,
 maxBuySol,
-maxWalletPercent,
-maxWallet,
-walletBalanceBefore,
-walletBalanceAfter,
-walletCapacityRemaining,
-exceedsMaxWallet,
 isBuilderWallet,
+...walletLimit,
 },
 });
 } catch (err) {
@@ -330,7 +406,18 @@ if (!launchId || !tokenAmount) {
 return res.status(400).json({ error: "Missing parameters" });
 }
 
-const result = await getTokenLaunchAndPool(Number(launchId));
+const launchIdNum = Number(launchId);
+const requestedTokens = floorToken(tokenAmount);
+
+if (!Number.isFinite(launchIdNum) || launchIdNum <= 0) {
+return res.status(400).json({ error: "Invalid launchId" });
+}
+
+if (!Number.isFinite(requestedTokens) || requestedTokens <= 0) {
+return res.status(400).json({ error: "Invalid tokenAmount" });
+}
+
+const result = await getTokenLaunchAndPool(launchIdNum);
 
 if (result.error) {
 return res.status(404).json({ error: result.error });
@@ -342,29 +429,29 @@ if (!isLiveLaunch(launch)) {
 return res.status(400).json({ error: "Market is not live" });
 }
 
-const quote = buildSellQuote({
-tokensIn: Number(tokenAmount),
-tokenReserve: Number(pool.token_reserve),
-solReserve: Number(pool.sol_reserve),
-});
-
+const walletStr = cleanText(wallet, 120);
 let walletBalanceBefore = null;
 let walletBalanceAfter = null;
 
-const walletStr = String(wallet || "").trim();
 if (walletStr) {
-const balance = await db.get(
-`
-SELECT token_amount
-FROM wallet_balances
-WHERE launch_id = ? AND wallet = ?
-`,
-[launchId, walletStr]
-);
+const walletBalance = await getOrCreateWalletBalance(launchIdNum, walletStr);
+walletBalanceBefore = safeNum(walletBalance.token_amount, 0);
 
-walletBalanceBefore = safeNum(balance?.token_amount, 0);
-walletBalanceAfter = walletBalanceBefore - quote.grossTokensIn;
+if (walletBalanceBefore < requestedTokens) {
+return res.status(400).json({
+error: "Insufficient tokens",
+walletBalanceBefore,
+});
 }
+
+walletBalanceAfter = walletBalanceBefore - requestedTokens;
+}
+
+const quote = buildSellQuote({
+tokensIn: requestedTokens,
+tokenReserve: Number(pool.token_reserve),
+solReserve: Number(pool.sol_reserve),
+});
 
 return res.json({
 success: true,
@@ -392,7 +479,23 @@ if (!launchId || !wallet || !solAmount) {
 return res.status(400).json({ error: "Missing parameters" });
 }
 
-const result = await getTokenLaunchAndPool(Number(launchId));
+const launchIdNum = Number(launchId);
+const walletStr = cleanText(wallet, 120);
+const solIn = Number(solAmount);
+
+if (!Number.isFinite(launchIdNum) || launchIdNum <= 0) {
+return res.status(400).json({ error: "Invalid launchId" });
+}
+
+if (!walletStr) {
+return res.status(400).json({ error: "Invalid wallet" });
+}
+
+if (!Number.isFinite(solIn) || solIn <= 0) {
+return res.status(400).json({ error: "Invalid solAmount" });
+}
+
+const result = await getTokenLaunchAndPool(launchIdNum);
 
 if (result.error) {
 return res.status(404).json({ error: result.error });
@@ -404,16 +507,10 @@ if (!isLiveLaunch(launch)) {
 return res.status(400).json({ error: "Market is not live" });
 }
 
-const solIn = Number(solAmount);
-
-if (!Number.isFinite(solIn) || solIn <= 0) {
-return res.status(400).json({ error: "Invalid solAmount" });
-}
-
 const builderWallet = await getBuilderWalletByLaunch(launch);
 const isBuilderWallet =
 builderWallet &&
-String(builderWallet).trim().toLowerCase() === String(wallet).trim().toLowerCase();
+walletStr.toLowerCase() === builderWallet.toLowerCase();
 
 const maxBuySol = getMaxBuySol(launch, isBuilderWallet);
 
@@ -430,18 +527,24 @@ tokenReserve: Number(pool.token_reserve),
 solReserve: Number(pool.sol_reserve),
 });
 
-const maxWalletPercent = getMaxWalletPercent(launch, isBuilderWallet);
-const maxWallet = Number(token.supply) * maxWalletPercent;
+const walletBalance = await getOrCreateWalletBalance(launchIdNum, walletStr);
+const currentBalance = safeNum(walletBalance.token_amount, 0);
 
-const walletBalance = await getOrCreateWalletBalance(Number(launchId), wallet);
-const currentBalance = Number(walletBalance.token_amount);
-const nextBalance = currentBalance + quote.tokensBought;
+const walletLimit = buildWalletLimitPayload({
+launch,
+token,
+isBuilderWallet,
+walletBalanceBefore: currentBalance,
+tokensAdded: quote.tokensBought,
+});
 
-if (nextBalance > maxWallet) {
+if (walletLimit.exceedsMaxWallet) {
 return res.status(400).json({
 error: "Max wallet limit exceeded",
-maxWallet,
-attemptedBalance: nextBalance,
+maxWallet: walletLimit.maxWallet,
+maxWalletTokens: walletLimit.maxWalletTokens,
+attemptedBalance: walletLimit.walletBalanceAfter,
+walletBalanceBefore: walletLimit.walletBalanceBefore,
 });
 }
 
@@ -455,7 +558,7 @@ WHERE launch_id = ? AND id = ?
 quote.newTokenReserve,
 quote.newSolReserve,
 quote.newKValue,
-launchId,
+launchIdNum,
 pool.id,
 ]
 );
@@ -467,22 +570,19 @@ INSERT INTO trades
 VALUES (?, ?, ?, 'buy', ?, ?, ?)
 `,
 [
-launchId,
+launchIdNum,
 token.id,
-wallet,
+walletStr,
 quote.grossSolIn,
 quote.tokensBought,
 quote.price,
 ]
 );
 
-await db.run(
-`
-UPDATE wallet_balances
-SET token_amount = ?
-WHERE launch_id = ? AND wallet = ?
-`,
-[nextBalance, launchId, wallet]
+const nextBalance = await setWalletBalance(
+launchIdNum,
+walletStr,
+currentBalance + quote.tokensBought
 );
 
 return res.json({
@@ -494,11 +594,10 @@ feePct: MSS_TRADING_FEE_PCT,
 feeSol: quote.feeSol,
 feeBreakdown: quote.feeBreakdown,
 maxBuySol,
-maxWalletPercent,
-maxWallet,
+isBuilderWallet,
+...walletLimit,
 walletBalanceBefore: currentBalance,
 walletBalanceAfter: nextBalance,
-isBuilderWallet,
 pool: {
 sol_reserve: quote.newSolReserve,
 token_reserve: quote.newTokenReserve,
@@ -522,7 +621,23 @@ if (!launchId || !wallet || !tokenAmount) {
 return res.status(400).json({ error: "Missing parameters" });
 }
 
-const result = await getTokenLaunchAndPool(Number(launchId));
+const launchIdNum = Number(launchId);
+const walletStr = cleanText(wallet, 120);
+const tokensIn = floorToken(tokenAmount);
+
+if (!Number.isFinite(launchIdNum) || launchIdNum <= 0) {
+return res.status(400).json({ error: "Invalid launchId" });
+}
+
+if (!walletStr) {
+return res.status(400).json({ error: "Invalid wallet" });
+}
+
+if (!Number.isFinite(tokensIn) || tokensIn <= 0) {
+return res.status(400).json({ error: "Invalid tokenAmount" });
+}
+
+const result = await getTokenLaunchAndPool(launchIdNum);
 
 if (result.error) {
 return res.status(404).json({ error: result.error });
@@ -534,26 +649,16 @@ if (!isLiveLaunch(launch)) {
 return res.status(400).json({ error: "Market is not live" });
 }
 
-const tokensIn = Number(tokenAmount);
+const walletBalance = await getOrCreateWalletBalance(launchIdNum, walletStr);
+const currentBalance = safeNum(walletBalance.token_amount, 0);
 
-if (!Number.isFinite(tokensIn) || tokensIn <= 0) {
-return res.status(400).json({ error: "Invalid tokenAmount" });
+if (currentBalance < tokensIn) {
+return res.status(400).json({
+error: "Insufficient tokens",
+walletBalanceBefore: currentBalance,
+});
 }
 
-const balance = await db.get(
-`
-SELECT token_amount
-FROM wallet_balances
-WHERE launch_id = ? AND wallet = ?
-`,
-[launchId, wallet]
-);
-
-if (!balance || Number(balance.token_amount) < tokensIn) {
-return res.status(400).json({ error: "Insufficient tokens" });
-}
-
-const currentBalance = Number(balance.token_amount);
 const quote = buildSellQuote({
 tokensIn,
 tokenReserve: Number(pool.token_reserve),
@@ -570,7 +675,7 @@ WHERE launch_id = ? AND id = ?
 quote.newTokenReserve,
 quote.newSolReserve,
 quote.newKValue,
-launchId,
+launchIdNum,
 pool.id,
 ]
 );
@@ -582,22 +687,19 @@ INSERT INTO trades
 VALUES (?, ?, ?, 'sell', ?, ?, ?)
 `,
 [
-launchId,
+launchIdNum,
 token.id,
-wallet,
+walletStr,
 quote.netSolOut,
 quote.grossTokensIn,
 quote.price,
 ]
 );
 
-await db.run(
-`
-UPDATE wallet_balances
-SET token_amount = ?
-WHERE launch_id = ? AND wallet = ?
-`,
-[currentBalance - quote.grossTokensIn, launchId, wallet]
+const nextBalance = await setWalletBalance(
+launchIdNum,
+walletStr,
+currentBalance - quote.grossTokensIn
 );
 
 return res.json({
@@ -610,7 +712,7 @@ feeSol: quote.feeSol,
 feeBreakdown: quote.feeBreakdown,
 price: quote.price,
 walletBalanceBefore: currentBalance,
-walletBalanceAfter: currentBalance - quote.grossTokensIn,
+walletBalanceAfter: nextBalance,
 pool: {
 sol_reserve: quote.newSolReserve,
 token_reserve: quote.newTokenReserve,

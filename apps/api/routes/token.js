@@ -124,7 +124,6 @@ side,
 sol_amount,
 token_amount,
 price,
-tx_signature,
 created_at
 FROM trades
 WHERE launch_id = ?
@@ -265,7 +264,6 @@ side,
 sol_amount,
 token_amount,
 price,
-tx_signature,
 created_at
 FROM trades
 WHERE launch_id = ?
