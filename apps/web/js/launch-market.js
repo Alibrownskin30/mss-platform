@@ -168,14 +168,16 @@ if (!value) return null;
 const raw = String(value).trim();
 if (!raw) return null;
 
-const direct = Date.parse(raw);
-if (Number.isFinite(direct)) return direct;
+const hasExplicitTimezone =
+/z$/i.test(raw) || /[+-]\d{2}:\d{2}$/.test(raw);
 
+if (!hasExplicitTimezone && /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/.test(raw)) {
 const sqliteUtc = Date.parse(raw.replace(" ", "T") + "Z");
-if (Number.isFinite(sqliteUtc)) return sqliteUtc;
+return Number.isFinite(sqliteUtc) ? sqliteUtc : null;
+}
 
-const sqliteLocal = Date.parse(raw.replace(" ", "T"));
-return Number.isFinite(sqliteLocal) ? sqliteLocal : null;
+const direct = Date.parse(raw);
+return Number.isFinite(direct) ? direct : null;
 }
 
 function getNowMs() {
@@ -405,6 +407,7 @@ const marketTimeframes = $("marketTimeframes");
 const marketLiveLayer = $("marketLiveLayer");
 const marketCountdownBox = $("marketCountdownBox");
 const marketOverlay = $("marketOverlay");
+const accessMode = $("launchAccessModeText");
 
 if (marketTimeframes) {
 marketTimeframes.classList.toggle("disabled", phase !== PHASES.LIVE);
@@ -422,6 +425,10 @@ if (marketOverlay) {
 marketOverlay.classList.remove("overlay-commit", "overlay-countdown", "overlay-live");
 marketOverlay.classList.add(`overlay-${phase}`);
 marketOverlay.classList.toggle("hidden", phase === PHASES.LIVE);
+}
+
+if (accessMode) {
+accessMode.textContent = phase === PHASES.LIVE ? "Live Access" : phase === PHASES.COUNTDOWN ? "Countdown Locked" : "Pre-Live";
 }
 }
 
@@ -782,6 +789,8 @@ const tradePanelCard = $("tradePanelCard");
 const recentTradesCard = $("recentTradesCard");
 const tradePanelPhasePill = $("tradePanelPhasePill");
 const tradeSubmitBtn = $("tradeSubmitBtn");
+const quickBuyRow = $("tradeQuickBuyRow");
+const quickSellRow = $("tradeQuickSellRow");
 
 if (!tradePanelCard || !recentTradesCard || !tradePanelPhasePill) return;
 
@@ -800,6 +809,14 @@ phase === PHASES.LIVE
 
 if (tradeSubmitBtn) {
 tradeSubmitBtn.disabled = !isLive;
+}
+
+if (quickBuyRow) {
+quickBuyRow.classList.toggle("hidden", !isLive);
+}
+
+if (quickSellRow && phase !== PHASES.LIVE) {
+quickSellRow.classList.add("hidden");
 }
 }
 
@@ -825,11 +842,11 @@ amountInput.placeholder = mode === TRADE_MODES.BUY ? "0.00" : "0";
 }
 
 if (primaryLabel) {
-primaryLabel.textContent = mode === TRADE_MODES.BUY ? "You Receive" : "You Receive";
+primaryLabel.textContent = "You Receive";
 }
 
 if (walletLimitLabel) {
-walletLimitLabel.textContent = mode === TRADE_MODES.BUY ? "Capacity After" : "Balance After";
+walletLimitLabel.textContent = mode === TRADE_MODES.BUY ? "Wallet Limit After" : "Balance After";
 }
 
 if (quickBuyRow) {
@@ -848,24 +865,21 @@ if ($("tradeQuoteFeeValue")) $("tradeQuoteFeeValue").textContent = "—";
 if ($("tradeQuoteWalletLimitValue")) $("tradeQuoteWalletLimitValue").textContent = "—";
 }
 
-function syncMarketShellLayout(phase) {
-const shell = document.querySelector(".launch-market-wrap");
-const hero = document.querySelector(".launch-hero-shell");
+function syncMarketShellLayout() {
+const shell = $("launchMarketShell");
 const market = $("marketCard");
+const hero = document.querySelector(".launch-hero-shell");
+if (!shell || !market || !hero) return;
 
-if (!shell || !hero || !market) return;
+const wrap = shell.querySelector(".launch-market-wrap");
+if (!wrap) return;
 
-if (phase === PHASES.COUNTDOWN || phase === PHASES.LIVE) {
-if (shell.firstElementChild !== market) {
-shell.prepend(market);
+if (wrap.firstElementChild !== hero) {
+wrap.prepend(hero);
 }
-market.classList.add("market-priority");
-} else {
-if (shell.firstElementChild !== hero) {
-shell.prepend(hero);
-shell.appendChild(market);
-}
-market.classList.remove("market-priority");
+
+if (hero.nextElementSibling !== market) {
+wrap.insertBefore(market, hero.nextElementSibling);
 }
 }
 
@@ -877,232 +891,81 @@ const volumeCanvas = $("marketVolumeCanvas");
 if (!chartShell || !chartCanvas || !volumeCanvas) return;
 
 if (phase === PHASES.LIVE) {
-chartShell.style.minHeight = "620px";
-chartCanvas.style.height = "440px";
-volumeCanvas.style.height = "140px";
+chartShell.style.minHeight = "700px";
+chartCanvas.style.height = "500px";
+volumeCanvas.style.height = "180px";
 } else if (phase === PHASES.COUNTDOWN) {
-chartShell.style.minHeight = "520px";
-chartCanvas.style.height = "360px";
-volumeCanvas.style.height = "120px";
+chartShell.style.minHeight = "560px";
+chartCanvas.style.height = "380px";
+volumeCanvas.style.height = "140px";
 } else {
-chartShell.style.minHeight = "460px";
+chartShell.style.minHeight = "500px";
 chartCanvas.style.height = "340px";
 volumeCanvas.style.height = "120px";
 }
 }
 
-function getWalletSnapshot(tokenPayload = {}, chartStats = {}, launch = {}, connectedWallet = "") {
-const token = tokenPayload?.token || {};
+function getWalletSummaryData(tokenPayload = {}, chartStats = {}) {
+const wallet = tokenPayload?.wallet || tokenPayload?.position || {};
 const stats = tokenPayload?.stats || {};
-const walletBlock =
-tokenPayload?.wallet ||
-tokenPayload?.position ||
-tokenPayload?.holder ||
-tokenPayload?.portfolio ||
-{};
 
 const tokenBalance = toNumber(
-walletBlock?.token_balance ??
-walletBlock?.tokenBalance ??
-walletBlock?.balance_tokens ??
-walletBlock?.balance ??
-walletBlock?.tokens ??
+wallet?.token_balance ??
+wallet?.tokenBalance ??
+tokenPayload?.wallet_token_balance ??
+chartStats?.wallet_token_balance ??
 0,
+0
+);
+
+const positionValueUsd = toNumber(
+wallet?.position_value_usd ??
+wallet?.positionValueUsd ??
+tokenPayload?.wallet_position_value_usd ??
+chartStats?.wallet_position_value_usd ??
+tokenBalance * toNumber(stats?.price_usd ?? chartStats?.price_usd, 0),
 0
 );
 
 const solBalance = toNumber(
-walletBlock?.sol_balance ??
-walletBlock?.solBalance ??
-walletBlock?.base_balance ??
+wallet?.sol_balance ??
+wallet?.solBalance ??
+tokenPayload?.wallet_sol_balance ??
+chartStats?.wallet_sol_balance ??
 0,
 0
 );
-
-const priceUsd = toNumber(stats?.price_usd ?? chartStats?.price_usd, 0);
-const priceSol = toNumber(stats?.price_sol ?? chartStats?.price_sol, 0);
-
-const tokenValueUsd = toNumber(
-walletBlock?.position_value_usd ??
-walletBlock?.token_value_usd ??
-walletBlock?.usd_value ??
-0,
-0
-) || (tokenBalance > 0 && priceUsd > 0 ? tokenBalance * priceUsd : 0);
-
-const tokenValueSol = toNumber(
-walletBlock?.position_value_sol ??
-walletBlock?.token_value_sol ??
-0,
-0
-) || (tokenBalance > 0 && priceSol > 0 ? tokenBalance * priceSol : 0);
-
-const totalSupply = toNumber(
-token?.total_supply ??
-token?.supply ??
-stats?.total_supply ??
-chartStats?.total_supply ??
-launch?.total_supply ??
-0,
-0
-);
-
-const explicitHoldingPct = toNumber(
-walletBlock?.holding_pct ??
-walletBlock?.holding_percent ??
-walletBlock?.wallet_percent ??
-0,
-0
-);
-
-const holdingPct = explicitHoldingPct > 0
-? explicitHoldingPct
-: totalSupply > 0 && tokenBalance > 0
-? (tokenBalance / totalSupply) * 100
-: 0;
-
-const accessLimitPct = toNumber(
-launch?.max_wallet_pct ??
-stats?.max_wallet_pct ??
-tokenPayload?.market?.max_wallet_pct ??
-chartStats?.max_wallet_pct ??
-0,
-0
-);
-
-const maxWalletTokens = toNumber(
-walletBlock?.max_wallet_tokens ??
-walletBlock?.maxWalletTokens ??
-(accessLimitPct > 0 && totalSupply > 0 ? (accessLimitPct / 100) * totalSupply : 0),
-0
-);
-
-const remainingCapacityPct =
-accessLimitPct > 0
-? Math.max(0, accessLimitPct - holdingPct)
-: 0;
-
-const remainingCapacityTokens =
-maxWalletTokens > 0
-? Math.max(0, maxWalletTokens - tokenBalance)
-: 0;
-
-const restrictionSchedule =
-tokenPayload?.market?.restriction_schedule ||
-tokenPayload?.market?.schedule ||
-launch?.restriction_schedule ||
-launch?.max_wallet_schedule ||
-(accessLimitPct > 0
-? "Expands by schedule until Open Market."
-: "Allocation restriction removed.");
-
-const isConnected = Boolean(String(connectedWallet || "").trim());
 
 return {
-isConnected,
 tokenBalance,
+positionValueUsd,
 solBalance,
-tokenValueUsd,
-tokenValueSol,
-totalSupply,
-holdingPct,
-accessLimitPct,
-maxWalletTokens,
-remainingCapacityPct,
-remainingCapacityTokens,
-restrictionSchedule,
 };
 }
 
-function getAccessTierMeta(walletSnapshot = {}) {
-const limit = toNumber(walletSnapshot.accessLimitPct, 0);
+function updateWalletSummary(phase, connectedWallet, tokenPayload = {}, chartStats = {}) {
+const wrap = $("marketWalletSummary");
+const tokenBalanceEl = $("walletTokenBalanceValue");
+const positionValueEl = $("walletPositionValueValue");
+const solBalanceEl = $("walletSolBalanceValue");
 
-if (!(limit > 0)) {
-return {
-title: "Open Market",
-state: "Fully Open",
-accessText: "Open Market",
-note: "Allocation restriction removed. Trading is fully open.",
-isOpen: true,
-};
+if (!wrap || !tokenBalanceEl || !positionValueEl || !solBalanceEl) return;
+
+const show = phase === PHASES.LIVE;
+wrap.classList.toggle("hidden", !show);
+
+if (!show) return;
+
+const summary = getWalletSummaryData(tokenPayload, chartStats);
+const hasWallet = Boolean(String(connectedWallet || "").trim());
+
+tokenBalanceEl.textContent = hasWallet ? `${formatTokenAmount(summary.tokenBalance, 0)} tokens` : "Connect wallet";
+positionValueEl.textContent = hasWallet ? (summary.positionValueUsd > 0 ? formatUsd(summary.positionValueUsd, 2) : "$0") : "—";
+solBalanceEl.textContent = hasWallet ? formatSol(summary.solBalance, 4) : "—";
 }
 
-if (limit <= 0.5) {
-return {
-title: "Controlled Access I",
-state: "Restricted",
-accessText: "Controlled Access I",
-note: walletSnapshot.restrictionSchedule || "Early controlled allocation tier active.",
-isOpen: false,
-};
-}
-
-if (limit <= 1) {
-return {
-title: "Controlled Access II",
-state: "Restricted",
-accessText: "Controlled Access II",
-note: walletSnapshot.restrictionSchedule || "Controlled allocation tier active.",
-isOpen: false,
-};
-}
-
-if (limit <= 2) {
-return {
-title: "Controlled Access III",
-state: "Restricted",
-accessText: "Controlled Access III",
-note: walletSnapshot.restrictionSchedule || "Expanded controlled allocation tier active.",
-isOpen: false,
-};
-}
-
-return {
-title: "Controlled Access IV",
-state: "Restricted",
-accessText: "Controlled Access IV",
-note: walletSnapshot.restrictionSchedule || "Controlled allocation tier remains active.",
-isOpen: false,
-};
-}
-
-function renderWalletSummary(phase, walletSnapshot = {}) {
-const summary = $("marketWalletSummary");
-const tokenBalanceValue = $("walletTokenBalanceValue");
-const positionValueValue = $("walletPositionValueValue");
-const solBalanceValue = $("walletSolBalanceValue");
-
-if (!summary || !tokenBalanceValue || !positionValueValue || !solBalanceValue) return;
-
-if (phase !== PHASES.LIVE || !walletSnapshot.isConnected) {
-summary.classList.add("hidden");
-tokenBalanceValue.textContent = "—";
-positionValueValue.textContent = "—";
-solBalanceValue.textContent = "—";
-return;
-}
-
-summary.classList.remove("hidden");
-tokenBalanceValue.textContent = walletSnapshot.tokenBalance > 0
-? formatTokenAmount(walletSnapshot.tokenBalance, 0)
-: "0";
-
-positionValueValue.textContent =
-walletSnapshot.tokenValueUsd > 0 || walletSnapshot.tokenValueSol > 0
-? formatDualMetric(
-walletSnapshot.tokenValueUsd > 0 ? formatUsdCompact(walletSnapshot.tokenValueUsd, 2) : "—",
-walletSnapshot.tokenValueSol > 0 ? formatSol(walletSnapshot.tokenValueSol, 2) : ""
-)
-: "—";
-
-solBalanceValue.textContent = walletSnapshot.solBalance > 0
-? formatSol(walletSnapshot.solBalance, 4)
-: "0 SOL";
-}
-
-function renderAccessCard(phase, walletSnapshot = {}) {
+function updateAccessCard(phase, launch = {}, tokenPayload = {}, chartStats = {}, quotePayload = null) {
 const card = $("marketAccessCard");
-const accessModeText = $("launchAccessModeText");
 const tierLabel = $("marketAccessTierLabel");
 const statePill = $("marketAccessStatePill");
 const limitValue = $("marketAccessLimitValue");
@@ -1111,49 +974,65 @@ const remainingValue = $("marketAccessRemainingValue");
 const totalSupplyValue = $("marketTotalSupplyValue");
 const schedule = $("marketAccessSchedule");
 
-if (
-!card ||
-!accessModeText ||
-!tierLabel ||
-!statePill ||
-!limitValue ||
-!holdingValue ||
-!remainingValue ||
-!totalSupplyValue ||
-!schedule
-) {
+if (!card || !tierLabel || !statePill || !limitValue || !holdingValue || !remainingValue || !totalSupplyValue || !schedule) {
 return;
 }
 
-const tier = getAccessTierMeta(walletSnapshot);
+const show = phase === PHASES.LIVE;
+card.classList.toggle("hidden", !show);
+if (!show) return;
 
-const shouldShow = phase === PHASES.COUNTDOWN || phase === PHASES.LIVE;
-card.classList.toggle("hidden", !shouldShow);
+const walletSummary = getWalletSummaryData(tokenPayload, chartStats);
+const totalSupply = toNumber(
+tokenPayload?.token?.supply ??
+launch?.supply ??
+chartStats?.supply,
+0
+);
 
-accessModeText.textContent = tier.accessText;
-tierLabel.textContent = tier.title;
-statePill.textContent = tier.state;
-statePill.classList.toggle("is-open", tier.isOpen);
+const maxWalletPct = toNumber(
+launch?.max_wallet_pct ??
+tokenPayload?.stats?.max_wallet_pct ??
+chartStats?.max_wallet_pct,
+0
+);
 
-limitValue.textContent = walletSnapshot.accessLimitPct > 0
-? `${formatPercent(walletSnapshot.accessLimitPct, 2)} • ${formatTokenAmount(walletSnapshot.maxWalletTokens, 0)}`
-: "None";
+const quotedMaxWallet = toNumber(
+quotePayload?.quote?.maxWallet ??
+quotePayload?.maxWallet,
+0
+);
 
-holdingValue.textContent = walletSnapshot.isConnected
-? `${formatPercent(walletSnapshot.holdingPct, 3)} • ${formatTokenAmount(walletSnapshot.tokenBalance, 0)}`
-: "Connect wallet";
+const maxWalletTokens = quotedMaxWallet > 0
+? quotedMaxWallet
+: maxWalletPct > 0 && totalSupply > 0
+? (totalSupply * maxWalletPct) / 100
+: 0;
 
-remainingValue.textContent = walletSnapshot.accessLimitPct > 0
-? walletSnapshot.isConnected
-? `${formatPercent(walletSnapshot.remainingCapacityPct, 3)} • ${formatTokenAmount(walletSnapshot.remainingCapacityTokens, 0)}`
-: formatPercent(walletSnapshot.accessLimitPct, 2)
+const remaining = maxWalletTokens > 0
+? Math.max(0, maxWalletTokens - walletSummary.tokenBalance)
+: 0;
+
+tierLabel.textContent = maxWalletTokens > 0 ? "Wallet Access Controls" : "Open Access";
+statePill.textContent = "Live";
+statePill.classList.add("is-open");
+
+limitValue.textContent = maxWalletTokens > 0
+? `${formatTokenAmount(maxWalletTokens, 0)} tokens`
+: "Open";
+
+holdingValue.textContent = `${formatTokenAmount(walletSummary.tokenBalance, 0)} tokens`;
+remainingValue.textContent = maxWalletTokens > 0
+? `${formatTokenAmount(remaining, 0)} tokens`
 : "Unlimited";
 
-totalSupplyValue.textContent = walletSnapshot.totalSupply > 0
-? formatTokenAmount(walletSnapshot.totalSupply, 0)
+totalSupplyValue.textContent = totalSupply > 0
+? `${formatTokenAmount(totalSupply, 0)} tokens`
 : "—";
 
-schedule.textContent = tier.note;
+schedule.textContent = maxWalletPct > 0
+? `Wallet concentration controls remain active. Current cap is ${formatPercent(maxWalletPct, 2)} of total supply.`
+: "No wallet concentration limit detected for the current live phase.";
 }
 
 async function fetchJson(path, options = {}) {
@@ -1316,7 +1195,6 @@ this.tokenPayload = {};
 this.chartStats = {};
 this.candles = [];
 this.trades = [];
-this.walletSnapshot = getWalletSnapshot({}, {}, this.launch, this.connectedWallet);
 
 this.tradeMode = TRADE_MODES.BUY;
 this.lastQuote = null;
@@ -1484,15 +1362,6 @@ await this.refreshLaunch();
 }, 1000);
 }
 
-rebuildWalletSnapshot() {
-this.walletSnapshot = getWalletSnapshot(
-this.tokenPayload,
-this.chartStats,
-this.launch,
-this.connectedWallet
-);
-}
-
 async loadLiveMarketData() {
 if (!this.launchId) return;
 
@@ -1511,8 +1380,6 @@ this.trades = payload?.tokenTrades || payload?.trades || [];
 if (payload?.chartLaunch && !this.launch?.contract_address) {
 this.launch = { ...payload.chartLaunch, ...this.launch };
 }
-
-this.rebuildWalletSnapshot();
 
 renderRecentTrades(this.trades, this.tokenPayload, this.chartStats);
 renderCassiePanel(this.phase, this.launch, this.tokenPayload, this.chartStats);
@@ -1544,18 +1411,17 @@ this.candles = payload?.candles || [];
 this.trades = payload?.tokenTrades || payload?.trades || [];
 
 this.phase = inferPhase(this.launch);
-this.rebuildWalletSnapshot();
 
 updateTokenIdentity(this.launch, this.tokenPayload);
 updateContractAddress(this.launch, this.tokenPayload);
 updatePhaseClasses(this.phase);
 updatePhaseContent(this.phase);
 setTradePanelVisibility(this.phase);
-syncMarketShellLayout(this.phase);
+syncMarketShellLayout();
 syncChartSizing(this.phase);
 updateStatsForLive(this.tokenPayload, this.chartStats);
-renderWalletSummary(this.phase, this.walletSnapshot);
-renderAccessCard(this.phase, this.walletSnapshot);
+updateWalletSummary(this.phase, this.connectedWallet, this.tokenPayload, this.chartStats);
+updateAccessCard(this.phase, this.launch, this.tokenPayload, this.chartStats, this.lastQuote);
 renderRecentTrades(this.trades, this.tokenPayload, this.chartStats);
 renderCassiePanel(this.phase, this.launch, this.tokenPayload, this.chartStats);
 
@@ -1567,6 +1433,7 @@ stats: this.chartStats,
 });
 }
 
+this.syncSellQuickButtons();
 this.renderTradePanel();
 }
 
@@ -1586,8 +1453,6 @@ this.phase = inferPhase(this.launch);
 
 if (this.phase === PHASES.LIVE) {
 await this.loadLiveMarketData();
-} else {
-this.rebuildWalletSnapshot();
 }
 
 this.applyAll();
@@ -1602,7 +1467,6 @@ if (!this.launch) return;
 
 const previousPhase = this.phase;
 this.phase = inferPhase(this.launch);
-this.rebuildWalletSnapshot();
 
 updateTokenIdentity(this.launch, this.tokenPayload);
 updateContractAddress(this.launch, this.tokenPayload);
@@ -1611,24 +1475,20 @@ setManageLinksVisibility(this.launch, this.connectedWallet);
 updatePhaseClasses(this.phase);
 updatePhaseContent(this.phase);
 setTradePanelVisibility(this.phase);
-syncMarketShellLayout(this.phase);
+syncMarketShellLayout();
 syncChartSizing(this.phase);
 
 if (this.phase === PHASES.COMMIT) {
 updateStatsForCommit(this.launch, this.commitStats);
-renderWalletSummary(this.phase, this.walletSnapshot);
-renderAccessCard(this.phase, this.walletSnapshot);
 renderCassiePanel(this.phase, this.launch, this.tokenPayload, this.chartStats);
 } else if (this.phase === PHASES.COUNTDOWN) {
 updateStatsForCountdown(this.launch, this.commitStats);
 updateCountdownUi(this.launch, this.commitStats);
-renderWalletSummary(this.phase, this.walletSnapshot);
-renderAccessCard(this.phase, this.walletSnapshot);
 renderCassiePanel(this.phase, this.launch, this.tokenPayload, this.chartStats);
 } else {
 updateStatsForLive(this.tokenPayload, this.chartStats);
-renderWalletSummary(this.phase, this.walletSnapshot);
-renderAccessCard(this.phase, this.walletSnapshot);
+updateWalletSummary(this.phase, this.connectedWallet, this.tokenPayload, this.chartStats);
+updateAccessCard(this.phase, this.launch, this.tokenPayload, this.chartStats, this.lastQuote);
 renderRecentTrades(this.trades, this.tokenPayload, this.chartStats);
 renderCassiePanel(this.phase, this.launch, this.tokenPayload, this.chartStats);
 if (this.chartRenderer) {
@@ -1641,11 +1501,28 @@ stats: this.chartStats,
 }
 }
 
+this.syncSellQuickButtons();
 this.renderTradePanel();
 
 if (previousPhase !== this.phase && this.onPhaseChange) {
 this.onPhaseChange(this.phase, this.launch, this.tokenPayload, this.chartStats);
 }
+}
+
+getWalletTokenBalance() {
+return getWalletSummaryData(this.tokenPayload, this.chartStats).tokenBalance;
+}
+
+syncSellQuickButtons() {
+const sellButtons = Array.from(document.querySelectorAll("#tradeQuickSellRow .trade-quick-btn"));
+if (!sellButtons.length) return;
+
+const balance = this.getWalletTokenBalance();
+
+sellButtons.forEach((btn) => {
+const pct = toNumber(btn.dataset.pct, 0);
+btn.disabled = this.phase !== PHASES.LIVE || balance <= 0 || pct <= 0;
+});
 }
 
 renderTradePanel() {
@@ -1666,10 +1543,11 @@ submitBtn.textContent = this.lastQuote
 
 setConnectedWallet(wallet) {
 this.connectedWallet = wallet || "";
-this.rebuildWalletSnapshot();
 if (this.launch) setManageLinksVisibility(this.launch, this.connectedWallet);
-renderWalletSummary(this.phase, this.walletSnapshot);
-renderAccessCard(this.phase, this.walletSnapshot);
+if (this.phase === PHASES.LIVE) {
+updateWalletSummary(this.phase, this.connectedWallet, this.tokenPayload, this.chartStats);
+this.syncSellQuickButtons();
+}
 }
 
 async handleManageLinksClick() {
@@ -1746,8 +1624,7 @@ if (this.phase === PHASES.LIVE) {
 try {
 await this.loadLiveMarketData();
 updateStatsForLive(this.tokenPayload, this.chartStats);
-renderWalletSummary(this.phase, this.walletSnapshot);
-renderAccessCard(this.phase, this.walletSnapshot);
+updateWalletSummary(this.phase, this.connectedWallet, this.tokenPayload, this.chartStats);
 renderCassiePanel(this.phase, this.launch, this.tokenPayload, this.chartStats);
 } catch (error) {
 console.error("timeframe refresh failed:", error);
@@ -1762,6 +1639,7 @@ this.lastQuote = null;
 resetTradeQuoteUi();
 setTradeMessage("");
 updateTradeTabUi(this.tradeMode);
+this.syncSellQuickButtons();
 this.renderTradePanel();
 }
 
@@ -1771,19 +1649,15 @@ if (!input) return;
 
 if (this.tradeMode === TRADE_MODES.BUY) {
 const amount = event.currentTarget?.dataset?.amount || "";
-if (!amount) return;
 input.value = amount;
-this.handleTradeAmountInput();
 return;
 }
 
 const pct = toNumber(event.currentTarget?.dataset?.pct, 0);
-if (!(pct > 0)) return;
-
-const tokenBalance = toNumber(this.walletSnapshot?.tokenBalance, 0);
-const amount = tokenBalance * (pct / 100);
-input.value = amount > 0 ? String(amount) : "";
-this.handleTradeAmountInput();
+const balance = this.getWalletTokenBalance();
+if (pct > 0 && balance > 0) {
+input.value = String((balance * pct) / 100);
+}
 }
 
 handleTradeAmountInput() {
@@ -1833,15 +1707,13 @@ quote?.walletBalanceAfter != null
 ? ` / After ${formatTokenAmount(quote.walletBalanceAfter, 0)}`
 : "";
 $("tradeQuoteWalletLimitValue").textContent = `${maxWalletText}${afterText}`;
-} else if (this.walletSnapshot.accessLimitPct > 0) {
-$("tradeQuoteWalletLimitValue").textContent = `${formatPercent(this.walletSnapshot.remainingCapacityPct, 3)} remaining`;
 } else {
-$("tradeQuoteWalletLimitValue").textContent = "Open";
+$("tradeQuoteWalletLimitValue").textContent = "Applies";
 }
 }
 } else {
 if ($("tradeQuotePrimaryValue")) {
-$("tradeQuotePrimaryValue").textContent = formatSol(quote?.netSolOut || quote?.solOut || 0, 6);
+$("tradeQuotePrimaryValue").textContent = formatSol(quote?.netSolOut || 0, 6);
 }
 if ($("tradeQuotePriceValue")) {
 $("tradeQuotePriceValue").textContent = quote?.price > 0 ? `${formatPriceSol(quote.price)} SOL` : "—";
@@ -1857,6 +1729,7 @@ quote?.walletBalanceAfter != null
 }
 }
 
+updateAccessCard(this.phase, this.launch, this.tokenPayload, this.chartStats, quotePayload);
 this.renderTradePanel();
 }
 

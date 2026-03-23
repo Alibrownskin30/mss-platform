@@ -810,6 +810,7 @@ UPDATE launches
 SET status = 'countdown',
 countdown_started_at = CURRENT_TIMESTAMP,
 countdown_ends_at = datetime(CURRENT_TIMESTAMP, '+${COUNTDOWN_MINUTES} minutes'),
+live_at = datetime(CURRENT_TIMESTAMP, '+${COUNTDOWN_MINUTES} minutes'),
 updated_at = CURRENT_TIMESTAMP
 WHERE id = ?
 `,
@@ -1689,6 +1690,7 @@ updatedLaunch.hard_cap_sol
 status: updatedLaunch.status,
 commitEndsAt: updatedLaunch.commit_ends_at || null,
 countdownEndsAt: updatedLaunch.countdown_ends_at || null,
+liveAt: updatedLaunch.live_at || null,
 });
 } catch (err) {
 console.error("POST /api/launcher/confirm-commit failed:", err);
@@ -1858,6 +1860,7 @@ launchId,
 status: updatedLaunch.status,
 countdownStartedAt: updatedLaunch.countdown_started_at,
 countdownEndsAt: updatedLaunch.countdown_ends_at,
+liveAt: updatedLaunch.live_at,
 totalCommitted: stats.totalCommitted,
 participants: stats.participants,
 commitPercent: buildCommitPercent(
@@ -1909,6 +1912,7 @@ UPDATE launches
 SET status = 'commit',
 countdown_started_at = NULL,
 countdown_ends_at = NULL,
+live_at = NULL,
 updated_at = CURRENT_TIMESTAMP
 WHERE id = ?
 `,
@@ -2044,13 +2048,13 @@ if (!launchId) {
 return res.status(400).json({ ok: false, error: "invalid launchId" });
 }
 
-const launch = await getLaunchById(launchId);
+const reconciledLaunch = await reconcileLaunchState(launchId);
 
-if (!launch) {
+if (!reconciledLaunch) {
 return res.status(404).json({ ok: false, error: "launch not found" });
 }
 
-const parsedLaunch = parseLaunchJsonFields(launch);
+const parsedLaunch = parseLaunchJsonFields(reconciledLaunch);
 const stats = await getCommitStats(launchId);
 
 const recent = await db.all(
@@ -2080,6 +2084,7 @@ commitStartedAt: parsedLaunch.commit_started_at || null,
 commitEndsAt: parsedLaunch.commit_ends_at || null,
 countdownStartedAt: parsedLaunch.countdown_started_at || null,
 countdownEndsAt: parsedLaunch.countdown_ends_at || null,
+liveAt: parsedLaunch.live_at || null,
 failedAt: parsedLaunch.failed_at || null,
 teamAllocationPct: Number(parsedLaunch.team_allocation_pct || 0),
 teamWallets: parsedLaunch.team_wallets,
@@ -2151,6 +2156,12 @@ return res.status(500).json({ ok: false, error: "internal server error" });
 router.get("/:id", async (req, res) => {
 try {
 const id = Number(req.params.id);
+
+const reconciledLaunch = await reconcileLaunchState(id);
+
+if (!reconciledLaunch) {
+return res.status(404).json({ ok: false, error: "launch not found" });
+}
 
 const launch = await db.get(
 `

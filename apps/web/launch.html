@@ -38,7 +38,6 @@ overflow-x:hidden;
 }
 
 .hidden{ display:none !important; }
-
 a{ color:inherit; text-decoration:none; }
 
 .topbar{
@@ -145,22 +144,13 @@ font-size:13px;
 
 .back-link:hover{ color:rgba(255,255,255,.92); }
 
-.live-terminal-mount{
-display:grid;
-gap:18px;
-margin-bottom:18px;
-}
-
-.live-terminal-mount:empty{
-display:none;
-}
-
 .layout{
 display:grid;
-grid-template-columns:minmax(0,1.15fr) minmax(0,.85fr);
+grid-template-columns:minmax(0,1fr) minmax(360px,.78fr);
 gap:18px;
 min-width:0;
 align-items:start;
+margin-top:18px;
 }
 
 .layout > *{
@@ -177,56 +167,12 @@ min-width:0;
 overflow:hidden;
 }
 
-.hero{
-display:grid;
-grid-template-columns:112px minmax(0,1fr);
-gap:18px;
-align-items:start;
-min-width:0;
-}
-
-.logo{
-width:112px;
-height:112px;
-border-radius:22px;
-border:1px solid rgba(255,255,255,.10);
-background:rgba(255,255,255,.04);
-overflow:hidden;
-display:flex;
-align-items:center;
-justify-content:center;
-color:var(--muted2);
-font-size:12px;
-text-align:center;
-padding:8px;
-flex:0 0 auto;
-}
-
-.logo img{
-width:100%;
-height:100%;
-object-fit:cover;
-display:block;
-}
-
-.eyebrow{
-display:inline-flex;
-align-items:center;
-gap:10px;
-padding:8px 12px;
-border-radius:999px;
-background:rgba(0,255,209,.08);
-border:1px solid rgba(0,255,209,.18);
-font-size:11px;
+.section-title{
+font-size:14px;
+letter-spacing:.14em;
 text-transform:uppercase;
-letter-spacing:.16em;
-}
-
-h1{
-margin:14px 0 8px;
-font-size:38px;
-line-height:1.04;
-word-break:break-word;
+color:var(--muted2);
+margin-bottom:14px;
 }
 
 .subline{
@@ -235,6 +181,7 @@ font-size:13px;
 letter-spacing:.10em;
 text-transform:uppercase;
 word-break:break-word;
+margin-bottom:14px;
 }
 
 .desc{
@@ -268,16 +215,7 @@ max-width:100%;
 overflow-wrap:anywhere;
 }
 
-.section-title{
-font-size:14px;
-letter-spacing:.14em;
-text-transform:uppercase;
-color:var(--muted2);
-margin-bottom:14px;
-}
-
 .phase-box{
-margin-top:18px;
 padding:16px 18px;
 border-radius:18px;
 border:1px solid rgba(255,255,255,.10);
@@ -358,7 +296,6 @@ background:rgba(255,255,255,.06);
 }
 
 .progress-card{
-margin-top:22px;
 padding:18px;
 border:1px solid rgba(255,255,255,.10);
 background:rgba(255,255,255,.03);
@@ -665,33 +602,16 @@ overflow-wrap:anywhere;
 }
 
 .launch-market-shell{
-margin-top:22px;
+margin-bottom:18px;
 }
 
-.launch-market-home .launch-market-shell{
-margin-top:22px;
+#launchLogo{
+display:none !important;
 }
 
-body.phase-countdown #launchMarketHome .launch-market-shell,
-body.phase-live #launchMarketHome .launch-market-shell{
-margin-top:0;
-}
-
-body.phase-countdown .layout,
-body.phase-live .layout{
-grid-template-columns:minmax(0,1fr) minmax(360px,.72fr);
-}
-
-@media (max-width:920px){
+@media (max-width:980px){
 .layout{
 grid-template-columns:1fr;
-}
-.hero{
-grid-template-columns:1fr;
-}
-.logo{
-width:96px;
-height:96px;
 }
 }
 
@@ -713,14 +633,6 @@ scrollbar-width:none;
 -webkit-overflow-scrolling:touch;
 }
 .nav::-webkit-scrollbar{display:none}
-h1{ font-size:32px; }
-.meta{
-flex-direction:column;
-align-items:stretch;
-}
-.chip{
-width:100%;
-}
 }
 
 @media (max-width:620px){
@@ -773,166 +685,6 @@ grid-template-columns:1fr;
 
 <div class="wrap">
 <a class="back-link" href="./launchpad.html">← Back to Launchpad</a>
-
-<div id="liveTerminalMount" class="live-terminal-mount hidden"></div>
-
-<div class="layout">
-<section class="panel">
-<div class="hero">
-<div id="launchLogo" class="logo">No Image</div>
-
-<div style="min-width:0;">
-<div class="eyebrow">Launch Detail</div>
-<h1 id="launchName">Loading launch…</h1>
-<div class="subline" id="launchSubline">—</div>
-<div class="desc" id="launchDesc">Loading launch description…</div>
-
-<div class="meta">
-<span class="chip">Builder: <strong id="builderAlias" style="margin-left:6px;">—</strong></span>
-<span class="chip">Status: <strong id="launchStatusText" style="margin-left:6px;">—</strong></span>
-<span class="chip">Builder Score: <strong id="builderScore" style="margin-left:6px;">—</strong></span>
-</div>
-</div>
-</div>
-
-<div class="phase-box">
-<div class="phase-top">
-<div>
-<div class="phase-label">Launch Phase</div>
-<div id="phaseValue" class="phase-value">—</div>
-</div>
-<div id="phasePill" class="status-pill">—</div>
-</div>
-<div id="phaseNote" class="phase-note">Loading launch state…</div>
-</div>
-
-<div id="launchClosureNote" class="status"></div>
-
-<div class="progress-card">
-<div class="section-title">Commit Progress</div>
-
-<div class="progress-card-top">
-<div style="min-width:0;">
-<div class="progress-card-title" id="progressHeadline">0 / 0 SOL committed</div>
-<div class="progress-card-sub" id="progressSubline">Launch commit status</div>
-</div>
-<div id="progressStatusPill" class="status-pill commit">Commit</div>
-</div>
-
-<div class="progress-wrap">
-<div class="progress-top">
-<span id="progressText">0 / 0 SOL committed</span>
-<strong id="progressPct">0%</strong>
-</div>
-<div class="progress">
-<div id="progressFill" class="progress-fill"></div>
-</div>
-</div>
-
-<div class="commit-kpis">
-<div class="commit-kpi">
-<div class="k">Participants</div>
-<div class="v" id="participantsStat">0</div>
-</div>
-<div class="commit-kpi">
-<div class="k">Minimum Raise</div>
-<div class="v" id="minRaiseStat">0 SOL</div>
-</div>
-<div class="commit-kpi">
-<div class="k">Hard Cap</div>
-<div class="v" id="hardCapStat">0 SOL</div>
-</div>
-<div class="commit-kpi">
-<div class="k">Countdown / Live</div>
-<div class="v" id="timeStat">—</div>
-</div>
-</div>
-</div>
-
-<div style="margin-top:22px;">
-<div class="section-title">Allocation Structure</div>
-<div class="allocation-grid">
-<div class="stat">
-<div class="k">Participants</div>
-<div class="v" id="participantsPctStat">—</div>
-</div>
-<div class="stat">
-<div class="k">Liquidity</div>
-<div class="v" id="liquidityPctStat">—</div>
-</div>
-<div class="stat">
-<div class="k">Reserve</div>
-<div class="v" id="reservePctStat">—</div>
-</div>
-<div class="stat">
-<div class="k">Builder</div>
-<div class="v" id="builderPctStat">—</div>
-</div>
-</div>
-</div>
-
-<div style="margin-top:22px;">
-<div class="section-title">Launch Economics</div>
-<div class="economics-grid">
-<div class="stat">
-<div class="k">Launch Fee</div>
-<div class="v" id="launchFeePctStat">—</div>
-</div>
-<div class="stat">
-<div class="k">Total Fee</div>
-<div class="v" id="totalFeeSolStat">—</div>
-</div>
-<div class="stat">
-<div class="k">Core Split</div>
-<div class="v" id="founderFeeSolStat">—</div>
-</div>
-<div class="stat">
-<div class="k">Buyback Split</div>
-<div class="v" id="buybackFeeSolStat">—</div>
-</div>
-<div class="stat">
-<div class="k">Treasury Split</div>
-<div class="v" id="treasuryFeeSolStat">—</div>
-</div>
-<div class="stat">
-<div class="k">Net Raise After Fee</div>
-<div class="v" id="netRaiseAfterFeeStat">—</div>
-</div>
-<div class="stat">
-<div class="k">Liquidity Funding</div>
-<div class="v" id="liquidityFundingStat">—</div>
-</div>
-<div class="stat">
-<div class="k">Fee Split</div>
-<div class="v" id="feeSplitStat">50 / 30 / 20</div>
-</div>
-</div>
-</div>
-
-<div id="builderExtraBlock" class="hidden" style="margin-top:22px;">
-<div class="section-title">Builder Launch Controls</div>
-
-<div class="allocation-grid">
-<div class="stat">
-<div class="k">Team Allocation</div>
-<div class="v" id="teamAllocationPctStat">—</div>
-</div>
-<div class="stat">
-<div class="k">Builder Bond</div>
-<div class="v" id="builderBondStat">—</div>
-</div>
-</div>
-
-<div style="margin-top:18px;">
-<div class="section-title">Team Wallet Breakdown</div>
-<div id="teamWalletBreakdownList" class="recent"></div>
-</div>
-</div>
-
-<div style="margin-top:22px;">
-<div class="section-title">Recent Commits</div>
-<div id="recentList" class="recent"></div>
-</div>
 
 <div id="launchMarketHome" class="launch-market-home">
 <div id="launchMarketShell" class="launch-market-shell">
@@ -1208,6 +960,159 @@ Trading is not open yet. Commitments are being collected before market activatio
 </section>
 </div>
 </div>
+
+<div class="layout">
+<section class="panel">
+<div id="launchLogo" class="hidden">No Image</div>
+
+<div class="section-title">Launch Overview</div>
+<div class="subline" id="launchSubline">—</div>
+<div class="desc" id="launchDesc">Loading launch description…</div>
+
+<div class="meta">
+<span class="chip">Builder: <strong id="builderAlias" style="margin-left:6px;">—</strong></span>
+<span class="chip">Status: <strong id="launchStatusText" style="margin-left:6px;">—</strong></span>
+<span class="chip">Builder Score: <strong id="builderScore" style="margin-left:6px;">—</strong></span>
+</div>
+
+<div style="margin-top:22px;" class="phase-box">
+<div class="phase-top">
+<div>
+<div class="phase-label">Launch Phase</div>
+<div id="phaseValue" class="phase-value">—</div>
+</div>
+<div id="phasePill" class="status-pill">—</div>
+</div>
+<div id="phaseNote" class="phase-note">Loading launch state…</div>
+</div>
+
+<div id="launchClosureNote" class="status"></div>
+
+<div id="commitProgressSection" style="margin-top:22px;" class="progress-card">
+<div class="section-title">Commit Progress</div>
+
+<div class="progress-card-top">
+<div style="min-width:0;">
+<div class="progress-card-title" id="progressHeadline">0 / 0 SOL committed</div>
+<div class="progress-card-sub" id="progressSubline">Launch commit status</div>
+</div>
+<div id="progressStatusPill" class="status-pill commit">Commit</div>
+</div>
+
+<div class="progress-wrap">
+<div class="progress-top">
+<span id="progressText">0 / 0 SOL committed</span>
+<strong id="progressPct">0%</strong>
+</div>
+<div class="progress">
+<div id="progressFill" class="progress-fill"></div>
+</div>
+</div>
+
+<div class="commit-kpis">
+<div class="commit-kpi">
+<div class="k">Participants</div>
+<div class="v" id="participantsStat">0</div>
+</div>
+<div class="commit-kpi">
+<div class="k">Minimum Raise</div>
+<div class="v" id="minRaiseStat">0 SOL</div>
+</div>
+<div class="commit-kpi">
+<div class="k">Hard Cap</div>
+<div class="v" id="hardCapStat">0 SOL</div>
+</div>
+<div class="commit-kpi">
+<div class="k">Countdown / Live</div>
+<div class="v" id="timeStat">—</div>
+</div>
+</div>
+</div>
+
+<div style="margin-top:22px;">
+<div class="section-title">Allocation Structure</div>
+<div class="allocation-grid">
+<div class="stat">
+<div class="k">Participants</div>
+<div class="v" id="participantsPctStat">—</div>
+</div>
+<div class="stat">
+<div class="k">Liquidity</div>
+<div class="v" id="liquidityPctStat">—</div>
+</div>
+<div class="stat">
+<div class="k">Reserve</div>
+<div class="v" id="reservePctStat">—</div>
+</div>
+<div class="stat">
+<div class="k">Builder</div>
+<div class="v" id="builderPctStat">—</div>
+</div>
+</div>
+</div>
+
+<div style="margin-top:22px;">
+<div class="section-title">Launch Economics</div>
+<div class="economics-grid">
+<div class="stat">
+<div class="k">Launch Fee</div>
+<div class="v" id="launchFeePctStat">—</div>
+</div>
+<div class="stat">
+<div class="k">Total Fee</div>
+<div class="v" id="totalFeeSolStat">—</div>
+</div>
+<div class="stat">
+<div class="k">Core Split</div>
+<div class="v" id="founderFeeSolStat">—</div>
+</div>
+<div class="stat">
+<div class="k">Buyback Split</div>
+<div class="v" id="buybackFeeSolStat">—</div>
+</div>
+<div class="stat">
+<div class="k">Treasury Split</div>
+<div class="v" id="treasuryFeeSolStat">—</div>
+</div>
+<div class="stat">
+<div class="k">Net Raise After Fee</div>
+<div class="v" id="netRaiseAfterFeeStat">—</div>
+</div>
+<div class="stat">
+<div class="k">Liquidity Funding</div>
+<div class="v" id="liquidityFundingStat">—</div>
+</div>
+<div class="stat">
+<div class="k">Fee Split</div>
+<div class="v" id="feeSplitStat">50 / 30 / 20</div>
+</div>
+</div>
+</div>
+
+<div id="builderExtraBlock" class="hidden" style="margin-top:22px;">
+<div class="section-title">Builder Launch Controls</div>
+
+<div class="allocation-grid">
+<div class="stat">
+<div class="k">Team Allocation</div>
+<div class="v" id="teamAllocationPctStat">—</div>
+</div>
+<div class="stat">
+<div class="k">Builder Bond</div>
+<div class="v" id="builderBondStat">—</div>
+</div>
+</div>
+
+<div style="margin-top:18px;">
+<div class="section-title">Team Wallet Breakdown</div>
+<div id="teamWalletBreakdownList" class="recent"></div>
+</div>
+</div>
+
+<div id="recentCommitsSection" style="margin-top:22px;">
+<div class="section-title">Recent Commits</div>
+<div id="recentList" class="recent"></div>
+</div>
 </section>
 
 <aside class="panel">
@@ -1261,7 +1166,6 @@ Use Connect Wallet to choose Phantom, Solflare, or Backpack.
 <button id="tradeTabSell" class="trade-tab" type="button">Sell</button>
 </div>
 
-<div class="trade-panel-body">
 <div class="trade-panel-field">
 <label id="tradeAmountLabel" for="tradeAmountInput">Amount (SOL)</label>
 <input id="tradeAmountInput" class="trade-panel-input" type="number" step="0.000001" min="0" placeholder="0.00" />
@@ -1305,7 +1209,6 @@ Use Connect Wallet to choose Phantom, Solflare, or Backpack.
 
 <button id="tradeSubmitBtn" class="trade-submit-btn" type="button" disabled>Get Quote</button>
 <div id="tradePanelMessage" class="trade-panel-message hidden"></div>
-</div>
 </section>
 
 <section id="recentTradesCard" class="recent-trades-card hidden" style="margin-top:18px;">

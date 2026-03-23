@@ -51,14 +51,16 @@ if (!v) return null;
 const raw = String(v).trim();
 if (!raw) return null;
 
-const direct = Date.parse(raw);
-if (Number.isFinite(direct)) return direct;
+const hasExplicitTimezone =
+/z$/i.test(raw) || /[+-]\d{2}:\d{2}$/.test(raw);
 
+if (!hasExplicitTimezone && /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/.test(raw)) {
 const sqliteUtc = Date.parse(raw.replace(" ", "T") + "Z");
-if (Number.isFinite(sqliteUtc)) return sqliteUtc;
+return Number.isFinite(sqliteUtc) ? sqliteUtc : null;
+}
 
-const sqliteLocal = Date.parse(raw.replace(" ", "T"));
-return Number.isFinite(sqliteLocal) ? sqliteLocal : null;
+const direct = Date.parse(raw);
+return Number.isFinite(direct) ? direct : null;
 }
 
 function fmtCountdown(ms) {
@@ -242,32 +244,6 @@ function getCommitEndsMs(launch, stats) {
 return parseTs(stats?.commitEndsAt || launch?.commit_ends_at);
 }
 
-function syncPageMarketLayout(status) {
-const body = document.body;
-const liveTerminalMount = $("liveTerminalMount");
-const launchMarketHome = $("launchMarketHome");
-const launchMarketShell = $("launchMarketShell");
-
-if (!body || !liveTerminalMount || !launchMarketHome || !launchMarketShell) return;
-
-body.classList.remove("phase-commit", "phase-countdown", "phase-live");
-body.classList.add(`phase-${String(status || "commit")}`);
-
-const promote = status === "countdown" || status === "live";
-
-if (promote) {
-liveTerminalMount.classList.remove("hidden");
-if (liveTerminalMount.firstElementChild !== launchMarketShell) {
-liveTerminalMount.appendChild(launchMarketShell);
-}
-} else {
-liveTerminalMount.classList.add("hidden");
-if (launchMarketHome.firstElementChild !== launchMarketShell) {
-launchMarketHome.appendChild(launchMarketShell);
-}
-}
-}
-
 function getLaunchStateMessage(launch, stats) {
 const status = String(launch?.status || "");
 const bondState = getBuilderBondState(launch, stats);
@@ -355,6 +331,21 @@ if (wrapper) wrapper.style.display = "none";
 if (economicsGrid) {
 const wrapper = economicsGrid.parentElement;
 if (wrapper) wrapper.style.display = "none";
+}
+}
+
+function updateLifecycleVisibility(status) {
+const commitProgressSection = $("commitProgressSection");
+const recentCommitsSection = $("recentCommitsSection");
+
+const isLiveLike = String(status || "") === "live" || String(status || "") === "graduated";
+
+if (commitProgressSection) {
+commitProgressSection.classList.toggle("hidden", isLiveLike);
+}
+
+if (recentCommitsSection) {
+recentCommitsSection.classList.toggle("hidden", isLiveLike);
 }
 }
 
@@ -941,9 +932,6 @@ launchId: Number(id),
 connectedWallet,
 launch: currentLaunch || null,
 commitStats: currentCommitStats || {},
-onPhaseChange: (phase) => {
-syncPageMarketLayout(phase);
-},
 });
 
 if (forceRefresh && typeof launchMarketController.refreshLaunch === "function") {
@@ -986,8 +974,6 @@ const pct = hardCap > 0
 ? Math.max(0, Math.min(100, Math.floor((committed / hardCap) * 100)))
 : 0;
 
-syncPageMarketLayout(launch.status);
-
 if ($("launchName")) {
 $("launchName").textContent = launch.token_name || "Untitled Launch";
 }
@@ -1005,6 +991,7 @@ if ($("launchStatusText")) {
 $("launchStatusText").textContent = phaseDisplayText(launch.status);
 }
 
+updateLifecycleVisibility(launch.status);
 renderBuilderInfo(launch);
 renderAllocationStructure(launch, stats);
 renderLaunchEconomics(launch, committed);

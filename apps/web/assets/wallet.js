@@ -364,6 +364,50 @@ throw new Error("Invalid lamports amount.");
 return Math.round(n);
 }
 
+function getDevnetConnection(web3) {
+return new web3.Connection(web3.clusterApiUrl("devnet"), {
+commitment: "confirmed",
+confirmTransactionInitialTimeout: 60000,
+});
+}
+
+async function sendWithFallback(provider, transaction, connection) {
+let lastError = null;
+
+if (typeof provider.signTransaction === "function") {
+try {
+const signed = await provider.signTransaction(transaction);
+const signature = await connection.sendRawTransaction(signed.serialize(), {
+skipPreflight: false,
+preflightCommitment: "confirmed",
+maxRetries: 3,
+});
+return signature;
+} catch (err) {
+lastError = err;
+}
+}
+
+if (typeof provider.signAndSendTransaction === "function") {
+try {
+const result = await provider.signAndSendTransaction(transaction, {
+skipPreflight: false,
+preflightCommitment: "confirmed",
+maxRetries: 3,
+});
+return result?.signature || null;
+} catch (err) {
+lastError = err;
+}
+}
+
+if (lastError) {
+throw lastError;
+}
+
+throw new Error("Connected wallet does not support transaction signing.");
+}
+
 export function getAvailableWallets() {
 return detectWallets().map((w) => ({
 name: w.name,
@@ -486,13 +530,9 @@ const amountLamports = normalizeLamports(lamports);
 
 const fromPubkey = new web3.PublicKey(publicKey);
 const toPubkey = new web3.PublicKey(cleanDestination);
+const connection = getDevnetConnection(web3);
 
-const connection = new web3.Connection(
-web3.clusterApiUrl("devnet"),
-"confirmed"
-);
-
-const latestBlockhash = await connection.getLatestBlockhash();
+const latestBlockhash = await connection.getLatestBlockhash("confirmed");
 
 const transaction = new web3.Transaction({
 feePayer: fromPubkey,
@@ -507,20 +547,23 @@ lamports: amountLamports,
 })
 );
 
-let signature = null;
-
-if (typeof provider.signAndSendTransaction === "function") {
-const result = await provider.signAndSendTransaction(transaction);
-signature = result?.signature || null;
-} else if (typeof provider.signTransaction === "function") {
-const signed = await provider.signTransaction(transaction);
-signature = await connection.sendRawTransaction(signed.serialize());
-} else {
-throw new Error("Connected wallet does not support transaction sending.");
-}
+const signature = await sendWithFallback(provider, transaction, connection);
 
 if (!signature) {
 throw new Error("Wallet did not return a transaction signature.");
+}
+
+const confirmation = await connection.confirmTransaction(
+{
+signature,
+blockhash: latestBlockhash.blockhash,
+lastValidBlockHeight: latestBlockhash.lastValidBlockHeight,
+},
+"confirmed"
+);
+
+if (confirmation?.value?.err) {
+throw new Error("Transaction was not confirmed on devnet.");
 }
 
 return {
