@@ -9,8 +9,35 @@ const n = Number(value);
 return Number.isFinite(n) ? n : fallback;
 }
 
+function floorToken(value) {
+return Math.floor(safeNum(value, 0));
+}
+
 function clean(value, max = 5000) {
 return String(value ?? "").trim().slice(0, max);
+}
+
+function parseJsonMaybe(value, fallback = null) {
+if (value == null || value === "") return fallback;
+if (typeof value === "object") return value;
+
+try {
+return JSON.parse(String(value));
+} catch {
+return fallback;
+}
+}
+
+function normalizeLaunch(row) {
+if (!row) return null;
+
+return {
+...row,
+launch_result_json: parseJsonMaybe(row.launch_result_json, null),
+final_supply: String(row.final_supply || row.supply || "0"),
+internal_pool_sol: safeNum(row.internal_pool_sol, 0),
+internal_pool_tokens: String(row.internal_pool_tokens || "0"),
+};
 }
 
 function getRpcUrl() {
@@ -48,15 +75,22 @@ throw new Error(`MINT_AUTHORITY_PRIVATE_KEY is invalid: ${err?.message || err}`)
 }
 
 async function getLaunchById(launchId) {
-return db.get(`SELECT * FROM launches WHERE id = ?`, [launchId]);
+const row = await db.get(`SELECT * FROM launches WHERE id = ?`, [launchId]);
+return normalizeLaunch(row);
 }
 
 async function getTokenByLaunchId(launchId) {
-return db.get(`SELECT * FROM tokens WHERE launch_id = ? LIMIT 1`, [launchId]);
+return db.get(
+`SELECT * FROM tokens WHERE launch_id = ? ORDER BY id DESC LIMIT 1`,
+[launchId]
+);
 }
 
 async function getPoolByLaunchId(launchId) {
-return db.get(`SELECT * FROM pools WHERE launch_id = ? LIMIT 1`, [launchId]);
+return db.get(
+`SELECT * FROM pools WHERE launch_id = ? ORDER BY id DESC LIMIT 1`,
+[launchId]
+);
 }
 
 async function getAllocationsForLaunch(launchId) {
@@ -94,23 +128,32 @@ internalPoolTokens,
 
 async function ensureMintAddress(launch) {
 const existingToken = await getTokenByLaunchId(launch.id);
+
 if (existingToken?.mint_address) {
+if (clean(launch.contract_address, 120) !== clean(existingToken.mint_address, 120)) {
+await db.run(
+`
+UPDATE launches
+SET contract_address = ?,
+updated_at = CURRENT_TIMESTAMP
+WHERE id = ?
+`,
+[existingToken.mint_address, launch.id]
+);
+}
+
 return {
 created: false,
 mintAddress: existingToken.mint_address,
 tokenRow: existingToken,
+source: "token_row",
 };
 }
 
-const existingContractAddress = clean(launch.contract_address, 120);
-if (existingContractAddress) {
-return {
-created: false,
-mintAddress: existingContractAddress,
-tokenRow: existingToken || null,
-};
-}
-
+// Core rule:
+// Do not trust launch.contract_address as the source of truth unless a token row
+// already exists with that mint. This forces MSS to generate the final mint at
+// launch finalization rather than relying on placeholder/internal values.
 const authority = getMintAuthorityKeypair();
 const connection = new Connection(getRpcUrl(), "confirmed");
 const decimals = getMintDecimals();
@@ -139,12 +182,12 @@ return {
 created: true,
 mintAddress,
 tokenRow: existingToken || null,
+source: "mss_generated",
 };
 }
 
 async function ensureTokenRow(launchId, launch, mintAddress) {
 let token = await getTokenByLaunchId(launchId);
-
 const supply = String(launch.final_supply || launch.supply || "0");
 
 if (token) {
@@ -166,8 +209,7 @@ token.id,
 ]
 );
 
-token = await getTokenByLaunchId(launchId);
-return token;
+return getTokenByLaunchId(launchId);
 }
 
 const result = await db.run(
@@ -202,7 +244,7 @@ const creditable = allocations.filter((row) =>
 
 for (const row of creditable) {
 const wallet = String(row.wallet || "").trim();
-const tokenAmount = safeNum(row.token_amount, 0);
+const tokenAmount = floorToken(row.token_amount);
 
 if (!wallet || tokenAmount <= 0) continue;
 
@@ -217,6 +259,14 @@ LIMIT 1
 );
 
 if (existing) {
+await db.run(
+`
+UPDATE wallet_balances
+SET token_amount = ?
+WHERE id = ?
+`,
+[tokenAmount, existing.id]
+);
 continue;
 }
 
@@ -239,7 +289,6 @@ const { internalPoolSol, internalPoolTokens } = getInternalPoolSeed(launch);
 const kValue = Number(internalPoolSol) * Number(internalPoolTokens);
 
 if (existingPool) {
-if (String(existingPool.status || "") !== "active") {
 await db.run(
 `
 UPDATE pools
@@ -258,9 +307,8 @@ kValue,
 existingPool.id,
 ]
 );
-}
 
-return await getPoolByLaunchId(launchId);
+return getPoolByLaunchId(launchId);
 }
 
 const result = await db.run(
@@ -288,9 +336,27 @@ internalPoolTokens,
 return db.get(`SELECT * FROM pools WHERE id = ?`, [result.lastID]);
 }
 
+async function getDistributedCirculatingSupply(launchId) {
+const row = await db.get(
+`
+SELECT COALESCE(SUM(token_amount), 0) AS total
+FROM allocations
+WHERE launch_id = ?
+AND allocation_type IN ('participant', 'builder', 'team')
+`,
+[launchId]
+);
+
+return floorToken(row?.total);
+}
+
 async function updateLaunchMarketFields(launchId, launch, pool) {
-const liquidity = safeNum(pool.sol_reserve, 0) * 2;
-const circulatingSupply = safeNum(launch.final_supply || launch.supply, 0);
+const oneSidedSolLiquidity = safeNum(pool.sol_reserve, 0);
+const distributedCirculatingSupply = await getDistributedCirculatingSupply(launchId);
+const fallbackSupply = floorToken(launch.final_supply || launch.supply || 0);
+
+const circulatingSupply =
+distributedCirculatingSupply > 0 ? distributedCirculatingSupply : fallbackSupply;
 
 await db.run(
 `
@@ -300,7 +366,7 @@ liquidity = ?,
 updated_at = CURRENT_TIMESTAMP
 WHERE id = ?
 `,
-[circulatingSupply, liquidity, launchId]
+[circulatingSupply, oneSidedSolLiquidity, launchId]
 );
 }
 
@@ -328,6 +394,7 @@ return {
 ok: true,
 launchId,
 mintAddress: mintResult.mintAddress,
+mintSource: mintResult.source,
 tokenId: token.id,
 poolId: pool.id,
 poolStatus: pool.status,

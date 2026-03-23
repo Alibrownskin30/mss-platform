@@ -410,6 +410,7 @@ allocationsBuilt,
 marketBootstrap,
 mintAddress:
 marketBootstrap?.mintAddress || String(finalLaunch?.contract_address || ""),
+mintSource: marketBootstrap?.mintSource || null,
 tokenId: marketBootstrap?.tokenId || null,
 poolId: marketBootstrap?.poolId || null,
 finalSupply: String(finalLaunch?.final_supply || allocationResult?.finalSupply || ""),

@@ -33,6 +33,10 @@ return "1m";
 return interval;
 }
 
+function cleanWallet(raw) {
+return String(raw ?? "").trim().slice(0, 120);
+}
+
 router.get("/:launchId/candles", async (req, res) => {
 try {
 const launchId = parseLaunchId(req.params.launchId);
@@ -103,6 +107,7 @@ error: error?.message || "Failed to fetch trades",
 router.get("/:launchId/stats", async (req, res) => {
 try {
 const launchId = parseLaunchId(req.params.launchId);
+const wallet = cleanWallet(req.query.wallet);
 
 if (!launchId) {
 return res.status(400).json({
@@ -114,6 +119,7 @@ error: "Invalid launch id",
 const payload = await getChartStats({
 db: launcherDb,
 launchId,
+wallet,
 });
 
 return res.json({
@@ -123,6 +129,7 @@ stats: payload?.stats || {},
 launch: payload?.launch || null,
 token: payload?.token || null,
 pool: payload?.pool || null,
+wallet: payload?.wallet || null,
 cassie: payload?.cassie || null,
 });
 } catch (error) {
@@ -140,6 +147,7 @@ const launchId = parseLaunchId(req.params.launchId);
 const interval = normalizeInterval(req.query.interval);
 const candleLimit = clampInt(req.query.candle_limit, 120, 1, 500);
 const tradeLimit = clampInt(req.query.trade_limit, 50, 1, 200);
+const wallet = cleanWallet(req.query.wallet);
 
 if (!launchId) {
 return res.status(400).json({
@@ -154,6 +162,7 @@ launchId,
 interval,
 candleLimit,
 tradeLimit,
+wallet,
 });
 
 return res.json({
@@ -163,6 +172,7 @@ interval,
 launch: payload?.launch || null,
 token: payload?.token || null,
 pool: payload?.pool || null,
+wallet: payload?.wallet || null,
 stats: payload?.stats || {},
 candles: payload?.candles || [],
 trades: payload?.trades || [],

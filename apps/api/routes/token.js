@@ -9,12 +9,16 @@ const num = Number(value);
 return Number.isFinite(num) ? num : fallback;
 }
 
+function cleanText(value, max = 500) {
+return String(value ?? "").trim().slice(0, max);
+}
+
 function normalizeTradeRow(row) {
 return {
 id: row.id,
 launch_id: row.launch_id,
 token_id: row.token_id,
-wallet: row.wallet,
+wallet: cleanText(row.wallet, 120),
 side: String(row.side || "").toLowerCase() === "sell" ? "sell" : "buy",
 price_sol: toNumber(row.price, 0),
 price: toNumber(row.price, 0),
@@ -23,7 +27,6 @@ base_amount: toNumber(row.sol_amount, 0),
 sol_amount: toNumber(row.sol_amount, 0),
 timestamp: row.created_at,
 created_at: row.created_at,
-tx_signature: row.tx_signature || null,
 };
 }
 
@@ -38,9 +41,53 @@ if (priceChangePct >= 12 || flowImbalance >= 5) return "active";
 return "normal";
 }
 
+function buildWalletSummary({ wallet, trades = [], priceUsd = 0 }) {
+const cleanWallet = cleanText(wallet, 120);
+if (!cleanWallet) {
+return {
+token_balance: 0,
+tokenBalance: 0,
+position_value_usd: 0,
+positionValueUsd: 0,
+sol_balance: 0,
+solBalance: 0,
+};
+}
+
+let tokenBalance = 0;
+
+for (const trade of trades) {
+const sameWallet =
+String(trade.wallet || "").trim().toLowerCase() === cleanWallet.toLowerCase();
+
+if (!sameWallet) continue;
+
+if (String(trade.side || "").toLowerCase() === "sell") {
+tokenBalance -= toNumber(trade.token_amount, 0);
+} else {
+tokenBalance += toNumber(trade.token_amount, 0);
+}
+}
+
+tokenBalance = Math.max(0, Math.floor(tokenBalance));
+
+const positionValueUsd =
+tokenBalance > 0 && priceUsd > 0 ? tokenBalance * priceUsd : 0;
+
+return {
+token_balance: tokenBalance,
+tokenBalance: tokenBalance,
+position_value_usd: positionValueUsd,
+positionValueUsd: positionValueUsd,
+sol_balance: 0,
+solBalance: 0,
+};
+}
+
 router.get("/:launchId", async (req, res) => {
 try {
 const launchId = Number(req.params.launchId);
+const wallet = cleanText(req.query.wallet, 120);
 
 if (!launchId) {
 return res.status(400).json({ ok: false, error: "Invalid launchId" });
@@ -91,8 +138,7 @@ return res.status(404).json({ ok: false, error: "Launch not found" });
 
 const token = await db.get(
 `
-SELECT
-*
+SELECT *
 FROM tokens
 WHERE launch_id = ?
 ORDER BY id DESC
@@ -103,8 +149,7 @@ LIMIT 1
 
 const pool = await db.get(
 `
-SELECT
-*
+SELECT *
 FROM pools
 WHERE launch_id = ?
 ORDER BY id DESC
@@ -144,15 +189,9 @@ const mintAddress = token?.mint_address || launch.contract_address || null;
 const launchForStats = {
 ...launch,
 mint_address: mintAddress,
-total_supply: toNumber(
-token?.supply ?? launch.final_supply ?? launch.supply,
-0
-),
+total_supply: toNumber(token?.supply ?? launch.final_supply ?? launch.supply, 0),
 circulating_supply: toNumber(
-launch.circulating_supply ??
-token?.supply ??
-launch.final_supply ??
-launch.supply,
+launch.circulating_supply ?? token?.supply ?? launch.final_supply ?? launch.supply,
 0
 ),
 liquidity: solReserve,
@@ -165,6 +204,12 @@ const stats = buildMarketStats({
 launch: launchForStats,
 trades,
 candles: [],
+});
+
+const walletSummary = buildWalletSummary({
+wallet,
+trades,
+priceUsd: toNumber(stats?.price_usd, 0),
 });
 
 const cassieRisk = inferCassieRisk(stats);
@@ -218,7 +263,13 @@ mint_address: mintAddress,
 mint: mintAddress,
 created_at: token?.created_at || null,
 },
-stats,
+wallet: walletSummary,
+stats: {
+...stats,
+wallet_token_balance: walletSummary.token_balance,
+wallet_position_value_usd: walletSummary.position_value_usd,
+wallet_sol_balance: walletSummary.sol_balance,
+},
 pool: pool
 ? {
 id: pool.id,

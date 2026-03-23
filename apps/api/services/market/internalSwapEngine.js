@@ -28,12 +28,17 @@ throw new Error(`${label} must be greater than 0`);
 return n;
 }
 
+function cleanWallet(value) {
+return String(value || "").trim();
+}
+
 async function getTokenByLaunchId(launchId) {
 return db.get(
 `
 SELECT *
 FROM tokens
 WHERE launch_id = ?
+ORDER BY id DESC
 LIMIT 1
 `,
 [launchId]
@@ -47,64 +52,66 @@ SELECT *
 FROM pools
 WHERE launch_id = ?
 AND status = 'active'
+ORDER BY id DESC
 LIMIT 1
 `,
 [launchId]
 );
 }
 
-async function getWalletTokenBalance(wallet, tokenId) {
+async function getWalletTokenBalance(launchId, wallet) {
 const row = await db.get(
 `
 SELECT token_amount
 FROM wallet_balances
-WHERE wallet = ?
-AND token_id = ?
+WHERE launch_id = ?
+AND wallet = ?
 LIMIT 1
 `,
-[wallet, tokenId]
+[launchId, wallet]
 );
 
-return safeNum(row?.token_amount, 0);
+return floorToken(row?.token_amount);
 }
 
-async function upsertWalletTokenBalance(wallet, tokenId, nextAmount) {
+async function upsertWalletTokenBalance(launchId, wallet, nextAmount) {
+const normalizedAmount = Math.max(0, floorToken(nextAmount));
+
 const existing = await db.get(
 `
 SELECT id
 FROM wallet_balances
-WHERE wallet = ?
-AND token_id = ?
+WHERE launch_id = ?
+AND wallet = ?
 LIMIT 1
 `,
-[wallet, tokenId]
+[launchId, wallet]
 );
 
 if (existing) {
 await db.run(
 `
 UPDATE wallet_balances
-SET token_amount = ?,
-updated_at = CURRENT_TIMESTAMP
+SET token_amount = ?
 WHERE id = ?
 `,
-[String(Math.max(0, floorToken(nextAmount))), existing.id]
+[normalizedAmount, existing.id]
 );
-return;
+return normalizedAmount;
 }
 
 await db.run(
 `
 INSERT INTO wallet_balances (
+launch_id,
 wallet,
-token_id,
-token_amount,
-created_at,
-updated_at
-) VALUES (?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+token_amount
+) VALUES (?, ?, ?)
 `,
-[wallet, tokenId, String(Math.max(0, floorToken(nextAmount)))]
+[launchId, wallet, normalizedAmount]
 );
+
+return normalizedAmount;
 }
 
 async function recordTrade({
@@ -115,7 +122,6 @@ side,
 solAmount,
 tokenAmount,
 price,
-feeSol,
 }) {
 await db.run(
 `
@@ -127,9 +133,8 @@ side,
 sol_amount,
 token_amount,
 price,
-fee_sol,
 created_at
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+) VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
 `,
 [
 launchId,
@@ -139,7 +144,6 @@ side,
 roundSol(solAmount),
 floorToken(tokenAmount),
 Number(price),
-roundSol(feeSol),
 ]
 );
 }
@@ -149,21 +153,22 @@ poolId,
 tokenReserve,
 solReserve,
 }) {
-const kValue = Number(tokenReserve) * Number(solReserve);
+const normalizedTokenReserve = Math.max(0, floorToken(tokenReserve));
+const normalizedSolReserve = roundSol(solReserve);
+const kValue = Number(normalizedTokenReserve) * Number(normalizedSolReserve);
 
 await db.run(
 `
 UPDATE pools
 SET token_reserve = ?,
 sol_reserve = ?,
-k_value = ?,
-updated_at = CURRENT_TIMESTAMP
+k_value = ?
 WHERE id = ?
 `,
 [
-String(floorToken(tokenReserve)),
-roundSol(solReserve),
-String(Math.floor(kValue)),
+normalizedTokenReserve,
+normalizedSolReserve,
+kValue,
 poolId,
 ]
 );
@@ -197,15 +202,16 @@ throw new Error("net SOL after fee must be greater than 0");
 }
 
 const k = x * y;
-const newSolReserve = y + netSolIn;
-const newTokenReserve = k / newSolReserve;
-const tokenOutRaw = x - newTokenReserve;
-const tokenOut = floorToken(tokenOutRaw);
+const newSolReserveRaw = y + netSolIn;
+const newTokenReserveRaw = k / newSolReserveRaw;
+const tokenOut = floorToken(x - newTokenReserveRaw);
 
 if (tokenOut <= 0) {
 throw new Error("trade size too small");
 }
 
+const tokenReserveAfter = Math.max(0, floorToken(x - tokenOut));
+const solReserveAfter = roundSol(newSolReserveRaw);
 const effectivePrice = grossSolIn / tokenOut;
 
 return {
@@ -214,8 +220,8 @@ grossSolIn: roundSol(grossSolIn),
 feeSol: roundSol(feeSol),
 netSolIn: roundSol(netSolIn),
 tokenOut,
-tokenReserveAfter: floorToken(newTokenReserve),
-solReserveAfter: roundSol(newSolReserve),
+tokenReserveAfter,
+solReserveAfter,
 price: Number(effectivePrice),
 feeBreakdown: buildFeeBreakdown(feeSol),
 };
@@ -226,7 +232,7 @@ tokenIn,
 tokenReserve,
 solReserve,
 }) {
-const grossTokenIn = assertPositive(tokenIn, "tokenIn");
+const grossTokenIn = floorToken(assertPositive(tokenIn, "tokenIn"));
 const x = assertPositive(tokenReserve, "tokenReserve");
 const y = assertPositive(solReserve, "solReserve");
 
@@ -250,7 +256,7 @@ const effectivePrice = netSolOut / grossTokenIn;
 
 return {
 side: "sell",
-tokenIn: floorToken(grossTokenIn),
+tokenIn: grossTokenIn,
 grossSolOut: roundSol(grossSolOut),
 feeSol: roundSol(feeSol),
 netSolOut: roundSol(netSolOut),
@@ -302,8 +308,8 @@ launchId,
 wallet,
 solAmount,
 }) {
-const cleanWallet = String(wallet || "").trim();
-if (!cleanWallet) throw new Error("wallet is required");
+const normalizedWallet = cleanWallet(wallet);
+if (!normalizedWallet) throw new Error("wallet is required");
 
 const token = await getTokenByLaunchId(launchId);
 const pool = await getActivePoolByLaunchId(launchId);
@@ -323,26 +329,27 @@ tokenReserve: quoted.tokenReserveAfter,
 solReserve: quoted.solReserveAfter,
 });
 
-const currentBalance = await getWalletTokenBalance(cleanWallet, token.id);
-const nextBalance = currentBalance + quoted.tokenOut;
-
-await upsertWalletTokenBalance(cleanWallet, token.id, nextBalance);
+const currentBalance = await getWalletTokenBalance(launchId, normalizedWallet);
+const nextBalance = await upsertWalletTokenBalance(
+launchId,
+normalizedWallet,
+currentBalance + quoted.tokenOut
+);
 
 await recordTrade({
 launchId,
 tokenId: token.id,
-wallet: cleanWallet,
+wallet: normalizedWallet,
 side: "buy",
 solAmount: quoted.grossSolIn,
 tokenAmount: quoted.tokenOut,
 price: quoted.price,
-feeSol: quoted.feeSol,
 });
 
 return {
 ok: true,
 side: "buy",
-wallet: cleanWallet,
+wallet: normalizedWallet,
 launchId,
 tokenId: token.id,
 tokenAmount: quoted.tokenOut,
@@ -351,7 +358,7 @@ feeSol: quoted.feeSol,
 price: quoted.price,
 feeBreakdown: quoted.feeBreakdown,
 balances: {
-tokenBalance: floorToken(nextBalance),
+tokenBalance: nextBalance,
 },
 pool: {
 tokenReserve: quoted.tokenReserveAfter,
@@ -365,8 +372,8 @@ launchId,
 wallet,
 tokenAmount,
 }) {
-const cleanWallet = String(wallet || "").trim();
-if (!cleanWallet) throw new Error("wallet is required");
+const normalizedWallet = cleanWallet(wallet);
+if (!normalizedWallet) throw new Error("wallet is required");
 
 const token = await getTokenByLaunchId(launchId);
 const pool = await getActivePoolByLaunchId(launchId);
@@ -374,7 +381,7 @@ const pool = await getActivePoolByLaunchId(launchId);
 if (!token) throw new Error("token not found");
 if (!pool) throw new Error("active pool not found");
 
-const currentBalance = await getWalletTokenBalance(cleanWallet, token.id);
+const currentBalance = await getWalletTokenBalance(launchId, normalizedWallet);
 const tokenIn = floorToken(tokenAmount);
 
 if (tokenIn <= 0) {
@@ -397,24 +404,26 @@ tokenReserve: quoted.tokenReserveAfter,
 solReserve: quoted.solReserveAfter,
 });
 
-const nextBalance = currentBalance - tokenIn;
-await upsertWalletTokenBalance(cleanWallet, token.id, nextBalance);
+const nextBalance = await upsertWalletTokenBalance(
+launchId,
+normalizedWallet,
+currentBalance - tokenIn
+);
 
 await recordTrade({
 launchId,
 tokenId: token.id,
-wallet: cleanWallet,
+wallet: normalizedWallet,
 side: "sell",
 solAmount: quoted.netSolOut,
 tokenAmount: tokenIn,
 price: quoted.price,
-feeSol: quoted.feeSol,
 });
 
 return {
 ok: true,
 side: "sell",
-wallet: cleanWallet,
+wallet: normalizedWallet,
 launchId,
 tokenId: token.id,
 tokenAmount: tokenIn,
@@ -423,7 +432,7 @@ feeSol: quoted.feeSol,
 price: quoted.price,
 feeBreakdown: quoted.feeBreakdown,
 balances: {
-tokenBalance: floorToken(nextBalance),
+tokenBalance: nextBalance,
 },
 pool: {
 tokenReserve: quoted.tokenReserveAfter,
