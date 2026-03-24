@@ -123,7 +123,7 @@ created_at: row.created_at,
 };
 }
 
-function buildWalletSummary({ launch, token, trades, wallet }) {
+async function buildWalletSummary({ db, launchId, launch, token, trades, wallet }) {
 const cleanWallet = cleanText(wallet, 120);
 if (!cleanWallet) {
 return {
@@ -136,8 +136,19 @@ solBalance: 0,
 };
 }
 
-let tokenBalance = 0;
+const walletRow = await db.get(
+`
+SELECT token_amount
+FROM wallet_balances
+WHERE launch_id = ? AND wallet = ?
+LIMIT 1
+`,
+[launchId, cleanWallet]
+);
 
+let tokenBalance = Math.max(0, Math.floor(toNumber(walletRow?.token_amount, 0)));
+
+if (tokenBalance <= 0) {
 for (const trade of trades) {
 if (String(trade.wallet || "").trim().toLowerCase() !== cleanWallet.toLowerCase()) {
 continue;
@@ -152,6 +163,7 @@ tokenBalance += tokenDelta;
 }
 
 tokenBalance = Math.max(0, Math.floor(tokenBalance));
+}
 
 const stats = buildMarketStats({
 launch: {
@@ -179,9 +191,9 @@ tokenBalance > 0 && toNumber(stats.price_usd, 0) > 0
 
 return {
 token_balance: tokenBalance,
-tokenBalance,
+tokenBalance: tokenBalance,
 position_value_usd: positionValueUsd,
-positionValueUsd,
+positionValueUsd: positionValueUsd,
 sol_balance: 0,
 solBalance: 0,
 };
@@ -405,7 +417,9 @@ trades,
 candles,
 });
 
-const walletSummary = buildWalletSummary({
+const walletSummary = await buildWalletSummary({
+db,
+launchId,
 launch,
 token,
 trades,
@@ -457,7 +471,9 @@ trades,
 candles,
 });
 
-const walletSummary = buildWalletSummary({
+const walletSummary = await buildWalletSummary({
+db,
+launchId,
 launch,
 token,
 trades,

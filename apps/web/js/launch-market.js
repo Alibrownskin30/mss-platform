@@ -993,7 +993,7 @@ const totalSupply = toNumber(
 tokenPayload?.token?.supply ??
 launch?.final_supply ??
 launch?.supply ??
-chartStats?.supply,
+chartStats?.total_supply,
 0
 );
 
@@ -1075,9 +1075,10 @@ return {};
 }
 }
 
-async function defaultFetchTokenStats(launchId) {
+async function defaultFetchTokenStats(launchId, wallet = "") {
 try {
-return await fetchJson(`/api/token/${encodeURIComponent(launchId)}`);
+const qs = wallet ? `?wallet=${encodeURIComponent(wallet)}` : "";
+return await fetchJson(`/api/token/${encodeURIComponent(launchId)}${qs}`);
 } catch {
 return {};
 }
@@ -1091,9 +1092,10 @@ return { trades: [] };
 }
 }
 
-async function defaultFetchChartStats(launchId) {
+async function defaultFetchChartStats(launchId, wallet = "") {
 try {
-return await fetchJson(`/api/chart/${encodeURIComponent(launchId)}/stats`);
+const qs = wallet ? `?wallet=${encodeURIComponent(wallet)}` : "";
+return await fetchJson(`/api/chart/${encodeURIComponent(launchId)}/stats${qs}`);
 } catch {
 return {};
 }
@@ -1109,11 +1111,13 @@ return { candles: [] };
 }
 }
 
-async function defaultFetchMarketSnapshot(launchId, interval = "1m", candleLimit = 120, tradeLimit = 50) {
+async function defaultFetchMarketSnapshot(launchId, interval = "1m", candleLimit = 120, tradeLimit = 50, wallet = "") {
+const walletQs = wallet ? `&wallet=${encodeURIComponent(wallet)}` : "";
+
 const [tokenPayload, snapshotPayload] = await Promise.all([
-defaultFetchTokenStats(launchId),
+defaultFetchTokenStats(launchId, wallet),
 fetchJson(
-`/api/chart/${encodeURIComponent(launchId)}/snapshot?interval=${encodeURIComponent(interval)}&candle_limit=${encodeURIComponent(candleLimit)}&trade_limit=${encodeURIComponent(tradeLimit)}`
+`/api/chart/${encodeURIComponent(launchId)}/snapshot?interval=${encodeURIComponent(interval)}&candle_limit=${encodeURIComponent(candleLimit)}&trade_limit=${encodeURIComponent(tradeLimit)}${walletQs}`
 ).catch(() => ({})),
 ]);
 
@@ -1373,7 +1377,8 @@ const payload = await this.fetchMarketSnapshot(
 this.launchId,
 this.currentInterval,
 this.candleLimit,
-50
+50,
+this.connectedWallet || ""
 );
 
 this.tokenPayload = payload?.tokenPayload || {};
@@ -1381,8 +1386,8 @@ this.chartStats = payload?.chartStats || {};
 this.candles = payload?.candles || [];
 this.trades = payload?.tokenTrades || payload?.trades || [];
 
-if (payload?.chartLaunch && !this.launch?.contract_address) {
-this.launch = { ...payload.chartLaunch, ...this.launch };
+if (payload?.chartLaunch) {
+this.launch = { ...(this.launch || {}), ...payload.chartLaunch };
 }
 
 renderRecentTrades(this.trades, this.tokenPayload, this.chartStats);
@@ -1404,10 +1409,10 @@ if (!this.launchId || this.phase !== PHASES.LIVE) return;
 const [launchPayload, commitStats, payload] = await Promise.all([
 this.fetchLaunch(this.launchId),
 this.fetchCommitStats(this.launchId),
-this.fetchMarketSnapshot(this.launchId, this.currentInterval, this.candleLimit, 50),
+this.fetchMarketSnapshot(this.launchId, this.currentInterval, this.candleLimit, 50, this.connectedWallet || ""),
 ]);
 
-this.launch = { ...(payload?.chartLaunch || {}), ...(launchPayload?.launch || launchPayload || this.launch || {}) };
+this.launch = { ...(launchPayload?.launch || launchPayload || this.launch || {}), ...(payload?.chartLaunch || {}) };
 this.commitStats = commitStats || {};
 this.tokenPayload = payload?.tokenPayload || {};
 this.chartStats = payload?.chartStats || {};

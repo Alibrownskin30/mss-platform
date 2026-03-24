@@ -261,10 +261,11 @@ if (!Number.isFinite(netSolOut) || netSolOut <= 0) {
 throw new Error("Invalid trade output");
 }
 
+// Fee stays inside the pool, so reserve only decreases by the net amount paid out.
 const finalSolReserve = y - netSolOut;
 const finalTokenReserve = x + grossTokensIn;
 const finalK = String(Math.floor(finalTokenReserve * finalSolReserve));
-const price = netSolOut / grossTokensIn;
+const price = grossSolOut / grossTokensIn;
 
 return {
 grossTokensIn,

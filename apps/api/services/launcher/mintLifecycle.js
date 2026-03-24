@@ -1,6 +1,6 @@
 import "dotenv/config";
 import db from "../../db/index.js";
-import { Connection, Keypair } from "@solana/web3.js";
+import { Connection, Keypair, PublicKey } from "@solana/web3.js";
 import { createMint } from "@solana/spl-token";
 import bs58 from "bs58";
 
@@ -71,6 +71,15 @@ return Keypair.fromSecretKey(Uint8Array.from(arr));
 return Keypair.fromSecretKey(bs58.decode(raw));
 } catch (err) {
 throw new Error(`MINT_AUTHORITY_PRIVATE_KEY is invalid: ${err?.message || err}`);
+}
+}
+
+function isValidSolanaAddress(value) {
+try {
+new PublicKey(String(value || "").trim());
+return true;
+} catch {
+return false;
 }
 }
 
@@ -150,10 +159,22 @@ source: "token_row",
 };
 }
 
-// Core rule:
-// Do not trust launch.contract_address as the source of truth unless a token row
-// already exists with that mint. This forces MSS to generate the final mint at
-// launch finalization rather than relying on placeholder/internal values.
+const existingLaunchAddress = clean(launch.contract_address, 120);
+
+// Important:
+// If a valid Solana address is already present on the live launch row, reuse it.
+// This prevents duplicate mint generation when finalize/bootstrap runs twice.
+// It still preserves the core rule that MSS generates the final CA at bootstrap/finalize,
+// because placeholder/non-address values are ignored.
+if (existingLaunchAddress && isValidSolanaAddress(existingLaunchAddress)) {
+return {
+created: false,
+mintAddress: existingLaunchAddress,
+tokenRow: null,
+source: "launch_row",
+};
+}
+
 const authority = getMintAuthorityKeypair();
 const connection = new Connection(getRpcUrl(), "confirmed");
 const decimals = getMintDecimals();

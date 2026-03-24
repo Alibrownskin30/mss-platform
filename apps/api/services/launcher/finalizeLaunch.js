@@ -224,7 +224,7 @@ reason: "countdown not finished",
 
 const stats = await syncLaunchStats(launchId);
 
-let refreshed = normalizeLaunch(
+const refreshed = normalizeLaunch(
 await db.get(`SELECT * FROM launches WHERE id = ?`, [launchId])
 );
 

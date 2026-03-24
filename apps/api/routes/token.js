@@ -41,7 +41,7 @@ if (priceChangePct >= 12 || flowImbalance >= 5) return "active";
 return "normal";
 }
 
-function buildWalletSummary({ wallet, trades = [], priceUsd = 0 }) {
+async function buildWalletSummary({ launchId, wallet, trades = [], priceUsd = 0 }) {
 const cleanWallet = cleanText(wallet, 120);
 if (!cleanWallet) {
 return {
@@ -54,7 +54,21 @@ solBalance: 0,
 };
 }
 
-let tokenBalance = 0;
+const walletRow = await db.get(
+`
+SELECT token_amount
+FROM wallet_balances
+WHERE launch_id = ? AND wallet = ?
+LIMIT 1
+`,
+[launchId, cleanWallet]
+);
+
+let tokenBalance = Math.max(0, Math.floor(toNumber(walletRow?.token_amount, 0)));
+
+// Fallback for older launches if wallet_balances is missing
+if (tokenBalance <= 0 && Array.isArray(trades) && trades.length) {
+let derivedBalance = 0;
 
 for (const trade of trades) {
 const sameWallet =
@@ -63,13 +77,14 @@ String(trade.wallet || "").trim().toLowerCase() === cleanWallet.toLowerCase();
 if (!sameWallet) continue;
 
 if (String(trade.side || "").toLowerCase() === "sell") {
-tokenBalance -= toNumber(trade.token_amount, 0);
+derivedBalance -= toNumber(trade.token_amount, 0);
 } else {
-tokenBalance += toNumber(trade.token_amount, 0);
+derivedBalance += toNumber(trade.token_amount, 0);
 }
 }
 
-tokenBalance = Math.max(0, Math.floor(tokenBalance));
+tokenBalance = Math.max(0, Math.floor(derivedBalance));
+}
 
 const positionValueUsd =
 tokenBalance > 0 && priceUsd > 0 ? tokenBalance * priceUsd : 0;
@@ -206,7 +221,8 @@ trades,
 candles: [],
 });
 
-const walletSummary = buildWalletSummary({
+const walletSummary = await buildWalletSummary({
+launchId,
 wallet,
 trades,
 priceUsd: toNumber(stats?.price_usd, 0),
