@@ -4,6 +4,9 @@ import { Connection, Keypair, PublicKey } from "@solana/web3.js";
 import { createMint } from "@solana/spl-token";
 import bs58 from "bs58";
 
+const DEFAULT_REQUIRED_MINT_TAG = "MSS";
+const DEFAULT_MINT_RESERVATION_ATTEMPTS = 25000;
+
 function safeNum(value, fallback = 0) {
 const n = Number(value);
 return Number.isFinite(n) ? n : fallback;
@@ -37,6 +40,12 @@ launch_result_json: parseJsonMaybe(row.launch_result_json, null),
 final_supply: String(row.final_supply || row.supply || "0"),
 internal_pool_sol: safeNum(row.internal_pool_sol, 0),
 internal_pool_tokens: String(row.internal_pool_tokens || "0"),
+reserved_mint_address: clean(row.reserved_mint_address, 120),
+reserved_mint_secret: clean(row.reserved_mint_secret, 20000),
+mint_reservation_status: clean(row.mint_reservation_status, 40).toLowerCase(),
+mint_required_tag: clean(row.mint_required_tag, 32).toUpperCase() || DEFAULT_REQUIRED_MINT_TAG,
+mint_reservation_attempts: safeNum(row.mint_reservation_attempts, 0),
+contract_address: clean(row.contract_address, 120),
 };
 }
 
@@ -81,6 +90,74 @@ return true;
 } catch {
 return false;
 }
+}
+
+function normalizeMintTag(value) {
+return clean(value, 32).toUpperCase() || DEFAULT_REQUIRED_MINT_TAG;
+}
+
+function mintContainsRequiredTag(address, requiredTag = DEFAULT_REQUIRED_MINT_TAG) {
+const tag = normalizeMintTag(requiredTag);
+const mint = clean(address, 120).toUpperCase();
+return Boolean(tag && mint && mint.includes(tag));
+}
+
+function encodeSecretKey(secretKey) {
+return bs58.encode(secretKey);
+}
+
+function decodeSecretKey(raw) {
+const value = clean(raw, 20000);
+if (!value) {
+throw new Error("reserved mint secret is missing");
+}
+
+try {
+if (value.startsWith("[")) {
+const arr = JSON.parse(value);
+if (!Array.isArray(arr) || !arr.length) {
+throw new Error("invalid reserved mint secret array");
+}
+return Uint8Array.from(arr);
+}
+
+return bs58.decode(value);
+} catch (err) {
+throw new Error(`reserved mint secret is invalid: ${err?.message || err}`);
+}
+}
+
+function keypairFromEncodedSecret(raw) {
+return Keypair.fromSecretKey(decodeSecretKey(raw));
+}
+
+export function prepareReservedMintReservation({
+requiredTag = DEFAULT_REQUIRED_MINT_TAG,
+maxAttempts = DEFAULT_MINT_RESERVATION_ATTEMPTS,
+} = {}) {
+const tag = normalizeMintTag(requiredTag);
+const attemptsLimit = Math.max(1, Math.floor(safeNum(maxAttempts, DEFAULT_MINT_RESERVATION_ATTEMPTS)));
+
+for (let attempts = 1; attempts <= attemptsLimit; attempts += 1) {
+const keypair = Keypair.generate();
+const mintAddress = keypair.publicKey.toBase58();
+
+if (mintContainsRequiredTag(mintAddress, tag)) {
+return {
+ok: true,
+requiredTag: tag,
+mintAddress,
+reservedMintAddress: mintAddress,
+reservedMintSecret: encodeSecretKey(keypair.secretKey),
+attempts,
+status: "reserved",
+};
+}
+}
+
+throw new Error(
+`failed to reserve mint containing ${tag} within ${attemptsLimit} attempts`
+);
 }
 
 async function getLaunchById(launchId) {
@@ -135,6 +212,28 @@ internalPoolTokens,
 };
 }
 
+function getReservedMintKeypairFromLaunch(launch) {
+const reservedSecret = clean(launch?.reserved_mint_secret, 20000);
+const reservedAddress = clean(launch?.reserved_mint_address, 120);
+
+if (!reservedSecret) {
+throw new Error("reserved mint secret is missing on launch");
+}
+
+const keypair = keypairFromEncodedSecret(reservedSecret);
+const derivedAddress = keypair.publicKey.toBase58();
+
+if (!reservedAddress) {
+throw new Error("reserved mint address is missing on launch");
+}
+
+if (derivedAddress !== reservedAddress) {
+throw new Error("reserved mint secret does not match reserved mint address");
+}
+
+return keypair;
+}
+
 async function ensureMintAddress(launch) {
 const existingToken = await getTokenByLaunchId(launch.id);
 
@@ -144,6 +243,8 @@ await db.run(
 `
 UPDATE launches
 SET contract_address = ?,
+mint_reservation_status = COALESCE(NULLIF(mint_reservation_status, ''), 'finalized'),
+mint_finalized_at = COALESCE(mint_finalized_at, CURRENT_TIMESTAMP),
 updated_at = CURRENT_TIMESTAMP
 WHERE id = ?
 `,
@@ -159,22 +260,34 @@ source: "token_row",
 };
 }
 
+const reservationStatus = clean(launch.mint_reservation_status, 40).toLowerCase();
 const existingLaunchAddress = clean(launch.contract_address, 120);
 
-// Important:
-// If a valid Solana address is already present on the live launch row, reuse it.
-// This prevents duplicate mint generation when finalize/bootstrap runs twice.
-// It still preserves the core rule that MSS generates the final CA at bootstrap/finalize,
-// because placeholder/non-address values are ignored.
-if (existingLaunchAddress && isValidSolanaAddress(existingLaunchAddress)) {
+if (
+reservationStatus === "finalized" &&
+existingLaunchAddress &&
+isValidSolanaAddress(existingLaunchAddress)
+) {
 return {
 created: false,
 mintAddress: existingLaunchAddress,
 tokenRow: null,
-source: "launch_row",
+source: "launch_row_finalized",
 };
 }
 
+const reservedMintAddress = clean(launch.reserved_mint_address, 120);
+const requiredTag = normalizeMintTag(launch.mint_required_tag);
+
+if (!reservedMintAddress) {
+throw new Error("reserved mint address is missing");
+}
+
+if (!mintContainsRequiredTag(reservedMintAddress, requiredTag)) {
+throw new Error(`reserved mint address does not contain required tag ${requiredTag}`);
+}
+
+const reservedMintKeypair = getReservedMintKeypairFromLaunch(launch);
 const authority = getMintAuthorityKeypair();
 const connection = new Connection(getRpcUrl(), "confirmed");
 const decimals = getMintDecimals();
@@ -184,15 +297,23 @@ connection,
 authority,
 authority.publicKey,
 null,
-decimals
+decimals,
+reservedMintKeypair
 );
 
 const mintAddress = mintPubkey.toBase58();
+
+if (mintAddress !== reservedMintAddress) {
+throw new Error("created mint address does not match reserved mint address");
+}
 
 await db.run(
 `
 UPDATE launches
 SET contract_address = ?,
+mint_reservation_status = 'finalized',
+mint_finalized_at = CURRENT_TIMESTAMP,
+reserved_mint_secret = NULL,
 updated_at = CURRENT_TIMESTAMP
 WHERE id = ?
 `,
@@ -203,7 +324,7 @@ return {
 created: true,
 mintAddress,
 tokenRow: existingToken || null,
-source: "mss_generated",
+source: "reserved_mss_mint",
 };
 }
 
@@ -421,5 +542,6 @@ poolId: pool.id,
 poolStatus: pool.status,
 tokenReserve: Number(pool.token_reserve || 0),
 solReserve: Number(pool.sol_reserve || 0),
+mintRequiredTag: launch.mint_required_tag || DEFAULT_REQUIRED_MINT_TAG,
 };
 }

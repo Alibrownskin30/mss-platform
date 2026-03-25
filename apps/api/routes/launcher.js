@@ -12,18 +12,23 @@ import db from "../db/index.js";
 import { buildLaunchAllocations } from "../services/launcher/allocationService.js";
 import { verifyCommitTransfer } from "../services/launcher/commitVerifier.js";
 import { finalizeLaunch } from "../services/launcher/finalizeLaunch.js";
-import { bootstrapLiveMarket } from "../services/launcher/mintLifecycle.js";
+import {
+bootstrapLiveMarket,
+prepareReservedMintReservation,
+} from "../services/launcher/mintLifecycle.js";
 
 const router = express.Router();
 
-const COMMIT_PHASE_MINUTES = 4;
-const COUNTDOWN_MINUTES = 10;
+const COMMIT_PHASE_MINUTES = 5;
+const COUNTDOWN_MINUTES = 5;
 const MAX_WALLET_COMMIT_SOL = 100;
 const MAX_TEAM_WALLETS = 5;
 const MAX_TEAM_ALLOCATION_PCT = 15;
 const MIN_BUILDER_BOND_SOL = 5;
 const TEAM_PCT_PRECISION = 6;
 const RECONCILE_INTERVAL_MS = 15000;
+const REQUIRED_MINT_TAG = "MSS";
+const RESERVED_MINT_MAX_ATTEMPTS = 25000;
 
 const LAUNCH_FEE_SPLIT = {
 founder: 0.5,
@@ -444,6 +449,12 @@ builder_bond_paid: Number(row?.builder_bond_paid || 0),
 builder_bond_tx_signature: cleanText(row?.builder_bond_tx_signature, 140),
 team_wallets: teamWallets,
 team_wallet_breakdown: teamWalletBreakdown,
+reserved_mint_address: cleanText(row?.reserved_mint_address, 120),
+mint_reservation_status: cleanText(row?.mint_reservation_status, 40),
+mint_required_tag: cleanText(row?.mint_required_tag, 32) || REQUIRED_MINT_TAG,
+mint_reservation_attempts: Number(row?.mint_reservation_attempts || 0),
+mint_reserved_at: row?.mint_reserved_at || null,
+mint_finalized_at: row?.mint_finalized_at || null,
 };
 }
 
@@ -513,6 +524,12 @@ team_wallet_breakdown: parsed.team_wallet_breakdown,
 builder_bond_sol: Number(parsed.builder_bond_sol || 0),
 builder_bond_refunded: Number(parsed.builder_bond_refunded || 0),
 builder_bond_paid: Number(parsed.builder_bond_paid || 0),
+reserved_mint_address: parsed.reserved_mint_address || null,
+mint_reservation_status: parsed.mint_reservation_status || null,
+mint_required_tag: parsed.mint_required_tag || REQUIRED_MINT_TAG,
+mint_reservation_attempts: parsed.mint_reservation_attempts || 0,
+mint_reserved_at: parsed.mint_reserved_at || null,
+mint_finalized_at: parsed.mint_finalized_at || null,
 commit_started_at: parsed.commit_started_at || null,
 commit_ends_at: parsed.commit_ends_at || null,
 countdown_started_at: parsed.countdown_started_at || null,
@@ -1296,6 +1313,11 @@ builderBondPaid = 1;
 finalBuilderBondTxSignature = builderBondTxSignature;
 }
 
+const mintReservation = prepareReservedMintReservation({
+requiredTag: REQUIRED_MINT_TAG,
+maxAttempts: RESERVED_MINT_MAX_ATTEMPTS,
+});
+
 const result = await db.run(
 `
 INSERT INTO launches (
@@ -1321,6 +1343,12 @@ builder_bond_sol,
 builder_bond_refunded,
 builder_bond_paid,
 builder_bond_tx_signature,
+reserved_mint_address,
+reserved_mint_secret,
+mint_reservation_status,
+mint_required_tag,
+mint_reservation_attempts,
+mint_reserved_at,
 commit_started_at,
 commit_ends_at,
 countdown_started_at,
@@ -1330,7 +1358,7 @@ failed_at,
 committed_sol,
 participants_count,
 status
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, CURRENT_TIMESTAMP, datetime(CURRENT_TIMESTAMP, '+${COMMIT_PHASE_MINUTES} minutes'), NULL, NULL, NULL, NULL, 0, 0, 'commit')
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, datetime(CURRENT_TIMESTAMP, '+${COMMIT_PHASE_MINUTES} minutes'), NULL, NULL, NULL, NULL, 0, 0, 'commit')
 `,
 [
 builder.id,
@@ -1356,6 +1384,11 @@ JSON.stringify(builderCfg.team_wallet_breakdown),
 builderCfg.builder_bond_sol,
 builderBondPaid,
 finalBuilderBondTxSignature,
+mintReservation.reservedMintAddress,
+mintReservation.reservedMintSecret,
+mintReservation.status,
+mintReservation.requiredTag,
+mintReservation.attempts,
 ]
 );
 
@@ -1365,6 +1398,12 @@ return res.json({
 ok: true,
 launch: parseLaunchJsonFields(launch),
 builderConfig: builderCfg,
+mintReservation: {
+requiredTag: mintReservation.requiredTag,
+reservedMintAddress: mintReservation.reservedMintAddress,
+attempts: mintReservation.attempts,
+status: mintReservation.status,
+},
 });
 } catch (err) {
 console.error("POST /api/launcher/create failed:", err);
@@ -2080,6 +2119,12 @@ commitPercent: buildCommitPercent(
 stats.totalCommitted,
 parsedLaunch.hard_cap_sol
 ),
+reservedMintAddress: parsedLaunch.reserved_mint_address || null,
+mintReservationStatus: parsedLaunch.mint_reservation_status || null,
+mintRequiredTag: parsedLaunch.mint_required_tag || REQUIRED_MINT_TAG,
+mintReservationAttempts: parsedLaunch.mint_reservation_attempts || 0,
+mintReservedAt: parsedLaunch.mint_reserved_at || null,
+mintFinalizedAt: parsedLaunch.mint_finalized_at || null,
 commitStartedAt: parsedLaunch.commit_started_at || null,
 commitEndsAt: parsedLaunch.commit_ends_at || null,
 countdownStartedAt: parsedLaunch.countdown_started_at || null,

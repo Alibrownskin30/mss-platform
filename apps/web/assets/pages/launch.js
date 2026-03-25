@@ -359,6 +359,7 @@ let refundActionInFlight = false;
 let walletActionInFlight = false;
 let refreshInFlight = false;
 let launchMarketController = null;
+let lastRenderedPhaseStatus = "";
 
 async function fetchJson(path, options = {}) {
 const apiBase = getApiBase();
@@ -974,10 +975,6 @@ const pct = hardCap > 0
 ? Math.max(0, Math.min(100, Math.floor((committed / hardCap) * 100)))
 : 0;
 
-if ($("launchName")) {
-$("launchName").textContent = launch.token_name || "Untitled Launch";
-}
-
 if ($("launchSubline")) {
 $("launchSubline").textContent =
 `${launch.symbol || "—"} • ${String(launch.template || "—").replaceAll("_", " ")} • ${phaseDisplayText(launch.status)}`;
@@ -1034,6 +1031,8 @@ setClosureNote("");
 } else {
 setClosureNote("");
 }
+
+lastRenderedPhaseStatus = String(launch.status || "");
 }
 
 async function refresh() {
@@ -1376,6 +1375,10 @@ const countdownEndsMs = getCountdownEndsMs(currentLaunch, currentCommitStats);
 if (Number.isFinite(countdownEndsMs) && countdownEndsMs <= Date.now() && !refreshInFlight) {
 void refresh().catch((err) => console.error(err));
 }
+}
+
+if (status !== lastRenderedPhaseStatus && !refreshInFlight) {
+void refresh().catch((err) => console.error(err));
 }
 }, 1000);
 }

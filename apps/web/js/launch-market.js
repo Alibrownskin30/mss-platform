@@ -201,9 +201,9 @@ return BASE_MAX_WALLET_PERCENT + (days * DAILY_INCREASE_PERCENT);
 
 function inferPhase(launch) {
 const explicit = String(launch?.status || "").toLowerCase();
-if ([PHASES.COMMIT, PHASES.COUNTDOWN, PHASES.LIVE].includes(explicit)) {
-return explicit;
-}
+if (explicit === "live" || explicit === "graduated") return PHASES.LIVE;
+if (explicit === PHASES.COUNTDOWN) return PHASES.COUNTDOWN;
+if (explicit === PHASES.COMMIT) return PHASES.COMMIT;
 
 const now = getNowMs();
 const countdownStart = parseDateMs(launch?.countdown_started_at);
@@ -231,7 +231,7 @@ overlaySubtext: "Market activation is imminent.",
 case PHASES.LIVE:
 return {
 badgeText: "LIVE",
-statusText: "Live",
+statusText: "Live Trading",
 marketModeText: "Active",
 overlayEyebrow: "LIVE MARKET",
 overlayTitle: "Live Trading",
@@ -242,7 +242,7 @@ case PHASES.COMMIT:
 default:
 return {
 badgeText: "COMMIT",
-statusText: "Commit",
+statusText: "Commit Phase",
 marketModeText: "Pre-Live",
 overlayEyebrow: "COMMIT PHASE",
 overlayTitle: "Commit Phase In Progress",
@@ -408,7 +408,7 @@ const accessMode = $("launchAccessModeText");
 if (launchPhaseBadgeText) launchPhaseBadgeText.textContent = meta.badgeText;
 if (launchStatusText) launchStatusText.textContent = meta.statusText;
 if (launchMarketModeText) launchMarketModeText.textContent = meta.marketModeText;
-if (marketStatusLabel) marketStatusLabel.textContent = phase === PHASES.LIVE ? "Live" : meta.statusText;
+if (marketStatusLabel) marketStatusLabel.textContent = phase === PHASES.LIVE ? "Live Trading" : meta.statusText;
 if (marketOverlayEyebrow) marketOverlayEyebrow.textContent = meta.overlayEyebrow;
 if (marketOverlayTitle) marketOverlayTitle.textContent = meta.overlayTitle;
 
@@ -886,17 +886,17 @@ const volumeCanvas = $("marketVolumeCanvas");
 if (!chartShell || !chartCanvas || !volumeCanvas) return;
 
 if (phase === PHASES.LIVE) {
-chartShell.style.minHeight = "700px";
-chartCanvas.style.height = "500px";
-volumeCanvas.style.height = "180px";
+chartShell.style.minHeight = "430px";
+chartCanvas.style.height = "310px";
+volumeCanvas.style.height = "96px";
 } else if (phase === PHASES.COUNTDOWN) {
-chartShell.style.minHeight = "560px";
-chartCanvas.style.height = "380px";
-volumeCanvas.style.height = "140px";
+chartShell.style.minHeight = "360px";
+chartCanvas.style.height = "240px";
+volumeCanvas.style.height = "80px";
 } else {
-chartShell.style.minHeight = "500px";
-chartCanvas.style.height = "340px";
-volumeCanvas.style.height = "120px";
+chartShell.style.minHeight = "340px";
+chartCanvas.style.height = "220px";
+volumeCanvas.style.height = "72px";
 }
 }
 
@@ -904,14 +904,22 @@ function getWalletSummaryData(tokenPayload = {}, chartStats = {}, fallbackTokenB
 const wallet = tokenPayload?.wallet || tokenPayload?.position || {};
 const stats = tokenPayload?.stats || {};
 
-const tokenBalance = toNumber(
+const tokenBalance = Math.max(
+0,
+toNumber(
 wallet?.token_balance ??
 wallet?.tokenBalance ??
+wallet?.balance_tokens ??
+wallet?.balance ??
 tokenPayload?.wallet_token_balance ??
+tokenPayload?.walletBalance ??
+tokenPayload?.position?.token_balance ??
 chartStats?.wallet_token_balance ??
+chartStats?.wallet_balance_tokens ??
 fallbackTokenBalance ??
 0,
 0
+)
 );
 
 const priceUsd = toNumber(stats?.price_usd ?? chartStats?.price_usd, 0);
@@ -1015,9 +1023,11 @@ const remaining = maxWalletTokens > 0
 ? Math.max(0, maxWalletTokens - walletSummary.tokenBalance)
 : 0;
 
+statePill.classList.remove("is-open", "is-restricted");
+statePill.classList.add("is-open");
+
 tierLabel.textContent = maxWalletTokens > 0 ? "Wallet Access Controls" : "Open Access";
 statePill.textContent = "Live";
-statePill.classList.add("is-open");
 
 limitValue.textContent = maxWalletTokens > 0
 ? `${formatTokenAmount(maxWalletTokens, 0)} tokens`
@@ -1390,6 +1400,11 @@ if (payload?.chartLaunch) {
 this.launch = { ...(this.launch || {}), ...payload.chartLaunch };
 }
 
+const liveWalletSummary = getWalletSummaryData(this.tokenPayload, this.chartStats, this.walletTokenBalanceFallback);
+if (liveWalletSummary.tokenBalance > 0 || this.walletTokenBalanceFallback <= 0) {
+this.walletTokenBalanceFallback = liveWalletSummary.tokenBalance;
+}
+
 renderRecentTrades(this.trades, this.tokenPayload, this.chartStats);
 renderCassiePanel(this.phase, this.launch, this.tokenPayload, this.chartStats);
 
@@ -1418,6 +1433,11 @@ this.tokenPayload = payload?.tokenPayload || {};
 this.chartStats = payload?.chartStats || {};
 this.candles = payload?.candles || [];
 this.trades = payload?.tokenTrades || payload?.trades || [];
+
+const liveWalletSummary = getWalletSummaryData(this.tokenPayload, this.chartStats, this.walletTokenBalanceFallback);
+if (liveWalletSummary.tokenBalance > 0 || this.walletTokenBalanceFallback <= 0) {
+this.walletTokenBalanceFallback = liveWalletSummary.tokenBalance;
+}
 
 this.phase = inferPhase(this.launch);
 
@@ -1542,8 +1562,11 @@ renderTradePanel() {
 updateTradeTabUi(this.tradeMode);
 
 const submitBtn = $("tradeSubmitBtn");
+const amount = this.getTradeAmountValue();
+const hasAmount = amount > 0;
+
 if (submitBtn) {
-submitBtn.disabled = this.phase !== PHASES.LIVE || this.tradeBusy;
+submitBtn.disabled = this.phase !== PHASES.LIVE || this.tradeBusy || !hasAmount;
 submitBtn.textContent = this.lastQuote
 ? this.tradeMode === TRADE_MODES.BUY
 ? "Execute Buy"
@@ -1556,11 +1579,18 @@ submitBtn.textContent = this.lastQuote
 
 setConnectedWallet(wallet) {
 this.connectedWallet = wallet || "";
+this.lastQuote = null;
+resetTradeQuoteUi();
+setTradeMessage("");
 if (this.launch) setManageLinksVisibility(this.launch, this.connectedWallet);
 if (this.phase === PHASES.LIVE) {
 updateWalletSummary(this.phase, this.connectedWallet, this.tokenPayload, this.chartStats, this.walletTokenBalanceFallback);
 updateAccessCard(this.phase, this.launch, this.tokenPayload, this.chartStats, this.lastQuote, this.connectedWallet, this.walletTokenBalanceFallback);
 this.syncSellQuickButtons();
+this.renderTradePanel();
+this.refreshLiveMarketOnly().catch((error) => {
+console.error("wallet sync refresh failed:", error);
+});
 }
 }
 
@@ -1629,6 +1659,9 @@ el.classList.remove("active");
 btn.classList.add("active");
 
 this.currentInterval = btn.dataset.interval || "1m";
+this.lastQuote = null;
+resetTradeQuoteUi();
+setTradeMessage("");
 
 if (this.chartRenderer) {
 this.chartRenderer.setInterval(this.currentInterval);
@@ -1641,6 +1674,7 @@ updateStatsForLive(this.tokenPayload, this.chartStats);
 updateWalletSummary(this.phase, this.connectedWallet, this.tokenPayload, this.chartStats, this.walletTokenBalanceFallback);
 updateAccessCard(this.phase, this.launch, this.tokenPayload, this.chartStats, this.lastQuote, this.connectedWallet, this.walletTokenBalanceFallback);
 renderCassiePanel(this.phase, this.launch, this.tokenPayload, this.chartStats);
+this.renderTradePanel();
 } catch (error) {
 console.error("timeframe refresh failed:", error);
 }
@@ -1665,13 +1699,22 @@ if (!input) return;
 if (this.tradeMode === TRADE_MODES.BUY) {
 const amount = event.currentTarget?.dataset?.amount || "";
 input.value = amount;
+this.lastQuote = null;
+resetTradeQuoteUi();
+setTradeMessage("");
+this.renderTradePanel();
 return;
 }
 
 const pct = toNumber(event.currentTarget?.dataset?.pct, 0);
 const balance = this.getWalletTokenBalance();
+
 if (pct > 0 && balance > 0) {
-input.value = String(Math.floor((balance * pct) / 100));
+input.value = String(Math.max(0, Math.floor((balance * pct) / 100)));
+this.lastQuote = null;
+resetTradeQuoteUi();
+setTradeMessage("");
+this.renderTradePanel();
 }
 }
 

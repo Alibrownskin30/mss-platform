@@ -84,6 +84,7 @@ el.textContent = "";
 }
 
 let cachedBuilderBond = null;
+let currentLogoPreviewObjectUrl = "";
 
 function getPhantomProvider() {
 return window.getPhantomProvider?.() || window.phantom?.solana || window.solana || null;
@@ -578,6 +579,13 @@ return `
 }).join("");
 }
 
+function clearLogoPreviewObjectUrl() {
+if (currentLogoPreviewObjectUrl) {
+URL.revokeObjectURL(currentLogoPreviewObjectUrl);
+currentLogoPreviewObjectUrl = "";
+}
+}
+
 function updatePreview() {
 const values = getFormValues();
 
@@ -617,12 +625,15 @@ const placeholder = $("logoPreviewPlaceholder");
 if (!img || !placeholder) return;
 
 if (file) {
-const objectUrl = URL.createObjectURL(file);
-img.src = objectUrl;
+clearLogoPreviewObjectUrl();
+currentLogoPreviewObjectUrl = URL.createObjectURL(file);
+img.src = currentLogoPreviewObjectUrl;
 img.style.display = "block";
 placeholder.style.display = "none";
 return;
 }
+
+clearLogoPreviewObjectUrl();
 
 if (existingUrl) {
 img.src = existingUrl;
@@ -742,7 +753,7 @@ headers: {
 body: JSON.stringify(payload),
 });
 
-return data.launch;
+return data;
 }
 
 async function collectBuilderBond(values) {
@@ -851,11 +862,6 @@ if (uploadedLogoUrl) {
 finalImageUrl = uploadedLogoUrl;
 }
 
-const teamWallets = Array.isArray(values.teamWallets) ? values.teamWallets : [];
-const teamWalletBreakdown = Array.isArray(values.teamWalletBreakdown)
-? values.teamWalletBreakdown
-: [];
-
 const payload = {
 wallet: values.wallet,
 template: values.template,
@@ -867,20 +873,30 @@ supply: Number(values.supply),
 min_raise_sol: Number(values.minRaiseSol),
 hard_cap_sol: Number(values.hardCapSol),
 team_allocation_pct: values.template === "builder" ? Number(values.teamAllocation) : 0,
-team_wallets: values.template === "builder" ? teamWallets : [],
-team_wallet_breakdown: values.template === "builder" ? teamWalletBreakdown : [],
+team_wallets: values.template === "builder" ? values.teamWallets : [],
+team_wallet_breakdown: values.template === "builder" ? values.teamWalletBreakdown : [],
 builder_bond_sol: values.template === "builder" ? Number(values.builderBond) : 0,
 builder_bond_tx_signature: builderBondTxSignature,
 };
 
-const launch = await createLaunch(payload);
+const result = await createLaunch(payload);
+const launch = result?.launch || null;
+const mintReservation = result?.mintReservation || null;
 
 const builderBondNotice =
 values.template === "builder" && Number(values.builderBond) > 0
 ? ` Builder bond confirmed: ${values.builderBond} SOL.`
 : "";
 
-setStatus("good", `Launch created successfully. Redirecting to launch #${launch.id}...${builderBondNotice}`);
+const mintNotice =
+mintReservation?.reservedMintAddress
+? ` Reserved mint: ${mintReservation.reservedMintAddress}.`
+: "";
+
+setStatus(
+"good",
+`Launch created successfully. Redirecting to launch #${launch?.id || "—"}...${builderBondNotice}${mintNotice}`
+);
 
 window.setTimeout(() => {
 window.location.href = `./launch.html?id=${encodeURIComponent(launch.id)}`;
@@ -1034,6 +1050,10 @@ updatePreview();
 $("builderBond")?.addEventListener("input", () => {
 clearBuilderBondCache();
 updatePreview();
+});
+
+window.addEventListener("beforeunload", () => {
+clearLogoPreviewObjectUrl();
 });
 }
 
