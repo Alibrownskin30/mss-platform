@@ -484,15 +484,49 @@ launchTokenLogo.textContent = (tokenSymbol[0] || "M").toUpperCase();
 }
 }
 
-function updateContractAddress(launch, tokenPayload = null) {
-const ca = String(
-launch?.contract_address ||
-launch?.mint_address ||
-tokenPayload?.token?.mint_address ||
-tokenPayload?.token?.mint ||
-""
-).trim() || "Pending";
+function resolveContractAddress(launch = {}, tokenPayload = {}) {
+const candidates = [
+launch?.contract_address,
+launch?.mint_address,
+launch?.reserved_mint_address,
+tokenPayload?.token?.mint_address,
+tokenPayload?.token?.mint,
+tokenPayload?.mint_address,
+tokenPayload?.mint,
+]
+.map((value) => String(value || "").trim())
+.filter(Boolean);
 
+const contractAddress = candidates[0] || "";
+const reservationStatus = String(launch?.mint_reservation_status || "").trim().toLowerCase();
+const reservedMintAddress = String(launch?.reserved_mint_address || "").trim();
+const isLiveLike = ["live", "graduated"].includes(String(launch?.status || "").trim().toLowerCase());
+
+if (contractAddress) {
+return {
+value: contractAddress,
+state: reservationStatus === "reserved" && !String(launch?.contract_address || "").trim()
+? "Reserved"
+: "Ready",
+};
+}
+
+if (isLiveLike && reservedMintAddress) {
+return {
+value: reservedMintAddress,
+state: reservationStatus === "finalized" ? "Ready" : "Reserved",
+};
+}
+
+return {
+value: "",
+state: "Pending",
+};
+}
+
+function updateContractAddress(launch, tokenPayload = null) {
+const resolved = resolveContractAddress(launch || {}, tokenPayload || {});
+const ca = resolved.value || "Pending";
 const short = ca === "Pending" ? "Pending" : shortAddress(ca);
 
 const launchCaText = $("launchCaText");
@@ -501,7 +535,7 @@ const launchCaState = $("launchCaState");
 
 if (launchCaText) launchCaText.textContent = short;
 if (chartCaChipText) chartCaChipText.textContent = short;
-if (launchCaState) launchCaState.textContent = ca === "Pending" ? "Pending" : "Ready";
+if (launchCaState) launchCaState.textContent = resolved.state;
 
 const launchCaCopyBtn = $("launchCaCopyBtn");
 const chartCaCopyBtn = $("chartCaCopyBtn");
@@ -1427,7 +1461,30 @@ this.fetchCommitStats(this.launchId),
 this.fetchMarketSnapshot(this.launchId, this.currentInterval, this.candleLimit, 50, this.connectedWallet || ""),
 ]);
 
-this.launch = { ...(launchPayload?.launch || launchPayload || this.launch || {}), ...(payload?.chartLaunch || {}) };
+const launchFromApi = launchPayload?.launch || launchPayload || {};
+const launchFromChart = payload?.chartLaunch || {};
+
+this.launch = {
+...(this.launch || {}),
+...launchFromApi,
+...launchFromChart,
+contract_address:
+String(launchFromApi?.contract_address || "").trim() ||
+String(launchFromChart?.contract_address || "").trim() ||
+String(this.launch?.contract_address || "").trim() ||
+"",
+reserved_mint_address:
+String(launchFromApi?.reserved_mint_address || "").trim() ||
+String(launchFromChart?.reserved_mint_address || "").trim() ||
+String(this.launch?.reserved_mint_address || "").trim() ||
+"",
+mint_reservation_status:
+String(launchFromApi?.mint_reservation_status || "").trim() ||
+String(launchFromChart?.mint_reservation_status || "").trim() ||
+String(this.launch?.mint_reservation_status || "").trim() ||
+"",
+};
+
 this.commitStats = commitStats || {};
 this.tokenPayload = payload?.tokenPayload || {};
 this.chartStats = payload?.chartStats || {};

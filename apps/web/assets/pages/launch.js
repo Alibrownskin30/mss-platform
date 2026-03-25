@@ -164,6 +164,88 @@ if (w.length <= 12) return w;
 return `${w.slice(0, 4)}...${w.slice(-4)}`;
 }
 
+function cleanString(value, max = 10000) {
+return String(value ?? "").trim().slice(0, max);
+}
+
+function choosePreferredString(...values) {
+for (const value of values) {
+const s = cleanString(value);
+if (s) return s;
+}
+return "";
+}
+
+function mergeLaunchTruth(previous = {}, next = {}) {
+const prevStatus = cleanString(previous?.mint_reservation_status).toLowerCase();
+const nextStatus = cleanString(next?.mint_reservation_status).toLowerCase();
+
+const prevContract = cleanString(previous?.contract_address, 200);
+const nextContract = cleanString(next?.contract_address, 200);
+
+const prevReservedMint = cleanString(previous?.reserved_mint_address, 200);
+const nextReservedMint = cleanString(next?.reserved_mint_address, 200);
+
+const prevReservedSecret = cleanString(previous?.reserved_mint_secret, 20000);
+const nextReservedSecret = cleanString(next?.reserved_mint_secret, 20000);
+
+const merged = {
+...(previous || {}),
+...(next || {}),
+};
+
+const strongestContract = choosePreferredString(nextContract, prevContract);
+const strongestReservedMint = choosePreferredString(nextReservedMint, prevReservedMint);
+
+merged.contract_address = strongestContract;
+merged.reserved_mint_address = strongestReservedMint;
+
+const finalizedWins =
+nextStatus === "finalized" ||
+prevStatus === "finalized" ||
+Boolean(strongestContract);
+
+if (finalizedWins) {
+merged.mint_reservation_status = "finalized";
+merged.contract_address = choosePreferredString(strongestContract, strongestReservedMint);
+if (!cleanString(next?.reserved_mint_secret)) {
+merged.reserved_mint_secret = "";
+}
+} else {
+merged.mint_reservation_status = choosePreferredString(nextStatus, prevStatus);
+merged.reserved_mint_secret = choosePreferredString(nextReservedSecret, prevReservedSecret);
+}
+
+if (!merged.mint_finalized_at && finalizedWins) {
+merged.mint_finalized_at = choosePreferredString(
+next?.mint_finalized_at,
+previous?.mint_finalized_at,
+next?.updated_at,
+previous?.updated_at
+);
+}
+
+return merged;
+}
+
+function normalizeLaunchData(raw = {}) {
+return {
+...raw,
+status: cleanString(raw?.status, 64),
+symbol: cleanString(raw?.symbol, 64),
+token_name: cleanString(raw?.token_name, 200),
+builder_wallet: cleanString(raw?.builder_wallet, 200),
+builder_alias: cleanString(raw?.builder_alias, 200),
+image_url: cleanString(raw?.image_url, 4000),
+description: cleanString(raw?.description, 10000),
+contract_address: cleanString(raw?.contract_address, 200),
+reserved_mint_address: cleanString(raw?.reserved_mint_address, 200),
+reserved_mint_secret: cleanString(raw?.reserved_mint_secret, 20000),
+mint_reservation_status: cleanString(raw?.mint_reservation_status, 64).toLowerCase(),
+mint_finalized_at: cleanString(raw?.mint_finalized_at, 200),
+};
+}
+
 function setStatus(message, type = "", options = {}) {
 const el = $("commitStatus");
 if (!el) return;
@@ -391,8 +473,9 @@ fetchJson(`/api/launcher/commits/${id}`),
 
 if (requestSeq !== loadRequestSeq) return;
 
-currentLaunch = launchRes.launch;
-currentCommitStats = commitsRes;
+const incomingLaunch = normalizeLaunchData(launchRes?.launch || {});
+currentLaunch = mergeLaunchTruth(currentLaunch || {}, incomingLaunch);
+currentCommitStats = commitsRes || {};
 }
 
 function renderLogo(url) {
@@ -942,7 +1025,10 @@ return;
 }
 
 launchMarketController.setConnectedWallet(connectedWallet);
-launchMarketController.launch = currentLaunch || null;
+launchMarketController.launch = mergeLaunchTruth(
+launchMarketController.launch || {},
+currentLaunch || {}
+);
 launchMarketController.commitStats = currentCommitStats || {};
 
 if (forceRefresh) {

@@ -14,7 +14,8 @@ import { verifyCommitTransfer } from "../services/launcher/commitVerifier.js";
 import { finalizeLaunch } from "../services/launcher/finalizeLaunch.js";
 import {
 bootstrapLiveMarket,
-prepareReservedMintReservation,
+claimReservedMintForLaunch,
+topUpMintReservationPool,
 } from "../services/launcher/mintLifecycle.js";
 
 const router = express.Router();
@@ -28,7 +29,6 @@ const MIN_BUILDER_BOND_SOL = 5;
 const TEAM_PCT_PRECISION = 6;
 const RECONCILE_INTERVAL_MS = 15000;
 const REQUIRED_MINT_TAG = "MSS";
-const RESERVED_MINT_MAX_ATTEMPTS = 25000;
 
 const LAUNCH_FEE_SPLIT = {
 founder: 0.5,
@@ -1073,6 +1073,12 @@ await reconcileLaunchState(Number(row.id));
 console.error(`Launch reconcile worker failed for launch ${row.id}:`, err);
 }
 }
+
+try {
+await topUpMintReservationPool({ requiredTag: REQUIRED_MINT_TAG });
+} catch (err) {
+console.error("Mint reservation top-up worker failed:", err);
+}
 } catch (err) {
 console.error("Launch reconcile worker tick failed:", err);
 }
@@ -1313,11 +1319,6 @@ builderBondPaid = 1;
 finalBuilderBondTxSignature = builderBondTxSignature;
 }
 
-const mintReservation = prepareReservedMintReservation({
-requiredTag: REQUIRED_MINT_TAG,
-maxAttempts: RESERVED_MINT_MAX_ATTEMPTS,
-});
-
 const result = await db.run(
 `
 INSERT INTO launches (
@@ -1343,12 +1344,7 @@ builder_bond_sol,
 builder_bond_refunded,
 builder_bond_paid,
 builder_bond_tx_signature,
-reserved_mint_address,
-reserved_mint_secret,
-mint_reservation_status,
 mint_required_tag,
-mint_reservation_attempts,
-mint_reserved_at,
 commit_started_at,
 commit_ends_at,
 countdown_started_at,
@@ -1358,7 +1354,7 @@ failed_at,
 committed_sol,
 participants_count,
 status
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, datetime(CURRENT_TIMESTAMP, '+${COMMIT_PHASE_MINUTES} minutes'), NULL, NULL, NULL, NULL, 0, 0, 'commit')
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, CURRENT_TIMESTAMP, datetime(CURRENT_TIMESTAMP, '+${COMMIT_PHASE_MINUTES} minutes'), NULL, NULL, NULL, NULL, 0, 0, 'commit')
 `,
 [
 builder.id,
@@ -1384,15 +1380,19 @@ JSON.stringify(builderCfg.team_wallet_breakdown),
 builderCfg.builder_bond_sol,
 builderBondPaid,
 finalBuilderBondTxSignature,
-mintReservation.reservedMintAddress,
-mintReservation.reservedMintSecret,
-mintReservation.status,
-mintReservation.requiredTag,
-mintReservation.attempts,
+REQUIRED_MINT_TAG,
 ]
 );
 
-const launch = await getLaunchById(result.lastID);
+const launchId = result.lastID;
+
+const mintReservation = await claimReservedMintForLaunch(launchId, REQUIRED_MINT_TAG);
+
+const launch = await getLaunchById(launchId);
+
+void topUpMintReservationPool({ requiredTag: REQUIRED_MINT_TAG }).catch((err) => {
+console.error("Post-create mint reservation top-up failed:", err);
+});
 
 return res.json({
 ok: true,
@@ -1403,6 +1403,7 @@ requiredTag: mintReservation.requiredTag,
 reservedMintAddress: mintReservation.reservedMintAddress,
 attempts: mintReservation.attempts,
 status: mintReservation.status,
+source: mintReservation.source,
 },
 });
 } catch (err) {
