@@ -45,6 +45,10 @@ const num = Number(value);
 return Number.isFinite(num) ? num : fallback;
 }
 
+function cleanString(value, max = 2000) {
+return String(value ?? "").trim().slice(0, max);
+}
+
 function shortAddress(value, left = 6, right = 4) {
 if (!value || typeof value !== "string") return "Pending";
 if (value.length <= left + right + 3) return value;
@@ -182,6 +186,93 @@ function getNowMs() {
 return Date.now();
 }
 
+function normalizeLaunchTruth(raw = {}) {
+return {
+...(raw || {}),
+status: cleanString(raw?.status, 64).toLowerCase(),
+contract_address: cleanString(raw?.contract_address, 200),
+mint_address: cleanString(raw?.mint_address, 200),
+reserved_mint_address: cleanString(raw?.reserved_mint_address, 200),
+mint_reservation_status: cleanString(raw?.mint_reservation_status, 64).toLowerCase(),
+live_at: raw?.live_at || null,
+countdown_started_at: raw?.countdown_started_at || null,
+countdown_ends_at: raw?.countdown_ends_at || null,
+commit_started_at: raw?.commit_started_at || null,
+commit_ends_at: raw?.commit_ends_at || null,
+created_at: raw?.created_at || null,
+updated_at: raw?.updated_at || null,
+final_supply: raw?.final_supply ?? "",
+supply: raw?.supply ?? "",
+};
+}
+
+function choosePreferredNonEmpty(...values) {
+for (const value of values) {
+const cleaned = cleanString(value, 2000);
+if (cleaned) return cleaned;
+}
+return "";
+}
+
+function mergeLaunchTruth(previous = {}, incoming = {}) {
+const prev = normalizeLaunchTruth(previous || {});
+const next = normalizeLaunchTruth(incoming || {});
+
+const merged = {
+...prev,
+...next,
+};
+
+const prevStatus = cleanString(prev.status, 64).toLowerCase();
+const nextStatus = cleanString(next.status, 64).toLowerCase();
+
+const prevContract = choosePreferredNonEmpty(prev.contract_address, prev.mint_address);
+const nextContract = choosePreferredNonEmpty(next.contract_address, next.mint_address);
+
+const strongestContract = choosePreferredNonEmpty(nextContract, prevContract);
+const strongestReservedMint = choosePreferredNonEmpty(next.reserved_mint_address, prev.reserved_mint_address);
+const strongestMintReservationStatus = choosePreferredNonEmpty(next.mint_reservation_status, prev.mint_reservation_status);
+
+const hasFinalizedSignal =
+strongestMintReservationStatus === "finalized" ||
+Boolean(strongestContract);
+
+merged.contract_address = strongestContract;
+merged.mint_address = choosePreferredNonEmpty(next.mint_address, prev.mint_address, strongestContract);
+merged.reserved_mint_address = strongestReservedMint;
+merged.mint_reservation_status = strongestMintReservationStatus;
+
+if (hasFinalizedSignal) {
+if (prevStatus === "live" || nextStatus === "live" || prevStatus === "graduated" || nextStatus === "graduated") {
+merged.status = prevStatus === "graduated" || nextStatus === "graduated" ? "graduated" : "live";
+} else {
+const liveAtMs = parseDateMs(next.live_at || prev.live_at);
+const countdownEndsMs = parseDateMs(next.countdown_ends_at || prev.countdown_ends_at);
+const now = Date.now();
+
+if ((liveAtMs && now >= liveAtMs) || (countdownEndsMs && now >= countdownEndsMs)) {
+merged.status = "live";
+}
+}
+}
+
+return merged;
+}
+
+function isLaunchLiveLike(launch = {}) {
+const status = cleanString(launch?.status, 64).toLowerCase();
+if (status === "live" || status === "graduated") return true;
+
+const contractAddress = choosePreferredNonEmpty(launch?.contract_address, launch?.mint_address);
+const reservationStatus = cleanString(launch?.mint_reservation_status, 64).toLowerCase();
+const liveAtMs = parseDateMs(launch?.live_at || launch?.countdown_ends_at);
+
+if (contractAddress && reservationStatus === "finalized") return true;
+if (contractAddress && liveAtMs && Date.now() >= liveAtMs) return true;
+
+return false;
+}
+
 function getDaysSinceLive(launch = {}) {
 const liveStartMs = parseDateMs(launch?.live_at || launch?.updated_at || launch?.created_at);
 if (!liveStartMs) return 0;
@@ -201,9 +292,15 @@ return BASE_MAX_WALLET_PERCENT + (days * DAILY_INCREASE_PERCENT);
 
 function inferPhase(launch) {
 const explicit = String(launch?.status || "").toLowerCase();
+
 if (explicit === "live" || explicit === "graduated") return PHASES.LIVE;
-if (explicit === PHASES.COUNTDOWN) return PHASES.COUNTDOWN;
+if (explicit === PHASES.COUNTDOWN) {
+if (isLaunchLiveLike(launch)) return PHASES.LIVE;
+return PHASES.COUNTDOWN;
+}
 if (explicit === PHASES.COMMIT) return PHASES.COMMIT;
+
+if (isLaunchLiveLike(launch)) return PHASES.LIVE;
 
 const now = getNowMs();
 const countdownStart = parseDateMs(launch?.countdown_started_at);
@@ -485,36 +582,37 @@ launchTokenLogo.textContent = (tokenSymbol[0] || "M").toUpperCase();
 }
 
 function resolveContractAddress(launch = {}, tokenPayload = {}) {
-const candidates = [
+const phase = inferPhase(launch);
+const contractAddress = choosePreferredNonEmpty(
 launch?.contract_address,
 launch?.mint_address,
-launch?.reserved_mint_address,
 tokenPayload?.token?.mint_address,
 tokenPayload?.token?.mint,
 tokenPayload?.mint_address,
-tokenPayload?.mint,
-]
-.map((value) => String(value || "").trim())
-.filter(Boolean);
+tokenPayload?.mint
+);
 
-const contractAddress = candidates[0] || "";
-const reservationStatus = String(launch?.mint_reservation_status || "").trim().toLowerCase();
-const reservedMintAddress = String(launch?.reserved_mint_address || "").trim();
-const isLiveLike = ["live", "graduated"].includes(String(launch?.status || "").trim().toLowerCase());
+const reservedMintAddress = cleanString(launch?.reserved_mint_address, 200);
+const reservationStatus = cleanString(launch?.mint_reservation_status, 64).toLowerCase();
+
+if (phase !== PHASES.LIVE) {
+return {
+value: "",
+state: "Pending",
+};
+}
 
 if (contractAddress) {
 return {
 value: contractAddress,
-state: reservationStatus === "reserved" && !String(launch?.contract_address || "").trim()
-? "Reserved"
-: "Ready",
+state: "Ready",
 };
 }
 
-if (isLiveLike && reservedMintAddress) {
+if (reservationStatus === "finalized" && reservedMintAddress) {
 return {
 value: reservedMintAddress,
-state: reservationStatus === "finalized" ? "Ready" : "Reserved",
+state: "Ready",
 };
 }
 
@@ -1232,7 +1330,7 @@ this.executeBuy = options.executeBuy || defaultExecuteBuy;
 this.executeSell = options.executeSell || defaultExecuteSell;
 this.onPhaseChange = typeof options.onPhaseChange === "function" ? options.onPhaseChange : null;
 
-this.launch = options.launch || null;
+this.launch = options.launch ? normalizeLaunchTruth(options.launch) : null;
 this.commitStats = options.commitStats || {};
 this.phase = PHASES.COMMIT;
 this.currentInterval = options.initialInterval || "1m";
@@ -1431,7 +1529,7 @@ this.candles = payload?.candles || [];
 this.trades = payload?.tokenTrades || payload?.trades || [];
 
 if (payload?.chartLaunch) {
-this.launch = { ...(this.launch || {}), ...payload.chartLaunch };
+this.launch = mergeLaunchTruth(this.launch || {}, payload.chartLaunch);
 }
 
 const liveWalletSummary = getWalletSummaryData(this.tokenPayload, this.chartStats, this.walletTokenBalanceFallback);
@@ -1461,29 +1559,13 @@ this.fetchCommitStats(this.launchId),
 this.fetchMarketSnapshot(this.launchId, this.currentInterval, this.candleLimit, 50, this.connectedWallet || ""),
 ]);
 
-const launchFromApi = launchPayload?.launch || launchPayload || {};
-const launchFromChart = payload?.chartLaunch || {};
+const launchFromApi = normalizeLaunchTruth(launchPayload?.launch || launchPayload || {});
+const launchFromChart = normalizeLaunchTruth(payload?.chartLaunch || {});
 
-this.launch = {
-...(this.launch || {}),
-...launchFromApi,
-...launchFromChart,
-contract_address:
-String(launchFromApi?.contract_address || "").trim() ||
-String(launchFromChart?.contract_address || "").trim() ||
-String(this.launch?.contract_address || "").trim() ||
-"",
-reserved_mint_address:
-String(launchFromApi?.reserved_mint_address || "").trim() ||
-String(launchFromChart?.reserved_mint_address || "").trim() ||
-String(this.launch?.reserved_mint_address || "").trim() ||
-"",
-mint_reservation_status:
-String(launchFromApi?.mint_reservation_status || "").trim() ||
-String(launchFromChart?.mint_reservation_status || "").trim() ||
-String(this.launch?.mint_reservation_status || "").trim() ||
-"",
-};
+this.launch = mergeLaunchTruth(
+mergeLaunchTruth(this.launch || {}, launchFromApi),
+launchFromChart
+);
 
 this.commitStats = commitStats || {};
 this.tokenPayload = payload?.tokenPayload || {};
@@ -1531,7 +1613,8 @@ this.fetchLaunch(this.launchId),
 this.fetchCommitStats(this.launchId),
 ]);
 
-this.launch = launchPayload?.launch || launchPayload;
+const incomingLaunch = normalizeLaunchTruth(launchPayload?.launch || launchPayload || {});
+this.launch = mergeLaunchTruth(this.launch || {}, incomingLaunch);
 this.commitStats = commitStatsPayload || {};
 
 const previousPhase = this.phase;
@@ -1681,7 +1764,7 @@ saveBtn.textContent = "Saving...";
 try {
 const payload = getLinksPayloadFromModal();
 const result = await this.saveLinks(this.launchId, payload);
-this.launch = result?.launch || { ...this.launch, ...payload };
+this.launch = mergeLaunchTruth(this.launch || {}, result?.launch || payload);
 renderExternalLinks(this.launch);
 closeLinksModal();
 } catch (error) {

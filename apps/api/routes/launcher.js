@@ -20,8 +20,8 @@ topUpMintReservationPool,
 
 const router = express.Router();
 
-const COMMIT_PHASE_MINUTES = 4;
-const COUNTDOWN_MINUTES = 10;
+const COMMIT_PHASE_MINUTES = 2;
+const COUNTDOWN_MINUTES = 2;
 const MAX_WALLET_COMMIT_SOL = 100;
 const MAX_TEAM_WALLETS = 5;
 const MAX_TEAM_ALLOCATION_PCT = 15;
@@ -450,6 +450,7 @@ builder_bond_paid: Number(row?.builder_bond_paid || 0),
 builder_bond_tx_signature: cleanText(row?.builder_bond_tx_signature, 140),
 team_wallets: parsedTeamWallets,
 team_wallet_breakdown: parsedTeamWalletBreakdown,
+contract_address: cleanText(row?.contract_address, 120),
 reserved_mint_address: cleanText(row?.reserved_mint_address, 120),
 mint_reservation_status: cleanText(row?.mint_reservation_status, 40),
 mint_required_tag: cleanText(row?.mint_required_tag, 32) || REQUIRED_MINT_TAG,
@@ -457,6 +458,35 @@ mint_reservation_attempts: Number(row?.mint_reservation_attempts || 0),
 mint_reserved_at: row?.mint_reserved_at || null,
 mint_finalized_at: row?.mint_finalized_at || null,
 };
+}
+
+function shouldRevealContractAddress(status) {
+const normalized = cleanText(status, 40).toLowerCase();
+return normalized === "live" || normalized === "graduated";
+}
+
+function sanitizeLaunchForPublic(row, { includeMintMeta = false } = {}) {
+const parsed = parseLaunchJsonFields(row);
+const revealCa = shouldRevealContractAddress(parsed.status);
+
+const sanitized = {
+...parsed,
+contract_address: revealCa ? cleanText(parsed.contract_address, 120) || null : null,
+reserved_mint_address: null,
+};
+
+if (!revealCa) {
+sanitized.mint_reservation_status = includeMintMeta
+? null
+: sanitized.mint_reservation_status;
+sanitized.mint_reservation_attempts = includeMintMeta
+? 0
+: sanitized.mint_reservation_attempts;
+sanitized.mint_reserved_at = includeMintMeta ? null : sanitized.mint_reserved_at;
+sanitized.mint_finalized_at = includeMintMeta ? null : sanitized.mint_finalized_at;
+}
+
+return sanitized;
 }
 
 function hasCollectedBuilderBond(row) {
@@ -497,7 +527,7 @@ return msg.includes("blockhash not found") || msg.includes("block height exceede
 }
 
 function shapeLaunchForList(row) {
-const parsed = parseLaunchJsonFields(row);
+const parsed = sanitizeLaunchForPublic(row);
 const totalCommitted = Number(parsed.committed_sol || 0);
 const hardCap = Number(parsed.hard_cap_sol || 0);
 
@@ -525,12 +555,15 @@ team_wallet_breakdown: parsed.team_wallet_breakdown,
 builder_bond_sol: Number(parsed.builder_bond_sol || 0),
 builder_bond_refunded: Number(parsed.builder_bond_refunded || 0),
 builder_bond_paid: Number(parsed.builder_bond_paid || 0),
-reserved_mint_address: parsed.reserved_mint_address || null,
-mint_reservation_status: parsed.mint_reservation_status || null,
+contract_address: parsed.contract_address || null,
+reserved_mint_address: null,
+mint_reservation_status: null,
 mint_required_tag: parsed.mint_required_tag || REQUIRED_MINT_TAG,
-mint_reservation_attempts: parsed.mint_reservation_attempts || 0,
-mint_reserved_at: parsed.mint_reserved_at || null,
-mint_finalized_at: parsed.mint_finalized_at || null,
+mint_reservation_attempts: 0,
+mint_reserved_at: null,
+mint_finalized_at: shouldRevealContractAddress(parsed.status)
+? parsed.mint_finalized_at || null
+: null,
 commit_started_at: parsed.commit_started_at || null,
 commit_ends_at: parsed.commit_ends_at || null,
 countdown_started_at: parsed.countdown_started_at || null,
@@ -1404,8 +1437,8 @@ try {
 const claimed = await claimReservedMintForLaunch(result.lastID, REQUIRED_MINT_TAG);
 reservation = {
 requiredTag: claimed.requiredTag,
-reservedMintAddress: claimed.reservedMintAddress,
-attempts: claimed.attempts || 0,
+reservedMintAddress: null,
+attempts: 0,
 status: claimed.status || "reserved",
 source: claimed.source || "pool",
 };
@@ -1429,7 +1462,7 @@ const launch = await getLaunchById(result.lastID);
 
 return res.json({
 ok: true,
-launch: parseLaunchJsonFields(launch),
+launch: sanitizeLaunchForPublic(launch),
 builderConfig: builderCfg,
 mintReservation: reservation,
 });
@@ -2118,7 +2151,7 @@ if (!reconciledLaunch) {
 return res.status(404).json({ ok: false, error: "launch not found" });
 }
 
-const parsedLaunch = parseLaunchJsonFields(reconciledLaunch);
+const parsedLaunch = sanitizeLaunchForPublic(reconciledLaunch, { includeMintMeta: false });
 const stats = await getCommitStats(launchId);
 
 const recent = await db.all(
@@ -2144,12 +2177,14 @@ commitPercent: buildCommitPercent(
 stats.totalCommitted,
 parsedLaunch.hard_cap_sol
 ),
-reservedMintAddress: parsedLaunch.reserved_mint_address || null,
-mintReservationStatus: parsedLaunch.mint_reservation_status || null,
+reservedMintAddress: null,
+mintReservationStatus: null,
 mintRequiredTag: parsedLaunch.mint_required_tag || REQUIRED_MINT_TAG,
-mintReservationAttempts: parsedLaunch.mint_reservation_attempts || 0,
-mintReservedAt: parsedLaunch.mint_reserved_at || null,
-mintFinalizedAt: parsedLaunch.mint_finalized_at || null,
+mintReservationAttempts: 0,
+mintReservedAt: null,
+mintFinalizedAt: shouldRevealContractAddress(parsedLaunch.status)
+? parsedLaunch.mint_finalized_at || null
+: null,
 commitStartedAt: parsedLaunch.commit_started_at || null,
 commitEndsAt: parsedLaunch.commit_ends_at || null,
 countdownStartedAt: parsedLaunch.countdown_started_at || null,
@@ -2193,7 +2228,7 @@ Number(stats.totalCommitted),
 Number(launch.launch_fee_pct || 5)
 );
 
-const updatedLaunch = parseLaunchJsonFields(await getLaunchById(launchId));
+const updatedLaunch = sanitizeLaunchForPublic(await getLaunchById(launchId));
 
 return res.json({
 ok: true,
@@ -2251,7 +2286,7 @@ if (!launch) {
 return res.status(404).json({ ok: false, error: "launch not found" });
 }
 
-const parsedLaunch = parseLaunchJsonFields(launch);
+const parsedLaunch = sanitizeLaunchForPublic(launch);
 
 return res.json({
 ok: true,

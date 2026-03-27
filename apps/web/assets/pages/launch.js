@@ -176,60 +176,82 @@ if (s) return s;
 return "";
 }
 
+function shouldExposePublicCa(status) {
+const normalized = cleanString(status, 64).toLowerCase();
+return normalized === "live" || normalized === "graduated";
+}
+
+function sanitizePublicLaunchFields(launchLike = {}) {
+const status = cleanString(launchLike?.status, 64).toLowerCase();
+const exposeCa = shouldExposePublicCa(status);
+const contractAddress = exposeCa
+? cleanString(launchLike?.contract_address, 200)
+: "";
+const mintStatus = exposeCa
+? cleanString(launchLike?.mint_reservation_status, 64).toLowerCase()
+: "";
+
+return {
+...launchLike,
+contract_address: contractAddress,
+reserved_mint_address: "",
+reserved_mint_secret: "",
+mint_reservation_status: mintStatus,
+mint_finalized_at: exposeCa ? cleanString(launchLike?.mint_finalized_at, 200) : "",
+};
+}
+
 function mergeLaunchTruth(previous = {}, next = {}) {
-const prevStatus = cleanString(previous?.mint_reservation_status).toLowerCase();
-const nextStatus = cleanString(next?.mint_reservation_status).toLowerCase();
+const prevSanitized = sanitizePublicLaunchFields(previous || {});
+const nextSanitized = sanitizePublicLaunchFields(next || {});
 
-const prevContract = cleanString(previous?.contract_address, 200);
-const nextContract = cleanString(next?.contract_address, 200);
+const prevStatus = cleanString(prevSanitized?.mint_reservation_status).toLowerCase();
+const nextStatus = cleanString(nextSanitized?.mint_reservation_status).toLowerCase();
 
-const prevReservedMint = cleanString(previous?.reserved_mint_address, 200);
-const nextReservedMint = cleanString(next?.reserved_mint_address, 200);
-
-const prevReservedSecret = cleanString(previous?.reserved_mint_secret, 20000);
-const nextReservedSecret = cleanString(next?.reserved_mint_secret, 20000);
+const prevContract = cleanString(prevSanitized?.contract_address, 200);
+const nextContract = cleanString(nextSanitized?.contract_address, 200);
 
 const merged = {
-...(previous || {}),
-...(next || {}),
+...(prevSanitized || {}),
+...(nextSanitized || {}),
 };
 
 const strongestContract = choosePreferredString(nextContract, prevContract);
-const strongestReservedMint = choosePreferredString(nextReservedMint, prevReservedMint);
+const exposeCa = shouldExposePublicCa(merged?.status);
 
+merged.reserved_mint_address = "";
+merged.reserved_mint_secret = "";
+
+if (exposeCa) {
 merged.contract_address = strongestContract;
-merged.reserved_mint_address = strongestReservedMint;
-
 const finalizedWins =
 nextStatus === "finalized" ||
 prevStatus === "finalized" ||
 Boolean(strongestContract);
 
-if (finalizedWins) {
-merged.mint_reservation_status = "finalized";
-merged.contract_address = choosePreferredString(strongestContract, strongestReservedMint);
-if (!cleanString(next?.reserved_mint_secret)) {
-merged.reserved_mint_secret = "";
-}
-} else {
-merged.mint_reservation_status = choosePreferredString(nextStatus, prevStatus);
-merged.reserved_mint_secret = choosePreferredString(nextReservedSecret, prevReservedSecret);
-}
+merged.mint_reservation_status = finalizedWins
+? "finalized"
+: choosePreferredString(nextStatus, prevStatus);
 
 if (!merged.mint_finalized_at && finalizedWins) {
 merged.mint_finalized_at = choosePreferredString(
-next?.mint_finalized_at,
-previous?.mint_finalized_at,
-next?.updated_at,
-previous?.updated_at
+nextSanitized?.mint_finalized_at,
+prevSanitized?.mint_finalized_at,
+nextSanitized?.updated_at,
+prevSanitized?.updated_at
 );
+}
+} else {
+merged.contract_address = "";
+merged.mint_reservation_status = "";
+merged.mint_finalized_at = "";
 }
 
 return merged;
 }
 
 function normalizeLaunchData(raw = {}) {
-return {
+const normalized = {
 ...raw,
 status: cleanString(raw?.status, 64),
 symbol: cleanString(raw?.symbol, 64),
@@ -244,6 +266,8 @@ reserved_mint_secret: cleanString(raw?.reserved_mint_secret, 20000),
 mint_reservation_status: cleanString(raw?.mint_reservation_status, 64).toLowerCase(),
 mint_finalized_at: cleanString(raw?.mint_finalized_at, 200),
 };
+
+return sanitizePublicLaunchFields(normalized);
 }
 
 function setStatus(message, type = "", options = {}) {
