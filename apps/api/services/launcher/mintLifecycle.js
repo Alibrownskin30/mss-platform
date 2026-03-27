@@ -5,7 +5,7 @@ import { createMint } from "@solana/spl-token";
 import bs58 from "bs58";
 
 const DEFAULT_REQUIRED_MINT_TAG = "MSS";
-const DEFAULT_MINT_RESERVATION_ATTEMPTS = 25000;
+const DEFAULT_MINT_RESERVATION_ATTEMPTS = 1000000;
 const DEFAULT_POOL_TARGET_SIZE = 100;
 const DEFAULT_POOL_TOPUP_BATCH = 5;
 
@@ -45,7 +45,7 @@ internal_pool_tokens: String(row.internal_pool_tokens || "0"),
 reserved_mint_address: clean(row.reserved_mint_address, 120),
 reserved_mint_secret: clean(row.reserved_mint_secret, 20000),
 mint_reservation_status: clean(row.mint_reservation_status, 40).toLowerCase(),
-mint_required_tag: clean(row.mint_required_tag, 32) || DEFAULT_REQUIRED_MINT_TAG,
+mint_required_tag: clean(row.mint_required_tag, 32).toUpperCase() || DEFAULT_REQUIRED_MINT_TAG,
 mint_reservation_attempts: safeNum(row.mint_reservation_attempts, 0),
 contract_address: clean(row.contract_address, 120),
 };
@@ -58,11 +58,11 @@ return {
 ...row,
 mint_address: clean(row.mint_address, 120),
 mint_secret: clean(row.mint_secret, 20000),
-required_tag: clean(row.required_tag, 32) || DEFAULT_REQUIRED_MINT_TAG,
+required_tag: clean(row.required_tag, 32).toUpperCase() || DEFAULT_REQUIRED_MINT_TAG,
 attempts: safeNum(row.mint_reservation_attempts, 0),
 status: clean(row.status, 40).toLowerCase(),
-reserved_for_launch_id:
-row.reserved_for_launch_id == null ? null : safeNum(row.reserved_for_launch_id, null),
+assigned_launch_id:
+row.assigned_launch_id == null ? null : safeNum(row.assigned_launch_id, null),
 };
 }
 
@@ -110,7 +110,7 @@ return false;
 }
 
 function normalizeMintTag(value) {
-return clean(value, 32) || DEFAULT_REQUIRED_MINT_TAG;
+return clean(value, 32).toUpperCase() || DEFAULT_REQUIRED_MINT_TAG;
 }
 
 function mintContainsRequiredTag(address, requiredTag = DEFAULT_REQUIRED_MINT_TAG) {
@@ -355,6 +355,7 @@ await topUpMintReservationPool({
 requiredTag: tag,
 targetSize: 1,
 batchSize: 1,
+maxAttempts,
 });
 poolReservation = await getAvailablePoolReservation(tag);
 }
@@ -367,9 +368,8 @@ const claim = await db.run(
 `
 UPDATE mint_reservations
 SET status = 'assigned',
-reserved_for_launch_id = ?,
-assigned_at = CURRENT_TIMESTAMP,
-updated_at = CURRENT_TIMESTAMP
+assigned_launch_id = ?,
+assigned_at = CURRENT_TIMESTAMP
 WHERE id = ?
 AND status = 'available'
 `,
@@ -462,9 +462,8 @@ if (!reservedAddress) return;
 await db.run(
 `
 UPDATE mint_reservations
-SET status = 'finalized',
-finalized_at = CURRENT_TIMESTAMP,
-updated_at = CURRENT_TIMESTAMP
+SET status = 'consumed',
+consumed_at = CURRENT_TIMESTAMP
 WHERE mint_address = ?
 `,
 [reservedAddress]
