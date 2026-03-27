@@ -14,7 +14,8 @@ import { verifyCommitTransfer } from "../services/launcher/commitVerifier.js";
 import { finalizeLaunch } from "../services/launcher/finalizeLaunch.js";
 import {
 bootstrapLiveMarket,
-prepareReservedMintReservation,
+claimReservedMintForLaunch,
+topUpMintReservationPool,
 } from "../services/launcher/mintLifecycle.js";
 
 const router = express.Router();
@@ -28,7 +29,7 @@ const MIN_BUILDER_BOND_SOL = 5;
 const TEAM_PCT_PRECISION = 6;
 const RECONCILE_INTERVAL_MS = 15000;
 const REQUIRED_MINT_TAG = "MSS";
-const RESERVED_MINT_MAX_ATTEMPTS = 100000;
+const RESERVED_MINT_MAX_ATTEMPTS = 1000000;
 
 const LAUNCH_FEE_SPLIT = {
 founder: 0.5,
@@ -1084,6 +1085,14 @@ globalThis.__mssLaunchReconcileWorkerStarted = true;
 
 setTimeout(() => {
 void reconcileActiveLaunchesWorker();
+void topUpMintReservationPool({
+requiredTag: REQUIRED_MINT_TAG,
+targetSize: 10,
+batchSize: 2,
+maxAttempts: RESERVED_MINT_MAX_ATTEMPTS,
+}).catch((err) => {
+console.error("Initial mint pool warmup failed:", err);
+});
 }, 3000);
 
 setInterval(() => {
@@ -1313,11 +1322,6 @@ builderBondPaid = 1;
 finalBuilderBondTxSignature = builderBondTxSignature;
 }
 
-const mintReservation = prepareReservedMintReservation({
-requiredTag: REQUIRED_MINT_TAG,
-maxAttempts: RESERVED_MINT_MAX_ATTEMPTS,
-});
-
 const result = await db.run(
 `
 INSERT INTO launches (
@@ -1358,7 +1362,7 @@ failed_at,
 committed_sol,
 participants_count,
 status
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, datetime(CURRENT_TIMESTAMP, '+${COMMIT_PHASE_MINUTES} minutes'), NULL, NULL, NULL, NULL, 0, 0, 'commit')
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, NULL, NULL, 'pending', ?, 0, NULL, CURRENT_TIMESTAMP, datetime(CURRENT_TIMESTAMP, '+${COMMIT_PHASE_MINUTES} minutes'), NULL, NULL, NULL, NULL, 0, 0, 'commit')
 `,
 [
 builder.id,
@@ -1384,13 +1388,42 @@ JSON.stringify(builderCfg.team_wallet_breakdown),
 builderCfg.builder_bond_sol,
 builderBondPaid,
 finalBuilderBondTxSignature,
-mintReservation.reservedMintAddress,
-mintReservation.reservedMintSecret,
-mintReservation.status,
-mintReservation.requiredTag,
-mintReservation.attempts,
+REQUIRED_MINT_TAG,
 ]
 );
+
+let reservation = {
+requiredTag: REQUIRED_MINT_TAG,
+reservedMintAddress: null,
+attempts: 0,
+status: "pending",
+source: "pending",
+};
+
+try {
+const claimed = await claimReservedMintForLaunch(result.lastID, REQUIRED_MINT_TAG);
+reservation = {
+requiredTag: claimed.requiredTag,
+reservedMintAddress: claimed.reservedMintAddress,
+attempts: claimed.attempts || 0,
+status: claimed.status || "reserved",
+source: claimed.source || "pool",
+};
+} catch (reservationErr) {
+console.warn(
+`Launch ${result.lastID} created without immediate mint reservation:`,
+reservationErr?.message || reservationErr
+);
+
+void topUpMintReservationPool({
+requiredTag: REQUIRED_MINT_TAG,
+targetSize: 10,
+batchSize: 2,
+maxAttempts: RESERVED_MINT_MAX_ATTEMPTS,
+}).catch((err) => {
+console.error("Mint pool async top-up after create failed:", err);
+});
+}
 
 const launch = await getLaunchById(result.lastID);
 
@@ -1398,12 +1431,7 @@ return res.json({
 ok: true,
 launch: parseLaunchJsonFields(launch),
 builderConfig: builderCfg,
-mintReservation: {
-requiredTag: mintReservation.requiredTag,
-reservedMintAddress: mintReservation.reservedMintAddress,
-attempts: mintReservation.attempts,
-status: mintReservation.status,
-},
+mintReservation: reservation,
 });
 } catch (err) {
 console.error("POST /api/launcher/create failed:", err);
@@ -2052,10 +2080,7 @@ ORDER BY l.id DESC
 );
 
 const shaped = rows
-.filter(
-(row) =>
-isBuilderBondSatisfied(row) || !isBuilderTemplate(row)
-)
+.filter((row) => isBuilderBondSatisfied(row) || !isBuilderTemplate(row))
 .map(shapeLaunchForList);
 
 const visible = shaped.filter((x) => x.status !== "failed_refunded");
@@ -2145,9 +2170,9 @@ return res.status(500).json({ ok: false, error: "failed to fetch commit stats" }
 }
 });
 
-router.post("/:id/execute", async (req, res) => {
+router.post("/:id/execute", async (_req, res) => {
 try {
-const launchId = Number(req.params.id);
+const launchId = Number(_req.params.id);
 const launch = await reconcileLaunchState(launchId);
 
 if (!launch) {

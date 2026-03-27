@@ -8,6 +8,10 @@ const DEFAULT_REQUIRED_MINT_TAG = "MSS";
 const DEFAULT_MINT_RESERVATION_ATTEMPTS = 1000000;
 const DEFAULT_POOL_TARGET_SIZE = 100;
 const DEFAULT_POOL_TOPUP_BATCH = 5;
+const CLAIM_RETRY_LIMIT = 10;
+
+let launchesColumnsCache = null;
+let mintReservationsColumnsCache = null;
 
 function safeNum(value, fallback = 0) {
 const n = Number(value);
@@ -33,6 +37,56 @@ return fallback;
 }
 }
 
+async function getTableColumns(tableName) {
+const rows = await db.all(`PRAGMA table_info(${tableName})`);
+return new Set(rows.map((row) => String(row.name || "").trim()));
+}
+
+async function getLaunchesColumns() {
+if (!launchesColumnsCache) {
+launchesColumnsCache = await getTableColumns("launches");
+}
+return launchesColumnsCache;
+}
+
+async function getMintReservationsColumns() {
+if (!mintReservationsColumnsCache) {
+mintReservationsColumnsCache = await getTableColumns("mint_reservations");
+}
+return mintReservationsColumnsCache;
+}
+
+async function launchesHasColumn(columnName) {
+const columns = await getLaunchesColumns();
+return columns.has(columnName);
+}
+
+async function assertMintReservationSchema() {
+const columns = await getMintReservationsColumns();
+
+if (!columns.has("reserved_for_launch_id")) {
+throw new Error(
+"mint_reservations schema mismatch: expected reserved_for_launch_id"
+);
+}
+
+if (!columns.has("mint_address")) {
+throw new Error("mint_reservations schema mismatch: expected mint_address");
+}
+
+if (!columns.has("mint_secret")) {
+throw new Error("mint_reservations schema mismatch: expected mint_secret");
+}
+
+if (!columns.has("status")) {
+throw new Error("mint_reservations schema mismatch: expected status");
+}
+
+if (!columns.has("finalized_at")) {
+throw new Error("mint_reservations schema mismatch: expected finalized_at");
+}
+}
+
 function normalizeLaunch(row) {
 if (!row) return null;
 
@@ -45,9 +99,11 @@ internal_pool_tokens: String(row.internal_pool_tokens || "0"),
 reserved_mint_address: clean(row.reserved_mint_address, 120),
 reserved_mint_secret: clean(row.reserved_mint_secret, 20000),
 mint_reservation_status: clean(row.mint_reservation_status, 40).toLowerCase(),
-mint_required_tag: clean(row.mint_required_tag, 32).toUpperCase() || DEFAULT_REQUIRED_MINT_TAG,
+mint_required_tag:
+clean(row.mint_required_tag, 32).toUpperCase() || DEFAULT_REQUIRED_MINT_TAG,
 mint_reservation_attempts: safeNum(row.mint_reservation_attempts, 0),
 contract_address: clean(row.contract_address, 120),
+token_mint: clean(row.token_mint, 120),
 };
 }
 
@@ -58,11 +114,14 @@ return {
 ...row,
 mint_address: clean(row.mint_address, 120),
 mint_secret: clean(row.mint_secret, 20000),
-required_tag: clean(row.required_tag, 32).toUpperCase() || DEFAULT_REQUIRED_MINT_TAG,
+required_tag:
+clean(row.required_tag, 32).toUpperCase() || DEFAULT_REQUIRED_MINT_TAG,
 attempts: safeNum(row.mint_reservation_attempts, 0),
 status: clean(row.status, 40).toLowerCase(),
-assigned_launch_id:
-row.assigned_launch_id == null ? null : safeNum(row.assigned_launch_id, null),
+reserved_for_launch_id:
+row.reserved_for_launch_id == null
+? null
+: safeNum(row.reserved_for_launch_id, null),
 };
 }
 
@@ -162,6 +221,10 @@ Math.floor(safeNum(process.env.MSS_MINT_POOL_TOPUP_BATCH, DEFAULT_POOL_TOPUP_BAT
 );
 }
 
+function getMintSuffixExpression() {
+return "substr(mint_address, length(mint_address) - length(?) + 1, length(?)) = ?";
+}
+
 export function prepareReservedMintReservation({
 requiredTag = DEFAULT_REQUIRED_MINT_TAG,
 maxAttempts = DEFAULT_MINT_RESERVATION_ATTEMPTS,
@@ -225,31 +288,60 @@ ORDER BY id ASC
 );
 }
 
+async function getAssignedPoolReservationForLaunch(
+launchId,
+requiredTag = DEFAULT_REQUIRED_MINT_TAG
+) {
+const tag = normalizeMintTag(requiredTag);
+
+const row = await db.get(
+`
+SELECT *
+FROM mint_reservations
+WHERE required_tag = ?
+AND reserved_for_launch_id = ?
+AND status IN ('assigned', 'finalized')
+AND ${getMintSuffixExpression()}
+ORDER BY id DESC
+LIMIT 1
+`,
+[tag, launchId, tag, tag, tag]
+);
+
+return normalizePoolRow(row);
+}
+
 async function getAvailablePoolReservation(requiredTag = DEFAULT_REQUIRED_MINT_TAG) {
+const tag = normalizeMintTag(requiredTag);
+
 const row = await db.get(
 `
 SELECT *
 FROM mint_reservations
 WHERE required_tag = ?
 AND status = 'available'
+AND ${getMintSuffixExpression()}
 ORDER BY id ASC
 LIMIT 1
 `,
-[normalizeMintTag(requiredTag)]
+[tag, tag, tag, tag]
 );
 
 return normalizePoolRow(row);
 }
 
 async function countAvailablePoolReservations(requiredTag = DEFAULT_REQUIRED_MINT_TAG) {
+const tag = normalizeMintTag(requiredTag);
+
 const row = await db.get(
 `
 SELECT COUNT(*) AS total
 FROM mint_reservations
 WHERE required_tag = ?
 AND status = 'available'
+AND ${getMintSuffixExpression()}
 `,
-[normalizeMintTag(requiredTag)]
+[tag, tag, tag, tag]
 );
 
 return safeNum(row?.total, 0);
@@ -281,6 +373,8 @@ targetSize = getReservationPoolTargetSize(),
 batchSize = getReservationPoolTopUpBatchSize(),
 maxAttempts = DEFAULT_MINT_RESERVATION_ATTEMPTS,
 } = {}) {
+await assertMintReservationSchema();
+
 const tag = normalizeMintTag(requiredTag);
 const target = Math.max(1, Math.floor(safeNum(targetSize, DEFAULT_POOL_TARGET_SIZE)));
 const batch = Math.max(1, Math.floor(safeNum(batchSize, DEFAULT_POOL_TOPUP_BATCH)));
@@ -321,13 +415,47 @@ target,
 };
 }
 
+async function updateLaunchReservationFields({
+launchId,
+reservedMintAddress,
+reservedMintSecret,
+requiredTag,
+attempts,
+status = "reserved",
+}) {
+await db.run(
+`
+UPDATE launches
+SET reserved_mint_address = ?,
+reserved_mint_secret = ?,
+mint_reservation_status = ?,
+mint_required_tag = ?,
+mint_reservation_attempts = ?,
+mint_reserved_at = CURRENT_TIMESTAMP,
+updated_at = CURRENT_TIMESTAMP
+WHERE id = ?
+`,
+[
+reservedMintAddress,
+reservedMintSecret,
+status,
+requiredTag,
+attempts,
+launchId,
+]
+);
+}
+
 export async function claimReservedMintForLaunch(
 launchId,
-requiredTag = DEFAULT_REQUIRED_MINT_TAG
+requiredTag = DEFAULT_REQUIRED_MINT_TAG,
+maxAttempts = DEFAULT_MINT_RESERVATION_ATTEMPTS
 ) {
-const tag = normalizeMintTag(requiredTag);
+await assertMintReservationSchema();
 
+const tag = normalizeMintTag(requiredTag);
 const existingLaunch = await getLaunchById(launchId);
+
 if (!existingLaunch) {
 throw new Error("launch not found");
 }
@@ -348,6 +476,29 @@ source: "launch_row",
 };
 }
 
+const alreadyAssigned = await getAssignedPoolReservationForLaunch(launchId, tag);
+if (alreadyAssigned?.mint_address && alreadyAssigned?.mint_secret) {
+await updateLaunchReservationFields({
+launchId,
+reservedMintAddress: alreadyAssigned.mint_address,
+reservedMintSecret: alreadyAssigned.mint_secret,
+requiredTag: tag,
+attempts: alreadyAssigned.attempts,
+status: "reserved",
+});
+
+return {
+ok: true,
+requiredTag: tag,
+reservedMintAddress: alreadyAssigned.mint_address,
+reservedMintSecret: alreadyAssigned.mint_secret,
+attempts: alreadyAssigned.attempts,
+status: "reserved",
+source: "pool_assigned_existing",
+};
+}
+
+for (let attempt = 0; attempt < CLAIM_RETRY_LIMIT; attempt += 1) {
 let poolReservation = await getAvailablePoolReservation(tag);
 
 if (!poolReservation) {
@@ -368,38 +519,24 @@ const claim = await db.run(
 `
 UPDATE mint_reservations
 SET status = 'assigned',
-assigned_launch_id = ?,
-assigned_at = CURRENT_TIMESTAMP
+reserved_for_launch_id = ?,
+assigned_at = CURRENT_TIMESTAMP,
+updated_at = CURRENT_TIMESTAMP
 WHERE id = ?
 AND status = 'available'
 `,
 [launchId, poolReservation.id]
 );
 
-if (claim.changes === 0) {
-return claimReservedMintForLaunch(launchId, tag);
-}
-
-await db.run(
-`
-UPDATE launches
-SET reserved_mint_address = ?,
-reserved_mint_secret = ?,
-mint_reservation_status = 'reserved',
-mint_required_tag = ?,
-mint_reservation_attempts = ?,
-mint_reserved_at = CURRENT_TIMESTAMP,
-updated_at = CURRENT_TIMESTAMP
-WHERE id = ?
-`,
-[
-poolReservation.mint_address,
-poolReservation.mint_secret,
-tag,
-poolReservation.attempts,
+if (claim?.changes > 0) {
+await updateLaunchReservationFields({
 launchId,
-]
-);
+reservedMintAddress: poolReservation.mint_address,
+reservedMintSecret: poolReservation.mint_secret,
+requiredTag: tag,
+attempts: poolReservation.attempts,
+status: "reserved",
+});
 
 return {
 ok: true,
@@ -410,6 +547,10 @@ attempts: poolReservation.attempts,
 status: "reserved",
 source: "pool",
 };
+}
+}
+
+throw new Error(`failed to claim reserved mint for launch ${launchId}`);
 }
 
 function getInternalPoolSeed(launch) {
@@ -455,18 +596,90 @@ throw new Error("reserved mint secret does not match reserved mint address");
 return keypair;
 }
 
-async function markPoolReservationConsumedByLaunch(launch) {
+async function markPoolReservationFinalizedByLaunch(launch) {
 const reservedAddress = clean(launch?.reserved_mint_address, 120);
 if (!reservedAddress) return;
 
 await db.run(
 `
 UPDATE mint_reservations
-SET status = 'consumed',
-consumed_at = CURRENT_TIMESTAMP
+SET status = 'finalized',
+finalized_at = CURRENT_TIMESTAMP,
+updated_at = CURRENT_TIMESTAMP
 WHERE mint_address = ?
+AND reserved_for_launch_id = ?
 `,
-[reservedAddress]
+[reservedAddress, launch.id]
+);
+}
+
+async function updateLaunchMintFields(
+launchId,
+mintAddress,
+reservationStatus = "finalized"
+) {
+const hasTokenMint = await launchesHasColumn("token_mint");
+
+if (hasTokenMint) {
+await db.run(
+`
+UPDATE launches
+SET contract_address = ?,
+token_mint = ?,
+mint_reservation_status = ?,
+mint_finalized_at = COALESCE(mint_finalized_at, CURRENT_TIMESTAMP),
+updated_at = CURRENT_TIMESTAMP
+WHERE id = ?
+`,
+[mintAddress, mintAddress, reservationStatus, launchId]
+);
+return;
+}
+
+await db.run(
+`
+UPDATE launches
+SET contract_address = ?,
+mint_reservation_status = ?,
+mint_finalized_at = COALESCE(mint_finalized_at, CURRENT_TIMESTAMP),
+updated_at = CURRENT_TIMESTAMP
+WHERE id = ?
+`,
+[mintAddress, reservationStatus, launchId]
+);
+}
+
+async function finalizeLaunchMintFields(launchId, mintAddress) {
+const hasTokenMint = await launchesHasColumn("token_mint");
+
+if (hasTokenMint) {
+await db.run(
+`
+UPDATE launches
+SET contract_address = ?,
+token_mint = ?,
+mint_reservation_status = 'finalized',
+mint_finalized_at = CURRENT_TIMESTAMP,
+reserved_mint_secret = NULL,
+updated_at = CURRENT_TIMESTAMP
+WHERE id = ?
+`,
+[mintAddress, mintAddress, launchId]
+);
+return;
+}
+
+await db.run(
+`
+UPDATE launches
+SET contract_address = ?,
+mint_reservation_status = 'finalized',
+mint_finalized_at = CURRENT_TIMESTAMP,
+reserved_mint_secret = NULL,
+updated_at = CURRENT_TIMESTAMP
+WHERE id = ?
+`,
+[mintAddress, launchId]
 );
 }
 
@@ -474,30 +687,26 @@ async function ensureMintAddress(launch) {
 const existingToken = await getTokenByLaunchId(launch.id);
 
 if (existingToken?.mint_address) {
-if (clean(launch.contract_address, 120) !== clean(existingToken.mint_address, 120)) {
-await db.run(
-`
-UPDATE launches
-SET contract_address = ?,
-mint_reservation_status = COALESCE(NULLIF(mint_reservation_status, ''), 'finalized'),
-mint_finalized_at = COALESCE(mint_finalized_at, CURRENT_TIMESTAMP),
-updated_at = CURRENT_TIMESTAMP
-WHERE id = ?
-`,
-[existingToken.mint_address, launch.id]
-);
+const existingMint = clean(existingToken.mint_address, 120);
+
+if (
+clean(launch.contract_address, 120) !== existingMint ||
+clean(launch.token_mint, 120) !== existingMint
+) {
+await updateLaunchMintFields(launch.id, existingMint, "finalized");
 }
 
 return {
 created: false,
-mintAddress: existingToken.mint_address,
+mintAddress: existingMint,
 tokenRow: existingToken,
 source: "token_row",
 };
 }
 
 const reservationStatus = clean(launch.mint_reservation_status, 40).toLowerCase();
-const existingLaunchAddress = clean(launch.contract_address, 120);
+const existingLaunchAddress =
+clean(launch.token_mint, 120) || clean(launch.contract_address, 120);
 
 if (
 reservationStatus === "finalized" &&
@@ -543,20 +752,8 @@ if (mintAddress !== reservedMintAddress) {
 throw new Error("created mint address does not match reserved mint address");
 }
 
-await db.run(
-`
-UPDATE launches
-SET contract_address = ?,
-mint_reservation_status = 'finalized',
-mint_finalized_at = CURRENT_TIMESTAMP,
-reserved_mint_secret = NULL,
-updated_at = CURRENT_TIMESTAMP
-WHERE id = ?
-`,
-[mintAddress, launch.id]
-);
-
-await markPoolReservationConsumedByLaunch(launch);
+await finalizeLaunchMintFields(launch.id, mintAddress);
+await markPoolReservationFinalizedByLaunch(launch);
 
 return {
 created: true,
@@ -726,6 +923,8 @@ WHERE id = ?
 }
 
 export async function bootstrapLiveMarket(launchId) {
+await assertMintReservationSchema();
+
 let launch = await getLaunchById(launchId);
 
 if (!launch) {
@@ -734,6 +933,17 @@ throw new Error("launch not found");
 
 if (String(launch.status || "") !== "live") {
 throw new Error("launch must be live before market bootstrap");
+}
+
+if (
+!clean(launch.reserved_mint_address, 120) ||
+!clean(launch.reserved_mint_secret, 20000)
+) {
+await claimReservedMintForLaunch(
+launchId,
+launch.mint_required_tag || DEFAULT_REQUIRED_MINT_TAG
+);
+launch = await getLaunchById(launchId);
 }
 
 const mintResult = await ensureMintAddress(launch);
