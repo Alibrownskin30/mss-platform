@@ -931,8 +931,9 @@ if (!launch) {
 throw new Error("launch not found");
 }
 
-if (String(launch.status || "") !== "live") {
-throw new Error("launch must be live before market bootstrap");
+const status = String(launch.status || "").toLowerCase();
+if (status !== "countdown" && status !== "live") {
+throw new Error("launch must be countdown or live before market bootstrap");
 }
 
 if (

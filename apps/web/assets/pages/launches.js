@@ -102,6 +102,23 @@ if (w.length <= 12) return w;
 return `${w.slice(0, 4)}...${w.slice(-4)}`;
 }
 
+function isLiveLikeStatus(status) {
+const s = String(status || "").toLowerCase();
+return s === "live" || s === "graduated";
+}
+
+function matchesStatusFilter(launch, statusFilter) {
+if (statusFilter === "all") return true;
+
+const status = String(launch?.status || "").toLowerCase();
+
+if (statusFilter === "live") {
+return isLiveLikeStatus(status);
+}
+
+return status === statusFilter;
+}
+
 function getLogoHtml(launch) {
 const imageUrl = String(launch.image_url || "").trim();
 return imageUrl
@@ -132,6 +149,13 @@ if (status === "live") {
 return {
 label: "Status",
 value: "LIVE",
+};
+}
+
+if (status === "graduated") {
+return {
+label: "Status",
+value: "GRADUATED",
 };
 }
 
@@ -217,7 +241,7 @@ hardCap > 0 ? (committed / hardCap) * 20 : 0;
 const statusBoost =
 status === "commit" ? 18 :
 status === "countdown" ? 28 :
-status === "live" ? 12 :
+isLiveLikeStatus(status) ? 12 :
 0;
 
 return (
@@ -508,7 +532,7 @@ return data;
 
 async function enrichRecent(allLaunches) {
 const commitish = allLaunches.filter((x) =>
-["commit", "countdown", "live"].includes(String(x.status || ""))
+["commit", "countdown", "live", "graduated"].includes(String(x.status || ""))
 );
 
 const enriched = await Promise.all(
@@ -569,7 +593,7 @@ render();
 function renderStats(items) {
 const commitCount = items.filter((x) => x.status === "commit").length;
 const countdownCount = items.filter((x) => x.status === "countdown").length;
-const liveCount = items.filter((x) => x.status === "live").length;
+const liveCount = items.filter((x) => isLiveLikeStatus(x.status)).length;
 
 if ($("statCommit")) $("statCommit").textContent = String(commitCount);
 if ($("statCountdown")) $("statCountdown").textContent = String(countdownCount);
@@ -633,14 +657,14 @@ return out;
 
 function renderListSections(items) {
 const sections = [
-{ key: "countdown", title: "Launching Soon" },
-{ key: "commit", title: "Commit Live Now" },
-{ key: "live", title: "Live Tokens" },
+{ key: "countdown", title: "Launching Soon", matcher: (x) => String(x.status || "") === "countdown" },
+{ key: "commit", title: "Commit Live Now", matcher: (x) => String(x.status || "") === "commit" },
+{ key: "live", title: "Live Tokens", matcher: (x) => isLiveLikeStatus(x.status) },
 ];
 
 const html = sections
 .map((section) => {
-const rows = items.filter((x) => x.status === section.key);
+const rows = items.filter(section.matcher);
 if (!rows.length) return "";
 return `
 <div class="list-section">
@@ -658,14 +682,13 @@ function updateLiveTimers() {
 document.querySelectorAll("[data-end-at]").forEach((el) => {
 const endAt = Number(el.getAttribute("data-end-at"));
 const label = el.getAttribute("data-timing-label") || "Status";
-const status = el.getAttribute("data-status") || "";
 
 if (!Number.isFinite(endAt)) return;
 
 const nextValue = fmtTime(endAt - Date.now());
 
 if (el.hasAttribute("data-timing-chip")) {
-el.textContent = `${label}: ${status === "countdown" ? nextValue : nextValue}`;
+el.textContent = `${label}: ${nextValue}`;
 } else {
 el.textContent = nextValue;
 }
@@ -700,10 +723,7 @@ return hay.includes(q);
 });
 }
 
-if (statusFilter !== "all") {
-items = items.filter((x) => x.status === statusFilter);
-}
-
+items = items.filter((x) => matchesStatusFilter(x, statusFilter));
 items = sortItems(items, sort);
 
 renderStats(ALL_LAUNCHES);

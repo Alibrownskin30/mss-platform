@@ -14,6 +14,10 @@ function $(id) {
 return document.getElementById(id);
 }
 
+function $all(selector) {
+return Array.from(document.querySelectorAll(selector));
+}
+
 function getApiBase() {
 const { protocol, hostname, port } = window.location;
 
@@ -455,6 +459,41 @@ recentCommitsSection.classList.toggle("hidden", isLiveLike);
 }
 }
 
+function getConnectButtons() {
+return [
+...$all('[data-role="wallet-connect"]'),
+...($("connectWalletBtn") ? [$("connectWalletBtn")] : []),
+].filter(Boolean);
+}
+
+function getDisconnectButtons() {
+return [
+...$all('[data-role="wallet-disconnect"]'),
+...($("disconnectWalletBtn") ? [$("disconnectWalletBtn")] : []),
+].filter(Boolean);
+}
+
+function getWalletPills() {
+return [
+...$all('[data-role="wallet-pill"]'),
+...($("walletPill") ? [$("walletPill")] : []),
+].filter(Boolean);
+}
+
+function getWalletHints() {
+return [
+...$all('[data-role="wallet-hint"]'),
+...($("walletHint") ? [$("walletHint")] : []),
+].filter(Boolean);
+}
+
+function getWalletInputs() {
+return [
+...$all('[data-role="wallet-input"]'),
+...($("commitWallet") ? [$("commitWallet")] : []),
+].filter(Boolean);
+}
+
 let currentLaunch = null;
 let currentCommitStats = null;
 let refreshIntervalId = null;
@@ -466,6 +505,8 @@ let walletActionInFlight = false;
 let refreshInFlight = false;
 let launchMarketController = null;
 let lastRenderedPhaseStatus = "";
+let countdownRefreshRequested = false;
+let walletChangeBound = false;
 
 async function fetchJson(path, options = {}) {
 const apiBase = getApiBase();
@@ -937,35 +978,42 @@ builderPctStat.textContent = `${baseBuilderPct}%`;
 }
 
 function updateWalletUi() {
-const walletInput = $("commitWallet");
-const walletPill = $("walletPill");
-const connectBtn = $("connectWalletBtn");
-const disconnectBtn = $("disconnectWalletBtn");
-const walletHint = $("walletHint");
 const walletState = getConnectedWallet();
-
-if (walletInput) walletInput.value = walletState.publicKey || "";
-
-if (walletPill) {
-walletPill.textContent = walletState.isConnected
+const walletText = walletState.publicKey || "";
+const walletPillText = walletState.isConnected
 ? `Connected: ${walletState.shortPublicKey}`
 : "No wallet connected";
-}
-
-if (connectBtn) {
-connectBtn.style.display = walletState.isConnected ? "none" : "inline-flex";
-connectBtn.disabled = walletActionInFlight;
-}
-
-if (disconnectBtn) {
-disconnectBtn.style.display = walletState.isConnected ? "inline-flex" : "none";
-disconnectBtn.disabled = walletActionInFlight;
-}
-
-if (walletHint) {
-walletHint.textContent = walletState.isConnected
+const walletHintText = walletState.isConnected
 ? `Connected via ${String(walletState.walletName || "wallet").replace(/\b\w/g, (m) => m.toUpperCase())}.`
 : "Use Connect Wallet to choose Phantom, Solflare, or Backpack.";
+
+for (const input of getWalletInputs()) {
+input.value = walletText;
+}
+
+for (const pill of getWalletPills()) {
+pill.textContent = walletPillText;
+}
+
+for (const btn of getConnectButtons()) {
+btn.style.display = walletState.isConnected ? "none" : "inline-flex";
+btn.disabled = walletActionInFlight;
+}
+
+for (const btn of getDisconnectButtons()) {
+btn.style.display = walletState.isConnected ? "inline-flex" : "none";
+btn.disabled = walletActionInFlight;
+}
+
+for (const hint of getWalletHints()) {
+hint.textContent = walletHintText;
+}
+
+const badgeEls = $all('[data-role="wallet-badge"]');
+for (const badge of badgeEls) {
+badge.classList.remove("is-connected", "is-disconnected");
+badge.classList.add(walletState.isConnected ? "is-connected" : "is-disconnected");
+badge.textContent = walletState.isConnected ? "Wallet Connected" : "Wallet Disconnected";
 }
 }
 
@@ -1042,30 +1090,39 @@ launch: currentLaunch || null,
 commitStats: currentCommitStats || {},
 });
 
-if (forceRefresh && typeof launchMarketController.refreshLaunch === "function") {
-await launchMarketController.refreshLaunch();
+if (forceRefresh && typeof launchMarketController.setBaseState === "function") {
+launchMarketController.setBaseState(currentLaunch || null, currentCommitStats || {}, { restartPolling: true });
+if (
+String(currentLaunch?.status || "") === "live" &&
+typeof launchMarketController.refreshLiveMarketOnly === "function"
+) {
+await launchMarketController.refreshLiveMarketOnly({ force: true });
+}
 }
 return;
 }
 
 launchMarketController.setConnectedWallet(connectedWallet);
+
+if (typeof launchMarketController.setBaseState === "function") {
+launchMarketController.setBaseState(currentLaunch || null, currentCommitStats || {}, { restartPolling: true });
+} else {
 launchMarketController.launch = mergeLaunchTruth(
 launchMarketController.launch || {},
 currentLaunch || {}
 );
 launchMarketController.commitStats = currentCommitStats || {};
+if (typeof launchMarketController.applyAll === "function") {
+launchMarketController.applyAll();
+}
+}
 
-if (forceRefresh) {
 if (
+forceRefresh &&
 String(currentLaunch?.status || "") === "live" &&
 typeof launchMarketController.refreshLiveMarketOnly === "function"
 ) {
-await launchMarketController.refreshLiveMarketOnly();
-} else if (typeof launchMarketController.refreshLaunch === "function") {
-await launchMarketController.refreshLaunch();
-}
-} else if (typeof launchMarketController.applyAll === "function") {
-launchMarketController.applyAll();
+await launchMarketController.refreshLiveMarketOnly({ force: true });
 }
 }
 
@@ -1145,21 +1202,26 @@ setClosureNote("");
 lastRenderedPhaseStatus = String(launch.status || "");
 }
 
-async function refresh() {
+async function refresh(options = {}) {
+const { syncMarket = true } = options;
+
 if (refreshInFlight) return;
 refreshInFlight = true;
 
 try {
 await loadLaunch();
 render();
+
+if (syncMarket) {
 await syncLaunchMarketController(true);
+}
 } finally {
 refreshInFlight = false;
 }
 }
 
 async function refreshStateBeforeAction() {
-await refresh();
+await refresh({ syncMarket: true });
 return {
 launch: currentLaunch,
 stats: currentCommitStats,
@@ -1328,7 +1390,7 @@ if ($("commitAmount")) {
 $("commitAmount").value = "";
 }
 
-await refresh();
+await refresh({ syncMarket: true });
 } catch (err) {
 console.error(err);
 
@@ -1339,14 +1401,14 @@ Number(err?.status) === 409 &&
 if (lateRefund) {
 setStatus(buildLateRefundMessage(err, transferSignature), "warn");
 try {
-await refresh();
+await refresh({ syncMarket: true });
 } catch (refreshErr) {
 console.error(refreshErr);
 }
 } else {
 setStatus(err?.message || "Commit failed.", "bad");
 try {
-await refresh();
+await refresh({ syncMarket: true });
 } catch (refreshErr) {
 console.error(refreshErr);
 }
@@ -1408,12 +1470,12 @@ setStatus(
 "good"
 );
 
-await refresh();
+await refresh({ syncMarket: true });
 } catch (err) {
 console.error(err);
 setStatus(err?.message || "Refund failed.", "bad");
 try {
-await refresh();
+await refresh({ syncMarket: true });
 } catch (refreshErr) {
 console.error(refreshErr);
 }
@@ -1433,9 +1495,25 @@ if ($("commitAmount")) $("commitAmount").value = amount;
 });
 }
 
+function bindWalletButtons() {
+for (const btn of getConnectButtons()) {
+if (btn.dataset.walletBound === "1") continue;
+btn.dataset.walletBound = "1";
+btn.addEventListener("click", connectWallet);
+}
+
+for (const btn of getDisconnectButtons()) {
+if (btn.dataset.walletBound === "1") continue;
+btn.dataset.walletBound = "1";
+btn.addEventListener("click", disconnectWallet);
+}
+}
+
 function bindWalletEvents() {
-$("connectWalletBtn")?.addEventListener("click", connectWallet);
-$("disconnectWalletBtn")?.addEventListener("click", disconnectWallet);
+bindWalletButtons();
+
+if (walletChangeBound) return;
+walletChangeBound = true;
 
 onWalletChange(async () => {
 updateWalletUi();
@@ -1457,7 +1535,7 @@ await restoreWalletIfTrusted();
 updateWalletUi();
 
 try {
-await refresh();
+await refresh({ syncMarket: true });
 } catch (err) {
 console.error(err);
 setStatus(err?.message || "Failed to load launch.", "bad");
@@ -1467,12 +1545,14 @@ if (refreshIntervalId) clearInterval(refreshIntervalId);
 if (renderIntervalId) clearInterval(renderIntervalId);
 
 refreshIntervalId = setInterval(async () => {
+if (refreshInFlight || commitActionInFlight || refundActionInFlight) return;
+
 try {
-await refresh();
+await refresh({ syncMarket: false });
 } catch (err) {
 console.error(err);
 }
-}, 5000);
+}, 15000);
 
 renderIntervalId = setInterval(() => {
 if (!currentLaunch || !currentCommitStats) return;
@@ -1482,13 +1562,23 @@ render();
 const status = String(currentLaunch.status || "");
 if (status === "countdown") {
 const countdownEndsMs = getCountdownEndsMs(currentLaunch, currentCommitStats);
-if (Number.isFinite(countdownEndsMs) && countdownEndsMs <= Date.now() && !refreshInFlight) {
-void refresh().catch((err) => console.error(err));
+if (
+Number.isFinite(countdownEndsMs) &&
+countdownEndsMs <= Date.now() &&
+!refreshInFlight &&
+!countdownRefreshRequested
+) {
+countdownRefreshRequested = true;
+void refresh({ syncMarket: true })
+.catch((err) => console.error(err))
+.finally(() => {
+countdownRefreshRequested = false;
+});
 }
 }
 
 if (status !== lastRenderedPhaseStatus && !refreshInFlight) {
-void refresh().catch((err) => console.error(err));
+void refresh({ syncMarket: true }).catch((err) => console.error(err));
 }
 }, 1000);
 }

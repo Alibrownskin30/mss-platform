@@ -1337,7 +1337,7 @@ this.currentInterval = options.initialInterval || "1m";
 this.candleLimit = Number(options.candleLimit || 180);
 
 this.commitPollMs = Number(options.commitPollMs || 15000);
-this.countdownPollMs = Number(options.countdownPollMs || 1000);
+this.countdownPollMs = Number(options.countdownPollMs || 5000);
 this.livePollMs = Number(options.livePollMs || 6000);
 
 this.tokenPayload = {};
@@ -1348,11 +1348,18 @@ this.trades = [];
 this.tradeMode = TRADE_MODES.BUY;
 this.lastQuote = null;
 this.tradeBusy = false;
+this.quoteBusy = false;
 this.walletTokenBalanceFallback = 0;
 
 this.refreshTimer = null;
 this.countdownTimer = null;
 this.chartRenderer = null;
+
+this._liveRefreshInFlight = null;
+this._launchRefreshInFlight = null;
+this._timeframeRefreshInFlight = null;
+this._walletRefreshTimeout = null;
+this._destroyed = false;
 
 this._boundHandleManageLinksClick = this.handleManageLinksClick.bind(this);
 this._boundHandleSaveLinksClick = this.handleSaveLinksClick.bind(this);
@@ -1383,8 +1390,15 @@ return this;
 }
 
 destroy() {
+this._destroyed = true;
 this.stopTimers();
 this.unbindEvents();
+
+if (this._walletRefreshTimeout) {
+clearTimeout(this._walletRefreshTimeout);
+this._walletRefreshTimeout = null;
+}
+
 if (this.chartRenderer) {
 this.chartRenderer.destroy();
 this.chartRenderer = null;
@@ -1474,28 +1488,22 @@ this.countdownTimer = null;
 startPollingLoop() {
 this.stopTimers();
 
-const refreshEvery =
-this.phase === PHASES.COMMIT
-? this.commitPollMs
-: this.phase === PHASES.COUNTDOWN
-? this.countdownPollMs
-: this.livePollMs;
+if (this.phase === PHASES.COUNTDOWN) {
+this.startCountdownTicker();
+return;
+}
+
+if (this.phase !== PHASES.LIVE) {
+return;
+}
 
 this.refreshTimer = setInterval(async () => {
 try {
-if (this.phase === PHASES.LIVE) {
 await this.refreshLiveMarketOnly();
-} else {
-await this.refreshLaunch();
-}
 } catch (error) {
 console.error("launch-market refresh failed:", error);
 }
-}, refreshEvery);
-
-if (this.phase === PHASES.COUNTDOWN) {
-this.startCountdownTicker();
-}
+}, this.livePollMs);
 }
 
 startCountdownTicker() {
@@ -1503,13 +1511,40 @@ if (this.countdownTimer) clearInterval(this.countdownTimer);
 
 updateCountdownUi(this.launch, this.commitStats);
 
-this.countdownTimer = setInterval(async () => {
+this.countdownTimer = setInterval(() => {
 updateCountdownUi(this.launch, this.commitStats);
+
 const nextPhase = inferPhase(this.launch);
 if (nextPhase !== this.phase) {
-await this.refreshLaunch();
+this.phase = nextPhase;
+this.applyAll();
+
+if (nextPhase === PHASES.LIVE) {
+void this.refreshLiveMarketOnly().catch((error) => {
+console.error("countdown to live refresh failed:", error);
+});
+this.startPollingLoop();
+}
 }
 }, 1000);
+}
+
+setBaseState(launch = null, commitStats = null, options = {}) {
+const previousPhase = this.phase;
+
+if (launch) {
+this.launch = mergeLaunchTruth(this.launch || {}, launch);
+}
+
+if (commitStats && typeof commitStats === "object") {
+this.commitStats = commitStats;
+}
+
+this.applyAll();
+
+if (options.restartPolling !== false && previousPhase !== this.phase) {
+this.startPollingLoop();
+}
 }
 
 async loadLiveMarketData() {
@@ -1550,24 +1585,28 @@ stats: this.chartStats,
 }
 }
 
-async refreshLiveMarketOnly() {
-if (!this.launchId || this.phase !== PHASES.LIVE) return;
+async refreshLiveMarketOnly({ force = false } = {}) {
+if (!this.launchId) return;
+if (!force && this.phase !== PHASES.LIVE) return;
 
-const [launchPayload, commitStats, payload] = await Promise.all([
-this.fetchLaunch(this.launchId),
-this.fetchCommitStats(this.launchId),
-this.fetchMarketSnapshot(this.launchId, this.currentInterval, this.candleLimit, 50, this.connectedWallet || ""),
-]);
+if (this._liveRefreshInFlight) {
+return this._liveRefreshInFlight;
+}
 
-const launchFromApi = normalizeLaunchTruth(launchPayload?.launch || launchPayload || {});
-const launchFromChart = normalizeLaunchTruth(payload?.chartLaunch || {});
-
-this.launch = mergeLaunchTruth(
-mergeLaunchTruth(this.launch || {}, launchFromApi),
-launchFromChart
+this._liveRefreshInFlight = (async () => {
+const payload = await this.fetchMarketSnapshot(
+this.launchId,
+this.currentInterval,
+this.candleLimit,
+50,
+this.connectedWallet || ""
 );
 
-this.commitStats = commitStats || {};
+if (this._destroyed) return;
+
+const launchFromChart = normalizeLaunchTruth(payload?.chartLaunch || {});
+this.launch = mergeLaunchTruth(this.launch || {}, launchFromChart);
+
 this.tokenPayload = payload?.tokenPayload || {};
 this.chartStats = payload?.chartStats || {};
 this.candles = payload?.candles || [];
@@ -1582,14 +1621,25 @@ this.phase = inferPhase(this.launch);
 
 updateTokenIdentity(this.launch, this.tokenPayload);
 updateContractAddress(this.launch, this.tokenPayload);
+renderExternalLinks(this.launch);
+setManageLinksVisibility(this.launch, this.connectedWallet);
 updatePhaseClasses(this.phase);
 updatePhaseContent(this.phase);
 setTradePanelVisibility(this.phase);
 syncMarketShellLayout();
 syncChartSizing(this.phase);
+
+if (this.phase === PHASES.LIVE) {
 updateStatsForLive(this.tokenPayload, this.chartStats);
 updateWalletSummary(this.phase, this.connectedWallet, this.tokenPayload, this.chartStats, this.walletTokenBalanceFallback);
 updateAccessCard(this.phase, this.launch, this.tokenPayload, this.chartStats, this.lastQuote, this.connectedWallet, this.walletTokenBalanceFallback);
+} else if (this.phase === PHASES.COUNTDOWN) {
+updateStatsForCountdown(this.launch, this.commitStats);
+updateCountdownUi(this.launch, this.commitStats);
+} else {
+updateStatsForCommit(this.launch, this.commitStats);
+}
+
 renderRecentTrades(this.trades, this.tokenPayload, this.chartStats);
 renderCassiePanel(this.phase, this.launch, this.tokenPayload, this.chartStats);
 
@@ -1603,31 +1653,52 @@ stats: this.chartStats,
 
 this.syncSellQuickButtons();
 this.renderTradePanel();
+})();
+
+try {
+return await this._liveRefreshInFlight;
+} finally {
+this._liveRefreshInFlight = null;
+}
 }
 
-async refreshLaunch() {
+async refreshLaunch({ force = false } = {}) {
 if (!this.launchId) return;
 
+if (this._launchRefreshInFlight) {
+return this._launchRefreshInFlight;
+}
+
+this._launchRefreshInFlight = (async () => {
 const [launchPayload, commitStatsPayload] = await Promise.all([
 this.fetchLaunch(this.launchId),
 this.fetchCommitStats(this.launchId),
 ]);
 
+if (this._destroyed) return;
+
 const incomingLaunch = normalizeLaunchTruth(launchPayload?.launch || launchPayload || {});
+const previousPhase = this.phase;
+
 this.launch = mergeLaunchTruth(this.launch || {}, incomingLaunch);
 this.commitStats = commitStatsPayload || {};
-
-const previousPhase = this.phase;
 this.phase = inferPhase(this.launch);
 
 if (this.phase === PHASES.LIVE) {
-await this.loadLiveMarketData();
+await this.refreshLiveMarketOnly({ force: true });
+} else {
+this.applyAll();
 }
 
-this.applyAll();
-
-if (previousPhase !== this.phase) {
+if (previousPhase !== this.phase || force) {
 this.startPollingLoop();
+}
+})();
+
+try {
+return await this._launchRefreshInFlight;
+} finally {
+this._launchRefreshInFlight = null;
 }
 }
 
@@ -1694,7 +1765,7 @@ const balance = this.getWalletTokenBalance();
 
 sellButtons.forEach((btn) => {
 const pct = toNumber(btn.dataset.pct, 0);
-btn.disabled = this.phase !== PHASES.LIVE || balance <= 0 || pct <= 0;
+btn.disabled = this.phase !== PHASES.LIVE || balance <= 0 || pct <= 0 || this.tradeBusy || this.quoteBusy;
 });
 }
 
@@ -1706,7 +1777,7 @@ const amount = this.getTradeAmountValue();
 const hasAmount = amount > 0;
 
 if (submitBtn) {
-submitBtn.disabled = this.phase !== PHASES.LIVE || this.tradeBusy || !hasAmount;
+submitBtn.disabled = this.phase !== PHASES.LIVE || this.tradeBusy || this.quoteBusy || !hasAmount;
 submitBtn.textContent = this.lastQuote
 ? this.tradeMode === TRADE_MODES.BUY
 ? "Execute Buy"
@@ -1722,15 +1793,24 @@ this.connectedWallet = wallet || "";
 this.lastQuote = null;
 resetTradeQuoteUi();
 setTradeMessage("");
+
 if (this.launch) setManageLinksVisibility(this.launch, this.connectedWallet);
+
 if (this.phase === PHASES.LIVE) {
 updateWalletSummary(this.phase, this.connectedWallet, this.tokenPayload, this.chartStats, this.walletTokenBalanceFallback);
 updateAccessCard(this.phase, this.launch, this.tokenPayload, this.chartStats, this.lastQuote, this.connectedWallet, this.walletTokenBalanceFallback);
 this.syncSellQuickButtons();
 this.renderTradePanel();
-this.refreshLiveMarketOnly().catch((error) => {
+
+if (this._walletRefreshTimeout) {
+clearTimeout(this._walletRefreshTimeout);
+}
+
+this._walletRefreshTimeout = setTimeout(() => {
+void this.refreshLiveMarketOnly({ force: true }).catch((error) => {
 console.error("wallet sync refresh failed:", error);
 });
+}, 250);
 }
 }
 
@@ -1793,6 +1873,8 @@ const btn = event.currentTarget;
 const timeframesWrap = $("marketTimeframes");
 if (!btn || !timeframesWrap || timeframesWrap.classList.contains("disabled")) return;
 
+if (this._timeframeRefreshInFlight) return;
+
 document.querySelectorAll(".market-timeframe").forEach((el) => {
 el.classList.remove("active");
 });
@@ -1808,16 +1890,17 @@ this.chartRenderer.setInterval(this.currentInterval);
 }
 
 if (this.phase === PHASES.LIVE) {
-try {
-await this.loadLiveMarketData();
-updateStatsForLive(this.tokenPayload, this.chartStats);
-updateWalletSummary(this.phase, this.connectedWallet, this.tokenPayload, this.chartStats, this.walletTokenBalanceFallback);
-updateAccessCard(this.phase, this.launch, this.tokenPayload, this.chartStats, this.lastQuote, this.connectedWallet, this.walletTokenBalanceFallback);
-renderCassiePanel(this.phase, this.launch, this.tokenPayload, this.chartStats);
-this.renderTradePanel();
-} catch (error) {
+this._timeframeRefreshInFlight = this.refreshLiveMarketOnly({ force: true })
+.catch((error) => {
 console.error("timeframe refresh failed:", error);
-}
+})
+.finally(() => {
+this._timeframeRefreshInFlight = null;
+});
+
+await this._timeframeRefreshInFlight;
+} else {
+this.renderTradePanel();
 }
 }
 
@@ -1833,6 +1916,8 @@ this.renderTradePanel();
 }
 
 handleTradeQuickClick(event) {
+if (this.tradeBusy || this.quoteBusy) return;
+
 const input = $("tradeAmountInput");
 if (!input) return;
 
@@ -1961,20 +2046,21 @@ return this.executeSell(this.launchId, this.connectedWallet, amount);
 }
 
 async handleTradeSubmitClick() {
-if (this.phase !== PHASES.LIVE || this.tradeBusy) return;
+if (this.phase !== PHASES.LIVE || this.tradeBusy || this.quoteBusy) return;
 
 const submitBtn = $("tradeSubmitBtn");
 const originalText = submitBtn?.textContent || "Preview Buy";
 
 try {
-this.tradeBusy = true;
-this.renderTradePanel();
 setTradeMessage("");
 
 if (!this.lastQuote) {
 if (!this.connectedWallet) {
 throw new Error("Connect wallet first");
 }
+
+this.quoteBusy = true;
+this.renderTradePanel();
 
 if (submitBtn) {
 submitBtn.textContent = this.tradeMode === TRADE_MODES.BUY ? "Preparing Buy Preview..." : "Preparing Sell Preview...";
@@ -1990,6 +2076,9 @@ this.tradeMode === TRADE_MODES.BUY
 );
 return;
 }
+
+this.tradeBusy = true;
+this.renderTradePanel();
 
 if (submitBtn) {
 submitBtn.textContent = this.tradeMode === TRADE_MODES.BUY ? "Executing Buy..." : "Executing Sell...";
@@ -2023,12 +2112,13 @@ resetTradeQuoteUi();
 const input = $("tradeAmountInput");
 if (input) input.value = "";
 
-await this.refreshLiveMarketOnly();
+await this.refreshLiveMarketOnly({ force: true });
 this.renderTradePanel();
 } catch (error) {
 console.error("trade submit failed:", error);
 setTradeMessage(error?.message || "Trade failed", "error");
 } finally {
+this.quoteBusy = false;
 this.tradeBusy = false;
 if (submitBtn) submitBtn.textContent = originalText;
 this.renderTradePanel();
