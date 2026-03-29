@@ -16,6 +16,7 @@ import uploadRoutes from "./routes/upload.js";
 import { startLaunchWorker } from "./workers/launchWorker.js";
 import chartRoutes from "./routes/chart.js";
 import tokenMarketRoutes from "./routes/token-market.js";
+import launchLifecycleRoutes from "./routes/launch-lifecycle.js";
 
 import { Connection, PublicKey } from "@solana/web3.js";
 import pkg from "@metaplex-foundation/mpl-token-metadata";
@@ -152,6 +153,7 @@ app.use(cassie);
 // ---- Route mounts (after protection middleware) ----
 app.use("/api/builders", builderRoutes);
 app.use("/api/launcher", launcherRoutes);
+app.use("/api/launch-lifecycle", launchLifecycleRoutes);
 app.use("/api/chart", chartRoutes);
 app.use("/api/token-market", tokenMarketRoutes);
 app.use("/api/token", tokenRoutes);
@@ -1266,7 +1268,6 @@ const supplyResp = await rpcRetry(() => connection.getTokenSupply(mint));
 supply = supplyResp?.value?.amount ?? null;
 decimals = supplyResp?.value?.decimals ?? null;
 } catch {
-// leave null if unavailable
 }
 }
 
@@ -1866,3 +1867,6 @@ console.log(`🛡️ Cassie: enabled (defensive middleware + intel layer)`);
 startLaunchWorker();
 startWatcher();
 startGraduationWatcher();
+checkLaunchCountdowns().catch((err) => {
+console.error("Initial launch countdown check failed:", err);
+});

@@ -1262,7 +1262,6 @@ updateWalletUi();
 try {
 await disconnectAnyWallet();
 } catch {
-// ignore
 } finally {
 walletActionInFlight = false;
 updateWalletUi();

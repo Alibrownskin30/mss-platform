@@ -4,6 +4,13 @@ volumePaddingPct: 0.15,
 candleGap: 3,
 wickWidth: 1,
 maxCandles: 160,
+minVisibleCandles: 24,
+maxVisibleCandles: 240,
+rightAxisWidth: 76,
+leftPadding: 10,
+topPadding: 16,
+bottomPricePadding: 26,
+bottomVolumePadding: 22,
 };
 
 function toNumber(value, fallback = 0) {
@@ -140,6 +147,11 @@ this.activeIndex = -1;
 this.activeInterval = "1m";
 this.resizeObserver = null;
 this.visibleCandles = [];
+this.viewportStart = 0;
+this.viewportCount = this.options.maxCandles;
+this.isDragging = false;
+this.dragStartX = 0;
+this.dragStartViewport = 0;
 
 this.palette = {
 up: "#35f5a3",
@@ -184,11 +196,27 @@ this.resizeObserver = null;
 bindEvents() {
 this.handlePointerMove = this.onPointerMove.bind(this);
 this.handlePointerLeave = this.onPointerLeave.bind(this);
+this.handleWheel = this.onWheel.bind(this);
+this.handlePointerDown = this.onPointerDown.bind(this);
+this.handlePointerUp = this.onPointerUp.bind(this);
+this.handlePointerDrag = this.onPointerDrag.bind(this);
+this.handleDblClick = this.onDoubleClick.bind(this);
 
 this.chartCanvas.addEventListener("mousemove", this.handlePointerMove);
 this.chartCanvas.addEventListener("mouseleave", this.handlePointerLeave);
 this.volumeCanvas.addEventListener("mousemove", this.handlePointerMove);
 this.volumeCanvas.addEventListener("mouseleave", this.handlePointerLeave);
+
+this.chartCanvas.addEventListener("wheel", this.handleWheel, { passive: false });
+this.volumeCanvas.addEventListener("wheel", this.handleWheel, { passive: false });
+
+this.chartCanvas.addEventListener("mousedown", this.handlePointerDown);
+this.volumeCanvas.addEventListener("mousedown", this.handlePointerDown);
+window.addEventListener("mouseup", this.handlePointerUp);
+window.addEventListener("mousemove", this.handlePointerDrag);
+
+this.chartCanvas.addEventListener("dblclick", this.handleDblClick);
+this.volumeCanvas.addEventListener("dblclick", this.handleDblClick);
 }
 
 unbindEvents() {
@@ -198,6 +226,17 @@ this.chartCanvas.removeEventListener("mousemove", this.handlePointerMove);
 this.chartCanvas.removeEventListener("mouseleave", this.handlePointerLeave);
 this.volumeCanvas.removeEventListener("mousemove", this.handlePointerMove);
 this.volumeCanvas.removeEventListener("mouseleave", this.handlePointerLeave);
+
+this.chartCanvas.removeEventListener("wheel", this.handleWheel);
+this.volumeCanvas.removeEventListener("wheel", this.handleWheel);
+
+this.chartCanvas.removeEventListener("mousedown", this.handlePointerDown);
+this.volumeCanvas.removeEventListener("mousedown", this.handlePointerDown);
+window.removeEventListener("mouseup", this.handlePointerUp);
+window.removeEventListener("mousemove", this.handlePointerDrag);
+
+this.chartCanvas.removeEventListener("dblclick", this.handleDblClick);
+this.volumeCanvas.removeEventListener("dblclick", this.handleDblClick);
 }
 
 observeResize() {
@@ -217,6 +256,7 @@ this.candles = candles.map(resolveCandle).filter((c) => Number.isFinite(c.close)
 this.trades = trades.map(resolveTrade).filter((t) => Number.isFinite(t.price));
 this.stats = stats || {};
 this.activeIndex = -1;
+this.fitToLatest();
 this.draw();
 }
 
@@ -230,22 +270,130 @@ this.trades = partial.trades.map(resolveTrade).filter((t) => Number.isFinite(t.p
 if (partial.stats) {
 this.stats = partial.stats || {};
 }
+
+const anchoredToRight = this.viewportStart + this.viewportCount >= this.candles.length - 2;
+if (anchoredToRight) {
+this.fitToLatest(this.viewportCount);
+} else {
+this.viewportStart = clamp(
+this.viewportStart,
+0,
+Math.max(0, this.candles.length - this.viewportCount)
+);
+}
+
 this.draw();
 }
 
+fitToLatest(visibleCount = this.options.maxCandles) {
+const total = this.candles.length;
+const count = clamp(
+Math.floor(visibleCount || this.options.maxCandles),
+this.options.minVisibleCandles,
+this.options.maxVisibleCandles
+);
+this.viewportCount = Math.min(total || count, count);
+this.viewportStart = Math.max(0, total - this.viewportCount);
+}
+
+getVisibleCandles() {
+if (!this.candles.length) return [];
+const start = clamp(this.viewportStart, 0, Math.max(0, this.candles.length - 1));
+const count = clamp(
+this.viewportCount,
+this.options.minVisibleCandles,
+this.options.maxVisibleCandles
+);
+return this.candles.slice(start, start + count);
+}
+
 onPointerMove(event) {
-if (!this.visibleCandles.length) return;
+if (!this.visibleCandles.length || this.isDragging) return;
 
 const rect = this.chartCanvas.getBoundingClientRect();
+const plot = this.getPlotArea(rect.width, rect.height);
 const x = event.clientX - rect.left;
-const candleWidth = rect.width / Math.max(this.visibleCandles.length, 1);
-const index = clamp(Math.floor(x / candleWidth), 0, this.visibleCandles.length - 1);
+
+if (x < plot.left || x > plot.right) {
+this.activeIndex = -1;
+this.draw();
+return;
+}
+
+const candleWidth = plot.width / Math.max(this.visibleCandles.length, 1);
+const index = clamp(Math.floor((x - plot.left) / candleWidth), 0, this.visibleCandles.length - 1);
 
 this.activeIndex = index;
 this.draw();
 }
 
 onPointerLeave() {
+if (this.isDragging) return;
+this.activeIndex = -1;
+this.draw();
+}
+
+onPointerDown(event) {
+if (!this.visibleCandles.length) return;
+this.isDragging = true;
+this.dragStartX = event.clientX;
+this.dragStartViewport = this.viewportStart;
+}
+
+onPointerUp() {
+this.isDragging = false;
+}
+
+onPointerDrag(event) {
+if (!this.isDragging || !this.visibleCandles.length) return;
+
+const rect = this.chartCanvas.getBoundingClientRect();
+const plot = this.getPlotArea(rect.width, rect.height);
+const candleWidth = plot.width / Math.max(this.visibleCandles.length, 1);
+if (!candleWidth) return;
+
+const deltaPx = event.clientX - this.dragStartX;
+const deltaCandles = Math.round(deltaPx / candleWidth);
+
+this.viewportStart = clamp(
+this.dragStartViewport - deltaCandles,
+0,
+Math.max(0, this.candles.length - this.viewportCount)
+);
+this.activeIndex = -1;
+this.draw();
+}
+
+onWheel(event) {
+if (!this.candles.length) return;
+event.preventDefault();
+
+const delta = Math.sign(event.deltaY);
+const nextCount = clamp(
+this.viewportCount + delta * 8,
+this.options.minVisibleCandles,
+Math.min(this.options.maxVisibleCandles, this.candles.length || this.options.maxVisibleCandles)
+);
+
+const rect = this.chartCanvas.getBoundingClientRect();
+const plot = this.getPlotArea(rect.width, rect.height);
+const pointerX = clamp(event.clientX - rect.left, plot.left, plot.right);
+const pointerRatio = plot.width > 0 ? (pointerX - plot.left) / plot.width : 1;
+const centerIndex = this.viewportStart + Math.floor(pointerRatio * this.viewportCount);
+
+this.viewportCount = nextCount;
+this.viewportStart = clamp(
+Math.round(centerIndex - pointerRatio * this.viewportCount),
+0,
+Math.max(0, this.candles.length - this.viewportCount)
+);
+
+this.activeIndex = -1;
+this.draw();
+}
+
+onDoubleClick() {
+this.fitToLatest();
 this.activeIndex = -1;
 this.draw();
 }
@@ -267,7 +415,7 @@ this.drawEmpty(chartSize, volumeSize);
 return;
 }
 
-const visibleCandles = this.candles.slice(-this.options.maxCandles);
+const visibleCandles = this.getVisibleCandles();
 this.visibleCandles = visibleCandles;
 
 const priceBounds = this.getPriceBounds(visibleCandles);
@@ -363,46 +511,75 @@ max: padded || 1,
 };
 }
 
+getPlotArea(width, height) {
+const left = this.options.leftPadding;
+const right = Math.max(left + 50, width - this.options.rightAxisWidth);
+const top = this.options.topPadding;
+const bottom = Math.max(top + 40, height - this.options.bottomPricePadding);
+
+return {
+left,
+right,
+top,
+bottom,
+width: Math.max(1, right - left),
+height: Math.max(1, bottom - top),
+};
+}
+
+getVolumePlotArea(width, height) {
+const left = this.options.leftPadding;
+const right = Math.max(left + 50, width - this.options.rightAxisWidth);
+const top = 10;
+const bottom = Math.max(top + 20, height - this.options.bottomVolumePadding);
+
+return {
+left,
+right,
+top,
+bottom,
+width: Math.max(1, right - left),
+height: Math.max(1, bottom - top),
+};
+}
+
 yForPrice(height, price, bounds) {
+const plot = this.getPlotArea(this.chartCanvas.getBoundingClientRect().width, height);
 const range = bounds.max - bounds.min || 1;
-const top = 16;
-const bottom = height - 30;
-const usable = bottom - top;
 const pct = (price - bounds.min) / range;
-return bottom - usable * pct;
+return plot.bottom - plot.height * pct;
 }
 
 yForVolume(height, volume, bounds) {
+const plot = this.getVolumePlotArea(this.volumeCanvas.getBoundingClientRect().width, height);
 const range = bounds.max - bounds.min || 1;
-const top = 10;
-const bottom = height - 22;
-const usable = bottom - top;
 const pct = (volume - bounds.min) / range;
-return bottom - usable * pct;
+return plot.bottom - plot.height * pct;
 }
 
 drawChartGrid(size) {
 const ctx = this.chartCtx;
 const rows = 5;
 const cols = 6;
+const plot = this.getPlotArea(size.width, size.height);
 
 ctx.save();
 ctx.strokeStyle = this.palette.grid;
 ctx.lineWidth = 1;
 
-for (let i = 1; i < rows; i += 1) {
-const y = Math.round((size.height / rows) * i) + 0.5;
+for (let i = 0; i <= rows; i += 1) {
+const y = Math.round(plot.top + (plot.height / rows) * i) + 0.5;
 ctx.beginPath();
-ctx.moveTo(0, y);
-ctx.lineTo(size.width, y);
+ctx.moveTo(plot.left, y);
+ctx.lineTo(plot.right, y);
 ctx.stroke();
 }
 
-for (let i = 1; i < cols; i += 1) {
-const x = Math.round((size.width / cols) * i) + 0.5;
+for (let i = 0; i <= cols; i += 1) {
+const x = Math.round(plot.left + (plot.width / cols) * i) + 0.5;
 ctx.beginPath();
-ctx.moveTo(x, 0);
-ctx.lineTo(x, size.height);
+ctx.moveTo(x, plot.top);
+ctx.lineTo(x, plot.bottom);
 ctx.stroke();
 }
 
@@ -411,15 +588,16 @@ ctx.restore();
 
 drawVolumeGrid(size) {
 const ctx = this.volumeCtx;
+const plot = this.getVolumePlotArea(size.width, size.height);
 
 ctx.save();
 ctx.strokeStyle = "rgba(255,255,255,.05)";
 ctx.lineWidth = 1;
 
-const y = Math.round(size.height * 0.5) + 0.5;
+const y = Math.round(plot.top + plot.height * 0.5) + 0.5;
 ctx.beginPath();
-ctx.moveTo(0, y);
-ctx.lineTo(size.width, y);
+ctx.moveTo(plot.left, y);
+ctx.lineTo(plot.right, y);
 ctx.stroke();
 
 ctx.restore();
@@ -427,19 +605,19 @@ ctx.restore();
 
 drawCandles(size, candles, bounds) {
 const ctx = this.chartCtx;
-const width = size.width;
-const height = size.height;
-const candleSlot = width / Math.max(candles.length, 1);
-const bodyWidth = Math.max(4, candleSlot - this.options.candleGap);
+const plot = this.getPlotArea(size.width, size.height);
+const candleSlot = plot.width / Math.max(candles.length, 1);
+const dynamicGap = candleSlot > 14 ? this.options.candleGap : 1;
+const bodyWidth = Math.max(2, candleSlot - dynamicGap);
 
 ctx.save();
 
 candles.forEach((candle, index) => {
-const centerX = index * candleSlot + candleSlot / 2;
-const openY = this.yForPrice(height, candle.open, bounds);
-const highY = this.yForPrice(height, candle.high, bounds);
-const lowY = this.yForPrice(height, candle.low, bounds);
-const closeY = this.yForPrice(height, candle.close, bounds);
+const centerX = plot.left + index * candleSlot + candleSlot / 2;
+const openY = this.yForPrice(size.height, candle.open, bounds);
+const highY = this.yForPrice(size.height, candle.high, bounds);
+const lowY = this.yForPrice(size.height, candle.low, bounds);
+const closeY = this.yForPrice(size.height, candle.close, bounds);
 
 const isUp = candle.close >= candle.open;
 const color = isUp ? this.palette.up : this.palette.down;
@@ -474,18 +652,18 @@ ctx.restore();
 
 drawVolumes(size, candles, bounds) {
 const ctx = this.volumeCtx;
-const width = size.width;
-const height = size.height;
-const slot = width / Math.max(candles.length, 1);
-const barWidth = Math.max(4, slot - this.options.candleGap);
+const plot = this.getVolumePlotArea(size.width, size.height);
+const slot = plot.width / Math.max(candles.length, 1);
+const dynamicGap = slot > 14 ? this.options.candleGap : 1;
+const barWidth = Math.max(2, slot - dynamicGap);
 
 ctx.save();
 
 candles.forEach((candle, index) => {
-const centerX = index * slot + slot / 2;
+const centerX = plot.left + index * slot + slot / 2;
 const left = centerX - barWidth / 2;
-const top = this.yForVolume(height, candle.volumeBase, bounds);
-const barHeight = Math.max(2, height - 22 - top);
+const top = this.yForVolume(size.height, candle.volumeBase, bounds);
+const barHeight = Math.max(2, plot.bottom - top);
 const isUp = candle.close >= candle.open;
 const color = isUp ? rgba(this.palette.up, 0.28) : rgba(this.palette.down, 0.28);
 
@@ -498,6 +676,7 @@ ctx.restore();
 
 drawAxes(size, bounds) {
 const ctx = this.chartCtx;
+const plot = this.getPlotArea(size.width, size.height);
 const levels = 5;
 
 ctx.save();
@@ -508,7 +687,7 @@ ctx.textAlign = "right";
 for (let i = 0; i < levels; i += 1) {
 const pct = i / (levels - 1);
 const price = bounds.max - (bounds.max - bounds.min) * pct;
-const y = 16 + (size.height - 46) * pct;
+const y = plot.top + plot.height * pct;
 ctx.fillText(formatPrice(price), size.width - 8, y + 4);
 }
 
@@ -519,7 +698,8 @@ drawXAxis(size, candles) {
 if (!candles.length) return;
 
 const ctx = this.volumeCtx;
-const labelsToShow = Math.min(4, candles.length);
+const plot = this.getVolumePlotArea(size.width, size.height);
+const labelsToShow = Math.min(5, candles.length);
 if (labelsToShow <= 1) return;
 
 ctx.save();
@@ -529,7 +709,7 @@ ctx.textAlign = "center";
 
 for (let i = 0; i < labelsToShow; i += 1) {
 const idx = Math.round((i * (candles.length - 1)) / (labelsToShow - 1));
-const x = (idx / Math.max(candles.length - 1, 1)) * (size.width - 24) + 12;
+const x = plot.left + (idx / Math.max(candles.length - 1, 1)) * plot.width;
 const label = formatAxisTime(candles[idx]?.time, this.activeInterval);
 ctx.fillText(label, x, size.height - 6);
 }
@@ -556,6 +736,7 @@ const last = candles[candles.length - 1];
 if (!last) return;
 
 const ctx = this.chartCtx;
+const plot = this.getPlotArea(size.width, size.height);
 const y = this.yForPrice(size.height, last.close, bounds);
 
 ctx.save();
@@ -563,15 +744,15 @@ ctx.setLineDash([6, 5]);
 ctx.strokeStyle = rgba(this.palette.lastPrice, 0.34);
 ctx.lineWidth = 1;
 ctx.beginPath();
-ctx.moveTo(0, y + 0.5);
-ctx.lineTo(size.width, y + 0.5);
+ctx.moveTo(plot.left, y + 0.5);
+ctx.lineTo(plot.right, y + 0.5);
 ctx.stroke();
 ctx.setLineDash([]);
 
 const label = formatPrice(last.close);
 ctx.font = "700 11px Inter, system-ui, sans-serif";
 const labelWidth = ctx.measureText(label).width + 16;
-const x = Math.max(6, size.width - labelWidth - 8);
+const x = Math.max(plot.right + 4, size.width - labelWidth - 8);
 const h = 22;
 
 ctx.fillStyle = this.palette.bgPanel;
@@ -592,7 +773,7 @@ drawTradeMarkers(size, candles, bounds) {
 if (!this.trades.length || !candles.length) return;
 
 const ctx = this.chartCtx;
-const slot = size.width / Math.max(candles.length, 1);
+const plot = this.getPlotArea(size.width, size.height);
 const candleTimes = candles.map((c) => new Date(c.time).getTime()).filter((t) => Number.isFinite(t));
 
 if (!candleTimes.length) return;
@@ -608,7 +789,7 @@ const time = new Date(trade.time).getTime();
 if (!Number.isFinite(time)) continue;
 if (time < minTime || time > maxTime) continue;
 
-const x = ((time - minTime) / range) * (size.width - slot) + slot / 2;
+const x = plot.left + ((time - minTime) / range) * plot.width;
 const y = this.yForPrice(size.height, trade.price, bounds);
 const color = trade.side === "sell" ? this.palette.down : this.palette.up;
 
@@ -631,8 +812,10 @@ if (!candle) return;
 
 const chartCtx = this.chartCtx;
 const volumeCtx = this.volumeCtx;
-const slot = chartSize.width / Math.max(candles.length, 1);
-const x = index * slot + slot / 2;
+const plot = this.getPlotArea(chartSize.width, chartSize.height);
+const volumePlot = this.getVolumePlotArea(volumeSize.width, volumeSize.height);
+const slot = plot.width / Math.max(candles.length, 1);
+const x = plot.left + index * slot + slot / 2;
 const y = this.yForPrice(chartSize.height, candle.close, bounds);
 
 chartCtx.save();
@@ -641,13 +824,13 @@ chartCtx.lineWidth = 1;
 chartCtx.setLineDash([4, 4]);
 
 chartCtx.beginPath();
-chartCtx.moveTo(x + 0.5, 0);
-chartCtx.lineTo(x + 0.5, chartSize.height);
+chartCtx.moveTo(x + 0.5, plot.top);
+chartCtx.lineTo(x + 0.5, plot.bottom);
 chartCtx.stroke();
 
 chartCtx.beginPath();
-chartCtx.moveTo(0, y + 0.5);
-chartCtx.lineTo(chartSize.width, y + 0.5);
+chartCtx.moveTo(plot.left, y + 0.5);
+chartCtx.lineTo(plot.right, y + 0.5);
 chartCtx.stroke();
 chartCtx.restore();
 
@@ -656,8 +839,8 @@ volumeCtx.strokeStyle = this.palette.crosshair;
 volumeCtx.lineWidth = 1;
 volumeCtx.setLineDash([4, 4]);
 volumeCtx.beginPath();
-volumeCtx.moveTo(x + 0.5, 0);
-volumeCtx.lineTo(x + 0.5, volumeSize.height);
+volumeCtx.moveTo(x + 0.5, volumePlot.top);
+volumeCtx.lineTo(x + 0.5, volumePlot.bottom);
 volumeCtx.stroke();
 volumeCtx.restore();
 }

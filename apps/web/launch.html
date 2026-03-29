@@ -718,14 +718,6 @@ font-size:13px;
 line-height:1.5;
 }
 
-.actions-divider{
-height:1px;
-background:rgba(255,255,255,.08);
-margin:16px 0;
-}
-
-.mobile-only{ display:none; }
-
 .hero-wallet-toolbar{
 display:flex;
 align-items:center;
@@ -1104,7 +1096,7 @@ data-role="wallet-disconnect"
 </div>
 <div class="launch-meta-pill">
 <span class="launch-meta-pill-label">Access</span>
-<span id="launchAccessModeText" class="launch-meta-pill-value">Public</span>
+<span id="launchAccessModeText" class="launch-meta-pill-value">Pre-Live</span>
 </div>
 </div>
 </div>
@@ -1115,7 +1107,7 @@ data-role="wallet-disconnect"
 <div class="launch-ca-card">
 <div class="launch-ca-card-top">
 <div class="launch-ca-label">Contract Address</div>
-<div id="launchCaState" class="launch-ca-state">Ready</div>
+<div id="launchCaState" class="launch-ca-state">Pending</div>
 </div>
 
 <button id="launchCaCopyBtn" class="launch-ca-pill" type="button">
@@ -1635,7 +1627,7 @@ data-role="wallet-input"
 </div>
 </div>
 
-<button id="tradeSubmitBtn" class="trade-submit-btn" type="button" disabled>Get Quote</button>
+<button id="tradeSubmitBtn" class="trade-submit-btn" type="button" disabled>Preview Buy</button>
 <div id="tradePanelMessage" class="trade-panel-message hidden"></div>
 </section>
 
@@ -1650,7 +1642,6 @@ data-role="wallet-input"
 <div class="recent-trades-empty">No trades yet.</div>
 </div>
 </section>
-</div>
 </div>
 </div>
 </div>
@@ -1694,6 +1685,7 @@ data-role="wallet-input"
 
 <div class="launch-links-modal-actions">
 <button id="saveLaunchLinksBtn" class="launch-links-save-btn" type="button">Save Links</button>
+</div>
 </div>
 </div>
 </div>

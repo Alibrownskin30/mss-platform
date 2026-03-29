@@ -153,6 +153,7 @@ if (!/^https?:\/\//i.test(normalized)) normalized = `https://${normalized}`;
 try {
 const url = new URL(normalized);
 if (!["http:", "https:"].includes(url.protocol)) return "";
+
 const host = url.hostname.toLowerCase();
 
 if (typeKey === "x_url" && !(host.includes("x.com") || host.includes("twitter.com"))) return "";
@@ -186,6 +187,14 @@ function getNowMs() {
 return Date.now();
 }
 
+function choosePreferredNonEmpty(...values) {
+for (const value of values) {
+const cleaned = cleanString(value, 2000);
+if (cleaned) return cleaned;
+}
+return "";
+}
+
 function normalizeLaunchTruth(raw = {}) {
 return {
 ...(raw || {}),
@@ -206,14 +215,6 @@ supply: raw?.supply ?? "",
 };
 }
 
-function choosePreferredNonEmpty(...values) {
-for (const value of values) {
-const cleaned = cleanString(value, 2000);
-if (cleaned) return cleaned;
-}
-return "";
-}
-
 function mergeLaunchTruth(previous = {}, incoming = {}) {
 const prev = normalizeLaunchTruth(previous || {});
 const next = normalizeLaunchTruth(incoming || {});
@@ -228,23 +229,31 @@ const nextStatus = cleanString(next.status, 64).toLowerCase();
 
 const prevContract = choosePreferredNonEmpty(prev.contract_address, prev.mint_address);
 const nextContract = choosePreferredNonEmpty(next.contract_address, next.mint_address);
-
 const strongestContract = choosePreferredNonEmpty(nextContract, prevContract);
-const strongestReservedMint = choosePreferredNonEmpty(next.reserved_mint_address, prev.reserved_mint_address);
-const strongestMintReservationStatus = choosePreferredNonEmpty(next.mint_reservation_status, prev.mint_reservation_status);
-
-const hasFinalizedSignal =
-strongestMintReservationStatus === "finalized" ||
-Boolean(strongestContract);
 
 merged.contract_address = strongestContract;
 merged.mint_address = choosePreferredNonEmpty(next.mint_address, prev.mint_address, strongestContract);
-merged.reserved_mint_address = strongestReservedMint;
-merged.mint_reservation_status = strongestMintReservationStatus;
+merged.reserved_mint_address = choosePreferredNonEmpty(next.reserved_mint_address, prev.reserved_mint_address);
+merged.mint_reservation_status = choosePreferredNonEmpty(
+next.mint_reservation_status,
+prev.mint_reservation_status
+);
+
+const hasFinalizedSignal =
+merged.mint_reservation_status === "finalized" ||
+Boolean(strongestContract);
 
 if (hasFinalizedSignal) {
-if (prevStatus === "live" || nextStatus === "live" || prevStatus === "graduated" || nextStatus === "graduated") {
-merged.status = prevStatus === "graduated" || nextStatus === "graduated" ? "graduated" : "live";
+if (
+prevStatus === "graduated" ||
+nextStatus === "graduated"
+) {
+merged.status = "graduated";
+} else if (
+prevStatus === "live" ||
+nextStatus === "live"
+) {
+merged.status = "live";
 } else {
 const liveAtMs = parseDateMs(next.live_at || prev.live_at);
 const countdownEndsMs = parseDateMs(next.countdown_ends_at || prev.countdown_ends_at);
@@ -263,7 +272,10 @@ function isLaunchLiveLike(launch = {}) {
 const status = cleanString(launch?.status, 64).toLowerCase();
 if (status === "live" || status === "graduated") return true;
 
-const contractAddress = choosePreferredNonEmpty(launch?.contract_address, launch?.mint_address);
+const contractAddress = choosePreferredNonEmpty(
+launch?.contract_address,
+launch?.mint_address
+);
 const reservationStatus = cleanString(launch?.mint_reservation_status, 64).toLowerCase();
 const liveAtMs = parseDateMs(launch?.live_at || launch?.countdown_ends_at);
 
@@ -310,6 +322,7 @@ if (tradingOpen && now >= tradingOpen) return PHASES.LIVE;
 if (countdownStart && tradingOpen && now >= countdownStart && now < tradingOpen) {
 return PHASES.COUNTDOWN;
 }
+
 return PHASES.COMMIT;
 }
 
@@ -392,7 +405,6 @@ note =
 "CassIE is tracking countdown integrity, final participation posture, and opening conditions before live trading begins.";
 } else if (phase === PHASES.LIVE) {
 state = cassie?.monitoring_active ? "Monitoring" : "Live";
-badge = "LIVE INTELLIGENCE";
 
 const elevatedFlow =
 Math.abs(priceChangePct) >= 25 || Math.abs(buys24h - sells24h) >= 10;
@@ -425,10 +437,6 @@ const builderEl = $("cassieBuilderSignal");
 const structureEl = $("cassieStructureSignal");
 const marketEl = $("cassieMarketSignal");
 const noteEl = $("cassieNote");
-
-if (!stateEl && !badgeEl && !riskEl && !builderEl && !structureEl && !marketEl && !noteEl) {
-return;
-}
 
 const cassieMeta = getCassieMeta(phase, launch, tokenPayload, chartStats);
 
@@ -760,11 +768,12 @@ if ($("stat4Value")) $("stat4Value").textContent = getCountdownText(launch, comm
 
 function updateStatsForLive(tokenPayload = {}, chartStats = {}) {
 const tokenStats = tokenPayload?.stats || {};
+const stats = { ...chartStats, ...tokenStats };
 
-const priceUsd = toNumber(tokenStats?.price_usd ?? chartStats?.price_usd, 0);
-const marketCapUsd = toNumber(tokenStats?.market_cap_usd ?? chartStats?.market_cap_usd, 0);
-const liquidityUsd = toNumber(tokenStats?.liquidity_usd ?? chartStats?.liquidity_usd, 0);
-const volume24hUsd = toNumber(tokenStats?.volume_24h_usd ?? chartStats?.volume_24h_usd, 0);
+const priceUsd = toNumber(stats?.price_usd, 0);
+const marketCapUsd = toNumber(stats?.market_cap_usd, 0);
+const liquidityUsd = toNumber(stats?.liquidity_usd, 0);
+const volume24hUsd = toNumber(stats?.volume_24h_usd, 0);
 
 if ($("stat1Label")) $("stat1Label").textContent = "Price";
 if ($("stat1Value")) $("stat1Value").textContent = priceUsd > 0 ? formatPriceUsd(priceUsd) : "—";
@@ -1068,8 +1077,11 @@ chartStats?.wallet_position_value_usd ??
 const solBalance = toNumber(
 wallet?.sol_balance ??
 wallet?.solBalance ??
+wallet?.sol_delta ??
+wallet?.solDelta ??
 tokenPayload?.wallet_sol_balance ??
 chartStats?.wallet_sol_balance ??
+chartStats?.wallet_sol_delta ??
 0,
 0
 );
@@ -1226,30 +1238,12 @@ return {};
 }
 }
 
-async function defaultFetchTokenTrades(launchId) {
-try {
-return await fetchJson(`/api/token/${encodeURIComponent(launchId)}/trades`);
-} catch {
-return { trades: [] };
-}
-}
-
 async function defaultFetchChartStats(launchId, wallet = "") {
 try {
 const qs = wallet ? `?wallet=${encodeURIComponent(wallet)}` : "";
 return await fetchJson(`/api/chart/${encodeURIComponent(launchId)}/stats${qs}`);
 } catch {
 return {};
-}
-}
-
-async function defaultFetchChartCandles(launchId, interval = "1m", limit = 120) {
-try {
-return await fetchJson(
-`/api/chart/${encodeURIComponent(launchId)}/candles?interval=${encodeURIComponent(interval)}&limit=${encodeURIComponent(limit)}`
-);
-} catch {
-return { candles: [] };
 }
 }
 
@@ -1269,6 +1263,9 @@ tokenTrades: snapshotPayload?.trades || [],
 chartStats: snapshotPayload?.stats || {},
 candles: snapshotPayload?.candles || [],
 chartLaunch: snapshotPayload?.launch || null,
+pool: snapshotPayload?.pool || null,
+wallet: snapshotPayload?.wallet || null,
+cassie: snapshotPayload?.cassie || null,
 };
 }
 
@@ -1319,9 +1316,7 @@ this.connectedWallet = options.connectedWallet || "";
 this.fetchLaunch = options.fetchLaunch || defaultFetchLaunch;
 this.fetchCommitStats = options.fetchCommitStats || defaultFetchCommitStats;
 this.fetchTokenStats = options.fetchTokenStats || defaultFetchTokenStats;
-this.fetchTokenTrades = options.fetchTokenTrades || defaultFetchTokenTrades;
 this.fetchChartStats = options.fetchChartStats || defaultFetchChartStats;
-this.fetchChartCandles = options.fetchChartCandles || defaultFetchChartCandles;
 this.fetchMarketSnapshot = options.fetchMarketSnapshot || defaultFetchMarketSnapshot;
 this.saveLinks = options.saveLinks || defaultSaveLinks;
 this.quoteBuy = options.quoteBuy || defaultQuoteBuy;
@@ -1344,12 +1339,14 @@ this.tokenPayload = {};
 this.chartStats = {};
 this.candles = [];
 this.trades = [];
+this.pool = null;
 
 this.tradeMode = TRADE_MODES.BUY;
 this.lastQuote = null;
 this.tradeBusy = false;
 this.quoteBusy = false;
 this.walletTokenBalanceFallback = 0;
+this.walletSolDeltaFallback = 0;
 
 this.refreshTimer = null;
 this.countdownTimer = null;
@@ -1520,7 +1517,7 @@ this.phase = nextPhase;
 this.applyAll();
 
 if (nextPhase === PHASES.LIVE) {
-void this.refreshLiveMarketOnly().catch((error) => {
+void this.refreshLiveMarketOnly({ force: true }).catch((error) => {
 console.error("countdown to live refresh failed:", error);
 });
 this.startPollingLoop();
@@ -1547,41 +1544,29 @@ this.startPollingLoop();
 }
 }
 
-async loadLiveMarketData() {
-if (!this.launchId) return;
-
-const payload = await this.fetchMarketSnapshot(
-this.launchId,
-this.currentInterval,
-this.candleLimit,
-50,
-this.connectedWallet || ""
-);
-
+applySnapshotPayload(payload = {}) {
 this.tokenPayload = payload?.tokenPayload || {};
 this.chartStats = payload?.chartStats || {};
 this.candles = payload?.candles || [];
 this.trades = payload?.tokenTrades || payload?.trades || [];
+this.pool = payload?.pool || null;
 
 if (payload?.chartLaunch) {
 this.launch = mergeLaunchTruth(this.launch || {}, payload.chartLaunch);
 }
 
-const liveWalletSummary = getWalletSummaryData(this.tokenPayload, this.chartStats, this.walletTokenBalanceFallback);
+const liveWalletSummary = getWalletSummaryData(
+this.tokenPayload,
+this.chartStats,
+this.walletTokenBalanceFallback
+);
+
 if (liveWalletSummary.tokenBalance > 0 || this.walletTokenBalanceFallback <= 0) {
 this.walletTokenBalanceFallback = liveWalletSummary.tokenBalance;
 }
 
-renderRecentTrades(this.trades, this.tokenPayload, this.chartStats);
-renderCassiePanel(this.phase, this.launch, this.tokenPayload, this.chartStats);
-
-if (this.chartRenderer) {
-this.chartRenderer.setInterval(this.currentInterval);
-this.chartRenderer.setData({
-candles: this.candles,
-trades: this.trades,
-stats: this.chartStats,
-});
+if (Math.abs(liveWalletSummary.solBalance) > 0 || this.walletSolDeltaFallback === 0) {
+this.walletSolDeltaFallback = liveWalletSummary.solBalance;
 }
 }
 
@@ -1604,55 +1589,18 @@ this.connectedWallet || ""
 
 if (this._destroyed) return;
 
-const launchFromChart = normalizeLaunchTruth(payload?.chartLaunch || {});
-this.launch = mergeLaunchTruth(this.launch || {}, launchFromChart);
-
-this.tokenPayload = payload?.tokenPayload || {};
-this.chartStats = payload?.chartStats || {};
-this.candles = payload?.candles || [];
-this.trades = payload?.tokenTrades || payload?.trades || [];
-
-const liveWalletSummary = getWalletSummaryData(this.tokenPayload, this.chartStats, this.walletTokenBalanceFallback);
-if (liveWalletSummary.tokenBalance > 0 || this.walletTokenBalanceFallback <= 0) {
-this.walletTokenBalanceFallback = liveWalletSummary.tokenBalance;
-}
-
+this.applySnapshotPayload(payload);
 this.phase = inferPhase(this.launch);
-
-updateTokenIdentity(this.launch, this.tokenPayload);
-updateContractAddress(this.launch, this.tokenPayload);
-renderExternalLinks(this.launch);
-setManageLinksVisibility(this.launch, this.connectedWallet);
-updatePhaseClasses(this.phase);
-updatePhaseContent(this.phase);
-setTradePanelVisibility(this.phase);
-syncMarketShellLayout();
-syncChartSizing(this.phase);
-
-if (this.phase === PHASES.LIVE) {
-updateStatsForLive(this.tokenPayload, this.chartStats);
-updateWalletSummary(this.phase, this.connectedWallet, this.tokenPayload, this.chartStats, this.walletTokenBalanceFallback);
-updateAccessCard(this.phase, this.launch, this.tokenPayload, this.chartStats, this.lastQuote, this.connectedWallet, this.walletTokenBalanceFallback);
-} else if (this.phase === PHASES.COUNTDOWN) {
-updateStatsForCountdown(this.launch, this.commitStats);
-updateCountdownUi(this.launch, this.commitStats);
-} else {
-updateStatsForCommit(this.launch, this.commitStats);
-}
-
-renderRecentTrades(this.trades, this.tokenPayload, this.chartStats);
-renderCassiePanel(this.phase, this.launch, this.tokenPayload, this.chartStats);
+this.applyAll();
 
 if (this.chartRenderer) {
+this.chartRenderer.setInterval(this.currentInterval);
 this.chartRenderer.updateData({
 candles: this.candles,
 trades: this.trades,
 stats: this.chartStats,
 });
 }
-
-this.syncSellQuickButtons();
-this.renderTradePanel();
 })();
 
 try {
@@ -1727,10 +1675,25 @@ updateCountdownUi(this.launch, this.commitStats);
 renderCassiePanel(this.phase, this.launch, this.tokenPayload, this.chartStats);
 } else {
 updateStatsForLive(this.tokenPayload, this.chartStats);
-updateWalletSummary(this.phase, this.connectedWallet, this.tokenPayload, this.chartStats, this.walletTokenBalanceFallback);
-updateAccessCard(this.phase, this.launch, this.tokenPayload, this.chartStats, this.lastQuote, this.connectedWallet, this.walletTokenBalanceFallback);
+updateWalletSummary(
+this.phase,
+this.connectedWallet,
+this.tokenPayload,
+this.chartStats,
+this.walletTokenBalanceFallback
+);
+updateAccessCard(
+this.phase,
+this.launch,
+this.tokenPayload,
+this.chartStats,
+this.lastQuote,
+this.connectedWallet,
+this.walletTokenBalanceFallback
+);
 renderRecentTrades(this.trades, this.tokenPayload, this.chartStats);
 renderCassiePanel(this.phase, this.launch, this.tokenPayload, this.chartStats);
+
 if (this.chartRenderer) {
 this.chartRenderer.setInterval(this.currentInterval);
 this.chartRenderer.setData({
@@ -1797,8 +1760,22 @@ setTradeMessage("");
 if (this.launch) setManageLinksVisibility(this.launch, this.connectedWallet);
 
 if (this.phase === PHASES.LIVE) {
-updateWalletSummary(this.phase, this.connectedWallet, this.tokenPayload, this.chartStats, this.walletTokenBalanceFallback);
-updateAccessCard(this.phase, this.launch, this.tokenPayload, this.chartStats, this.lastQuote, this.connectedWallet, this.walletTokenBalanceFallback);
+updateWalletSummary(
+this.phase,
+this.connectedWallet,
+this.tokenPayload,
+this.chartStats,
+this.walletTokenBalanceFallback
+);
+updateAccessCard(
+this.phase,
+this.launch,
+this.tokenPayload,
+this.chartStats,
+this.lastQuote,
+this.connectedWallet,
+this.walletTokenBalanceFallback
+);
 this.syncSellQuickButtons();
 this.renderTradePanel();
 
@@ -2092,10 +2069,18 @@ this.walletTokenBalanceFallback = toNumber(
 result?.walletBalanceAfter,
 this.walletTokenBalanceFallback + toNumber(result?.tokensReceived, 0)
 );
+this.walletSolDeltaFallback = toNumber(
+this.walletSolDeltaFallback + toNumber(result?.walletSolDelta, 0),
+this.walletSolDeltaFallback
+);
 } else {
 this.walletTokenBalanceFallback = toNumber(
 result?.walletBalanceAfter,
 Math.max(0, this.walletTokenBalanceFallback - toNumber(inputAmount, 0))
+);
+this.walletSolDeltaFallback = toNumber(
+this.walletSolDeltaFallback + toNumber(result?.walletSolDelta, 0),
+this.walletSolDeltaFallback
 );
 }
 

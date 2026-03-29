@@ -3,15 +3,32 @@ import { buildLaunchAllocations } from "./allocationService.js";
 import { buildLaunchFeeBreakdown, distributeLaunchFees } from "./feeDistributor.js";
 import { bootstrapLiveMarket } from "./mintLifecycle.js";
 
+const DEFAULT_LAUNCH_FEE_PCT = 5;
+
 function safeNum(value, fallback = 0) {
 const n = Number(value);
 return Number.isFinite(n) ? n : fallback;
 }
 
+function roundSol(value) {
+return Number(safeNum(value, 0).toFixed(9));
+}
+
 function parseDbTime(value) {
 if (!value) return null;
-const ms = Date.parse(String(value).replace(" ", "T") + "Z");
-return Number.isFinite(ms) ? ms : null;
+const raw = String(value).trim();
+if (!raw) return null;
+
+const hasExplicitTimezone =
+/z$/i.test(raw) || /[+-]\d{2}:\d{2}$/.test(raw);
+
+if (!hasExplicitTimezone && /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/.test(raw)) {
+const sqliteUtc = Date.parse(raw.replace(" ", "T") + "Z");
+return Number.isFinite(sqliteUtc) ? sqliteUtc : null;
+}
+
+const direct = Date.parse(raw);
+return Number.isFinite(direct) ? direct : null;
 }
 
 function parseJsonMaybe(value, fallback = null) {
@@ -25,6 +42,10 @@ return fallback;
 }
 }
 
+function cleanText(value, max = 5000) {
+return String(value ?? "").trim().slice(0, max);
+}
+
 function normalizeLaunch(row) {
 if (!row) return null;
 
@@ -34,12 +55,18 @@ committed_sol: safeNum(row.committed_sol, 0),
 participants_count: safeNum(row.participants_count, 0),
 min_raise_sol: safeNum(row.min_raise_sol, 0),
 hard_cap_sol: safeNum(row.hard_cap_sol, 0),
-launch_fee_pct: safeNum(row.launch_fee_pct, 5),
+launch_fee_pct: safeNum(row.launch_fee_pct, DEFAULT_LAUNCH_FEE_PCT),
 team_allocation_pct: safeNum(row.team_allocation_pct, 0),
 builder_bond_sol: safeNum(row.builder_bond_sol, 0),
 builder_bond_paid: safeNum(row.builder_bond_paid, 0),
 builder_bond_refunded: safeNum(row.builder_bond_refunded, 0),
 fees_distributed: safeNum(row.fees_distributed, 0),
+liquidity: safeNum(row.liquidity, 0),
+internal_pool_sol: safeNum(row.internal_pool_sol, 0),
+circulating_supply: safeNum(row.circulating_supply, 0),
+market_cap: safeNum(row.market_cap, 0),
+price: safeNum(row.price, 0),
+volume_24h: safeNum(row.volume_24h, 0),
 team_wallets: Array.isArray(row.team_wallets)
 ? row.team_wallets
 : parseJsonMaybe(row.team_wallets, []),
@@ -48,7 +75,19 @@ team_wallet_breakdown: Array.isArray(row.team_wallet_breakdown)
 : parseJsonMaybe(row.team_wallet_breakdown, []),
 launch_result_json: parseJsonMaybe(row.launch_result_json, null),
 fee_distribution_json: parseJsonMaybe(row.fee_distribution_json, null),
+contract_address: cleanText(row.contract_address, 120),
+token_mint: cleanText(row.token_mint, 120),
+final_supply: cleanText(row.final_supply, 120),
+internal_pool_tokens: cleanText(row.internal_pool_tokens, 120),
+raydium_liquidity_tokens_reserved: cleanText(row.raydium_liquidity_tokens_reserved, 120),
+unsold_participant_tokens_burned: cleanText(row.unsold_participant_tokens_burned, 120),
+unused_bonus_tokens_burned: cleanText(row.unused_bonus_tokens_burned, 120),
 };
+}
+
+async function getLaunchById(launchId) {
+const row = await db.get(`SELECT * FROM launches WHERE id = ?`, [launchId]);
+return normalizeLaunch(row);
 }
 
 function isBuilderLaunchPaid(launch) {
@@ -62,21 +101,47 @@ function hasPersistedAllocationResult(launch) {
 if (!launch) return false;
 
 return Boolean(
-String(launch.final_supply || "").trim() ||
-String(launch.unsold_participant_tokens_burned || "").trim() ||
-String(launch.unused_bonus_tokens_burned || "").trim() ||
-String(launch.internal_pool_tokens || "").trim() ||
-String(launch.raydium_liquidity_tokens_reserved || "").trim() ||
+cleanText(launch.final_supply, 120) ||
+cleanText(launch.unsold_participant_tokens_burned, 120) ||
+cleanText(launch.unused_bonus_tokens_burned, 120) ||
+cleanText(launch.internal_pool_tokens, 120) ||
+cleanText(launch.raydium_liquidity_tokens_reserved, 120) ||
 launch.launch_result_json
 );
 }
 
 async function getCommitStats(launchId) {
+const commitsTable = await db.get(
+`
+SELECT name
+FROM sqlite_master
+WHERE type = 'table' AND name IN ('launcher_commits', 'commits')
+ORDER BY CASE WHEN name = 'launcher_commits' THEN 0 ELSE 1 END
+LIMIT 1
+`
+);
+
+const tableName = commitsTable?.name;
+if (!tableName) {
+return {
+totalCommitted: 0,
+participants: 0,
+};
+}
+
+const columns = await db.all(`PRAGMA table_info(${tableName})`);
+const names = new Set(columns.map((row) => String(row.name || "").trim()));
+
+const statusClause = names.has("status")
+? `AND status IN ('confirmed', 'complete', 'completed')`
+: "";
+
 const totalRow = await db.get(
 `
 SELECT COALESCE(SUM(sol_amount), 0) AS total
-FROM commits
+FROM ${tableName}
 WHERE launch_id = ?
+${statusClause}
 `,
 [launchId]
 );
@@ -84,14 +149,15 @@ WHERE launch_id = ?
 const participantsRow = await db.get(
 `
 SELECT COUNT(DISTINCT wallet) AS wallets
-FROM commits
+FROM ${tableName}
 WHERE launch_id = ?
+${statusClause}
 `,
 [launchId]
 );
 
 return {
-totalCommitted: safeNum(totalRow?.total, 0),
+totalCommitted: roundSol(totalRow?.total || 0),
 participants: safeNum(participantsRow?.wallets, 0),
 };
 }
@@ -126,7 +192,7 @@ WHERE id = ?
 );
 }
 
-async function promoteLaunchLiveOnce(launchId) {
+async function ensureLaunchPromotedToLive(launchId) {
 const claim = await db.run(
 `
 UPDATE launches
@@ -139,14 +205,11 @@ AND status = 'countdown'
 [launchId]
 );
 
-if (claim.changes > 0) {
+if (claim?.changes > 0) {
 return { promoted: true };
 }
 
-const latest = normalizeLaunch(
-await db.get(`SELECT * FROM launches WHERE id = ?`, [launchId])
-);
-
+const latest = await getLaunchById(launchId);
 if (latest?.status === "live") {
 return { promoted: false, alreadyLive: true, launch: latest };
 }
@@ -181,10 +244,184 @@ launchId,
 );
 }
 
-export async function finalizeLaunch(launchId) {
-let launch = normalizeLaunch(
-await db.get(`SELECT * FROM launches WHERE id = ?`, [launchId])
+function validateAllocationResult(allocationResult) {
+if (!allocationResult || typeof allocationResult !== "object") {
+throw new Error("allocation result missing");
+}
+
+const finalSupply = safeNum(allocationResult.finalSupply, 0);
+const internalPoolSol = safeNum(allocationResult.internalPoolSol, 0);
+const internalPoolTokens = safeNum(allocationResult.internalPoolTokens, 0);
+
+if (finalSupply <= 0) {
+throw new Error("allocation result missing final supply");
+}
+
+if (internalPoolSol <= 0) {
+throw new Error("allocation result missing internal pool SOL");
+}
+
+if (internalPoolTokens <= 0) {
+throw new Error("allocation result missing internal pool tokens");
+}
+
+return {
+finalSupply: String(allocationResult.finalSupply),
+internalPoolSol,
+internalPoolTokens: String(allocationResult.internalPoolTokens),
+};
+}
+
+async function ensureAllocationResult(launchId, launch) {
+let allocationResult = null;
+let allocationsBuilt = false;
+
+if (hasPersistedAllocationResult(launch)) {
+allocationsBuilt = true;
+allocationResult = launch.launch_result_json || {
+finalSupply: launch.final_supply,
+unsoldParticipantTokensBurned: launch.unsold_participant_tokens_burned || "0",
+unusedBonusTokensBurned: launch.unused_bonus_tokens_burned || "0",
+internalPoolSol: launch.internal_pool_sol || 0,
+internalPoolTokens: launch.internal_pool_tokens || "0",
+raydiumLiquidityTokensReserved: launch.raydium_liquidity_tokens_reserved || "0",
+};
+validateAllocationResult(allocationResult);
+console.log(`Allocations already persisted for launch ${launchId}, skipping`);
+return { allocationResult, allocationsBuilt };
+}
+
+try {
+allocationResult = await buildLaunchAllocations(launchId);
+validateAllocationResult(allocationResult);
+allocationsBuilt = true;
+await persistAllocationResult(launchId, allocationResult);
+return { allocationResult, allocationsBuilt };
+} catch (err) {
+const msg = String(err?.message || err || "").toLowerCase();
+
+if (msg.includes("already")) {
+const latest = await getLaunchById(launchId);
+allocationResult = latest?.launch_result_json || {
+finalSupply: latest?.final_supply,
+unsoldParticipantTokensBurned: latest?.unsold_participant_tokens_burned || "0",
+unusedBonusTokensBurned: latest?.unused_bonus_tokens_burned || "0",
+internalPoolSol: latest?.internal_pool_sol || 0,
+internalPoolTokens: latest?.internal_pool_tokens || "0",
+raydiumLiquidityTokensReserved: latest?.raydium_liquidity_tokens_reserved || "0",
+};
+validateAllocationResult(allocationResult);
+allocationsBuilt = true;
+console.log(`Allocation service reported already built for launch ${launchId}, skipping`);
+return { allocationResult, allocationsBuilt };
+}
+
+console.error(`Allocation build failed for launch ${launchId}:`, err);
+throw err;
+}
+}
+
+async function ensureFeeDistribution(launchId, launch, totalCommitted) {
+const launchFeePct = safeNum(launch.launch_fee_pct, DEFAULT_LAUNCH_FEE_PCT);
+const feePlan = buildLaunchFeeBreakdown(totalCommitted, launchFeePct);
+let feeDistribution = launch.fee_distribution_json || null;
+
+console.log("Finalizing launch", launchId);
+console.log("Template:", launch.template);
+console.log("Total committed:", totalCommitted);
+console.log("Participants:", launch.participants_count);
+console.log("Fee total:", feePlan.feeTotal);
+console.log("Core fee:", feePlan.coreFee);
+console.log("Buyback fee:", feePlan.buybackFee);
+console.log("Treasury fee:", feePlan.treasuryFee);
+console.log("Net raise:", feePlan.netRaiseAfterFee);
+
+if (safeNum(launch.fees_distributed, 0) === 1) {
+console.log(`Fees already distributed for launch ${launchId}, skipping`);
+return { feePlan, feeDistribution };
+}
+
+const claim = await db.run(
+`
+UPDATE launches
+SET fees_distributed = 2,
+updated_at = CURRENT_TIMESTAMP
+WHERE id = ?
+AND COALESCE(fees_distributed, 0) = 0
+`,
+[launchId]
 );
+
+if (claim.changes === 0) {
+const latest = normalizeLaunch(
+await db.get(
+`SELECT fees_distributed, fee_distribution_json FROM launches WHERE id = ?`,
+[launchId]
+)
+);
+
+feeDistribution = latest?.fee_distribution_json || null;
+console.log(`Fee distribution already claimed for launch ${launchId}, skipping`);
+return { feePlan, feeDistribution };
+}
+
+try {
+feeDistribution = await distributeLaunchFees({
+totalCommitted,
+launchFeePct,
+});
+
+await db.run(
+`
+UPDATE launches
+SET fees_distributed = 1,
+fees_distributed_at = CURRENT_TIMESTAMP,
+fee_distribution_json = ?,
+updated_at = CURRENT_TIMESTAMP
+WHERE id = ?
+`,
+[JSON.stringify(feeDistribution), launchId]
+);
+
+console.log("Fee distribution complete:", feeDistribution);
+return { feePlan, feeDistribution };
+} catch (err) {
+await db.run(
+`
+UPDATE launches
+SET fees_distributed = 0,
+updated_at = CURRENT_TIMESTAMP
+WHERE id = ?
+`,
+[launchId]
+);
+throw err;
+}
+}
+
+async function ensureReadyForLiveBootstrap(launchId) {
+const claim = await ensureLaunchPromotedToLive(launchId);
+
+if (!claim.promoted && !claim.alreadyLive) {
+return {
+ok: false,
+reason: "launch could not be promoted to live",
+};
+}
+
+const liveLaunch = await getLaunchById(launchId);
+if (!liveLaunch || liveLaunch.status !== "live") {
+throw new Error("launch is not live after promotion");
+}
+
+return {
+ok: true,
+launch: liveLaunch,
+};
+}
+
+export async function finalizeLaunch(launchId) {
+let launch = await getLaunchById(launchId);
 
 if (!launch) {
 throw new Error("Launch not found");
@@ -210,6 +447,7 @@ reason: "builder bond not paid",
 
 if (launch.status === "countdown") {
 const countdownEnds = parseDbTime(launch.countdown_ends_at);
+
 if (!countdownEnds) {
 throw new Error("Invalid countdown end time");
 }
@@ -223,17 +461,14 @@ reason: "countdown not finished",
 }
 
 const stats = await syncLaunchStats(launchId);
+launch = await getLaunchById(launchId);
 
-const refreshed = normalizeLaunch(
-await db.get(`SELECT * FROM launches WHERE id = ?`, [launchId])
-);
-
-if (!refreshed) {
+if (!launch) {
 throw new Error("Launch not found after sync");
 }
 
-if (!isBuilderLaunchPaid(refreshed)) {
-if (refreshed.status === "countdown") {
+if (!isBuilderLaunchPaid(launch)) {
+if (launch.status === "countdown") {
 await markLaunchFailed(launchId);
 }
 
@@ -244,11 +479,10 @@ reason: "builder bond not paid",
 }
 
 const totalCommitted = safeNum(stats.totalCommitted, 0);
-const minRaise = safeNum(refreshed.min_raise_sol, 0);
-const launchFeePct = safeNum(refreshed.launch_fee_pct, 5);
+const minRaise = safeNum(launch.min_raise_sol, 0);
 
 if (totalCommitted < minRaise) {
-if (refreshed.status === "countdown") {
+if (launch.status === "countdown") {
 await markLaunchFailed(launchId);
 }
 
@@ -260,123 +494,23 @@ minRaise,
 };
 }
 
-const feePlan = buildLaunchFeeBreakdown(totalCommitted, launchFeePct);
-
-console.log("Finalizing launch", launchId);
-console.log("Template:", refreshed.template);
-console.log("Total committed:", totalCommitted);
-console.log("Participants:", stats.participants);
-console.log("Fee total:", feePlan.feeTotal);
-console.log("Core fee:", feePlan.coreFee);
-console.log("Buyback fee:", feePlan.buybackFee);
-console.log("Treasury fee:", feePlan.treasuryFee);
-console.log("Net raise:", feePlan.netRaiseAfterFee);
-
-let feeDistribution = refreshed.fee_distribution_json || null;
-
-if (safeNum(refreshed.fees_distributed, 0) === 1) {
-console.log(`Fees already distributed for launch ${launchId}, skipping`);
-} else {
-const claim = await db.run(
-`
-UPDATE launches
-SET fees_distributed = 2,
-updated_at = CURRENT_TIMESTAMP
-WHERE id = ?
-AND COALESCE(fees_distributed, 0) = 0
-`,
-[launchId]
+const { feePlan, feeDistribution } = await ensureFeeDistribution(
+launchId,
+launch,
+totalCommitted
 );
 
-if (claim.changes === 0) {
-const latest = normalizeLaunch(
-await db.get(
-`SELECT fees_distributed, fee_distribution_json FROM launches WHERE id = ?`,
-[launchId]
-)
+const liveState = await ensureReadyForLiveBootstrap(launchId);
+if (!liveState.ok) {
+return liveState;
+}
+
+const liveLaunch = liveState.launch || (await getLaunchById(launchId));
+
+const { allocationResult, allocationsBuilt } = await ensureAllocationResult(
+launchId,
+liveLaunch
 );
-
-feeDistribution = latest?.fee_distribution_json || null;
-console.log(`Fee distribution already claimed for launch ${launchId}, skipping`);
-} else {
-try {
-feeDistribution = await distributeLaunchFees({
-totalCommitted,
-launchFeePct,
-});
-
-await db.run(
-`
-UPDATE launches
-SET fees_distributed = 1,
-fees_distributed_at = CURRENT_TIMESTAMP,
-fee_distribution_json = ?,
-updated_at = CURRENT_TIMESTAMP
-WHERE id = ?
-`,
-[JSON.stringify(feeDistribution), launchId]
-);
-
-console.log("Fee distribution complete:", feeDistribution);
-} catch (err) {
-await db.run(
-`
-UPDATE launches
-SET fees_distributed = 0,
-updated_at = CURRENT_TIMESTAMP
-WHERE id = ?
-`,
-[launchId]
-);
-throw err;
-}
-}
-}
-
-const liveClaim = await promoteLaunchLiveOnce(launchId);
-if (!liveClaim.promoted && !liveClaim.alreadyLive) {
-return {
-ok: false,
-reason: "launch could not be promoted to live",
-};
-}
-
-let allocationResult = null;
-let allocationsBuilt = false;
-
-const beforeAllocLaunch = normalizeLaunch(
-await db.get(`SELECT * FROM launches WHERE id = ?`, [launchId])
-);
-
-if (hasPersistedAllocationResult(beforeAllocLaunch)) {
-allocationsBuilt = true;
-allocationResult = beforeAllocLaunch.launch_result_json || null;
-console.log(`Allocations already persisted for launch ${launchId}, skipping`);
-} else {
-try {
-allocationResult = await buildLaunchAllocations(launchId);
-allocationsBuilt = true;
-
-if (allocationResult) {
-await persistAllocationResult(launchId, allocationResult);
-}
-} catch (err) {
-const msg = String(err?.message || err || "");
-if (msg.toLowerCase().includes("already")) {
-allocationsBuilt = true;
-
-const latest = normalizeLaunch(
-await db.get(`SELECT * FROM launches WHERE id = ?`, [launchId])
-);
-
-allocationResult = latest?.launch_result_json || null;
-console.log(`Allocation service reported already built for launch ${launchId}, skipping`);
-} else {
-console.error(`Allocation build failed for launch ${launchId}:`, err);
-throw err;
-}
-}
-}
 
 let marketBootstrap = null;
 
@@ -388,9 +522,22 @@ console.error(`Market bootstrap failed for launch ${launchId}:`, err);
 throw err;
 }
 
-const finalLaunch = normalizeLaunch(
-await db.get(`SELECT * FROM launches WHERE id = ?`, [launchId])
-);
+const finalLaunch = await getLaunchById(launchId);
+if (!finalLaunch) {
+throw new Error("Launch not found after market bootstrap");
+}
+
+if (!cleanText(finalLaunch.contract_address, 120)) {
+throw new Error("launch contract address missing after market bootstrap");
+}
+
+if (safeNum(finalLaunch.liquidity, 0) <= 0) {
+throw new Error("launch liquidity missing after market bootstrap");
+}
+
+if (safeNum(finalLaunch.price, 0) <= 0) {
+throw new Error("launch price missing after market bootstrap");
+}
 
 console.log("Launch moved to LIVE:", launchId);
 
@@ -399,45 +546,50 @@ ok: true,
 launchId,
 totalCommitted,
 participants: stats.participants,
-launchFeePct,
+launchFeePct: feePlan.launchFeePct,
 feeTotal: feePlan.feeTotal,
 coreFee: feePlan.coreFee,
 buybackFee: feePlan.buybackFee,
 treasuryFee: feePlan.treasuryFee,
 netRaise: feePlan.netRaiseAfterFee,
-feeDistribution: finalLaunch?.fee_distribution_json || feeDistribution,
+feeDistribution: finalLaunch.fee_distribution_json || feeDistribution,
 allocationsBuilt,
 marketBootstrap,
 mintAddress:
-marketBootstrap?.mintAddress || String(finalLaunch?.contract_address || ""),
+marketBootstrap?.mintAddress || cleanText(finalLaunch.contract_address, 120),
 mintSource: marketBootstrap?.mintSource || null,
 tokenId: marketBootstrap?.tokenId || null,
 poolId: marketBootstrap?.poolId || null,
-finalSupply: String(finalLaunch?.final_supply || allocationResult?.finalSupply || ""),
+finalSupply: String(finalLaunch.final_supply || allocationResult?.finalSupply || ""),
 unsoldParticipantTokensBurned: String(
-finalLaunch?.unsold_participant_tokens_burned ||
+finalLaunch.unsold_participant_tokens_burned ||
 allocationResult?.unsoldParticipantTokensBurned ||
 "0"
 ),
 unusedBonusTokensBurned: String(
-finalLaunch?.unused_bonus_tokens_burned ||
+finalLaunch.unused_bonus_tokens_burned ||
 allocationResult?.unusedBonusTokensBurned ||
 "0"
 ),
 internalPoolSol: safeNum(
-finalLaunch?.internal_pool_sol,
+finalLaunch.internal_pool_sol,
 allocationResult?.internalPoolSol || 0
 ),
 internalPoolTokens: String(
-finalLaunch?.internal_pool_tokens ||
+finalLaunch.internal_pool_tokens ||
 allocationResult?.internalPoolTokens ||
 "0"
 ),
 raydiumLiquidityTokensReserved: String(
-finalLaunch?.raydium_liquidity_tokens_reserved ||
+finalLaunch.raydium_liquidity_tokens_reserved ||
 allocationResult?.raydiumLiquidityTokensReserved ||
 "0"
 ),
-launchResult: finalLaunch?.launch_result_json || allocationResult || null,
+liquidity: safeNum(finalLaunch.liquidity, 0),
+circulatingSupply: safeNum(finalLaunch.circulating_supply, 0),
+marketCap: safeNum(finalLaunch.market_cap, 0),
+price: safeNum(finalLaunch.price, 0),
+volume24h: safeNum(finalLaunch.volume_24h, 0),
+launchResult: finalLaunch.launch_result_json || allocationResult || null,
 };
 }

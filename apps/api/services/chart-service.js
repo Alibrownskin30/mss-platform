@@ -23,7 +23,7 @@ poolSolReserve > 0
 : launchInternalPoolSol > 0
 ? launchInternalPoolSol
 : launchLiquidity > 0
-? launchLiquidity / 2
+? launchLiquidity
 : 0;
 
 return {
@@ -57,7 +57,7 @@ liquidity_sol: oneSidedLiquiditySol,
 internal_pool_sol: launchInternalPoolSol,
 liquidity_usd: toNumber(row.liquidity_usd, 0),
 current_liquidity_usd: toNumber(row.current_liquidity_usd, 0),
-sol_usd_price: 0,
+sol_usd_price: toNumber(row.sol_usd_price, 0),
 
 website_url: cleanText(row.website_url, 500),
 x_url: cleanText(row.x_url, 500),
@@ -74,6 +74,8 @@ countdown_ends_at: row.countdown_ends_at || null,
 live_at: row.live_at || null,
 commit_started_at: row.commit_started_at || null,
 commit_ends_at: row.commit_ends_at || null,
+created_at: row.created_at || null,
+updated_at: row.updated_at || null,
 };
 }
 
@@ -107,95 +109,25 @@ created_at: row.created_at || null,
 }
 
 function normalizeTradeRow(row) {
+const solAmount = toNumber(row.sol_amount, 0);
+const tokenAmount = toNumber(row.token_amount, 0);
+const explicitPrice = toNumber(row.price, 0);
+const derivedPrice = tokenAmount > 0 ? solAmount / tokenAmount : 0;
+const executionPrice = explicitPrice > 0 ? explicitPrice : derivedPrice;
+
 return {
 id: row.id,
 launch_id: row.launch_id,
 token_id: row.token_id,
 wallet: cleanText(row.wallet, 120),
 side: String(row.side || "").toLowerCase() === "sell" ? "sell" : "buy",
-price_sol: toNumber(row.price, 0),
-price: toNumber(row.price, 0),
-token_amount: toNumber(row.token_amount, 0),
-base_amount: toNumber(row.sol_amount, 0),
-sol_amount: toNumber(row.sol_amount, 0),
+price_sol: executionPrice,
+price: executionPrice,
+token_amount: tokenAmount,
+base_amount: solAmount,
+sol_amount: solAmount,
 timestamp: row.created_at,
 created_at: row.created_at,
-};
-}
-
-async function buildWalletSummary({ db, launchId, launch, token, trades, wallet }) {
-const cleanWallet = cleanText(wallet, 120);
-if (!cleanWallet) {
-return {
-token_balance: 0,
-tokenBalance: 0,
-position_value_usd: 0,
-positionValueUsd: 0,
-sol_balance: 0,
-solBalance: 0,
-};
-}
-
-const walletRow = await db.get(
-`
-SELECT token_amount
-FROM wallet_balances
-WHERE launch_id = ? AND wallet = ?
-LIMIT 1
-`,
-[launchId, cleanWallet]
-);
-
-let tokenBalance = Math.max(0, Math.floor(toNumber(walletRow?.token_amount, 0)));
-
-if (tokenBalance <= 0) {
-for (const trade of trades) {
-if (String(trade.wallet || "").trim().toLowerCase() !== cleanWallet.toLowerCase()) {
-continue;
-}
-
-const tokenDelta =
-String(trade.side || "").toLowerCase() === "sell"
-? -toNumber(trade.token_amount, 0)
-: toNumber(trade.token_amount, 0);
-
-tokenBalance += tokenDelta;
-}
-
-tokenBalance = Math.max(0, Math.floor(tokenBalance));
-}
-
-const stats = buildMarketStats({
-launch: {
-...(launch || {}),
-total_supply: toNumber(
-token?.supply ?? launch?.final_supply ?? launch?.supply,
-0
-),
-circulating_supply: toNumber(
-launch?.circulating_supply ??
-token?.supply ??
-launch?.final_supply ??
-launch?.supply,
-0
-),
-},
-trades,
-candles: [],
-});
-
-const positionValueUsd =
-tokenBalance > 0 && toNumber(stats.price_usd, 0) > 0
-? tokenBalance * toNumber(stats.price_usd, 0)
-: 0;
-
-return {
-token_balance: tokenBalance,
-tokenBalance: tokenBalance,
-position_value_usd: positionValueUsd,
-positionValueUsd: positionValueUsd,
-sol_balance: 0,
-solBalance: 0,
 };
 }
 
@@ -229,6 +161,8 @@ l.countdown_ends_at,
 l.live_at,
 l.commit_started_at,
 l.commit_ends_at,
+l.created_at,
+l.updated_at,
 b.alias AS builder_alias,
 b.builder_score AS builder_score,
 p.sol_reserve,
@@ -331,11 +265,24 @@ LIMIT ?
 return rows.map(normalizeTradeRow);
 }
 
-function buildCassiePayload(launch = {}) {
+function buildCassiePayload(launch = {}, stats = {}) {
+const absMove = Math.abs(toNumber(stats?.price_change_pct, 0));
+const buyCount = toNumber(stats?.buys_24h, 0);
+const sellCount = toNumber(stats?.sells_24h, 0);
+const imbalance = Math.abs(buyCount - sellCount);
+
+let riskState = "normal";
+if (absMove >= 25 || imbalance >= 10) {
+riskState = "elevated";
+} else if (absMove >= 12 || imbalance >= 5) {
+riskState = "active";
+}
+
 return {
 monitoring_active: true,
 phase: String(launch?.status || "").toLowerCase() || "commit",
 layer: "market-intelligence",
+risk_state: riskState,
 };
 }
 
@@ -351,7 +298,7 @@ launch?.circulating_supply ?? totalSupply,
 );
 
 const oneSidedLiquiditySol = toNumber(
-pool?.sol_reserve ?? launch?.internal_pool_sol ?? 0,
+pool?.sol_reserve ?? launch?.internal_pool_sol ?? launch?.liquidity ?? 0,
 0
 );
 
@@ -364,7 +311,92 @@ circulating_supply: circulatingSupply,
 liquidity: oneSidedLiquiditySol,
 liquidity_sol: oneSidedLiquiditySol,
 internal_pool_sol: oneSidedLiquiditySol,
-sol_usd_price: 0,
+sol_usd_price: toNumber(launch?.sol_usd_price, 0),
+};
+}
+
+async function buildWalletSummary({ db, launchId, launch, token, trades, wallet }) {
+const cleanWallet = cleanText(wallet, 120);
+if (!cleanWallet) {
+return {
+token_balance: 0,
+tokenBalance: 0,
+position_value_usd: 0,
+positionValueUsd: 0,
+sol_balance: 0,
+solBalance: 0,
+sol_delta: 0,
+solDelta: 0,
+};
+}
+
+const walletRow = await db.get(
+`
+SELECT token_amount
+FROM wallet_balances
+WHERE launch_id = ? AND wallet = ?
+LIMIT 1
+`,
+[launchId, cleanWallet]
+);
+
+let tokenBalance = Math.max(0, Math.floor(toNumber(walletRow?.token_amount, 0)));
+
+if (tokenBalance <= 0) {
+let derivedBalance = 0;
+
+for (const trade of trades) {
+const sameWallet =
+String(trade.wallet || "").trim().toLowerCase() === cleanWallet.toLowerCase();
+
+if (!sameWallet) continue;
+
+if (String(trade.side || "").toLowerCase() === "sell") {
+derivedBalance -= toNumber(trade.token_amount, 0);
+} else {
+derivedBalance += toNumber(trade.token_amount, 0);
+}
+}
+
+tokenBalance = Math.max(0, Math.floor(derivedBalance));
+}
+
+let walletSolDelta = 0;
+
+for (const trade of trades) {
+const sameWallet =
+String(trade.wallet || "").trim().toLowerCase() === cleanWallet.toLowerCase();
+
+if (!sameWallet) continue;
+
+const tradeSol = toNumber(trade.sol_amount ?? trade.base_amount, 0);
+
+if (String(trade.side || "").toLowerCase() === "sell") {
+walletSolDelta += tradeSol;
+} else {
+walletSolDelta -= tradeSol;
+}
+}
+
+const stats = buildMarketStats({
+launch: buildStatsInput({ launch, token, pool: null }),
+trades,
+candles: [],
+});
+
+const priceUsd = toNumber(stats.price_usd, 0);
+const positionValueUsd =
+tokenBalance > 0 && priceUsd > 0 ? tokenBalance * priceUsd : 0;
+
+return {
+token_balance: tokenBalance,
+tokenBalance: tokenBalance,
+position_value_usd: positionValueUsd,
+positionValueUsd: positionValueUsd,
+sol_balance: walletSolDelta,
+solBalance: walletSolDelta,
+sol_delta: walletSolDelta,
+solDelta: walletSolDelta,
 };
 }
 
@@ -374,7 +406,12 @@ launchId,
 interval = "1m",
 limit = 120,
 }) {
-const trades = await getTradeRows(db, launchId, 2000);
+const [launch, token, pool, trades] = await Promise.all([
+getLaunchById(db, launchId),
+getTokenByLaunchId(db, launchId),
+getPoolByLaunchId(db, launchId),
+getTradeRows(db, launchId, 2000),
+]);
 
 const candles = fillMissingCandles(
 buildCandlesFromTrades(trades, interval),
@@ -382,7 +419,19 @@ interval,
 limit
 );
 
-return { candles };
+const stats = buildMarketStats({
+launch: buildStatsInput({ launch, token, pool }),
+trades,
+candles,
+});
+
+return {
+launch,
+token,
+pool,
+stats,
+candles,
+};
 }
 
 export async function getChartTrades({
@@ -390,10 +439,26 @@ db,
 launchId,
 limit = 50,
 }) {
-const trades = await getTradeRows(db, launchId, Math.max(limit, 1));
+const [launch, token, pool, trades] = await Promise.all([
+getLaunchById(db, launchId),
+getTokenByLaunchId(db, launchId),
+getPoolByLaunchId(db, launchId),
+getTradeRows(db, launchId, Math.max(limit, 1)),
+]);
+
+const recentTrades = trades.slice(-limit);
+const stats = buildMarketStats({
+launch: buildStatsInput({ launch, token, pool }),
+trades,
+candles: [],
+});
 
 return {
-trades: trades.slice(-limit),
+launch,
+token,
+pool,
+stats,
+trades: recentTrades,
 };
 }
 
@@ -402,13 +467,13 @@ db,
 launchId,
 wallet = "",
 }) {
-const [launch, token, pool] = await Promise.all([
+const [launch, token, pool, trades] = await Promise.all([
 getLaunchById(db, launchId),
 getTokenByLaunchId(db, launchId),
 getPoolByLaunchId(db, launchId),
+getTradeRows(db, launchId, 2000),
 ]);
 
-const trades = await getTradeRows(db, launchId, 2000);
 const candles = buildCandlesFromTrades(trades, "1m");
 
 const stats = buildMarketStats({
@@ -431,12 +496,13 @@ launch,
 token,
 pool,
 wallet: walletSummary,
-cassie: buildCassiePayload(launch),
+cassie: buildCassiePayload(launch, stats),
 stats: {
 ...stats,
 wallet_token_balance: walletSummary.token_balance,
 wallet_position_value_usd: walletSummary.position_value_usd,
 wallet_sol_balance: walletSummary.sol_balance,
+wallet_sol_delta: walletSummary.sol_delta,
 },
 };
 }
@@ -449,13 +515,12 @@ candleLimit = 120,
 tradeLimit = 50,
 wallet = "",
 }) {
-const [launch, token, pool] = await Promise.all([
+const [launch, token, pool, trades] = await Promise.all([
 getLaunchById(db, launchId),
 getTokenByLaunchId(db, launchId),
 getPoolByLaunchId(db, launchId),
+getTradeRows(db, launchId, 2000),
 ]);
-
-const trades = await getTradeRows(db, launchId, 2000);
 
 const candles = fillMissingCandles(
 buildCandlesFromTrades(trades, interval),
@@ -485,12 +550,13 @@ launch,
 token,
 pool,
 wallet: walletSummary,
-cassie: buildCassiePayload(launch),
+cassie: buildCassiePayload(launch, stats),
 stats: {
 ...stats,
 wallet_token_balance: walletSummary.token_balance,
 wallet_position_value_usd: walletSummary.position_value_usd,
 wallet_sol_balance: walletSummary.sol_balance,
+wallet_sol_delta: walletSummary.sol_delta,
 },
 candles,
 trades: recentTrades,

@@ -1,6 +1,6 @@
 import express from "express";
 import db from "../db/index.js";
-import { buildMarketStats } from "../services/market-stats.js";
+import { getChartSnapshot } from "../services/chart-service.js";
 
 const router = express.Router();
 
@@ -41,64 +41,6 @@ if (priceChangePct >= 12 || flowImbalance >= 5) return "active";
 return "normal";
 }
 
-async function buildWalletSummary({ launchId, wallet, trades = [], priceUsd = 0 }) {
-const cleanWallet = cleanText(wallet, 120);
-if (!cleanWallet) {
-return {
-token_balance: 0,
-tokenBalance: 0,
-position_value_usd: 0,
-positionValueUsd: 0,
-sol_balance: 0,
-solBalance: 0,
-};
-}
-
-const walletRow = await db.get(
-`
-SELECT token_amount
-FROM wallet_balances
-WHERE launch_id = ? AND wallet = ?
-LIMIT 1
-`,
-[launchId, cleanWallet]
-);
-
-let tokenBalance = Math.max(0, Math.floor(toNumber(walletRow?.token_amount, 0)));
-
-// Fallback for older launches if wallet_balances is missing
-if (tokenBalance <= 0 && Array.isArray(trades) && trades.length) {
-let derivedBalance = 0;
-
-for (const trade of trades) {
-const sameWallet =
-String(trade.wallet || "").trim().toLowerCase() === cleanWallet.toLowerCase();
-
-if (!sameWallet) continue;
-
-if (String(trade.side || "").toLowerCase() === "sell") {
-derivedBalance -= toNumber(trade.token_amount, 0);
-} else {
-derivedBalance += toNumber(trade.token_amount, 0);
-}
-}
-
-tokenBalance = Math.max(0, Math.floor(derivedBalance));
-}
-
-const positionValueUsd =
-tokenBalance > 0 && priceUsd > 0 ? tokenBalance * priceUsd : 0;
-
-return {
-token_balance: tokenBalance,
-tokenBalance: tokenBalance,
-position_value_usd: positionValueUsd,
-positionValueUsd: positionValueUsd,
-sol_balance: 0,
-solBalance: 0,
-};
-}
-
 router.get("/:launchId", async (req, res) => {
 try {
 const launchId = Number(req.params.launchId);
@@ -108,125 +50,32 @@ if (!launchId) {
 return res.status(400).json({ ok: false, error: "Invalid launchId" });
 }
 
-const launch = await db.get(
-`
-SELECT
-l.id,
-l.token_name,
-l.symbol,
-l.status,
-l.template,
-l.contract_address,
-l.builder_wallet,
-l.supply,
-l.final_supply,
-l.circulating_supply,
-l.committed_sol,
-l.participants_count,
-l.hard_cap_sol,
-l.internal_pool_sol,
-l.liquidity,
-l.liquidity_usd,
-l.current_liquidity_usd,
-l.website_url,
-l.x_url,
-l.telegram_url,
-l.discord_url,
-l.countdown_started_at,
-l.countdown_ends_at,
-l.live_at,
-l.commit_started_at,
-l.commit_ends_at,
-b.alias AS builder_alias,
-b.builder_score AS builder_score
-FROM launches l
-LEFT JOIN builders b ON b.id = l.builder_id
-WHERE l.id = ?
-LIMIT 1
-`,
-[launchId]
-);
+const snapshot = await getChartSnapshot({
+db,
+launchId,
+interval: "1m",
+candleLimit: 120,
+tradeLimit: 100,
+wallet,
+});
+
+const launch = snapshot?.launch || null;
+const token = snapshot?.token || null;
+const pool = snapshot?.pool || null;
+const walletSummary = snapshot?.wallet || {};
+const stats = snapshot?.stats || {};
+const trades = Array.isArray(snapshot?.trades) ? snapshot.trades : [];
+const cassie = snapshot?.cassie || null;
 
 if (!launch) {
 return res.status(404).json({ ok: false, error: "Launch not found" });
 }
 
-const token = await db.get(
-`
-SELECT *
-FROM tokens
-WHERE launch_id = ?
-ORDER BY id DESC
-LIMIT 1
-`,
-[launchId]
-);
-
-const pool = await db.get(
-`
-SELECT *
-FROM pools
-WHERE launch_id = ?
-ORDER BY id DESC
-LIMIT 1
-`,
-[launchId]
-);
-
-const tradeRows = await db.all(
-`
-SELECT
-id,
-launch_id,
-token_id,
-wallet,
-side,
-sol_amount,
-token_amount,
-price,
-created_at
-FROM trades
-WHERE launch_id = ?
-ORDER BY datetime(created_at) ASC, id ASC
-LIMIT 2000
-`,
-[launchId]
-);
-
-const trades = Array.isArray(tradeRows) ? tradeRows.map(normalizeTradeRow) : [];
-
-const tokenReserve = toNumber(pool?.token_reserve, 0);
-const solReserve = toNumber(pool?.sol_reserve, 0);
-const kValue = toNumber(pool?.k_value, 0);
-
-const mintAddress = token?.mint_address || launch.contract_address || null;
-
-const launchForStats = {
-...launch,
-mint_address: mintAddress,
-total_supply: toNumber(token?.supply ?? launch.final_supply ?? launch.supply, 0),
-circulating_supply: toNumber(
-launch.circulating_supply ?? token?.supply ?? launch.final_supply ?? launch.supply,
-0
-),
-liquidity: solReserve,
-liquidity_sol: solReserve,
-internal_pool_sol: solReserve,
-sol_usd_price: 0,
-};
-
-const stats = buildMarketStats({
-launch: launchForStats,
-trades,
-candles: [],
-});
-
-const walletSummary = await buildWalletSummary({
-launchId,
-wallet,
-trades,
-priceUsd: toNumber(stats?.price_usd, 0),
-});
+const mintAddress =
+token?.mint_address ||
+launch?.mint_address ||
+launch?.contract_address ||
+null;
 
 const cassieRisk = inferCassieRisk(stats);
 
@@ -255,9 +104,10 @@ participants_count: toNumber(launch.participants_count, 0),
 hard_cap_sol: toNumber(launch.hard_cap_sol, 0),
 internal_pool_sol: toNumber(launch.internal_pool_sol, 0),
 liquidity: toNumber(launch.liquidity, 0),
+liquidity_sol: toNumber(launch.liquidity_sol ?? launch.liquidity, 0),
 liquidity_usd: toNumber(launch.liquidity_usd, 0),
 current_liquidity_usd: toNumber(launch.current_liquidity_usd, 0),
-sol_usd_price: 0,
+sol_usd_price: toNumber(stats.sol_usd_price, 0),
 website_url: launch.website_url || "",
 x_url: launch.x_url || "",
 telegram_url: launch.telegram_url || "",
@@ -267,6 +117,8 @@ countdown_ends_at: launch.countdown_ends_at || null,
 live_at: launch.live_at || null,
 commit_started_at: launch.commit_started_at || null,
 commit_ends_at: launch.commit_ends_at || null,
+created_at: launch.created_at || null,
+updated_at: launch.updated_at || null,
 },
 token: {
 id: token?.id || null,
@@ -279,27 +131,74 @@ mint_address: mintAddress,
 mint: mintAddress,
 created_at: token?.created_at || null,
 },
-wallet: walletSummary,
+wallet: {
+token_balance: toNumber(walletSummary.token_balance, 0),
+tokenBalance: toNumber(
+walletSummary.tokenBalance ?? walletSummary.token_balance,
+0
+),
+position_value_usd: toNumber(walletSummary.position_value_usd, 0),
+positionValueUsd: toNumber(
+walletSummary.positionValueUsd ?? walletSummary.position_value_usd,
+0
+),
+sol_balance: toNumber(walletSummary.sol_balance, 0),
+solBalance: toNumber(
+walletSummary.solBalance ?? walletSummary.sol_balance,
+0
+),
+sol_delta: toNumber(
+walletSummary.sol_delta ??
+walletSummary.walletSolDelta ??
+walletSummary.sol_balance,
+0
+),
+walletSolDelta: toNumber(
+walletSummary.walletSolDelta ??
+walletSummary.sol_delta ??
+walletSummary.sol_balance,
+0
+),
+},
 stats: {
 ...stats,
-wallet_token_balance: walletSummary.token_balance,
-wallet_position_value_usd: walletSummary.position_value_usd,
-wallet_sol_balance: walletSummary.sol_balance,
+wallet_token_balance: toNumber(
+stats.wallet_token_balance ?? walletSummary.token_balance,
+0
+),
+wallet_position_value_usd: toNumber(
+stats.wallet_position_value_usd ?? walletSummary.position_value_usd,
+0
+),
+wallet_sol_balance: toNumber(
+stats.wallet_sol_balance ?? walletSummary.sol_balance,
+0
+),
+wallet_sol_delta: toNumber(
+stats.wallet_sol_delta ??
+walletSummary.walletSolDelta ??
+walletSummary.sol_balance,
+0
+),
 },
 pool: pool
 ? {
 id: pool.id,
 status: pool.status || null,
-token_reserve: tokenReserve,
-sol_reserve: solReserve,
-k_value: kValue,
+token_reserve: toNumber(pool.token_reserve, 0),
+sol_reserve: toNumber(pool.sol_reserve, 0),
+k_value: toNumber(pool.k_value, 0),
+initial_token_reserve: toNumber(pool.initial_token_reserve, 0),
+created_at: pool.created_at || null,
 }
 : null,
 cassie: {
-monitoring_active: true,
-phase: String(launch.status || "").toLowerCase() || "commit",
-layer: "market-intelligence",
-risk_state: cassieRisk,
+monitoring_active:
+cassie?.monitoring_active !== false,
+phase:
+String(cassie?.phase || launch.status || "").toLowerCase() || "commit",
+layer: cassie?.layer || "market-intelligence",
+risk_state: cassie?.risk_state || cassieRisk,
 },
 });
 } catch (err) {
@@ -343,7 +242,9 @@ LIMIT 100
 return res.json({
 ok: true,
 success: true,
-trades: Array.isArray(trades) ? trades.map(normalizeTradeRow).reverse() : [],
+trades: Array.isArray(trades)
+? trades.map(normalizeTradeRow).reverse()
+: [],
 });
 } catch (err) {
 console.error("TOKEN TRADES error:", err);

@@ -59,9 +59,14 @@ limit,
 
 return res.json({
 ok: true,
+success: true,
 launch_id: launchId,
 interval,
 candles: payload?.candles || [],
+launch: payload?.launch || null,
+token: payload?.token || null,
+pool: payload?.pool || null,
+stats: payload?.stats || {},
 });
 } catch (error) {
 console.error("GET /api/chart/:launchId/candles failed", error);
@@ -92,8 +97,13 @@ limit,
 
 return res.json({
 ok: true,
+success: true,
 launch_id: launchId,
 trades: payload?.trades || [],
+launch: payload?.launch || null,
+token: payload?.token || null,
+pool: payload?.pool || null,
+stats: payload?.stats || {},
 });
 } catch (error) {
 console.error("GET /api/chart/:launchId/trades failed", error);
@@ -124,6 +134,7 @@ wallet,
 
 return res.json({
 ok: true,
+success: true,
 launch_id: launchId,
 stats: payload?.stats || {},
 launch: payload?.launch || null,
@@ -167,6 +178,7 @@ wallet,
 
 return res.json({
 ok: true,
+success: true,
 launch_id: launchId,
 interval,
 launch: payload?.launch || null,

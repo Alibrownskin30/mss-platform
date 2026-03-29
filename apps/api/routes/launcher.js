@@ -17,6 +17,11 @@ bootstrapLiveMarket,
 claimReservedMintForLaunch,
 topUpMintReservationPool,
 } from "../services/launcher/mintLifecycle.js";
+import {
+getLiquidityLifecycle,
+syncLiquidityLifecycle,
+buildGraduationPlanForLaunch,
+} from "../services/launcher/liquidityLifecycle.js";
 
 const router = express.Router();
 
@@ -843,6 +848,31 @@ WHERE id = ?
 return stats;
 }
 
+async function safeSyncLifecycle(launchId) {
+try {
+return await syncLiquidityLifecycle(launchId);
+} catch (err) {
+console.warn(`Lifecycle sync skipped for launch ${launchId}:`, err?.message || err);
+return null;
+}
+}
+
+async function safeGetLifecycle(launchId) {
+try {
+return await getLiquidityLifecycle(launchId);
+} catch {
+return null;
+}
+}
+
+async function safeGetGraduationPlan(launchId) {
+try {
+return await buildGraduationPlanForLaunch(launchId);
+} catch {
+return null;
+}
+}
+
 async function beginCountdown(launchId) {
 const launch = await getLaunchById(launchId);
 if (!launch) return null;
@@ -1019,6 +1049,7 @@ return launch;
 const result = await finalizeLaunch(launchId);
 
 if (result?.ok) {
+await safeSyncLifecycle(launchId);
 return getLaunchById(launchId);
 }
 
@@ -1082,6 +1113,11 @@ if (launch.status === "countdown") {
 return finalizeLaunchIfReady(launchId);
 }
 
+if (launch.status === "live" || launch.status === "graduated") {
+await safeSyncLifecycle(launchId);
+return launch;
+}
+
 if (launch.status === "failed") {
 return launch;
 }
@@ -1095,7 +1131,7 @@ const rows = await db.all(
 `
 SELECT id
 FROM launches
-WHERE status IN ('commit', 'countdown')
+WHERE status IN ('commit', 'countdown', 'live', 'graduated')
 ORDER BY id ASC
 `
 );
@@ -2042,12 +2078,14 @@ if (!launch) {
 return res.status(404).json({ ok: false, error: "launch not found" });
 }
 
-if (launch.status !== "live") {
+if (launch.status !== "live" && launch.status !== "graduated") {
 return res.status(400).json({ ok: false, error: "launch is not ready to finalize" });
 }
 
 const stats = await syncLaunchStats(launchId);
 const updatedLaunch = await getLaunchById(launchId);
+const lifecycle = await safeSyncLifecycle(launchId);
+const graduationPlan = await safeGetGraduationPlan(launchId);
 const feeBreakdown = buildFeeBreakdown(
 Number(stats.totalCommitted),
 Number(updatedLaunch.launch_fee_pct || 5)
@@ -2065,6 +2103,8 @@ stats.totalCommitted,
 updatedLaunch.hard_cap_sol
 ),
 feeBreakdown,
+lifecycle,
+graduationPlan,
 });
 } catch (err) {
 console.error("POST /api/launcher/:id/finalize failed:", err);
@@ -2084,9 +2124,12 @@ return res.status(400).json({ ok: false, error: "invalid launch id" });
 }
 
 const result = await bootstrapLiveMarket(launchId);
+const lifecycle = await safeSyncLifecycle(launchId);
+
 return res.json({
 ok: true,
 result,
+lifecycle,
 });
 } catch (err) {
 console.error("POST /api/launcher/:id/bootstrap-market failed:", err);
@@ -2122,6 +2165,7 @@ const grouped = {
 commit: visible.filter((x) => x.status === "commit"),
 countdown: visible.filter((x) => x.status === "countdown"),
 live: visible.filter((x) => x.status === "live"),
+graduated: visible.filter((x) => x.status === "graduated"),
 failed: visible.filter((x) => x.status === "failed"),
 };
 
@@ -2153,6 +2197,8 @@ return res.status(404).json({ ok: false, error: "launch not found" });
 
 const parsedLaunch = sanitizeLaunchForPublic(reconciledLaunch, { includeMintMeta: false });
 const stats = await getCommitStats(launchId);
+const lifecycle = await safeGetLifecycle(launchId);
+const graduationPlan = await safeGetGraduationPlan(launchId);
 
 const recent = await db.all(
 `
@@ -2197,6 +2243,8 @@ teamWalletBreakdown: parsedLaunch.team_wallet_breakdown,
 builderBondSol: Number(parsedLaunch.builder_bond_sol || 0),
 builderBondRefunded: Number(parsedLaunch.builder_bond_refunded || 0),
 builderBondPaid: Number(parsedLaunch.builder_bond_paid || 0),
+lifecycle,
+graduationPlan,
 recent,
 });
 } catch (err) {
@@ -2208,13 +2256,14 @@ return res.status(500).json({ ok: false, error: "failed to fetch commit stats" }
 router.post("/:id/execute", async (_req, res) => {
 try {
 const launchId = Number(_req.params.id);
+
 const launch = await reconcileLaunchState(launchId);
 
 if (!launch) {
 return res.status(404).json({ ok: false, error: "launch not found" });
 }
 
-if (launch.status !== "live") {
+if (launch.status !== "live" && launch.status !== "graduated") {
 return res.status(400).json({
 ok: false,
 error: "launch must be live before allocations can be built",
@@ -2223,6 +2272,8 @@ error: "launch must be live before allocations can be built",
 
 const stats = await syncLaunchStats(launchId);
 const allocationResult = await buildLaunchAllocations(launchId);
+const lifecycle = await safeSyncLifecycle(launchId);
+const graduationPlan = await safeGetGraduationPlan(launchId);
 const feeBreakdown = buildFeeBreakdown(
 Number(stats.totalCommitted),
 Number(launch.launch_fee_pct || 5)
@@ -2234,6 +2285,8 @@ return res.json({
 ok: true,
 execution: allocationResult,
 feeBreakdown,
+lifecycle,
+graduationPlan,
 launch: updatedLaunch,
 });
 } catch (err) {
@@ -2287,6 +2340,8 @@ return res.status(404).json({ ok: false, error: "launch not found" });
 }
 
 const parsedLaunch = sanitizeLaunchForPublic(launch);
+const lifecycle = await safeGetLifecycle(id);
+const graduationPlan = await safeGetGraduationPlan(id);
 
 return res.json({
 ok: true,
@@ -2297,6 +2352,8 @@ parsedLaunch.committed_sol,
 parsedLaunch.hard_cap_sol
 ),
 },
+lifecycle,
+graduationPlan,
 });
 } catch (err) {
 console.error("GET /api/launcher/:id failed:", err);

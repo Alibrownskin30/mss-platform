@@ -13,41 +13,73 @@ baseAmountSol: toNumber(trade.base_amount ?? trade.sol_amount ?? trade.amount_ba
 };
 }
 
+function getLastNonZeroCandleClose(candles = []) {
+for (let i = candles.length - 1; i >= 0; i -= 1) {
+const close = toNumber(candles[i]?.close, 0);
+if (close > 0) return close;
+}
+return 0;
+}
+
+function getFirstNonZeroCandleOpen(candles = []) {
+for (let i = 0; i < candles.length; i += 1) {
+const open = toNumber(candles[i]?.open, 0);
+if (open > 0) return open;
+}
+return 0;
+}
+
+function getHighLowFromCandles(candles = []) {
+let high = 0;
+let low = 0;
+
+for (const candle of candles) {
+const candleHigh = toNumber(candle?.high, 0);
+const candleLow = toNumber(candle?.low, 0);
+
+if (candleHigh > 0) {
+high = high === 0 ? candleHigh : Math.max(high, candleHigh);
+}
+
+if (candleLow > 0) {
+low = low === 0 ? candleLow : Math.min(low, candleLow);
+}
+}
+
+return { high, low };
+}
+
 function inferSolUsdPrice({
 launch = {},
-lastPriceSol = 0,
+pool = {},
 fallback = 0,
 }) {
-const liquiditySol = toNumber(
-launch.liquidity_sol ??
-launch.internal_pool_sol ??
-launch.liquidity ??
-0,
+const launchLiquidityUsd = toNumber(
+launch.current_liquidity_usd ?? launch.liquidity_usd,
 0
 );
 
-const liquidityUsd = toNumber(
-launch.current_liquidity_usd ??
-launch.liquidity_usd ??
-0,
+const poolSolReserve = toNumber(
+pool.sol_reserve ?? launch.sol_reserve ?? launch.internal_pool_sol ?? launch.liquidity_sol ?? launch.liquidity,
 0
 );
 
-// If liquidity is stored as one-sided SOL and USD, derive SOL/USD from that.
-// If liquidity USD represents the total LP and liquiditySol is one-sided pool SOL,
-// then total SOL-side equivalent is liquiditySol * 2.
-if (liquidityUsd > 0 && liquiditySol > 0) {
-const totalLiquiditySolEquivalent = liquiditySol * 2;
-if (totalLiquiditySolEquivalent > 0) {
-return liquidityUsd / totalLiquiditySolEquivalent;
-}
+// Liquidity in USD is treated as total LP value.
+// Pool/launch SOL reserve is one-sided SOL.
+if (launchLiquidityUsd > 0 && poolSolReserve > 0) {
+const impliedSolUsd = launchLiquidityUsd / (poolSolReserve * 2);
+if (impliedSolUsd > 0) return impliedSolUsd;
 }
 
-return toNumber(launch.sol_usd_price, fallback);
+const launchSolUsd = toNumber(launch.sol_usd_price, 0);
+if (launchSolUsd > 0) return launchSolUsd;
+
+return toNumber(fallback, 0);
 }
 
 export function buildMarketStats({
 launch = {},
+pool = {},
 trades = [],
 candles = [],
 }) {
@@ -59,19 +91,29 @@ const normalizedTrades = trades
 const now = Date.now();
 const dayAgo = now - 24 * 60 * 60 * 1000;
 
-const lastTrade = normalizedTrades[normalizedTrades.length - 1] || null;
-
 const trades24h = normalizedTrades.filter((trade) => {
 const ts = new Date(trade.timestamp).getTime();
 return Number.isFinite(ts) && ts >= dayAgo;
 });
 
+const lastTrade = normalizedTrades[normalizedTrades.length - 1] || null;
 const firstTrade24h = trades24h[0] || null;
 const firstTradeOverall = normalizedTrades[0] || null;
 
-const lastPriceSol = toNumber(lastTrade?.priceSol, 0);
+const candleLastClose = getLastNonZeroCandleClose(candles);
+const candleFirstOpen = getFirstNonZeroCandleOpen(candles);
+const candleHighLow = getHighLowFromCandles(candles);
+
+const lastPriceSol = toNumber(
+lastTrade?.priceSol ?? candleLastClose,
+0
+);
+
 const openPriceSol = toNumber(
-firstTrade24h?.priceSol ?? firstTradeOverall?.priceSol ?? lastPriceSol,
+firstTrade24h?.priceSol ??
+firstTradeOverall?.priceSol ??
+candleFirstOpen ??
+lastPriceSol,
 0
 );
 
@@ -89,17 +131,18 @@ volume24hSol += trade.baseAmountSol;
 buys24h += trade.side === "buy" ? 1 : 0;
 sells24h += trade.side === "sell" ? 1 : 0;
 
-if (high24hSol === 0 || trade.priceSol > high24hSol) high24hSol = trade.priceSol;
-if (low24hSol === 0 || trade.priceSol < low24hSol) low24hSol = trade.priceSol;
+if (trade.priceSol > 0) {
+high24hSol = high24hSol === 0 ? trade.priceSol : Math.max(high24hSol, trade.priceSol);
+low24hSol = low24hSol === 0 ? trade.priceSol : Math.min(low24hSol, trade.priceSol);
+}
 }
 
-if (!high24hSol && candles.length) {
-high24hSol = Math.max(...candles.map((c) => toNumber(c.high, 0)));
+if (!high24hSol) {
+high24hSol = toNumber(candleHighLow.high, 0);
 }
 
-if (!low24hSol && candles.length) {
-const lows = candles.map((c) => toNumber(c.low, 0)).filter((v) => v > 0);
-low24hSol = lows.length ? Math.min(...lows) : 0;
+if (!low24hSol) {
+low24hSol = toNumber(candleHighLow.low, 0);
 }
 
 const totalSupply = toNumber(
@@ -112,11 +155,13 @@ launch.circulating_supply ?? totalSupply,
 0
 );
 
-const liquiditySol = toNumber(
-launch.liquidity_sol ??
-launch.internal_pool_sol ??
-launch.liquidity ??
-0,
+const poolSolReserve = toNumber(
+pool.sol_reserve ?? launch.sol_reserve ?? launch.internal_pool_sol ?? launch.liquidity_sol ?? launch.liquidity,
+0
+);
+
+const poolTokenReserve = toNumber(
+pool.token_reserve ?? launch.token_reserve,
 0
 );
 
@@ -127,30 +172,43 @@ launch.current_liquidity_usd ?? launch.liquidity_usd,
 
 const solUsdPrice = inferSolUsdPrice({
 launch,
-lastPriceSol,
+pool,
 fallback: 0,
 });
 
-const priceUsd = lastPriceSol > 0 && solUsdPrice > 0 ? lastPriceSol * solUsdPrice : 0;
-const openPriceUsd = openPriceSol > 0 && solUsdPrice > 0 ? openPriceSol * solUsdPrice : 0;
+const priceUsd =
+lastPriceSol > 0 && solUsdPrice > 0 ? lastPriceSol * solUsdPrice : 0;
+
+const openPriceUsd =
+openPriceSol > 0 && solUsdPrice > 0 ? openPriceSol * solUsdPrice : 0;
 
 const marketCapSol =
-lastPriceSol > 0 && circulatingSupply > 0 ? lastPriceSol * circulatingSupply : 0;
+lastPriceSol > 0 && circulatingSupply > 0
+? lastPriceSol * circulatingSupply
+: 0;
 
 const marketCapUsd =
-priceUsd > 0 && circulatingSupply > 0 ? priceUsd * circulatingSupply : 0;
+priceUsd > 0 && circulatingSupply > 0
+? priceUsd * circulatingSupply
+: 0;
 
 const fdvSol =
-lastPriceSol > 0 && totalSupply > 0 ? lastPriceSol * totalSupply : marketCapSol;
+lastPriceSol > 0 && totalSupply > 0
+? lastPriceSol * totalSupply
+: marketCapSol;
 
 const fdvUsd =
-priceUsd > 0 && totalSupply > 0 ? priceUsd * totalSupply : marketCapUsd;
+priceUsd > 0 && totalSupply > 0
+? priceUsd * totalSupply
+: marketCapUsd;
+
+const liquiditySol = poolSolReserve > 0 ? poolSolReserve * 2 : 0;
 
 const liquidityUsd =
 liquidityUsdDirect > 0
 ? liquidityUsdDirect
 : liquiditySol > 0 && solUsdPrice > 0
-? liquiditySol * 2 * solUsdPrice
+? liquiditySol * solUsdPrice
 : 0;
 
 const volume24hUsd =
@@ -183,7 +241,7 @@ sells_24h: sells24h,
 trade_count_24h: buys24h + sells24h,
 trade_count_total: normalizedTrades.length,
 
-liquidity_sol: liquiditySol * 2,
+liquidity_sol: liquiditySol,
 liquidity_usd: liquidityUsd,
 
 market_cap_sol: marketCapSol,
@@ -194,6 +252,9 @@ fdv_usd: fdvUsd,
 
 circulating_supply: circulatingSupply,
 total_supply: totalSupply,
+
+pool_sol_reserve: poolSolReserve,
+pool_token_reserve: poolTokenReserve,
 
 sol_usd_price: solUsdPrice,
 updated_at: new Date().toISOString(),

@@ -941,6 +941,8 @@ z-index:1;
 width:100%;
 height:310px;
 position:relative;
+touch-action:none;
+cursor:crosshair;
 }
 
 .market-volume-canvas{
@@ -948,6 +950,8 @@ width:100%;
 height:96px;
 border-top:1px solid rgba(255,255,255,.06);
 position:relative;
+touch-action:none;
+cursor:crosshair;
 }
 
 .market-wallet-summary{

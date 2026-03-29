@@ -68,13 +68,14 @@ return Number.MAX_SAFE_INTEGER;
 
 const daysSinceLaunch = getDaysSinceLaunch(launch);
 
-if (daysSinceLaunch <= 0) return 0.5; // day 1
-if (daysSinceLaunch === 1) return 1.0; // day 2
+if (daysSinceLaunch <= 0) return 0.5;
+if (daysSinceLaunch === 1) return 1.0;
 return 1.0;
 }
 
 function isLiveLaunch(launch) {
-return String(launch?.status || "").toLowerCase() === "live";
+const status = String(launch?.status || "").toLowerCase();
+return status === "live" || status === "graduated";
 }
 
 function getEffectiveTotalSupply(launch, token) {
@@ -126,7 +127,7 @@ return { launch, token, pool };
 }
 
 async function getBuilderWalletByLaunch(launch) {
-const direct = cleanText(launch?.builder_wallet || "");
+const direct = cleanText(launch?.builder_wallet || "", 120);
 if (direct) return direct;
 
 if (!launch?.builder_id) return "";
@@ -136,7 +137,7 @@ const builder = await db.get(
 [launch.builder_id]
 );
 
-return cleanText(builder?.wallet || "");
+return cleanText(builder?.wallet || "", 120);
 }
 
 async function getOrCreateWalletBalance(launchId, wallet) {
@@ -185,6 +186,18 @@ WHERE launch_id = ? AND wallet = ?
 return nextAmount;
 }
 
+async function syncLaunchLiquidityFields(launchId, solReserve) {
+const oneSidedLiquiditySol = roundSol(solReserve);
+await db.run(
+`
+UPDATE launches
+SET liquidity = ?, updated_at = CURRENT_TIMESTAMP
+WHERE id = ?
+`,
+[oneSidedLiquiditySol, launchId]
+);
+}
+
 function buildBuyQuote({ solIn, tokenReserve, solReserve }) {
 const grossSolIn = safeNum(solIn, 0);
 const x = safeNum(tokenReserve, 0);
@@ -217,17 +230,19 @@ throw new Error("Invalid trade output");
 const newTokenReserve = x - tokensBought;
 const newSolReserve = newSolReserveRaw;
 const newKValue = String(Math.floor(newTokenReserve * newSolReserve));
-const price = grossSolIn / tokensBought;
+const executionPrice = grossSolIn / tokensBought;
 
 return {
 grossSolIn: roundSol(grossSolIn),
+walletSolDelta: roundSol(-grossSolIn),
 feeSol: roundSol(feeSol),
 netSolIn: roundSol(netSolIn),
 tokensBought,
 newSolReserve: roundSol(newSolReserve),
 newTokenReserve: floorToken(newTokenReserve),
 newKValue,
-price,
+price: executionPrice,
+executionPrice,
 feeBreakdown: getFeeBreakdown(feeSol),
 };
 }
@@ -261,21 +276,22 @@ if (!Number.isFinite(netSolOut) || netSolOut <= 0) {
 throw new Error("Invalid trade output");
 }
 
-// Fee stays inside the pool, so reserve only decreases by the net amount paid out.
 const finalSolReserve = y - netSolOut;
 const finalTokenReserve = x + grossTokensIn;
 const finalK = String(Math.floor(finalTokenReserve * finalSolReserve));
-const price = grossSolOut / grossTokensIn;
+const executionPrice = grossSolOut / grossTokensIn;
 
 return {
 grossTokensIn,
 grossSolOut: roundSol(grossSolOut),
+walletSolDelta: roundSol(netSolOut),
 feeSol: roundSol(feeSol),
 netSolOut: roundSol(netSolOut),
 newSolReserve: roundSol(finalSolReserve),
 newTokenReserve: floorToken(finalTokenReserve),
 newKValue: finalK,
-price,
+price: executionPrice,
+executionPrice,
 feeBreakdown: getFeeBreakdown(feeSol),
 };
 }
@@ -310,9 +326,6 @@ exceedsMaxWallet,
 };
 }
 
-/*
-QUOTE BUY
-*/
 router.post("/quote-buy", async (req, res) => {
 try {
 const { launchId, solAmount, wallet = "" } = req.body;
@@ -396,9 +409,6 @@ return res.status(400).json({ error: err.message || "Quote buy failed" });
 }
 });
 
-/*
-QUOTE SELL
-*/
 router.post("/quote-sell", async (req, res) => {
 try {
 const { launchId, tokenAmount, wallet = "" } = req.body;
@@ -469,9 +479,6 @@ return res.status(400).json({ error: err.message || "Quote sell failed" });
 }
 });
 
-/*
-BUY TOKENS
-*/
 router.post("/buy", async (req, res) => {
 try {
 const { launchId, wallet, solAmount } = req.body;
@@ -510,7 +517,7 @@ return res.status(400).json({ error: "Market is not live" });
 
 const builderWallet = await getBuilderWalletByLaunch(launch);
 const isBuilderWallet =
-builderWallet &&
+Boolean(builderWallet) &&
 walletStr.toLowerCase() === builderWallet.toLowerCase();
 
 const maxBuySol = getMaxBuySol(launch, isBuilderWallet);
@@ -549,6 +556,9 @@ walletBalanceBefore: walletLimit.walletBalanceBefore,
 });
 }
 
+await db.run("BEGIN TRANSACTION");
+
+try {
 await db.run(
 `
 UPDATE pools
@@ -576,7 +586,7 @@ token.id,
 walletStr,
 quote.grossSolIn,
 quote.tokensBought,
-quote.price,
+quote.executionPrice,
 ]
 );
 
@@ -586,14 +596,20 @@ walletStr,
 currentBalance + quote.tokensBought
 );
 
+await syncLaunchLiquidityFields(launchIdNum, quote.newSolReserve);
+
+await db.run("COMMIT");
+
 return res.json({
 success: true,
 side: "buy",
 tokensReceived: quote.tokensBought,
-price: quote.price,
+price: quote.executionPrice,
+executionPrice: quote.executionPrice,
 feePct: MSS_TRADING_FEE_PCT,
 feeSol: quote.feeSol,
 feeBreakdown: quote.feeBreakdown,
+walletSolDelta: quote.walletSolDelta,
 maxBuySol,
 isBuilderWallet,
 ...walletLimit,
@@ -605,15 +621,16 @@ token_reserve: quote.newTokenReserve,
 k_value: quote.newKValue,
 },
 });
+} catch (innerErr) {
+await db.run("ROLLBACK");
+throw innerErr;
+}
 } catch (err) {
 console.error("BUY ERROR", err);
 return res.status(500).json({ error: err.message || "Buy failed" });
 }
 });
 
-/*
-SELL TOKENS
-*/
 router.post("/sell", async (req, res) => {
 try {
 const { launchId, wallet, tokenAmount } = req.body;
@@ -666,6 +683,9 @@ tokenReserve: Number(pool.token_reserve),
 solReserve: Number(pool.sol_reserve),
 });
 
+await db.run("BEGIN TRANSACTION");
+
+try {
 await db.run(
 `
 UPDATE pools
@@ -693,7 +713,7 @@ token.id,
 walletStr,
 quote.netSolOut,
 quote.grossTokensIn,
-quote.price,
+quote.executionPrice,
 ]
 );
 
@@ -703,6 +723,10 @@ walletStr,
 currentBalance - quote.grossTokensIn
 );
 
+await syncLaunchLiquidityFields(launchIdNum, quote.newSolReserve);
+
+await db.run("COMMIT");
+
 return res.json({
 success: true,
 side: "sell",
@@ -711,7 +735,9 @@ grossSolOut: quote.grossSolOut,
 feePct: MSS_TRADING_FEE_PCT,
 feeSol: quote.feeSol,
 feeBreakdown: quote.feeBreakdown,
-price: quote.price,
+price: quote.executionPrice,
+executionPrice: quote.executionPrice,
+walletSolDelta: quote.walletSolDelta,
 walletBalanceBefore: currentBalance,
 walletBalanceAfter: nextBalance,
 pool: {
@@ -720,6 +746,10 @@ token_reserve: quote.newTokenReserve,
 k_value: quote.newKValue,
 },
 });
+} catch (innerErr) {
+await db.run("ROLLBACK");
+throw innerErr;
+}
 } catch (err) {
 console.error("SELL ERROR", err);
 return res.status(500).json({ error: err.message || "Sell failed" });
