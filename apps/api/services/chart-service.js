@@ -1,6 +1,9 @@
 import { buildCandlesFromTrades, fillMissingCandles } from "./candle-builder.js";
 import { buildMarketStats } from "./market-stats.js";
 
+const BUILDER_DAILY_UNLOCK_PERCENT = 0.5;
+const BUILDER_MAX_ALLOCATION_PERCENT = 5;
+
 function toNumber(value, fallback = 0) {
 const num = Number(value);
 return Number.isFinite(num) ? num : fallback;
@@ -8,6 +11,34 @@ return Number.isFinite(num) ? num : fallback;
 
 function cleanText(value, max = 500) {
 return String(value ?? "").trim().slice(0, max);
+}
+
+function parseDbTime(value) {
+if (!value) return null;
+const raw = String(value).trim();
+if (!raw) return null;
+
+const hasExplicitTimezone =
+/z$/i.test(raw) || /[+-]\d{2}:\d{2}$/.test(raw);
+
+if (!hasExplicitTimezone && /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/.test(raw)) {
+const sqliteUtc = Date.parse(raw.replace(" ", "T") + "Z");
+return Number.isFinite(sqliteUtc) ? sqliteUtc : null;
+}
+
+const direct = Date.parse(raw);
+return Number.isFinite(direct) ? direct : null;
+}
+
+function parseJsonMaybe(value, fallback = null) {
+if (value == null || value === "") return fallback;
+if (typeof value === "object") return value;
+
+try {
+return JSON.parse(String(value));
+} catch {
+return fallback;
+}
 }
 
 function pickLaunchRow(row) {
@@ -68,6 +99,12 @@ committed_sol: toNumber(row.committed_sol, 0),
 participant_count: toNumber(row.participants_count, 0),
 participants_count: toNumber(row.participants_count, 0),
 hard_cap_sol: toNumber(row.hard_cap_sol, 0),
+
+builder_pct: toNumber(row.builder_pct, 0),
+team_allocation_pct: toNumber(row.team_allocation_pct, 0),
+team_wallet_breakdown: Array.isArray(row.team_wallet_breakdown)
+? row.team_wallet_breakdown
+: parseJsonMaybe(row.team_wallet_breakdown, []),
 
 countdown_started_at: row.countdown_started_at || null,
 countdown_ends_at: row.countdown_ends_at || null,
@@ -156,6 +193,9 @@ l.website_url,
 l.x_url,
 l.telegram_url,
 l.discord_url,
+l.builder_pct,
+l.team_allocation_pct,
+l.team_wallet_breakdown,
 l.countdown_started_at,
 l.countdown_ends_at,
 l.live_at,
@@ -315,6 +355,95 @@ sol_usd_price: toNumber(launch?.sol_usd_price, 0),
 };
 }
 
+function getLiveDays(launch = {}) {
+const liveMs = parseDbTime(launch?.live_at || launch?.updated_at || launch?.created_at);
+if (!liveMs) return 0;
+return Math.max(0, Math.floor((Date.now() - liveMs) / 86400000));
+}
+
+function getBuilderAllocationPercent(launch = {}) {
+const builderPct = toNumber(launch?.builder_pct, 0);
+const teamAllocationPct = toNumber(launch?.team_allocation_pct, 0);
+
+if (builderPct > 0) return builderPct;
+if (teamAllocationPct > 0) return teamAllocationPct;
+
+return BUILDER_MAX_ALLOCATION_PERCENT;
+}
+
+function buildBuilderVestingSummary({
+launch,
+wallet,
+tokenBalance,
+}) {
+const cleanWallet = cleanText(wallet, 120).toLowerCase();
+const builderWallet = cleanText(launch?.builder_wallet, 120).toLowerCase();
+const template = String(launch?.template || "").toLowerCase();
+const totalSupply = toNumber(
+launch?.final_supply ?? launch?.total_supply ?? launch?.supply,
+0
+);
+
+const isBuilderWallet = Boolean(
+template === "builder" &&
+builderWallet &&
+cleanWallet &&
+builderWallet === cleanWallet
+);
+
+if (!isBuilderWallet || totalSupply <= 0) {
+return {
+is_builder_wallet: false,
+builder_total_allocation_tokens: 0,
+builder_unlocked_tokens: tokenBalance,
+builder_locked_tokens: 0,
+builder_sellable_tokens: tokenBalance,
+builder_vesting_percent_unlocked: 100,
+builder_vesting_days_live: getLiveDays(launch),
+};
+}
+
+const allocationPct = Math.min(
+BUILDER_MAX_ALLOCATION_PERCENT,
+Math.max(0, getBuilderAllocationPercent(launch))
+);
+
+const daysLive = getLiveDays(launch);
+const unlockedPct = Math.min(
+allocationPct,
+Math.max(0, daysLive * BUILDER_DAILY_UNLOCK_PERCENT)
+);
+
+const totalAllocationTokens = Math.floor((totalSupply * allocationPct) / 100);
+const unlockedAllocationTokens = Math.floor((totalSupply * unlockedPct) / 100);
+const lockedAllocationTokens = Math.max(0, totalAllocationTokens - unlockedAllocationTokens);
+
+const sellableTokens = Math.max(
+0,
+Math.min(tokenBalance, unlockedAllocationTokens)
+);
+
+const unlockedVisibleTokens = Math.max(
+0,
+Math.min(tokenBalance, unlockedAllocationTokens)
+);
+
+const lockedVisibleTokens = Math.max(
+0,
+tokenBalance - unlockedVisibleTokens
+);
+
+return {
+is_builder_wallet: true,
+builder_total_allocation_tokens: totalAllocationTokens,
+builder_unlocked_tokens: unlockedVisibleTokens,
+builder_locked_tokens: Math.max(lockedAllocationTokens, lockedVisibleTokens),
+builder_sellable_tokens: sellableTokens,
+builder_vesting_percent_unlocked: unlockedPct,
+builder_vesting_days_live: daysLive,
+};
+}
+
 async function buildWalletSummary({ db, launchId, launch, token, trades, wallet }) {
 const cleanWallet = cleanText(wallet, 120);
 if (!cleanWallet) {
@@ -327,6 +456,19 @@ sol_balance: 0,
 solBalance: 0,
 sol_delta: 0,
 solDelta: 0,
+sellable_token_balance: 0,
+sellableTokenBalance: 0,
+locked_token_balance: 0,
+lockedTokenBalance: 0,
+unlocked_token_balance: 0,
+unlockedTokenBalance: 0,
+is_builder_wallet: false,
+builder_total_allocation_tokens: 0,
+builder_unlocked_tokens: 0,
+builder_locked_tokens: 0,
+builder_sellable_tokens: 0,
+builder_vesting_percent_unlocked: 0,
+builder_vesting_days_live: 0,
 };
 }
 
@@ -385,8 +527,18 @@ candles: [],
 });
 
 const priceUsd = toNumber(stats.price_usd, 0);
+const vesting = buildBuilderVestingSummary({
+launch,
+wallet: cleanWallet,
+tokenBalance,
+});
+
 const positionValueUsd =
-tokenBalance > 0 && priceUsd > 0 ? tokenBalance * priceUsd : 0;
+vesting.builder_sellable_tokens > 0 && priceUsd > 0
+? vesting.builder_sellable_tokens * priceUsd
+: tokenBalance > 0 && priceUsd > 0
+? tokenBalance * priceUsd
+: 0;
 
 return {
 token_balance: tokenBalance,
@@ -397,6 +549,43 @@ sol_balance: walletSolDelta,
 solBalance: walletSolDelta,
 sol_delta: walletSolDelta,
 solDelta: walletSolDelta,
+
+sellable_token_balance: vesting.builder_sellable_tokens,
+sellableTokenBalance: vesting.builder_sellable_tokens,
+locked_token_balance: vesting.builder_locked_tokens,
+lockedTokenBalance: vesting.builder_locked_tokens,
+unlocked_token_balance: vesting.builder_unlocked_tokens,
+unlockedTokenBalance: vesting.builder_unlocked_tokens,
+
+is_builder_wallet: vesting.is_builder_wallet,
+builder_total_allocation_tokens: vesting.builder_total_allocation_tokens,
+builder_unlocked_tokens: vesting.builder_unlocked_tokens,
+builder_locked_tokens: vesting.builder_locked_tokens,
+builder_sellable_tokens: vesting.builder_sellable_tokens,
+builder_vesting_percent_unlocked: vesting.builder_vesting_percent_unlocked,
+builder_vesting_days_live: vesting.builder_vesting_days_live,
+};
+}
+
+function attachWalletStats(stats = {}, walletSummary = {}) {
+return {
+...stats,
+wallet_token_balance: walletSummary.token_balance,
+wallet_position_value_usd: walletSummary.position_value_usd,
+wallet_sol_balance: walletSummary.sol_balance,
+wallet_sol_delta: walletSummary.sol_delta,
+
+wallet_sellable_token_balance: walletSummary.sellable_token_balance,
+wallet_locked_token_balance: walletSummary.locked_token_balance,
+wallet_unlocked_token_balance: walletSummary.unlocked_token_balance,
+
+is_builder_wallet: walletSummary.is_builder_wallet,
+builder_total_allocation_tokens: walletSummary.builder_total_allocation_tokens,
+builder_unlocked_tokens: walletSummary.builder_unlocked_tokens,
+builder_locked_tokens: walletSummary.builder_locked_tokens,
+builder_sellable_tokens: walletSummary.builder_sellable_tokens,
+builder_vesting_percent_unlocked: walletSummary.builder_vesting_percent_unlocked,
+builder_vesting_days_live: walletSummary.builder_vesting_days_live,
 };
 }
 
@@ -497,13 +686,7 @@ token,
 pool,
 wallet: walletSummary,
 cassie: buildCassiePayload(launch, stats),
-stats: {
-...stats,
-wallet_token_balance: walletSummary.token_balance,
-wallet_position_value_usd: walletSummary.position_value_usd,
-wallet_sol_balance: walletSummary.sol_balance,
-wallet_sol_delta: walletSummary.sol_delta,
-},
+stats: attachWalletStats(stats, walletSummary),
 };
 }
 
@@ -551,13 +734,7 @@ token,
 pool,
 wallet: walletSummary,
 cassie: buildCassiePayload(launch, stats),
-stats: {
-...stats,
-wallet_token_balance: walletSummary.token_balance,
-wallet_position_value_usd: walletSummary.position_value_usd,
-wallet_sol_balance: walletSummary.sol_balance,
-wallet_sol_delta: walletSummary.sol_delta,
-},
+stats: attachWalletStats(stats, walletSummary),
 candles,
 trades: recentTrades,
 };

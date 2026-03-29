@@ -110,6 +110,95 @@ launch.launch_result_json
 );
 }
 
+function hasCompletedLiveBootstrap(launch) {
+if (!launch) return false;
+
+return Boolean(
+cleanText(launch.contract_address, 120) &&
+safeNum(launch.liquidity, 0) > 0 &&
+safeNum(launch.price, 0) > 0 &&
+(
+cleanText(launch.final_supply, 120) ||
+launch.launch_result_json
+)
+);
+}
+
+function buildFinalizeSuccessResponse({
+launchId,
+launch,
+totalCommitted = null,
+participants = null,
+feePlan = null,
+feeDistribution = null,
+allocationsBuilt = false,
+marketBootstrap = null,
+allocationResult = null,
+alreadyFinalized = false,
+}) {
+const resolvedFeePlan =
+feePlan ||
+buildLaunchFeeBreakdown(
+safeNum(totalCommitted, safeNum(launch?.committed_sol, 0)),
+safeNum(launch?.launch_fee_pct, DEFAULT_LAUNCH_FEE_PCT)
+);
+
+return {
+ok: true,
+alreadyFinalized,
+launchId,
+totalCommitted: safeNum(totalCommitted, safeNum(launch?.committed_sol, 0)),
+participants: safeNum(participants, safeNum(launch?.participants_count, 0)),
+launchFeePct: resolvedFeePlan.launchFeePct,
+feeTotal: resolvedFeePlan.feeTotal,
+coreFee: resolvedFeePlan.coreFee,
+buybackFee: resolvedFeePlan.buybackFee,
+treasuryFee: resolvedFeePlan.treasuryFee,
+netRaise: resolvedFeePlan.netRaiseAfterFee,
+feeDistribution: launch?.fee_distribution_json || feeDistribution || null,
+allocationsBuilt,
+marketBootstrap,
+mintAddress:
+marketBootstrap?.mintAddress ||
+cleanText(launch?.contract_address, 120) ||
+null,
+mintSource: marketBootstrap?.mintSource || null,
+tokenId: marketBootstrap?.tokenId || null,
+poolId: marketBootstrap?.poolId || null,
+finalSupply: String(launch?.final_supply || allocationResult?.finalSupply || ""),
+unsoldParticipantTokensBurned: String(
+launch?.unsold_participant_tokens_burned ||
+allocationResult?.unsoldParticipantTokensBurned ||
+"0"
+),
+unusedBonusTokensBurned: String(
+launch?.unused_bonus_tokens_burned ||
+allocationResult?.unusedBonusTokensBurned ||
+"0"
+),
+internalPoolSol: safeNum(
+launch?.internal_pool_sol,
+allocationResult?.internalPoolSol || 0
+),
+internalPoolTokens: String(
+launch?.internal_pool_tokens ||
+allocationResult?.internalPoolTokens ||
+"0"
+),
+raydiumLiquidityTokensReserved: String(
+launch?.raydium_liquidity_tokens_reserved ||
+allocationResult?.raydiumLiquidityTokensReserved ||
+"0"
+),
+liquidity: safeNum(launch?.liquidity, 0),
+circulatingSupply: safeNum(launch?.circulating_supply, 0),
+marketCap: safeNum(launch?.market_cap, 0),
+price: safeNum(launch?.price, 0),
+volume24h: safeNum(launch?.volume_24h, 0),
+launchResult: launch?.launch_result_json || allocationResult || null,
+};
+}
+
 async function getCommitStats(launchId) {
 const commitsTable = await db.get(
 `
@@ -445,6 +534,24 @@ reason: "builder bond not paid",
 };
 }
 
+if (launch.status === "live" && hasCompletedLiveBootstrap(launch)) {
+const stats = await getCommitStats(launchId);
+
+console.log(`Launch ${launchId} already finalized/live, skipping re-finalize`);
+
+return buildFinalizeSuccessResponse({
+launchId,
+launch,
+totalCommitted: stats.totalCommitted,
+participants: stats.participants,
+feeDistribution: launch.fee_distribution_json || null,
+allocationsBuilt: hasPersistedAllocationResult(launch),
+marketBootstrap: null,
+allocationResult: launch.launch_result_json || null,
+alreadyFinalized: true,
+});
+}
+
 if (launch.status === "countdown") {
 const countdownEnds = parseDbTime(launch.countdown_ends_at);
 
@@ -478,6 +585,22 @@ reason: "builder bond not paid",
 };
 }
 
+if (launch.status === "live" && hasCompletedLiveBootstrap(launch)) {
+console.log(`Launch ${launchId} finalized during sync window, skipping duplicate finalize`);
+
+return buildFinalizeSuccessResponse({
+launchId,
+launch,
+totalCommitted: stats.totalCommitted,
+participants: stats.participants,
+feeDistribution: launch.fee_distribution_json || null,
+allocationsBuilt: hasPersistedAllocationResult(launch),
+marketBootstrap: null,
+allocationResult: launch.launch_result_json || null,
+alreadyFinalized: true,
+});
+}
+
 const totalCommitted = safeNum(stats.totalCommitted, 0);
 const minRaise = safeNum(launch.min_raise_sol, 0);
 
@@ -506,6 +629,23 @@ return liveState;
 }
 
 const liveLaunch = liveState.launch || (await getLaunchById(launchId));
+
+if (liveLaunch?.status === "live" && hasCompletedLiveBootstrap(liveLaunch)) {
+console.log(`Launch ${launchId} already live before bootstrap step, returning persisted state`);
+
+return buildFinalizeSuccessResponse({
+launchId,
+launch: liveLaunch,
+totalCommitted,
+participants: stats.participants,
+feePlan,
+feeDistribution: liveLaunch.fee_distribution_json || feeDistribution,
+allocationsBuilt: hasPersistedAllocationResult(liveLaunch),
+marketBootstrap: null,
+allocationResult: liveLaunch.launch_result_json || null,
+alreadyFinalized: true,
+});
+}
 
 const { allocationResult, allocationsBuilt } = await ensureAllocationResult(
 launchId,
@@ -541,55 +681,16 @@ throw new Error("launch price missing after market bootstrap");
 
 console.log("Launch moved to LIVE:", launchId);
 
-return {
-ok: true,
+return buildFinalizeSuccessResponse({
 launchId,
+launch: finalLaunch,
 totalCommitted,
 participants: stats.participants,
-launchFeePct: feePlan.launchFeePct,
-feeTotal: feePlan.feeTotal,
-coreFee: feePlan.coreFee,
-buybackFee: feePlan.buybackFee,
-treasuryFee: feePlan.treasuryFee,
-netRaise: feePlan.netRaiseAfterFee,
+feePlan,
 feeDistribution: finalLaunch.fee_distribution_json || feeDistribution,
 allocationsBuilt,
 marketBootstrap,
-mintAddress:
-marketBootstrap?.mintAddress || cleanText(finalLaunch.contract_address, 120),
-mintSource: marketBootstrap?.mintSource || null,
-tokenId: marketBootstrap?.tokenId || null,
-poolId: marketBootstrap?.poolId || null,
-finalSupply: String(finalLaunch.final_supply || allocationResult?.finalSupply || ""),
-unsoldParticipantTokensBurned: String(
-finalLaunch.unsold_participant_tokens_burned ||
-allocationResult?.unsoldParticipantTokensBurned ||
-"0"
-),
-unusedBonusTokensBurned: String(
-finalLaunch.unused_bonus_tokens_burned ||
-allocationResult?.unusedBonusTokensBurned ||
-"0"
-),
-internalPoolSol: safeNum(
-finalLaunch.internal_pool_sol,
-allocationResult?.internalPoolSol || 0
-),
-internalPoolTokens: String(
-finalLaunch.internal_pool_tokens ||
-allocationResult?.internalPoolTokens ||
-"0"
-),
-raydiumLiquidityTokensReserved: String(
-finalLaunch.raydium_liquidity_tokens_reserved ||
-allocationResult?.raydiumLiquidityTokensReserved ||
-"0"
-),
-liquidity: safeNum(finalLaunch.liquidity, 0),
-circulatingSupply: safeNum(finalLaunch.circulating_supply, 0),
-marketCap: safeNum(finalLaunch.market_cap, 0),
-price: safeNum(finalLaunch.price, 0),
-volume24h: safeNum(finalLaunch.volume_24h, 0),
-launchResult: finalLaunch.launch_result_json || allocationResult || null,
-};
+allocationResult,
+alreadyFinalized: false,
+});
 }

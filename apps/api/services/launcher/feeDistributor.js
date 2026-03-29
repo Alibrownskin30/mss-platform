@@ -10,6 +10,11 @@ treasury: 0.2,
 const LAMPORTS_PER_SOL = 1_000_000_000;
 const ESCROW_FEE_BUFFER_LAMPORTS = 10000;
 
+const RPC_COMMITMENT = "confirmed";
+const RPC_RETRY_ATTEMPTS = 4;
+const RPC_RETRY_DELAY_MS = 1200;
+const CONFIRM_TIMEOUT_MS = 60000;
+
 function clean(value, max = 5000) {
 return String(value ?? "").trim().slice(0, max);
 }
@@ -29,6 +34,10 @@ function lamportsToSol(lamports) {
 const n = Number(lamports);
 if (!Number.isFinite(n) || n <= 0) return 0;
 return n / LAMPORTS_PER_SOL;
+}
+
+function sleep(ms) {
+return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 function getRpcUrl() {
@@ -76,6 +85,77 @@ throw new Error(`${label} is invalid: ${err?.message || err}`);
 }
 }
 
+function buildConnection() {
+return new Connection(getRpcUrl(), {
+commitment: RPC_COMMITMENT,
+confirmTransactionInitialTimeout: CONFIRM_TIMEOUT_MS,
+});
+}
+
+async function withRpcRetry(label, fn, attempts = RPC_RETRY_ATTEMPTS) {
+let lastError = null;
+
+for (let i = 1; i <= attempts; i += 1) {
+try {
+return await fn();
+} catch (err) {
+lastError = err;
+const isLast = i >= attempts;
+
+console.warn(
+`[feeDistributor] ${label} attempt ${i}/${attempts} failed:`,
+err?.message || err
+);
+
+if (isLast) break;
+await sleep(RPC_RETRY_DELAY_MS * i);
+}
+}
+
+throw new Error(
+`${label} failed after ${attempts} attempts: ${lastError?.message || lastError}`
+);
+}
+
+async function getLatestBlockhashWithRetry(connection) {
+return withRpcRetry("getLatestBlockhash", async () => {
+return connection.getLatestBlockhash(RPC_COMMITMENT);
+});
+}
+
+async function getBalanceWithRetry(connection, pubkey) {
+return withRpcRetry("getBalance", async () => {
+return connection.getBalance(pubkey, RPC_COMMITMENT);
+});
+}
+
+async function sendTransactionWithRetry(connection, tx, signer) {
+return withRpcRetry("sendTransaction", async () => {
+return connection.sendTransaction(tx, [signer], {
+skipPreflight: false,
+preflightCommitment: RPC_COMMITMENT,
+maxRetries: 3,
+});
+});
+}
+
+async function confirmTransactionWithRetry(connection, confirmationPayload) {
+return withRpcRetry("confirmTransaction", async () => {
+const confirmation = await connection.confirmTransaction(
+confirmationPayload,
+RPC_COMMITMENT
+);
+
+if (confirmation?.value?.err) {
+throw new Error(
+`transfer confirmation failed: ${JSON.stringify(confirmation.value.err)}`
+);
+}
+
+return confirmation;
+});
+}
+
 async function sendLamports({
 connection,
 signer,
@@ -88,7 +168,7 @@ return null;
 
 const toPubkey = new PublicKey(destinationWallet);
 const { blockhash, lastValidBlockHeight } =
-await connection.getLatestBlockhash("confirmed");
+await getLatestBlockhashWithRetry(connection);
 
 const tx = new Transaction({
 feePayer: signer.publicKey,
@@ -101,19 +181,13 @@ lamports,
 })
 );
 
-const signature = await connection.sendTransaction(tx, [signer], {
-skipPreflight: false,
-preflightCommitment: "confirmed",
+const signature = await sendTransactionWithRetry(connection, tx, signer);
+
+await confirmTransactionWithRetry(connection, {
+signature,
+blockhash,
+lastValidBlockHeight,
 });
-
-const confirmation = await connection.confirmTransaction(
-{ signature, blockhash, lastValidBlockHeight },
-"confirmed"
-);
-
-if (confirmation?.value?.err) {
-throw new Error(`transfer confirmation failed for ${destinationWallet}`);
-}
 
 return signature;
 }
@@ -208,7 +282,7 @@ transfers: [],
 };
 }
 
-const connection = new Connection(getRpcUrl(), "confirmed");
+const connection = buildConnection();
 const signer = getEscrowKeypair();
 const transferPlan = buildTransferPlan(breakdown);
 
@@ -222,9 +296,9 @@ transfers: [],
 };
 }
 
-const escrowBalanceLamports = await connection.getBalance(
-signer.publicKey,
-"confirmed"
+const escrowBalanceLamports = await getBalanceWithRetry(
+connection,
+signer.publicKey
 );
 
 const requiredLamports =

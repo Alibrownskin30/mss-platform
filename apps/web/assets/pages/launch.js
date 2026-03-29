@@ -10,6 +10,9 @@ sendSolTransfer,
 } from "../wallet.js";
 import { initLaunchMarket } from "../../js/launch-market.js";
 
+const BASE_REFRESH_INTERVAL_MS = 15000;
+const RENDER_TICK_MS = 1000;
+
 function $(id) {
 return document.getElementById(id);
 }
@@ -136,6 +139,11 @@ if (status === "live") return "live";
 if (status === "graduated") return "graduated";
 if (status === "failed" || status === "failed_refunded") return "failed";
 return "commit";
+}
+
+function isLiveLikeStatus(status) {
+const value = String(status || "").toLowerCase();
+return value === "live" || value === "graduated";
 }
 
 function getBuilderTrust(score) {
@@ -1093,7 +1101,7 @@ commitStats: currentCommitStats || {},
 if (forceRefresh && typeof launchMarketController.setBaseState === "function") {
 launchMarketController.setBaseState(currentLaunch || null, currentCommitStats || {}, { restartPolling: true });
 if (
-String(currentLaunch?.status || "") === "live" &&
+isLiveLikeStatus(currentLaunch?.status) &&
 typeof launchMarketController.refreshLiveMarketOnly === "function"
 ) {
 await launchMarketController.refreshLiveMarketOnly({ force: true });
@@ -1119,7 +1127,7 @@ launchMarketController.applyAll();
 
 if (
 forceRefresh &&
-String(currentLaunch?.status || "") === "live" &&
+isLiveLikeStatus(currentLaunch?.status) &&
 typeof launchMarketController.refreshLiveMarketOnly === "function"
 ) {
 await launchMarketController.refreshLiveMarketOnly({ force: true });
@@ -1262,6 +1270,7 @@ updateWalletUi();
 try {
 await disconnectAnyWallet();
 } catch {
+// no-op
 } finally {
 walletActionInFlight = false;
 updateWalletUi();
@@ -1551,7 +1560,7 @@ await refresh({ syncMarket: false });
 } catch (err) {
 console.error(err);
 }
-}, 15000);
+}, BASE_REFRESH_INTERVAL_MS);
 
 renderIntervalId = setInterval(() => {
 if (!currentLaunch || !currentCommitStats) return;
@@ -1579,7 +1588,7 @@ countdownRefreshRequested = false;
 if (status !== lastRenderedPhaseStatus && !refreshInFlight) {
 void refresh({ syncMarket: true }).catch((err) => console.error(err));
 }
-}, 1000);
+}, RENDER_TICK_MS);
 }
 
 init();

@@ -45,6 +45,10 @@ const num = Number(value);
 return Number.isFinite(num) ? num : fallback;
 }
 
+function toInt(value, fallback = 0) {
+return Math.max(0, Math.floor(toNumber(value, fallback)));
+}
+
 function cleanString(value, max = 2000) {
 return String(value ?? "").trim().slice(0, max);
 }
@@ -212,6 +216,9 @@ created_at: raw?.created_at || null,
 updated_at: raw?.updated_at || null,
 final_supply: raw?.final_supply ?? "",
 supply: raw?.supply ?? "",
+builder_wallet: cleanString(raw?.builder_wallet, 200),
+builder_alias: cleanString(raw?.builder_alias, 200),
+builder_score: toNumber(raw?.builder_score, 0),
 };
 }
 
@@ -1047,7 +1054,7 @@ const stats = tokenPayload?.stats || {};
 
 const tokenBalance = Math.max(
 0,
-toNumber(
+toInt(
 wallet?.token_balance ??
 wallet?.tokenBalance ??
 wallet?.balance_tokens ??
@@ -1060,6 +1067,61 @@ chartStats?.wallet_balance_tokens ??
 fallbackTokenBalance ??
 0,
 0
+)
+);
+
+const totalBalance = Math.max(
+tokenBalance,
+toInt(
+wallet?.total_balance ??
+wallet?.totalBalance ??
+tokenPayload?.wallet_total_balance ??
+chartStats?.wallet_total_balance ??
+tokenBalance,
+tokenBalance
+)
+);
+
+const unlockedBalance = Math.max(
+0,
+toInt(
+wallet?.unlocked_balance ??
+wallet?.unlockedBalance ??
+wallet?.sellable_balance ??
+wallet?.sellableBalance ??
+tokenPayload?.wallet_unlocked_balance ??
+tokenPayload?.wallet_sellable_balance ??
+chartStats?.wallet_unlocked_balance ??
+chartStats?.wallet_sellable_balance ??
+tokenBalance,
+tokenBalance
+)
+);
+
+const lockedBalance = Math.max(
+0,
+toInt(
+wallet?.locked_balance ??
+wallet?.lockedBalance ??
+tokenPayload?.wallet_locked_balance ??
+chartStats?.wallet_locked_balance ??
+Math.max(0, totalBalance - unlockedBalance),
+Math.max(0, totalBalance - unlockedBalance)
+)
+);
+
+const sellableBalance = Math.max(
+0,
+Math.min(
+tokenBalance,
+toInt(
+wallet?.sellable_balance ??
+wallet?.sellableBalance ??
+tokenPayload?.wallet_sellable_balance ??
+chartStats?.wallet_sellable_balance ??
+unlockedBalance,
+unlockedBalance
+)
 )
 );
 
@@ -1086,10 +1148,30 @@ chartStats?.wallet_sol_delta ??
 0
 );
 
+const isBuilderWallet = Boolean(
+wallet?.is_builder_wallet ??
+tokenPayload?.wallet_is_builder ??
+chartStats?.wallet_is_builder ??
+false
+);
+
+const vestingActive = Boolean(
+wallet?.vesting_active ??
+tokenPayload?.wallet_vesting_active ??
+chartStats?.wallet_vesting_active ??
+false
+);
+
 return {
 tokenBalance,
+totalBalance,
+unlockedBalance,
+lockedBalance,
+sellableBalance,
 positionValueUsd,
 solBalance,
+isBuilderWallet,
+vestingActive,
 };
 }
 
@@ -1109,9 +1191,26 @@ if (!show) return;
 const summary = getWalletSummaryData(tokenPayload, chartStats, fallbackTokenBalance);
 const hasWallet = Boolean(String(connectedWallet || "").trim());
 
-tokenBalanceEl.textContent = hasWallet ? `${formatTokenAmount(summary.tokenBalance, 0)} tokens` : "Connect wallet";
-positionValueEl.textContent = hasWallet ? (summary.positionValueUsd > 0 ? formatUsd(summary.positionValueUsd, 2) : "$0") : "—";
-solBalanceEl.textContent = hasWallet ? formatSol(summary.solBalance, 4) : "—";
+if (!hasWallet) {
+tokenBalanceEl.textContent = "Connect wallet";
+positionValueEl.textContent = "—";
+solBalanceEl.textContent = "—";
+return;
+}
+
+if (summary.isBuilderWallet && summary.vestingActive) {
+tokenBalanceEl.innerHTML = `
+<div>${formatTokenAmount(summary.sellableBalance, 0)} sellable</div>
+<div style="margin-top:4px;font-size:12px;opacity:.68;">
+${formatTokenAmount(summary.lockedBalance, 0)} locked
+</div>
+`;
+} else {
+tokenBalanceEl.textContent = `${formatTokenAmount(summary.tokenBalance, 0)} tokens`;
+}
+
+positionValueEl.textContent = summary.positionValueUsd > 0 ? formatUsd(summary.positionValueUsd, 2) : "$0";
+solBalanceEl.textContent = formatSol(summary.solBalance, 4);
 }
 
 function updateAccessCard(
@@ -1141,7 +1240,7 @@ card.classList.toggle("hidden", !show);
 if (!show) return;
 
 const walletSummary = getWalletSummaryData(tokenPayload, chartStats, fallbackTokenBalance);
-const totalSupply = toNumber(
+const totalSupply = toInt(
 tokenPayload?.token?.supply ??
 launch?.final_supply ??
 launch?.supply ??
@@ -1149,7 +1248,7 @@ chartStats?.total_supply,
 0
 );
 
-const backendMaxWallet = toNumber(
+const backendMaxWallet = toInt(
 quotePayload?.quote?.maxWallet ??
 quotePayload?.quote?.maxWalletTokens ??
 quotePayload?.maxWallet ??
@@ -1163,21 +1262,38 @@ const localMaxWalletTokens = totalSupply > 0
 : 0;
 
 const maxWalletTokens = backendMaxWallet > 0 ? backendMaxWallet : localMaxWalletTokens;
+const effectiveHolding = walletSummary.isBuilderWallet && walletSummary.vestingActive
+? walletSummary.sellableBalance
+: walletSummary.tokenBalance;
 const remaining = maxWalletTokens > 0
-? Math.max(0, maxWalletTokens - walletSummary.tokenBalance)
+? Math.max(0, maxWalletTokens - effectiveHolding)
 : 0;
 
 statePill.classList.remove("is-open", "is-restricted");
 statePill.classList.add("is-open");
 
-tierLabel.textContent = maxWalletTokens > 0 ? "Wallet Access Controls" : "Open Access";
+tierLabel.textContent = walletSummary.isBuilderWallet
+? "Builder Access Controls"
+: maxWalletTokens > 0
+? "Wallet Access Controls"
+: "Open Access";
+
 statePill.textContent = "Live";
 
 limitValue.textContent = maxWalletTokens > 0
 ? `${formatTokenAmount(maxWalletTokens, 0)} tokens`
 : "Open";
 
+if (walletSummary.isBuilderWallet && walletSummary.vestingActive) {
+holdingValue.innerHTML = `
+<div>${formatTokenAmount(walletSummary.sellableBalance, 0)} sellable</div>
+<div style="margin-top:4px;font-size:12px;opacity:.68;">
+${formatTokenAmount(walletSummary.lockedBalance, 0)} locked
+</div>
+`;
+} else {
 holdingValue.textContent = `${formatTokenAmount(walletSummary.tokenBalance, 0)} tokens`;
+}
 
 remainingValue.textContent = maxWalletTokens > 0
 ? `${formatTokenAmount(remaining, 0)} tokens`
@@ -1187,9 +1303,13 @@ totalSupplyValue.textContent = totalSupply > 0
 ? `${formatTokenAmount(totalSupply, 0)} tokens`
 : "—";
 
+if (walletSummary.isBuilderWallet && walletSummary.vestingActive) {
+schedule.textContent = `Builder vesting is active. Only unlocked tokens are treated as currently sellable. Current public cap is ${formatPercent(localMaxWalletPct, 2)} of total supply, while builder holdings are tracked separately.`;
+} else {
 schedule.textContent = maxWalletTokens > 0
 ? `Wallet concentration controls remain active. Current cap is ${formatPercent(localMaxWalletPct, 2)} of total supply.`
 : "No wallet concentration limit detected for the current live phase.";
+}
 }
 
 async function fetchJson(path, options = {}) {
@@ -1717,7 +1837,7 @@ return getWalletSummaryData(
 this.tokenPayload,
 this.chartStats,
 this.walletTokenBalanceFallback
-).tokenBalance;
+).sellableBalance;
 }
 
 syncSellQuickButtons() {
