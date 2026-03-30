@@ -219,6 +219,12 @@ supply: raw?.supply ?? "",
 builder_wallet: cleanString(raw?.builder_wallet, 200),
 builder_alias: cleanString(raw?.builder_alias, 200),
 builder_score: toNumber(raw?.builder_score, 0),
+token_name: cleanString(raw?.token_name, 200),
+symbol: cleanString(raw?.symbol, 80),
+website_url: cleanString(raw?.website_url, 500),
+x_url: cleanString(raw?.x_url, 500),
+telegram_url: cleanString(raw?.telegram_url, 500),
+discord_url: cleanString(raw?.discord_url, 500),
 };
 }
 
@@ -251,15 +257,9 @@ merged.mint_reservation_status === "finalized" ||
 Boolean(strongestContract);
 
 if (hasFinalizedSignal) {
-if (
-prevStatus === "graduated" ||
-nextStatus === "graduated"
-) {
+if (prevStatus === "graduated" || nextStatus === "graduated") {
 merged.status = "graduated";
-} else if (
-prevStatus === "live" ||
-nextStatus === "live"
-) {
+} else if (prevStatus === "live" || nextStatus === "live") {
 merged.status = "live";
 } else {
 const liveAtMs = parseDateMs(next.live_at || prev.live_at);
@@ -1312,6 +1312,32 @@ schedule.textContent = maxWalletTokens > 0
 }
 }
 
+function clearLiveOnlyUi() {
+const walletSummary = $("marketWalletSummary");
+const accessCard = $("marketAccessCard");
+const recentTradesList = $("recentTradesList");
+
+if (walletSummary) walletSummary.classList.add("hidden");
+if (accessCard) accessCard.classList.add("hidden");
+
+if ($("walletTokenBalanceValue")) $("walletTokenBalanceValue").textContent = "—";
+if ($("walletPositionValueValue")) $("walletPositionValueValue").textContent = "—";
+if ($("walletSolBalanceValue")) $("walletSolBalanceValue").textContent = "—";
+
+if ($("marketAccessLimitValue")) $("marketAccessLimitValue").textContent = "—";
+if ($("marketAccessHoldingValue")) $("marketAccessHoldingValue").textContent = "—";
+if ($("marketAccessRemainingValue")) $("marketAccessRemainingValue").textContent = "—";
+if ($("marketTotalSupplyValue")) $("marketTotalSupplyValue").textContent = "—";
+if ($("marketAccessSchedule")) $("marketAccessSchedule").textContent = "Allocation controls active.";
+
+if (recentTradesList) {
+recentTradesList.innerHTML = `<div class="recent-trades-empty">No trades yet.</div>`;
+}
+
+setTradeMessage("");
+resetTradeQuoteUi();
+}
+
 async function fetchJson(path, options = {}) {
 const apiBase = window.API_BASE || getApiBase();
 
@@ -1715,11 +1741,19 @@ this.applyAll();
 
 if (this.chartRenderer) {
 this.chartRenderer.setInterval(this.currentInterval);
+if (typeof this.chartRenderer.updateData === "function") {
 this.chartRenderer.updateData({
 candles: this.candles,
 trades: this.trades,
 stats: this.chartStats,
 });
+} else if (typeof this.chartRenderer.setData === "function") {
+this.chartRenderer.setData({
+candles: this.candles,
+trades: this.trades,
+stats: this.chartStats,
+});
+}
 }
 })();
 
@@ -1787,9 +1821,11 @@ syncMarketShellLayout();
 syncChartSizing(this.phase);
 
 if (this.phase === PHASES.COMMIT) {
+clearLiveOnlyUi();
 updateStatsForCommit(this.launch, this.commitStats);
 renderCassiePanel(this.phase, this.launch, this.tokenPayload, this.chartStats);
 } else if (this.phase === PHASES.COUNTDOWN) {
+clearLiveOnlyUi();
 updateStatsForCountdown(this.launch, this.commitStats);
 updateCountdownUi(this.launch, this.commitStats);
 renderCassiePanel(this.phase, this.launch, this.tokenPayload, this.chartStats);
@@ -1816,11 +1852,19 @@ renderCassiePanel(this.phase, this.launch, this.tokenPayload, this.chartStats);
 
 if (this.chartRenderer) {
 this.chartRenderer.setInterval(this.currentInterval);
+if (typeof this.chartRenderer.setData === "function") {
 this.chartRenderer.setData({
 candles: this.candles,
 trades: this.trades,
 stats: this.chartStats,
 });
+} else if (typeof this.chartRenderer.updateData === "function") {
+this.chartRenderer.updateData({
+candles: this.candles,
+trades: this.trades,
+stats: this.chartStats,
+});
+}
 }
 }
 

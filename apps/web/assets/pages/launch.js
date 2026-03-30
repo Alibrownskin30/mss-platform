@@ -600,6 +600,18 @@ if (countdownStartedAt <= commitStartedAt) return null;
 return countdownStartedAt - commitStartedAt;
 }
 
+function getCurrentLaunchEconomicsElements() {
+return {
+launchFeePctEl: $("launchFeePctStat"),
+totalFeeSolEl: $("totalFeeSolStat"),
+founderFeeSolEl: $("founderFeeSolStat"),
+buybackFeeSolEl: $("buybackFeeSolStat"),
+treasuryFeeSolEl: $("treasuryFeeSolStat"),
+netRaiseAfterFeeEl: $("netRaiseAfterFeeStat"),
+liquidityFundingEl: $("liquidityFundingStat"),
+};
+}
+
 function buildFeeBreakdown(launch, committed) {
 const launchFeePct = safeNum(launch.launch_fee_pct, 5);
 const totalCommitted = safeNum(committed, 0);
@@ -623,13 +635,15 @@ liquidityFunding,
 }
 
 function renderLaunchEconomics(launch, committed) {
-const launchFeePctEl = $("launchFeePctStat");
-const totalFeeSolEl = $("totalFeeSolStat");
-const founderFeeSolEl = $("founderFeeSolStat");
-const buybackFeeSolEl = $("buybackFeeSolStat");
-const treasuryFeeSolEl = $("treasuryFeeSolStat");
-const netRaiseAfterFeeEl = $("netRaiseAfterFeeStat");
-const liquidityFundingEl = $("liquidityFundingStat");
+const {
+launchFeePctEl,
+totalFeeSolEl,
+founderFeeSolEl,
+buybackFeeSolEl,
+treasuryFeeSolEl,
+netRaiseAfterFeeEl,
+liquidityFundingEl,
+} = getCurrentLaunchEconomicsElements();
 
 if (
 !launchFeePctEl ||

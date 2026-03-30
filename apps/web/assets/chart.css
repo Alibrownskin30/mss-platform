@@ -1,8 +1,10 @@
 :root{
 --panel-bg-1:rgba(255,255,255,.055);
 --panel-bg-2:rgba(255,255,255,.025);
+--panel-bg-3:rgba(255,255,255,.016);
 --panel-line:rgba(255,255,255,.10);
 --panel-line-soft:rgba(255,255,255,.07);
+--panel-line-strong:rgba(255,255,255,.14);
 --text-main:rgba(255,255,255,.94);
 --text-soft:rgba(255,255,255,.70);
 --text-faint:rgba(255,255,255,.54);
@@ -10,29 +12,47 @@
 --commit:#ffd166;
 --countdown:#ff5b6b;
 --live:#35f5a3;
+--accent-a:rgba(58,160,255,.92);
+--accent-b:rgba(0,255,209,.92);
 
 --shadow-lg:0 30px 90px rgba(0,0,0,.42);
 --shadow-md:0 18px 50px rgba(0,0,0,.34);
---radius-xl:24px;
---radius-lg:18px;
+--shadow-sm:0 10px 28px rgba(0,0,0,.24);
+--radius-xl:28px;
+--radius-lg:20px;
 --radius-md:14px;
 }
 
 .launch-market-wrap{
 display:grid;
-gap:12px;
+gap:14px;
 }
+
+/* =========================
+HERO / IDENTITY
+========================= */
 
 .launch-hero-shell{
 position:relative;
 overflow:hidden;
-border-radius:26px;
+border-radius:30px;
 border:1px solid var(--panel-line);
 background:
-radial-gradient(circle at 12% 12%, rgba(58,160,255,.13), transparent 26%),
-radial-gradient(circle at 88% 20%, rgba(0,255,209,.11), transparent 22%),
-linear-gradient(180deg, rgba(255,255,255,.055), rgba(255,255,255,.022));
+radial-gradient(circle at 10% 0%, rgba(58,160,255,.18), transparent 26%),
+radial-gradient(circle at 92% 12%, rgba(0,255,209,.12), transparent 22%),
+linear-gradient(180deg, rgba(255,255,255,.060), rgba(255,255,255,.020));
 box-shadow:var(--shadow-lg);
+isolation:isolate;
+}
+
+.launch-hero-shell::before{
+content:"";
+position:absolute;
+inset:0;
+pointer-events:none;
+background:
+linear-gradient(120deg, rgba(255,255,255,.05), transparent 20%, transparent 80%, rgba(255,255,255,.03)),
+radial-gradient(circle at 50% 0%, rgba(255,255,255,.03), transparent 48%);
 }
 
 .launch-hero-backdrop{
@@ -61,8 +81,8 @@ z-index:1;
 display:flex;
 justify-content:space-between;
 align-items:flex-start;
-gap:14px;
-padding:16px 18px;
+gap:16px;
+padding:18px 20px;
 min-height:unset;
 }
 
@@ -82,49 +102,49 @@ align-items:flex-start;
 flex-direction:column;
 align-items:flex-end;
 justify-content:flex-start;
-min-width:310px;
-width:350px;
+min-width:330px;
+width:370px;
 }
 
 .launch-token-brand{
 display:flex;
 align-items:flex-start;
-gap:14px;
+gap:15px;
 min-width:0;
 width:100%;
 }
 
 .launch-token-logo-shell{
 position:relative;
-width:64px;
-height:64px;
+width:68px;
+height:68px;
 flex:0 0 auto;
 }
 
 .launch-token-logo-ring{
 position:absolute;
 inset:0;
-border-radius:18px;
+border-radius:20px;
 background:
 linear-gradient(145deg, rgba(255,255,255,.18), rgba(255,255,255,.03)),
-linear-gradient(180deg, rgba(0,255,209,.08), rgba(58,160,255,.08));
+linear-gradient(180deg, rgba(0,255,209,.10), rgba(58,160,255,.10));
 box-shadow:
 inset 0 1px 0 rgba(255,255,255,.18),
 0 0 0 1px rgba(255,255,255,.08),
-0 18px 35px rgba(0,0,0,.28);
+0 22px 40px rgba(0,0,0,.30);
 }
 
 .launch-token-logo{
 position:absolute;
 inset:6px;
-border-radius:15px;
+border-radius:16px;
 display:grid;
 place-items:center;
 font-weight:900;
-font-size:21px;
+font-size:22px;
 color:#fff;
 background:
-radial-gradient(circle at 30% 20%, rgba(255,255,255,.16), transparent 40%),
+radial-gradient(circle at 30% 20%, rgba(255,255,255,.18), transparent 40%),
 linear-gradient(180deg, rgba(20,24,36,.98), rgba(11,14,22,.98));
 border:1px solid rgba(255,255,255,.08);
 }
@@ -148,15 +168,15 @@ min-width:0;
 
 .launch-token-name{
 margin:0;
-font-size:30px;
-line-height:1.02;
-letter-spacing:-.03em;
+font-size:32px;
+line-height:1;
+letter-spacing:-.04em;
 color:var(--text-main);
 text-shadow:0 1px 0 rgba(255,255,255,.04);
 }
 
 .launch-token-subrow{
-margin-top:8px;
+margin-top:9px;
 display:flex;
 gap:8px;
 flex-wrap:wrap;
@@ -167,8 +187,8 @@ font-size:13px;
 
 .launch-token-symbol{
 color:#fff;
-font-weight:700;
-letter-spacing:.04em;
+font-weight:800;
+letter-spacing:.05em;
 }
 
 .launch-token-divider{
@@ -192,15 +212,17 @@ align-items:flex-start;
 display:inline-flex;
 align-items:center;
 gap:8px;
-min-height:30px;
-padding:0 11px;
+min-height:32px;
+padding:0 12px;
 border-radius:999px;
 font-size:10px;
-font-weight:800;
-letter-spacing:.12em;
+font-weight:900;
+letter-spacing:.14em;
 border:1px solid rgba(255,255,255,.12);
 backdrop-filter:blur(12px);
-box-shadow:inset 0 1px 0 rgba(255,255,255,.08);
+box-shadow:
+inset 0 1px 0 rgba(255,255,255,.08),
+0 8px 20px rgba(0,0,0,.18);
 }
 
 .launch-phase-badge-dot{
@@ -230,14 +252,14 @@ border-color:rgba(53,245,163,.24);
 }
 
 .launch-token-meta-strip{
-margin-top:10px;
+margin-top:12px;
 display:flex;
 flex-wrap:wrap;
 gap:8px;
 }
 
 .launch-meta-pill{
-min-height:30px;
+min-height:31px;
 padding:0 10px;
 border-radius:999px;
 display:inline-flex;
@@ -258,19 +280,21 @@ text-transform:uppercase;
 .launch-meta-pill-value{
 color:#fff;
 font-size:12px;
-font-weight:700;
+font-weight:800;
 }
 
 .launch-ca-card,
 .launch-links-card,
 .cassie-card{
 width:100%;
-border-radius:16px;
+border-radius:18px;
 border:1px solid rgba(255,255,255,.09);
 background:
 linear-gradient(180deg, rgba(255,255,255,.05), rgba(255,255,255,.025));
 padding:12px;
-box-shadow:inset 0 1px 0 rgba(255,255,255,.04);
+box-shadow:
+inset 0 1px 0 rgba(255,255,255,.04),
+var(--shadow-sm);
 }
 
 .launch-ca-card-top,
@@ -305,16 +329,17 @@ align-items:center;
 justify-content:space-between;
 gap:14px;
 width:100%;
-min-height:42px;
+min-height:44px;
 padding:0 12px;
-border-radius:12px;
+border-radius:13px;
 border:1px solid rgba(255,255,255,.10);
 background:
 radial-gradient(circle at top left, rgba(255,255,255,.06), transparent 45%),
 linear-gradient(180deg, rgba(255,255,255,.045), rgba(255,255,255,.025));
 color:var(--text-main);
 cursor:pointer;
-transition:transform .18s ease, background .18s ease, border-color .18s ease;
+transition:transform .18s ease, background .18s ease, border-color .18s ease, box-shadow .18s ease;
+box-shadow:inset 0 1px 0 rgba(255,255,255,.05);
 }
 
 .launch-ca-pill:hover,
@@ -324,6 +349,9 @@ background:
 radial-gradient(circle at top left, rgba(255,255,255,.09), transparent 45%),
 linear-gradient(180deg, rgba(255,255,255,.06), rgba(255,255,255,.03));
 border-color:rgba(255,255,255,.14);
+box-shadow:
+inset 0 1px 0 rgba(255,255,255,.06),
+0 10px 22px rgba(0,0,0,.22);
 }
 
 .launch-ca-copy-wrap{
@@ -345,7 +373,7 @@ gap:8px;
 }
 
 .launch-link-chip{
-min-height:32px;
+min-height:33px;
 padding:0 11px;
 border-radius:999px;
 display:inline-flex;
@@ -368,9 +396,9 @@ linear-gradient(180deg, rgba(255,255,255,.08), rgba(255,255,255,.03));
 }
 
 .launch-manage-links-btn{
-min-height:30px;
+min-height:31px;
 padding:0 11px;
-border-radius:10px;
+border-radius:11px;
 border:1px solid rgba(255,255,255,.10);
 background:rgba(255,255,255,.05);
 color:#fff;
@@ -431,7 +459,7 @@ margin-top:8px;
 border-radius:12px;
 border:1px solid rgba(255,255,255,.08);
 background:rgba(255,255,255,.03);
-padding:9px 10px;
+padding:10px;
 min-width:0;
 }
 
@@ -465,13 +493,23 @@ MARKET CARD
 .market-card{
 position:relative;
 overflow:hidden;
-border-radius:28px;
+border-radius:30px;
 border:1px solid var(--panel-line);
 background:
-radial-gradient(circle at 12% 0%, rgba(58,160,255,.08), transparent 24%),
-radial-gradient(circle at 88% 8%, rgba(0,255,209,.07), transparent 20%),
+radial-gradient(circle at 12% 0%, rgba(58,160,255,.09), transparent 24%),
+radial-gradient(circle at 88% 8%, rgba(0,255,209,.08), transparent 20%),
 linear-gradient(180deg, rgba(255,255,255,.06), rgba(255,255,255,.022));
 box-shadow:var(--shadow-lg);
+isolation:isolate;
+}
+
+.market-card::before{
+content:"";
+position:absolute;
+inset:0;
+pointer-events:none;
+background:
+linear-gradient(120deg, rgba(255,255,255,.045), transparent 16%, transparent 84%, rgba(255,255,255,.02));
 }
 
 .market-card-frame{
@@ -534,7 +572,7 @@ display:flex;
 align-items:flex-start;
 justify-content:space-between;
 gap:14px;
-padding:14px 16px 10px;
+padding:16px 18px 10px;
 border-bottom:1px solid var(--panel-line-soft);
 }
 
@@ -564,9 +602,9 @@ color:var(--text-faint);
 
 .market-card-title{
 margin:0;
-font-size:24px;
+font-size:26px;
 line-height:1;
-letter-spacing:-.03em;
+letter-spacing:-.04em;
 color:#fff;
 }
 
@@ -576,7 +614,7 @@ align-items:center;
 }
 
 .market-status-pill{
-min-height:28px;
+min-height:29px;
 padding:0 10px;
 border-radius:999px;
 display:inline-flex;
@@ -636,7 +674,7 @@ margin-top:8px;
 
 .chart-ca-chip{
 width:auto;
-min-width:190px;
+min-width:200px;
 }
 
 .chart-ca-chip-left{
@@ -676,7 +714,7 @@ pointer-events:none;
 }
 
 .market-timeframe{
-min-height:30px;
+min-height:31px;
 padding:0 10px;
 border-radius:10px;
 border:1px solid rgba(255,255,255,.10);
@@ -700,6 +738,7 @@ background:
 linear-gradient(180deg, rgba(255,255,255,.13), rgba(255,255,255,.06));
 border-color:rgba(255,255,255,.16);
 color:#fff;
+box-shadow:0 0 0 1px rgba(255,255,255,.03) inset;
 }
 
 .market-live-kpis{
@@ -714,15 +753,17 @@ z-index:2;
 .market-live-kpi{
 position:relative;
 overflow:hidden;
-border-radius:14px;
+border-radius:16px;
 border:1px solid rgba(255,255,255,.09);
 background:
 radial-gradient(circle at top left, rgba(255,255,255,.05), transparent 42%),
 linear-gradient(180deg, rgba(255,255,255,.05), rgba(255,255,255,.026));
-padding:9px 10px;
-box-shadow:inset 0 1px 0 rgba(255,255,255,.05);
+padding:10px 11px;
+box-shadow:
+inset 0 1px 0 rgba(255,255,255,.05),
+0 10px 22px rgba(0,0,0,.18);
 min-width:0;
-min-height:68px;
+min-height:70px;
 display:flex;
 flex-direction:column;
 justify-content:center;
@@ -753,14 +794,14 @@ background:linear-gradient(90deg, rgba(53,245,163,.45), transparent);
 .market-live-kpi-label{
 color:rgba(255,255,255,.54);
 font-size:10px;
-letter-spacing:.08em;
+letter-spacing:.09em;
 text-transform:uppercase;
 margin-bottom:4px;
 }
 
 .market-live-kpi-value{
 font-size:15px;
-font-weight:800;
+font-weight:900;
 line-height:1.05;
 color:#fff;
 letter-spacing:-.02em;
@@ -772,7 +813,7 @@ text-overflow:ellipsis;
 
 .market-meta-grid{
 display:grid;
-grid-template-columns:minmax(0,1.12fr) minmax(250px,.88fr);
+grid-template-columns:minmax(0,1.16fr) minmax(280px,.84fr);
 gap:8px;
 padding:10px 16px 0;
 position:relative;
@@ -846,6 +887,7 @@ align-items:center;
 justify-content:center;
 padding:18px;
 z-index:2;
+text-align:center;
 }
 
 .market-card.phase-live .market-overlay{
@@ -866,10 +908,10 @@ margin-bottom:12px;
 }
 
 .market-overlay-title{
-font-size:32px;
+font-size:34px;
 font-weight:900;
 line-height:1.02;
-letter-spacing:-.03em;
+letter-spacing:-.04em;
 margin-bottom:10px;
 color:#fff;
 }
@@ -917,7 +959,7 @@ margin-bottom:8px;
 }
 
 .market-countdown-value{
-font-size:54px;
+font-size:58px;
 line-height:1;
 font-weight:900;
 letter-spacing:.04em;
@@ -963,13 +1005,16 @@ z-index:2;
 }
 
 .market-wallet-chip{
-min-height:52px;
-border-radius:14px;
+min-height:56px;
+border-radius:16px;
 border:1px solid rgba(255,255,255,.09);
 background:linear-gradient(180deg, rgba(255,255,255,.045), rgba(255,255,255,.022));
-padding:10px 11px;
+padding:11px 12px;
 display:grid;
 gap:4px;
+box-shadow:
+inset 0 1px 0 rgba(255,255,255,.05),
+0 10px 18px rgba(0,0,0,.16);
 }
 
 .market-wallet-chip-label{
@@ -993,13 +1038,15 @@ text-overflow:ellipsis;
 .market-access-card{
 position:relative;
 overflow:hidden;
-border-radius:16px;
+border-radius:18px;
 border:1px solid rgba(255,255,255,.09);
 background:
 radial-gradient(circle at top right, rgba(53,245,163,.06), transparent 30%),
 linear-gradient(180deg, rgba(255,255,255,.05), rgba(255,255,255,.026));
 padding:12px;
-box-shadow:inset 0 1px 0 rgba(255,255,255,.05);
+box-shadow:
+inset 0 1px 0 rgba(255,255,255,.05),
+0 12px 24px rgba(0,0,0,.18);
 }
 
 .market-access-card-top{
@@ -1019,8 +1066,8 @@ margin-bottom:4px;
 }
 
 .market-access-title{
-font-size:17px;
-font-weight:800;
+font-size:18px;
+font-weight:900;
 line-height:1.05;
 letter-spacing:-.03em;
 color:#fff;
@@ -1108,7 +1155,7 @@ z-index:1;
 overflow:hidden;
 width:min(580px, calc(100vw - 24px));
 margin:8vh auto 0;
-border-radius:22px;
+border-radius:24px;
 border:1px solid rgba(255,255,255,.10);
 background:
 radial-gradient(circle at top left, rgba(58,160,255,.12), transparent 28%),
@@ -1275,7 +1322,7 @@ TRADE PANEL / RECENT TRADES
 .recent-trades-card{
 position:relative;
 overflow:hidden;
-border-radius:22px;
+border-radius:24px;
 border:1px solid var(--panel-line);
 background:
 radial-gradient(circle at 15% 0%, rgba(58,160,255,.05), transparent 24%),
@@ -1354,8 +1401,8 @@ padding:10px 14px 0;
 }
 
 .trade-tab{
-min-height:34px;
-padding:0 12px;
+min-height:36px;
+padding:0 13px;
 border-radius:12px;
 border:1px solid rgba(255,255,255,.10);
 background:
@@ -1393,7 +1440,7 @@ font-weight:700;
 }
 
 .trade-panel-input{
-min-height:44px;
+min-height:46px;
 width:100%;
 border-radius:14px;
 border:1px solid rgba(255,255,255,.10);
@@ -1418,7 +1465,7 @@ padding:10px 14px 0;
 }
 
 .trade-quick-btn{
-min-height:32px;
+min-height:33px;
 padding:0 12px;
 border-radius:999px;
 border:1px solid rgba(255,255,255,.10);
@@ -1428,9 +1475,11 @@ color:rgba(255,255,255,.86);
 cursor:pointer;
 font-size:12px;
 font-weight:700;
+transition:transform .16s ease, background .16s ease;
 }
 
 .trade-quick-btn:hover{
+transform:translateY(-1px);
 background:
 linear-gradient(180deg, rgba(255,255,255,.08), rgba(255,255,255,.03));
 }
@@ -1499,7 +1548,7 @@ background:rgba(255,91,107,.08);
 }
 
 .trade-submit-btn{
-min-height:42px;
+min-height:44px;
 padding:0 16px;
 border-radius:14px;
 border:1px solid rgba(255,255,255,.12);
@@ -1630,7 +1679,7 @@ gap:16px;
 .terminal-action-card{
 position:relative;
 overflow:hidden;
-border-radius:22px;
+border-radius:24px;
 border:1px solid var(--panel-line);
 background:
 radial-gradient(circle at 15% 0%, rgba(58,160,255,.05), transparent 24%),
@@ -1835,6 +1884,10 @@ grid-template-columns:1fr;
 }
 
 @media (max-width:640px){
+.launch-market-wrap{
+gap:12px;
+}
+
 .launch-token-hero{
 padding:14px;
 gap:12px;
@@ -1845,8 +1898,8 @@ align-items:flex-start;
 }
 
 .launch-token-logo-shell{
-width:54px;
-height:54px;
+width:56px;
+height:56px;
 }
 
 .launch-token-name{
@@ -1874,7 +1927,7 @@ padding:12px 14px 10px;
 }
 
 .market-card-title{
-font-size:21px;
+font-size:22px;
 }
 
 .market-chart-shell{
