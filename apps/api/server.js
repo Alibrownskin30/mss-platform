@@ -165,7 +165,7 @@ app.get("/api/_cassie/diag", (req, res) => res.status(404).end());
 app.post("/api/admin/_sync", (req, res) => res.status(401).end());
 
 // ---- Solana RPC ----
-const RPC = process.env.SOLANA_RPC || "https://api.mainnet-beta.solana.com";
+const RPC = process.env.SOLANA_RPC || process.env.RPC_URL || "https://api.devnet.solana.com";
 const connection = new Connection(RPC, "confirmed");
 
 // ---- Helpers ----

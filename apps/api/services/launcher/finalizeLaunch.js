@@ -117,10 +117,7 @@ return Boolean(
 cleanText(launch.contract_address, 120) &&
 safeNum(launch.liquidity, 0) > 0 &&
 safeNum(launch.price, 0) > 0 &&
-(
-cleanText(launch.final_supply, 120) ||
-launch.launch_result_json
-)
+(cleanText(launch.final_supply, 120) || launch.launch_result_json)
 );
 }
 
@@ -131,6 +128,8 @@ totalCommitted = null,
 participants = null,
 feePlan = null,
 feeDistribution = null,
+feeDistributionPending = false,
+feeDistributionError = "",
 allocationsBuilt = false,
 marketBootstrap = null,
 allocationResult = null,
@@ -156,6 +155,8 @@ buybackFee: resolvedFeePlan.buybackFee,
 treasuryFee: resolvedFeePlan.treasuryFee,
 netRaise: resolvedFeePlan.netRaiseAfterFee,
 feeDistribution: launch?.fee_distribution_json || feeDistribution || null,
+feeDistributionPending: Boolean(feeDistributionPending),
+feeDistributionError: feeDistributionError || "",
 allocationsBuilt,
 marketBootstrap,
 mintAddress:
@@ -427,7 +428,12 @@ console.log("Net raise:", feePlan.netRaiseAfterFee);
 
 if (safeNum(launch.fees_distributed, 0) === 1) {
 console.log(`Fees already distributed for launch ${launchId}, skipping`);
-return { feePlan, feeDistribution };
+return {
+feePlan,
+feeDistribution,
+feeDistributionPending: false,
+feeDistributionError: "",
+};
 }
 
 const claim = await db.run(
@@ -451,7 +457,13 @@ await db.get(
 
 feeDistribution = latest?.fee_distribution_json || null;
 console.log(`Fee distribution already claimed for launch ${launchId}, skipping`);
-return { feePlan, feeDistribution };
+
+return {
+feePlan,
+feeDistribution,
+feeDistributionPending: safeNum(latest?.fees_distributed, 0) !== 1,
+feeDistributionError: "",
+};
 }
 
 try {
@@ -473,8 +485,16 @@ WHERE id = ?
 );
 
 console.log("Fee distribution complete:", feeDistribution);
-return { feePlan, feeDistribution };
+
+return {
+feePlan,
+feeDistribution,
+feeDistributionPending: false,
+feeDistributionError: "",
+};
 } catch (err) {
+const feeError = err?.message || "fee distribution failed";
+
 await db.run(
 `
 UPDATE launches
@@ -484,7 +504,15 @@ WHERE id = ?
 `,
 [launchId]
 );
-throw err;
+
+console.error(`Fee distribution failed for launch ${launchId}:`, err);
+
+return {
+feePlan,
+feeDistribution,
+feeDistributionPending: true,
+feeDistributionError: feeError,
+};
 }
 }
 
@@ -545,6 +573,8 @@ launch,
 totalCommitted: stats.totalCommitted,
 participants: stats.participants,
 feeDistribution: launch.fee_distribution_json || null,
+feeDistributionPending: safeNum(launch.fees_distributed, 0) !== 1,
+feeDistributionError: "",
 allocationsBuilt: hasPersistedAllocationResult(launch),
 marketBootstrap: null,
 allocationResult: launch.launch_result_json || null,
@@ -594,6 +624,8 @@ launch,
 totalCommitted: stats.totalCommitted,
 participants: stats.participants,
 feeDistribution: launch.fee_distribution_json || null,
+feeDistributionPending: safeNum(launch.fees_distributed, 0) !== 1,
+feeDistributionError: "",
 allocationsBuilt: hasPersistedAllocationResult(launch),
 marketBootstrap: null,
 allocationResult: launch.launch_result_json || null,
@@ -617,7 +649,12 @@ minRaise,
 };
 }
 
-const { feePlan, feeDistribution } = await ensureFeeDistribution(
+const {
+feePlan,
+feeDistribution,
+feeDistributionPending,
+feeDistributionError,
+} = await ensureFeeDistribution(
 launchId,
 launch,
 totalCommitted
@@ -640,6 +677,8 @@ totalCommitted,
 participants: stats.participants,
 feePlan,
 feeDistribution: liveLaunch.fee_distribution_json || feeDistribution,
+feeDistributionPending,
+feeDistributionError,
 allocationsBuilt: hasPersistedAllocationResult(liveLaunch),
 marketBootstrap: null,
 allocationResult: liveLaunch.launch_result_json || null,
@@ -688,6 +727,8 @@ totalCommitted,
 participants: stats.participants,
 feePlan,
 feeDistribution: finalLaunch.fee_distribution_json || feeDistribution,
+feeDistributionPending,
+feeDistributionError,
 allocationsBuilt,
 marketBootstrap,
 allocationResult,
