@@ -41,11 +41,16 @@ return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 function getRpcUrl() {
-return (
+const raw =
 clean(process.env.SOLANA_RPC, 1000) ||
 clean(process.env.RPC_URL, 1000) ||
-"https://api.devnet.solana.com"
-);
+"https://api.devnet.solana.com";
+
+if (!/^https?:\/\//i.test(raw)) {
+return `https://${raw}`;
+}
+
+return raw;
 }
 
 function getRequiredWallet(envName) {
@@ -92,12 +97,21 @@ confirmTransactionInitialTimeout: CONFIRM_TIMEOUT_MS,
 });
 }
 
+function isBlockhashExpiredError(err) {
+const msg = String(err?.message || err || "").toLowerCase();
+return (
+msg.includes("block height exceeded") ||
+msg.includes("blockhash not found") ||
+msg.includes("signature has expired")
+);
+}
+
 async function withRpcRetry(label, fn, attempts = RPC_RETRY_ATTEMPTS) {
 let lastError = null;
 
 for (let i = 1; i <= attempts; i += 1) {
 try {
-return await fn();
+return await fn(i);
 } catch (err) {
 lastError = err;
 const isLast = i >= attempts;
@@ -129,18 +143,15 @@ return connection.getBalance(pubkey, RPC_COMMITMENT);
 });
 }
 
-async function sendTransactionWithRetry(connection, tx, signer) {
-return withRpcRetry("sendTransaction", async () => {
+async function sendTransactionOnce(connection, tx, signer) {
 return connection.sendTransaction(tx, [signer], {
 skipPreflight: false,
 preflightCommitment: RPC_COMMITMENT,
 maxRetries: 3,
 });
-});
 }
 
-async function confirmTransactionWithRetry(connection, confirmationPayload) {
-return withRpcRetry("confirmTransaction", async () => {
+async function confirmTransactionOnce(connection, confirmationPayload) {
 const confirmation = await connection.confirmTransaction(
 confirmationPayload,
 RPC_COMMITMENT
@@ -153,7 +164,6 @@ throw new Error(
 }
 
 return confirmation;
-});
 }
 
 async function sendLamports({
@@ -167,6 +177,8 @@ return null;
 }
 
 const toPubkey = new PublicKey(destinationWallet);
+
+return withRpcRetry("sendLamports", async () => {
 const { blockhash, lastValidBlockHeight } =
 await getLatestBlockhashWithRetry(connection);
 
@@ -181,15 +193,23 @@ lamports,
 })
 );
 
-const signature = await sendTransactionWithRetry(connection, tx, signer);
+const signature = await sendTransactionOnce(connection, tx, signer);
 
-await confirmTransactionWithRetry(connection, {
+try {
+await confirmTransactionOnce(connection, {
 signature,
 blockhash,
 lastValidBlockHeight,
 });
+} catch (err) {
+if (isBlockhashExpiredError(err)) {
+throw err;
+}
+throw err;
+}
 
 return signature;
+});
 }
 
 export function buildLaunchFeeBreakdown(totalCommitted, launchFeePct = 5) {
