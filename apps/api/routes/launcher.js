@@ -627,6 +627,23 @@ function buildBuilderBondReference(wallet) {
 return `mss-builder-bond-${cleanText(wallet, 80)}`;
 }
 
+function parseDbTime(value) {
+if (!value) return null;
+const raw = String(value).trim();
+if (!raw) return null;
+
+const hasExplicitTimezone =
+/z$/i.test(raw) || /[+-]\d{2}:\d{2}$/.test(raw);
+
+if (!hasExplicitTimezone && /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/.test(raw)) {
+const sqliteUtc = Date.parse(raw.replace(" ", "T") + "Z");
+return Number.isFinite(sqliteUtc) ? sqliteUtc : null;
+}
+
+const direct = Date.parse(raw);
+return Number.isFinite(direct) ? direct : null;
+}
+
 async function buildEscrowTransferTransaction({ wallet, solAmount, reference }) {
 const escrowWallet = getEscrowWallet();
 const expectedLamports = solToLamports(solAmount);
@@ -873,6 +890,60 @@ return null;
 }
 }
 
+async function forceLaunchStatus(launchId, status) {
+await db.run(
+`
+UPDATE launches
+SET status = ?,
+updated_at = CURRENT_TIMESTAMP
+WHERE id = ?
+`,
+[status, launchId]
+);
+
+return getLaunchById(launchId);
+}
+
+async function normalizeLifecycleState(launchId) {
+let launch = await getLaunchById(launchId);
+if (!launch) return null;
+
+const status = String(launch.status || "").toLowerCase();
+const countdownStartedMs = parseDbTime(launch.countdown_started_at);
+const countdownEndsMs = parseDbTime(launch.countdown_ends_at || launch.live_at);
+const hasCountdownWindow = Number.isFinite(countdownStartedMs) && Number.isFinite(countdownEndsMs);
+const now = Date.now();
+
+if (status === "commit" && hasCountdownWindow) {
+if (now < countdownEndsMs) {
+launch = await forceLaunchStatus(launchId, "countdown");
+return launch;
+}
+
+launch = await forceLaunchStatus(launchId, "countdown");
+return launch;
+}
+
+if (status === "countdown" && hasCountdownWindow && now >= countdownEndsMs) {
+return launch;
+}
+
+const contractAddress = cleanText(launch.contract_address, 120);
+const mintStatus = cleanText(launch.mint_reservation_status, 40).toLowerCase();
+
+if (
+status !== "live" &&
+status !== "graduated" &&
+contractAddress &&
+mintStatus === "finalized"
+) {
+launch = await forceLaunchStatus(launchId, "live");
+return launch;
+}
+
+return launch;
+}
+
 async function beginCountdown(launchId) {
 const launch = await getLaunchById(launchId);
 if (!launch) return null;
@@ -882,6 +953,10 @@ throw new Error("builder bond not satisfied");
 }
 
 if (launch.status === "countdown") {
+return launch;
+}
+
+if (launch.status === "live" || launch.status === "graduated") {
 return launch;
 }
 
@@ -1053,11 +1128,37 @@ await safeSyncLifecycle(launchId);
 return getLaunchById(launchId);
 }
 
-return getLaunchById(launchId);
+const latest = await getLaunchById(launchId);
+
+if (latest?.status === "live" || latest?.status === "graduated") {
+await safeSyncLifecycle(launchId);
+return latest;
+}
+
+if (result?.reason === "countdown not finished") {
+return latest;
+}
+
+if (result?.reason === "minimum raise not met") {
+await markLaunchFailed(launchId);
+const refunded = await autoRefundFailedLaunch(launchId);
+return refunded?.launch || getLaunchById(launchId);
+}
+
+if (result?.reason === "builder bond not paid") {
+await markLaunchFailed(launchId);
+const refunded = await autoRefundFailedLaunch(launchId);
+return refunded?.launch || getLaunchById(launchId);
+}
+
+return latest;
 }
 
 export async function reconcileLaunchState(launchId) {
 let launch = await getLaunchById(launchId);
+if (!launch) return null;
+
+launch = await normalizeLifecycleState(launchId);
 if (!launch) return null;
 
 if (
@@ -2072,14 +2173,18 @@ return res.status(500).json({ ok: false, error: "failed to cancel countdown" });
 router.post("/:id/finalize", async (req, res) => {
 try {
 const launchId = Number(req.params.id);
-const launch = await reconcileLaunchState(launchId);
+const result = await finalizeLaunch(launchId);
+const latestLaunch = await getLaunchById(launchId);
 
-if (!launch) {
+if (!latestLaunch) {
 return res.status(404).json({ ok: false, error: "launch not found" });
 }
 
-if (launch.status !== "live" && launch.status !== "graduated") {
-return res.status(400).json({ ok: false, error: "launch is not ready to finalize" });
+if (!result?.ok && latestLaunch.status !== "live" && latestLaunch.status !== "graduated") {
+return res.status(400).json({
+ok: false,
+error: result?.reason || "launch is not ready to finalize",
+});
 }
 
 const stats = await syncLaunchStats(launchId);
@@ -2105,6 +2210,7 @@ updatedLaunch.hard_cap_sol
 feeBreakdown,
 lifecycle,
 graduationPlan,
+finalizeResult: result || null,
 });
 } catch (err) {
 console.error("POST /api/launcher/:id/finalize failed:", err);

@@ -62,6 +62,29 @@ this.statusCode = statusCode;
 }
 }
 
+function cleanEnv(value, max = 2000) {
+return String(value ?? "").trim().slice(0, max);
+}
+
+function resolveRpcUrl() {
+return (
+cleanEnv(process.env.SOLANA_RPC, 1000) ||
+cleanEnv(process.env.RPC_URL, 1000) ||
+"https://api.devnet.solana.com"
+);
+}
+
+function getRpcLabel(rpcUrl) {
+const lower = String(rpcUrl || "").toLowerCase();
+
+if (lower.includes("devnet")) return "Solana Devnet (Live)";
+if (lower.includes("mainnet")) return "Solana Mainnet (Live)";
+return "Solana RPC (Live)";
+}
+
+const RPC = resolveRpcUrl();
+const RPC_LABEL = getRpcLabel(RPC);
+
 // ---- Security headers ----
 app.use(
 helmet({
@@ -165,7 +188,6 @@ app.get("/api/_cassie/diag", (req, res) => res.status(404).end());
 app.post("/api/admin/_sync", (req, res) => res.status(401).end());
 
 // ---- Solana RPC ----
-const RPC = process.env.SOLANA_RPC || process.env.RPC_URL || "https://api.devnet.solana.com";
 const connection = new Connection(RPC, "confirmed");
 
 // ---- Helpers ----
@@ -1267,8 +1289,7 @@ try {
 const supplyResp = await rpcRetry(() => connection.getTokenSupply(mint));
 supply = supplyResp?.value?.amount ?? null;
 decimals = supplyResp?.value?.decimals ?? null;
-} catch {
-}
+} catch {}
 }
 
 return {
@@ -1284,7 +1305,7 @@ mintRevoked: !mintAuthority,
 freezeRevoked: !freezeAuthority,
 },
 metadata,
-rpcLabel: "Solana Mainnet (Live)",
+rpcLabel: RPC_LABEL,
 source: "onchain",
 };
 }
@@ -1445,7 +1466,7 @@ ok: true,
 service: "mss-api",
 env: NODE_ENV,
 port: Number(PORT),
-rpcLabel: "Solana Mainnet (Live)",
+rpcLabel: RPC_LABEL,
 });
 });
 
@@ -1860,7 +1881,7 @@ return res.status(500).json({ error: String(e?.message || e) });
 // ---- Start ----
 app.listen(PORT, "0.0.0.0", () => {
 console.log(`✅ MSS API running on http://0.0.0.0:${PORT}`);
-console.log(`🔒 RPC hidden (label only)`);
+console.log(`🔒 RPC hidden (${RPC_LABEL})`);
 console.log(`🛡️ Cassie: enabled (defensive middleware + intel layer)`);
 });
 

@@ -11,6 +11,7 @@ sendSolTransfer,
 import { initLaunchMarket } from "../../js/launch-market.js";
 
 const BASE_REFRESH_INTERVAL_MS = 15000;
+const COUNTDOWN_REFRESH_INTERVAL_MS = 2500;
 const RENDER_TICK_MS = 1000;
 
 function $(id) {
@@ -514,6 +515,7 @@ let refreshInFlight = false;
 let launchMarketController = null;
 let lastRenderedPhaseStatus = "";
 let countdownRefreshRequested = false;
+let countdownFinalizeInFlight = false;
 let walletChangeBound = false;
 
 async function fetchJson(path, options = {}) {
@@ -549,6 +551,36 @@ if (requestSeq !== loadRequestSeq) return;
 const incomingLaunch = normalizeLaunchData(launchRes?.launch || {});
 currentLaunch = mergeLaunchTruth(currentLaunch || {}, incomingLaunch);
 currentCommitStats = commitsRes || {};
+}
+
+async function forceCountdownFinalization() {
+const id = qs("id");
+if (!id) return;
+if (countdownFinalizeInFlight) return;
+
+countdownFinalizeInFlight = true;
+
+try {
+try {
+await fetchJson(`/api/launcher/${id}/finalize`, {
+method: "POST",
+});
+} catch (err) {
+console.warn("launch.js finalize attempt did not complete:", err?.message || err);
+}
+
+try {
+await fetchJson(`/api/launcher/${id}/reconcile`, {
+method: "POST",
+});
+} catch (err) {
+console.warn("launch.js reconcile attempt did not complete:", err?.message || err);
+}
+
+await refresh({ syncMarket: true });
+} finally {
+countdownFinalizeInFlight = false;
+}
 }
 
 function renderLogo(url) {
@@ -782,12 +814,12 @@ if (fillDurationMs != null) {
 note =
 msLeft > 0
 ? `Commit phase filled in ${fmtDuration(fillDurationMs)}. Countdown is active. Refunds are disabled. Launch will auto-finalize and go live when the timer reaches zero.`
-: `Commit phase filled in ${fmtDuration(fillDurationMs)}. Countdown has ended. Waiting for automatic finalize and LP/live transition.`;
+: `Commit phase filled in ${fmtDuration(fillDurationMs)}. Countdown has ended. Finalizing live transition now.`;
 } else {
 note =
 msLeft > 0
 ? "Countdown is active. Refunds are disabled. Launch will auto-finalize and go live when the timer reaches zero."
-: "Countdown has ended. Waiting for automatic finalize and LP/live transition.";
+: "Countdown has ended. Finalizing live transition now.";
 }
 
 if (isBuilder && bondState.paid) {
@@ -1544,6 +1576,29 @@ await syncLaunchMarketController(true);
 });
 }
 
+function getDynamicRefreshIntervalMs() {
+const status = String(currentLaunch?.status || "").toLowerCase();
+if (status === "countdown") return COUNTDOWN_REFRESH_INTERVAL_MS;
+return BASE_REFRESH_INTERVAL_MS;
+}
+
+function restartRefreshLoop() {
+if (refreshIntervalId) {
+clearInterval(refreshIntervalId);
+refreshIntervalId = null;
+}
+
+refreshIntervalId = setInterval(async () => {
+if (refreshInFlight || commitActionInFlight || refundActionInFlight || countdownFinalizeInFlight) return;
+
+try {
+await refresh({ syncMarket: false });
+} catch (err) {
+console.error(err);
+}
+}, getDynamicRefreshIntervalMs());
+}
+
 async function init() {
 window.API_BASE = getApiBase();
 
@@ -1563,18 +1618,9 @@ console.error(err);
 setStatus(err?.message || "Failed to load launch.", "bad");
 }
 
-if (refreshIntervalId) clearInterval(refreshIntervalId);
+restartRefreshLoop();
+
 if (renderIntervalId) clearInterval(renderIntervalId);
-
-refreshIntervalId = setInterval(async () => {
-if (refreshInFlight || commitActionInFlight || refundActionInFlight) return;
-
-try {
-await refresh({ syncMarket: false });
-} catch (err) {
-console.error(err);
-}
-}, BASE_REFRESH_INTERVAL_MS);
 
 renderIntervalId = setInterval(() => {
 if (!currentLaunch || !currentCommitStats) return;
@@ -1582,25 +1628,30 @@ if (!currentLaunch || !currentCommitStats) return;
 render();
 
 const status = String(currentLaunch.status || "");
+
 if (status === "countdown") {
 const countdownEndsMs = getCountdownEndsMs(currentLaunch, currentCommitStats);
 if (
 Number.isFinite(countdownEndsMs) &&
 countdownEndsMs <= Date.now() &&
 !refreshInFlight &&
-!countdownRefreshRequested
+!countdownRefreshRequested &&
+!countdownFinalizeInFlight
 ) {
 countdownRefreshRequested = true;
-void refresh({ syncMarket: true })
+void forceCountdownFinalization()
 .catch((err) => console.error(err))
 .finally(() => {
 countdownRefreshRequested = false;
+restartRefreshLoop();
 });
 }
 }
 
 if (status !== lastRenderedPhaseStatus && !refreshInFlight) {
-void refresh({ syncMarket: true }).catch((err) => console.error(err));
+void refresh({ syncMarket: true })
+.then(() => restartRefreshLoop())
+.catch((err) => console.error(err));
 }
 }, RENDER_TICK_MS);
 }

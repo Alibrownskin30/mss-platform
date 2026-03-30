@@ -1455,6 +1455,18 @@ body: JSON.stringify({ launchId, wallet, tokenAmount }),
 });
 }
 
+async function defaultReconcileLaunch(launchId) {
+return fetchJson(`/api/launcher/${encodeURIComponent(launchId)}/reconcile`, {
+method: "POST",
+});
+}
+
+async function defaultFinalizeLaunch(launchId) {
+return fetchJson(`/api/launcher/${encodeURIComponent(launchId)}/finalize`, {
+method: "POST",
+});
+}
+
 class LaunchMarketController {
 constructor(options = {}) {
 this.launchId = options.launchId || "";
@@ -1469,6 +1481,8 @@ this.quoteBuy = options.quoteBuy || defaultQuoteBuy;
 this.quoteSell = options.quoteSell || defaultQuoteSell;
 this.executeBuy = options.executeBuy || defaultExecuteBuy;
 this.executeSell = options.executeSell || defaultExecuteSell;
+this.reconcileLaunch = options.reconcileLaunch || defaultReconcileLaunch;
+this.finalizeLaunch = options.finalizeLaunch || defaultFinalizeLaunch;
 this.onPhaseChange = typeof options.onPhaseChange === "function" ? options.onPhaseChange : null;
 
 this.launch = options.launch ? normalizeLaunchTruth(options.launch) : null;
@@ -1478,7 +1492,7 @@ this.currentInterval = options.initialInterval || "1m";
 this.candleLimit = Number(options.candleLimit || 180);
 
 this.commitPollMs = Number(options.commitPollMs || 15000);
-this.countdownPollMs = Number(options.countdownPollMs || 5000);
+this.countdownPollMs = Number(options.countdownPollMs || 2500);
 this.livePollMs = Number(options.livePollMs || 6000);
 
 this.tokenPayload = {};
@@ -1502,6 +1516,7 @@ this._liveRefreshInFlight = null;
 this._launchRefreshInFlight = null;
 this._timeframeRefreshInFlight = null;
 this._walletRefreshTimeout = null;
+this._countdownTransitionInFlight = false;
 this._destroyed = false;
 
 this._boundHandleManageLinksClick = this.handleManageLinksClick.bind(this);
@@ -1632,11 +1647,26 @@ startPollingLoop() {
 this.stopTimers();
 
 if (this.phase === PHASES.COUNTDOWN) {
+this.refreshTimer = setInterval(async () => {
+try {
+await this.refreshLaunch({ force: true });
+} catch (error) {
+console.error("launch-market countdown refresh failed:", error);
+}
+}, this.countdownPollMs);
+
 this.startCountdownTicker();
 return;
 }
 
 if (this.phase !== PHASES.LIVE) {
+this.refreshTimer = setInterval(async () => {
+try {
+await this.refreshLaunch({ force: false });
+} catch (error) {
+console.error("launch-market commit refresh failed:", error);
+}
+}, this.commitPollMs);
 return;
 }
 
@@ -1644,7 +1674,7 @@ this.refreshTimer = setInterval(async () => {
 try {
 await this.refreshLiveMarketOnly();
 } catch (error) {
-console.error("launch-market refresh failed:", error);
+console.error("launch-market live refresh failed:", error);
 }
 }, this.livePollMs);
 }
@@ -1656,6 +1686,19 @@ updateCountdownUi(this.launch, this.commitStats);
 
 this.countdownTimer = setInterval(() => {
 updateCountdownUi(this.launch, this.commitStats);
+
+const parts = getCountdownParts(this.launch, this.commitStats);
+if (parts.totalMs <= 0 && !this._countdownTransitionInFlight) {
+this._countdownTransitionInFlight = true;
+
+void this.forceCountdownTransition()
+.catch((error) => {
+console.error("countdown transition failed:", error);
+})
+.finally(() => {
+this._countdownTransitionInFlight = false;
+});
+}
 
 const nextPhase = inferPhase(this.launch);
 if (nextPhase !== this.phase) {
@@ -1670,6 +1713,29 @@ this.startPollingLoop();
 }
 }
 }, 1000);
+}
+
+async forceCountdownTransition() {
+if (!this.launchId) return;
+
+try {
+await this.finalizeLaunch(this.launchId);
+} catch (error) {
+console.warn("manual finalize during countdown transition did not succeed:", error?.message || error);
+}
+
+try {
+await this.reconcileLaunch(this.launchId);
+} catch (error) {
+console.warn("manual reconcile during countdown transition did not succeed:", error?.message || error);
+}
+
+await this.refreshLaunch({ force: true });
+
+if (this.phase === PHASES.LIVE) {
+await this.refreshLiveMarketOnly({ force: true });
+this.startPollingLoop();
+}
 }
 
 setBaseState(launch = null, commitStats = null, options = {}) {
@@ -1784,9 +1850,16 @@ const previousPhase = this.phase;
 
 this.launch = mergeLaunchTruth(this.launch || {}, incomingLaunch);
 this.commitStats = commitStatsPayload || {};
-this.phase = inferPhase(this.launch);
 
-if (this.phase === PHASES.LIVE) {
+const computedPhase = inferPhase(this.launch);
+this.phase = computedPhase;
+
+if (computedPhase === PHASES.COUNTDOWN && getCountdownParts(this.launch, this.commitStats).totalMs <= 0) {
+await this.forceCountdownTransition();
+return;
+}
+
+if (computedPhase === PHASES.LIVE) {
 await this.refreshLiveMarketOnly({ force: true });
 } else {
 this.applyAll();

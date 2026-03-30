@@ -1,12 +1,24 @@
 import db from "../db/index.js";
 import { finalizeLaunch } from "./launcher/finalizeLaunch.js";
 
-const COUNTDOWN_MS = 5 * 60 * 1000;
+const COUNTDOWN_MINUTES = 2;
+const COUNTDOWN_MS = COUNTDOWN_MINUTES * 60 * 1000;
 
 function parseUtcMs(value) {
 if (!value) return null;
-const ms = new Date(String(value).replace(" ", "T") + "Z").getTime();
-return Number.isFinite(ms) ? ms : null;
+const raw = String(value).trim();
+if (!raw) return null;
+
+const hasExplicitTimezone =
+/z$/i.test(raw) || /[+-]\d{2}:\d{2}$/.test(raw);
+
+if (!hasExplicitTimezone && /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/.test(raw)) {
+const sqliteUtc = Date.parse(raw.replace(" ", "T") + "Z");
+return Number.isFinite(sqliteUtc) ? sqliteUtc : null;
+}
+
+const direct = Date.parse(raw);
+return Number.isFinite(direct) ? direct : null;
 }
 
 async function getLaunchById(launchId) {
@@ -83,7 +95,8 @@ await db.run(
 UPDATE launches
 SET status = 'countdown',
 countdown_started_at = CURRENT_TIMESTAMP,
-countdown_ends_at = datetime(CURRENT_TIMESTAMP, '+5 minutes'),
+countdown_ends_at = datetime(CURRENT_TIMESTAMP, '+${COUNTDOWN_MINUTES} minutes'),
+live_at = datetime(CURRENT_TIMESTAMP, '+${COUNTDOWN_MINUTES} minutes'),
 updated_at = CURRENT_TIMESTAMP
 WHERE id = ?
 AND status = 'commit'
@@ -132,6 +145,10 @@ return;
 
 if (result.reason === "minimum raise not met") {
 console.log(`❌ Launch ${launchId} failed after countdown`);
+}
+
+if (result.reason && result.reason !== "countdown not finished") {
+console.log(`⚠️ Launch ${launchId} finalize returned: ${result.reason}`);
 }
 }
 
