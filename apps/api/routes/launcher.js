@@ -531,6 +531,23 @@ const msg = String(err?.message || err || "").toLowerCase();
 return msg.includes("blockhash not found") || msg.includes("block height exceeded");
 }
 
+function isTransientFinalizeError(err) {
+const msg = String(err?.message || err || "").toLowerCase();
+
+return (
+msg.includes("fetch failed") ||
+msg.includes("und_err_socket") ||
+msg.includes("socket") ||
+msg.includes("timeout") ||
+msg.includes("econnreset") ||
+msg.includes("429") ||
+msg.includes("too many requests") ||
+msg.includes("block height exceeded") ||
+msg.includes("blockhash not found") ||
+msg.includes("failed to get recent blockhash")
+);
+}
+
 function shapeLaunchForList(row) {
 const parsed = sanitizeLaunchForPublic(row);
 const totalCommitted = Number(parsed.committed_sol || 0);
@@ -642,6 +659,27 @@ return Number.isFinite(sqliteUtc) ? sqliteUtc : null;
 
 const direct = Date.parse(raw);
 return Number.isFinite(direct) ? direct : null;
+}
+
+function getCountdownTargetMs(launch) {
+const endsAt = parseDbTime(launch?.countdown_ends_at || launch?.live_at);
+const startedAt = parseDbTime(launch?.countdown_started_at);
+
+if (Number.isFinite(endsAt)) return endsAt;
+if (Number.isFinite(startedAt)) {
+return startedAt + COUNTDOWN_MINUTES * 60 * 1000;
+}
+
+return null;
+}
+
+function hasCountdownWindow(launch) {
+return Number.isFinite(getCountdownTargetMs(launch));
+}
+
+function isCountdownExpired(launch) {
+const targetMs = getCountdownTargetMs(launch);
+return Number.isFinite(targetMs) && Date.now() >= targetMs;
 }
 
 async function buildEscrowTransferTransaction({ wallet, solAmount, reference }) {
@@ -909,22 +947,13 @@ let launch = await getLaunchById(launchId);
 if (!launch) return null;
 
 const status = String(launch.status || "").toLowerCase();
-const countdownStartedMs = parseDbTime(launch.countdown_started_at);
-const countdownEndsMs = parseDbTime(launch.countdown_ends_at || launch.live_at);
-const hasCountdownWindow = Number.isFinite(countdownStartedMs) && Number.isFinite(countdownEndsMs);
-const now = Date.now();
 
-if (status === "commit" && hasCountdownWindow) {
-if (now < countdownEndsMs) {
+if (status === "commit" && hasCountdownWindow(launch)) {
 launch = await forceLaunchStatus(launchId, "countdown");
 return launch;
 }
 
-launch = await forceLaunchStatus(launchId, "countdown");
-return launch;
-}
-
-if (status === "countdown" && hasCountdownWindow && now >= countdownEndsMs) {
+if (status === "countdown" && hasCountdownWindow(launch) && isCountdownExpired(launch)) {
 return launch;
 }
 
@@ -1101,38 +1130,56 @@ refunds,
 
 async function finalizeLaunchIfReady(launchId) {
 let launch = await getLaunchById(launchId);
+if (!launch) return null;
+
+if (String(launch.status || "").toLowerCase() === "commit" && hasCountdownWindow(launch)) {
+launch = await forceLaunchStatus(launchId, "countdown");
+}
+
 if (!launch || launch.status !== "countdown") {
 return launch;
 }
 
-const countdownCheck = await db.get(
-`
-SELECT CASE
-WHEN countdown_ends_at IS NOT NULL AND datetime('now') >= datetime(countdown_ends_at)
-THEN 1 ELSE 0
-END AS ready
-FROM launches
-WHERE id = ?
-`,
-[launchId]
-);
-
-if (!countdownCheck || Number(countdownCheck.ready) !== 1) {
+if (!isCountdownExpired(launch)) {
 return launch;
 }
 
-const result = await finalizeLaunch(launchId);
+let result = null;
 
-if (result?.ok) {
-await safeSyncLifecycle(launchId);
+try {
+result = await finalizeLaunch(launchId);
+} catch (err) {
+if (isTransientFinalizeError(err)) {
+console.warn(`Finalize retry deferred for launch ${launchId}:`, err?.message || err);
 return getLaunchById(launchId);
 }
 
-const latest = await getLaunchById(launchId);
+throw err;
+}
+
+let latest = await getLaunchById(launchId);
 
 if (latest?.status === "live" || latest?.status === "graduated") {
 await safeSyncLifecycle(launchId);
 return latest;
+}
+
+const latestContractAddress = cleanText(latest?.contract_address, 120);
+const latestMintStatus = cleanText(latest?.mint_reservation_status, 40).toLowerCase();
+
+if (
+latest?.status === "countdown" &&
+latestContractAddress &&
+latestMintStatus === "finalized"
+) {
+latest = await forceLaunchStatus(launchId, "live");
+await safeSyncLifecycle(launchId);
+return latest;
+}
+
+if (result?.ok) {
+await safeSyncLifecycle(launchId);
+return getLaunchById(launchId);
 }
 
 if (result?.reason === "countdown not finished") {
@@ -1149,6 +1196,10 @@ if (result?.reason === "builder bond not paid") {
 await markLaunchFailed(launchId);
 const refunded = await autoRefundFailedLaunch(launchId);
 return refunded?.launch || getLaunchById(launchId);
+}
+
+if (result?.reason) {
+console.warn(`Launch ${launchId} finalize returned: ${result.reason}`);
 }
 
 return latest;
@@ -2221,6 +2272,46 @@ error: err.message || "finalize failed",
 }
 });
 
+router.post("/:id/reconcile", async (req, res) => {
+try {
+const launchId = Number(req.params.id);
+
+if (!launchId) {
+return res.status(400).json({ ok: false, error: "invalid launch id" });
+}
+
+const launch = await reconcileLaunchState(launchId);
+
+if (!launch) {
+return res.status(404).json({ ok: false, error: "launch not found" });
+}
+
+const stats = await getCommitStats(launchId);
+const lifecycle = await safeGetLifecycle(launchId);
+const graduationPlan = await safeGetGraduationPlan(launchId);
+
+return res.json({
+ok: true,
+launch: sanitizeLaunchForPublic(launch),
+status: launch.status,
+totalCommitted: stats.totalCommitted,
+participants: stats.participants,
+commitPercent: buildCommitPercent(
+stats.totalCommitted,
+launch.hard_cap_sol
+),
+lifecycle,
+graduationPlan,
+});
+} catch (err) {
+console.error("POST /api/launcher/:id/reconcile failed:", err);
+return res.status(500).json({
+ok: false,
+error: err.message || "reconcile failed",
+});
+}
+});
+
 router.post("/:id/bootstrap-market", async (req, res) => {
 try {
 const launchId = Number(req.params.id);
@@ -2427,25 +2518,7 @@ if (!reconciledLaunch) {
 return res.status(404).json({ ok: false, error: "launch not found" });
 }
 
-const launch = await db.get(
-`
-SELECT
-l.*,
-b.wallet AS builder_wallet,
-b.alias AS builder_alias,
-b.builder_score
-FROM launches l
-JOIN builders b ON b.id = l.builder_id
-WHERE l.id = ?
-`,
-[id]
-);
-
-if (!launch) {
-return res.status(404).json({ ok: false, error: "launch not found" });
-}
-
-const parsedLaunch = sanitizeLaunchForPublic(launch);
+const parsedLaunch = sanitizeLaunchForPublic(reconciledLaunch);
 const lifecycle = await safeGetLifecycle(id);
 const graduationPlan = await safeGetGraduationPlan(id);
 

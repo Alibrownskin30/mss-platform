@@ -79,6 +79,92 @@ null;
 
 const cassieRisk = inferCassieRisk(stats);
 
+const walletTokenBalance = toNumber(
+walletSummary.token_balance ??
+walletSummary.tokenBalance ??
+stats.wallet_token_balance,
+0
+);
+
+const walletTotalBalance = toNumber(
+walletSummary.total_balance ??
+walletSummary.totalBalance ??
+stats.wallet_total_balance ??
+walletTokenBalance,
+walletTokenBalance
+);
+
+const walletSellableBalance = toNumber(
+walletSummary.sellable_balance ??
+walletSummary.sellableBalance ??
+walletSummary.sellable_token_balance ??
+walletSummary.sellableTokenBalance ??
+stats.wallet_sellable_balance ??
+stats.wallet_sellable_token_balance ??
+walletTokenBalance,
+walletTokenBalance
+);
+
+const walletUnlockedBalance = toNumber(
+walletSummary.unlocked_balance ??
+walletSummary.unlockedBalance ??
+walletSummary.unlocked_token_balance ??
+walletSummary.unlockedTokenBalance ??
+stats.wallet_unlocked_balance ??
+stats.wallet_unlocked_token_balance ??
+walletSellableBalance,
+walletSellableBalance
+);
+
+const walletLockedBalance = toNumber(
+walletSummary.locked_balance ??
+walletSummary.lockedBalance ??
+walletSummary.locked_token_balance ??
+walletSummary.lockedTokenBalance ??
+stats.wallet_locked_balance ??
+stats.wallet_locked_token_balance ??
+Math.max(0, walletTotalBalance - walletUnlockedBalance),
+Math.max(0, walletTotalBalance - walletUnlockedBalance)
+);
+
+const walletPositionValueUsd = toNumber(
+walletSummary.position_value_usd ??
+walletSummary.positionValueUsd ??
+stats.wallet_position_value_usd,
+0
+);
+
+const walletSolBalance = toNumber(
+walletSummary.sol_balance ??
+walletSummary.solBalance ??
+stats.wallet_sol_balance,
+0
+);
+
+const walletSolDelta = toNumber(
+walletSummary.sol_delta ??
+walletSummary.solDelta ??
+walletSummary.walletSolDelta ??
+stats.wallet_sol_delta ??
+walletSolBalance,
+walletSolBalance
+);
+
+const walletIsBuilder = Boolean(
+walletSummary.wallet_is_builder ??
+walletSummary.is_builder_wallet ??
+stats.wallet_is_builder ??
+stats.is_builder_wallet ??
+false
+);
+
+const walletVestingActive = Boolean(
+walletSummary.wallet_vesting_active ??
+walletSummary.vesting_active ??
+stats.wallet_vesting_active ??
+false
+);
+
 return res.json({
 ok: true,
 success: true,
@@ -103,6 +189,7 @@ committed_sol: toNumber(launch.committed_sol, 0),
 participants_count: toNumber(launch.participants_count, 0),
 hard_cap_sol: toNumber(launch.hard_cap_sol, 0),
 internal_pool_sol: toNumber(launch.internal_pool_sol, 0),
+internal_pool_tokens: toNumber(launch.internal_pool_tokens, 0),
 liquidity: toNumber(launch.liquidity, 0),
 liquidity_sol: toNumber(launch.liquidity_sol ?? launch.liquidity, 0),
 liquidity_usd: toNumber(launch.liquidity_usd, 0),
@@ -132,52 +219,122 @@ mint: mintAddress,
 created_at: token?.created_at || null,
 },
 wallet: {
-token_balance: toNumber(walletSummary.token_balance, 0),
-tokenBalance: toNumber(
-walletSummary.tokenBalance ?? walletSummary.token_balance,
+token_balance: walletTokenBalance,
+tokenBalance: walletTokenBalance,
+total_balance: walletTotalBalance,
+totalBalance: walletTotalBalance,
+
+sellable_balance: walletSellableBalance,
+sellableBalance: walletSellableBalance,
+sellable_token_balance: walletSellableBalance,
+sellableTokenBalance: walletSellableBalance,
+
+unlocked_balance: walletUnlockedBalance,
+unlockedBalance: walletUnlockedBalance,
+unlocked_token_balance: walletUnlockedBalance,
+unlockedTokenBalance: walletUnlockedBalance,
+
+locked_balance: walletLockedBalance,
+lockedBalance: walletLockedBalance,
+locked_token_balance: walletLockedBalance,
+lockedTokenBalance: walletLockedBalance,
+
+position_value_usd: walletPositionValueUsd,
+positionValueUsd: walletPositionValueUsd,
+
+sol_balance: walletSolBalance,
+solBalance: walletSolBalance,
+sol_delta: walletSolDelta,
+solDelta: walletSolDelta,
+walletSolDelta: walletSolDelta,
+
+wallet_is_builder: walletIsBuilder,
+is_builder_wallet: walletIsBuilder,
+vesting_active: walletVestingActive,
+wallet_vesting_active: walletVestingActive,
+
+builder_total_allocation_tokens: toNumber(
+walletSummary.builder_total_allocation_tokens ??
+stats.builder_total_allocation_tokens,
 0
 ),
-position_value_usd: toNumber(walletSummary.position_value_usd, 0),
-positionValueUsd: toNumber(
-walletSummary.positionValueUsd ?? walletSummary.position_value_usd,
+builder_unlocked_tokens: toNumber(
+walletSummary.builder_unlocked_tokens ??
+stats.builder_unlocked_tokens,
 0
 ),
-sol_balance: toNumber(walletSummary.sol_balance, 0),
-solBalance: toNumber(
-walletSummary.solBalance ?? walletSummary.sol_balance,
+builder_locked_tokens: toNumber(
+walletSummary.builder_locked_tokens ??
+stats.builder_locked_tokens,
 0
 ),
-sol_delta: toNumber(
-walletSummary.sol_delta ??
-walletSummary.walletSolDelta ??
-walletSummary.sol_balance,
+builder_sellable_tokens: toNumber(
+walletSummary.builder_sellable_tokens ??
+stats.builder_sellable_tokens,
 0
 ),
-walletSolDelta: toNumber(
-walletSummary.walletSolDelta ??
-walletSummary.sol_delta ??
-walletSummary.sol_balance,
+builder_vesting_percent_unlocked: toNumber(
+walletSummary.builder_vesting_percent_unlocked ??
+stats.builder_vesting_percent_unlocked,
+0
+),
+builder_vesting_days_live: toNumber(
+walletSummary.builder_vesting_days_live ??
+stats.builder_vesting_days_live,
 0
 ),
 },
 stats: {
 ...stats,
-wallet_token_balance: toNumber(
-stats.wallet_token_balance ?? walletSummary.token_balance,
+
+wallet_token_balance: walletTokenBalance,
+wallet_total_balance: walletTotalBalance,
+
+wallet_sellable_balance: walletSellableBalance,
+wallet_sellable_token_balance: walletSellableBalance,
+
+wallet_unlocked_balance: walletUnlockedBalance,
+wallet_unlocked_token_balance: walletUnlockedBalance,
+
+wallet_locked_balance: walletLockedBalance,
+wallet_locked_token_balance: walletLockedBalance,
+
+wallet_position_value_usd: walletPositionValueUsd,
+wallet_sol_balance: walletSolBalance,
+wallet_sol_delta: walletSolDelta,
+
+wallet_is_builder: walletIsBuilder,
+is_builder_wallet: walletIsBuilder,
+wallet_vesting_active: walletVestingActive,
+
+builder_total_allocation_tokens: toNumber(
+stats.builder_total_allocation_tokens ??
+walletSummary.builder_total_allocation_tokens,
 0
 ),
-wallet_position_value_usd: toNumber(
-stats.wallet_position_value_usd ?? walletSummary.position_value_usd,
+builder_unlocked_tokens: toNumber(
+stats.builder_unlocked_tokens ??
+walletSummary.builder_unlocked_tokens,
 0
 ),
-wallet_sol_balance: toNumber(
-stats.wallet_sol_balance ?? walletSummary.sol_balance,
+builder_locked_tokens: toNumber(
+stats.builder_locked_tokens ??
+walletSummary.builder_locked_tokens,
 0
 ),
-wallet_sol_delta: toNumber(
-stats.wallet_sol_delta ??
-walletSummary.walletSolDelta ??
-walletSummary.sol_balance,
+builder_sellable_tokens: toNumber(
+stats.builder_sellable_tokens ??
+walletSummary.builder_sellable_tokens,
+0
+),
+builder_vesting_percent_unlocked: toNumber(
+stats.builder_vesting_percent_unlocked ??
+walletSummary.builder_vesting_percent_unlocked,
+0
+),
+builder_vesting_days_live: toNumber(
+stats.builder_vesting_days_live ??
+walletSummary.builder_vesting_days_live,
 0
 ),
 },
@@ -192,9 +349,9 @@ initial_token_reserve: toNumber(pool.initial_token_reserve, 0),
 created_at: pool.created_at || null,
 }
 : null,
+trades,
 cassie: {
-monitoring_active:
-cassie?.monitoring_active !== false,
+monitoring_active: cassie?.monitoring_active !== false,
 phase:
 String(cassie?.phase || launch.status || "").toLowerCase() || "commit",
 layer: cassie?.layer || "market-intelligence",

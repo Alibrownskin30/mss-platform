@@ -958,8 +958,8 @@ if (quickBuyRow) {
 quickBuyRow.classList.toggle("hidden", !isLive);
 }
 
-if (quickSellRow && phase !== PHASES.LIVE) {
-quickSellRow.classList.add("hidden");
+if (quickSellRow) {
+quickSellRow.classList.toggle("hidden", !isLive);
 }
 }
 
@@ -1139,8 +1139,6 @@ chartStats?.wallet_position_value_usd ??
 const solBalance = toNumber(
 wallet?.sol_balance ??
 wallet?.solBalance ??
-wallet?.sol_delta ??
-wallet?.solDelta ??
 tokenPayload?.wallet_sol_balance ??
 chartStats?.wallet_sol_balance ??
 chartStats?.wallet_sol_delta ??
@@ -1455,18 +1453,6 @@ body: JSON.stringify({ launchId, wallet, tokenAmount }),
 });
 }
 
-async function defaultReconcileLaunch(launchId) {
-return fetchJson(`/api/launcher/${encodeURIComponent(launchId)}/reconcile`, {
-method: "POST",
-});
-}
-
-async function defaultFinalizeLaunch(launchId) {
-return fetchJson(`/api/launcher/${encodeURIComponent(launchId)}/finalize`, {
-method: "POST",
-});
-}
-
 class LaunchMarketController {
 constructor(options = {}) {
 this.launchId = options.launchId || "";
@@ -1481,8 +1467,6 @@ this.quoteBuy = options.quoteBuy || defaultQuoteBuy;
 this.quoteSell = options.quoteSell || defaultQuoteSell;
 this.executeBuy = options.executeBuy || defaultExecuteBuy;
 this.executeSell = options.executeSell || defaultExecuteSell;
-this.reconcileLaunch = options.reconcileLaunch || defaultReconcileLaunch;
-this.finalizeLaunch = options.finalizeLaunch || defaultFinalizeLaunch;
 this.onPhaseChange = typeof options.onPhaseChange === "function" ? options.onPhaseChange : null;
 
 this.launch = options.launch ? normalizeLaunchTruth(options.launch) : null;
@@ -1516,7 +1500,6 @@ this._liveRefreshInFlight = null;
 this._launchRefreshInFlight = null;
 this._timeframeRefreshInFlight = null;
 this._walletRefreshTimeout = null;
-this._countdownTransitionInFlight = false;
 this._destroyed = false;
 
 this._boundHandleManageLinksClick = this.handleManageLinksClick.bind(this);
@@ -1687,19 +1670,6 @@ updateCountdownUi(this.launch, this.commitStats);
 this.countdownTimer = setInterval(() => {
 updateCountdownUi(this.launch, this.commitStats);
 
-const parts = getCountdownParts(this.launch, this.commitStats);
-if (parts.totalMs <= 0 && !this._countdownTransitionInFlight) {
-this._countdownTransitionInFlight = true;
-
-void this.forceCountdownTransition()
-.catch((error) => {
-console.error("countdown transition failed:", error);
-})
-.finally(() => {
-this._countdownTransitionInFlight = false;
-});
-}
-
 const nextPhase = inferPhase(this.launch);
 if (nextPhase !== this.phase) {
 this.phase = nextPhase;
@@ -1713,29 +1683,6 @@ this.startPollingLoop();
 }
 }
 }, 1000);
-}
-
-async forceCountdownTransition() {
-if (!this.launchId) return;
-
-try {
-await this.finalizeLaunch(this.launchId);
-} catch (error) {
-console.warn("manual finalize during countdown transition did not succeed:", error?.message || error);
-}
-
-try {
-await this.reconcileLaunch(this.launchId);
-} catch (error) {
-console.warn("manual reconcile during countdown transition did not succeed:", error?.message || error);
-}
-
-await this.refreshLaunch({ force: true });
-
-if (this.phase === PHASES.LIVE) {
-await this.refreshLiveMarketOnly({ force: true });
-this.startPollingLoop();
-}
 }
 
 setBaseState(launch = null, commitStats = null, options = {}) {
@@ -1850,16 +1797,9 @@ const previousPhase = this.phase;
 
 this.launch = mergeLaunchTruth(this.launch || {}, incomingLaunch);
 this.commitStats = commitStatsPayload || {};
+this.phase = inferPhase(this.launch);
 
-const computedPhase = inferPhase(this.launch);
-this.phase = computedPhase;
-
-if (computedPhase === PHASES.COUNTDOWN && getCountdownParts(this.launch, this.commitStats).totalMs <= 0) {
-await this.forceCountdownTransition();
-return;
-}
-
-if (computedPhase === PHASES.LIVE) {
+if (this.phase === PHASES.LIVE) {
 await this.refreshLiveMarketOnly({ force: true });
 } else {
 this.applyAll();
@@ -2307,7 +2247,7 @@ result?.walletBalanceAfter,
 this.walletTokenBalanceFallback + toNumber(result?.tokensReceived, 0)
 );
 this.walletSolDeltaFallback = toNumber(
-this.walletSolDeltaFallback + toNumber(result?.walletSolDelta, 0),
+result?.walletSolBalanceAfter ?? result?.walletSolBalance ?? result?.walletSolDelta ?? this.walletSolDeltaFallback,
 this.walletSolDeltaFallback
 );
 } else {
@@ -2316,7 +2256,7 @@ result?.walletBalanceAfter,
 Math.max(0, this.walletTokenBalanceFallback - toNumber(inputAmount, 0))
 );
 this.walletSolDeltaFallback = toNumber(
-this.walletSolDeltaFallback + toNumber(result?.walletSolDelta, 0),
+result?.walletSolBalanceAfter ?? result?.walletSolBalance ?? result?.walletSolDelta ?? this.walletSolDeltaFallback,
 this.walletSolDeltaFallback
 );
 }
@@ -2324,7 +2264,7 @@ this.walletSolDeltaFallback
 const message =
 this.tradeMode === TRADE_MODES.BUY
 ? `Buy Executed\nReceived: ${formatTokenAmount(result?.tokensReceived || 0, 0)} tokens\nPaid: ${formatSol(inputAmount, 6)}\nFee: ${formatSol(result?.feeSol || 0, 6)}`
-: `Sell Executed\nReceived: ${formatSol(result?.solReceived || 0, 6)}\nSold: ${formatTokenAmount(inputAmount, 0)} tokens\nFee: ${formatSol(result?.feeSol || 0, 6)}`;
+: `Sell Executed\nReceived: ${formatSol(result?.solReceived || result?.netSolOut || 0, 6)}\nSold: ${formatTokenAmount(inputAmount, 0)} tokens\nFee: ${formatSol(result?.feeSol || 0, 6)}`;
 
 setTradeMessage(message, "success");
 

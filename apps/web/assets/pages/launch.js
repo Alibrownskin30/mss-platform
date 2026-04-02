@@ -12,7 +12,9 @@ import { initLaunchMarket } from "../../js/launch-market.js";
 
 const BASE_REFRESH_INTERVAL_MS = 15000;
 const COUNTDOWN_REFRESH_INTERVAL_MS = 2500;
+const LIVE_REFRESH_INTERVAL_MS = 6000;
 const RENDER_TICK_MS = 1000;
+const FORCE_FINALIZE_COOLDOWN_MS = 8000;
 
 function $(id) {
 return document.getElementById(id);
@@ -145,6 +147,10 @@ return "commit";
 function isLiveLikeStatus(status) {
 const value = String(status || "").toLowerCase();
 return value === "live" || value === "graduated";
+}
+
+function isCountdownStatus(status) {
+return String(status || "").toLowerCase() === "countdown";
 }
 
 function getBuilderTrust(score) {
@@ -516,6 +522,7 @@ let launchMarketController = null;
 let lastRenderedPhaseStatus = "";
 let countdownRefreshRequested = false;
 let countdownFinalizeInFlight = false;
+let lastForcedFinalizeAt = 0;
 let walletChangeBound = false;
 
 async function fetchJson(path, options = {}) {
@@ -558,7 +565,13 @@ const id = qs("id");
 if (!id) return;
 if (countdownFinalizeInFlight) return;
 
+const now = Date.now();
+if (now - lastForcedFinalizeAt < FORCE_FINALIZE_COOLDOWN_MS) {
+return;
+}
+
 countdownFinalizeInFlight = true;
+lastForcedFinalizeAt = now;
 
 try {
 try {
@@ -567,14 +580,6 @@ method: "POST",
 });
 } catch (err) {
 console.warn("launch.js finalize attempt did not complete:", err?.message || err);
-}
-
-try {
-await fetchJson(`/api/launcher/${id}/reconcile`, {
-method: "POST",
-});
-} catch (err) {
-console.warn("launch.js reconcile attempt did not complete:", err?.message || err);
 }
 
 await refresh({ syncMarket: true });
@@ -1445,6 +1450,7 @@ $("commitAmount").value = "";
 }
 
 await refresh({ syncMarket: true });
+restartRefreshLoop();
 } catch (err) {
 console.error(err);
 
@@ -1467,6 +1473,8 @@ await refresh({ syncMarket: true });
 console.error(refreshErr);
 }
 }
+
+restartRefreshLoop();
 } finally {
 commitActionInFlight = false;
 render();
@@ -1525,6 +1533,7 @@ setStatus(
 );
 
 await refresh({ syncMarket: true });
+restartRefreshLoop();
 } catch (err) {
 console.error(err);
 setStatus(err?.message || "Refund failed.", "bad");
@@ -1533,6 +1542,7 @@ await refresh({ syncMarket: true });
 } catch (refreshErr) {
 console.error(refreshErr);
 }
+restartRefreshLoop();
 } finally {
 refundActionInFlight = false;
 render();
@@ -1579,6 +1589,7 @@ await syncLaunchMarketController(true);
 function getDynamicRefreshIntervalMs() {
 const status = String(currentLaunch?.status || "").toLowerCase();
 if (status === "countdown") return COUNTDOWN_REFRESH_INTERVAL_MS;
+if (status === "live" || status === "graduated") return LIVE_REFRESH_INTERVAL_MS;
 return BASE_REFRESH_INTERVAL_MS;
 }
 

@@ -8,7 +8,10 @@ import slowDown from "express-slow-down";
 import builderRoutes from "./routes/builders.js";
 import launcherRoutes from "./routes/launcher.js";
 import cilaRoutes from "./routes/cila.js";
-import { checkLaunchCountdowns } from "./services/launchWatcher.js";
+import {
+checkLaunchCountdowns,
+startLaunchWatcher,
+} from "./services/launchWatcher.js";
 import marketRoutes from "./routes/market.js";
 import tokenRoutes from "./routes/token.js";
 import { startGraduationWatcher } from "./services/launcher/graduationWatcher.js";
@@ -94,7 +97,12 @@ crossOriginResourcePolicy: { policy: "cross-origin" },
 
 // ---- Body parsing ----
 app.use(express.json({ limit: process.env.BODY_LIMIT || "1mb" }));
-app.use(express.urlencoded({ extended: true, limit: process.env.BODY_LIMIT || "1mb" }));
+app.use(
+express.urlencoded({
+extended: true,
+limit: process.env.BODY_LIMIT || "1mb",
+})
+);
 
 // ---- CORS ----
 const rawOrigins = (process.env.CORS_ORIGINS || "")
@@ -173,7 +181,7 @@ validate: { delayMs: false },
 const { cassie, cassieApi, cassieIntel } = createCassie();
 app.use(cassie);
 
-// ---- Route mounts (after protection middleware) ----
+// ---- Route mounts ----
 app.use("/api/builders", builderRoutes);
 app.use("/api/launcher", launcherRoutes);
 app.use("/api/launch-lifecycle", launchLifecycleRoutes);
@@ -198,21 +206,55 @@ const msg = String(e?.message || e || "").toLowerCase();
 return msg.includes("429") || msg.includes("too many requests");
 }
 
+function isTransientRpcError(e) {
+const msg = String(e?.message || e || "").toLowerCase();
+
+return (
+isRateLimitError(e) ||
+msg.includes("fetch failed") ||
+msg.includes("und_err_socket") ||
+msg.includes("socket hang up") ||
+msg.includes("other side closed") ||
+msg.includes("econnreset") ||
+msg.includes("etimedout") ||
+msg.includes("timeout") ||
+msg.includes("failed to get recent blockhash") ||
+msg.includes("block height exceeded") ||
+msg.includes("blockhash not found") ||
+msg.includes("429")
+);
+}
+
 async function rpcRetry(fn, { tries = 6, baseDelayMs = 300 } = {}) {
 let lastErr;
+
 for (let i = 0; i < tries; i++) {
 try {
 return await fn();
 } catch (e) {
 lastErr = e;
+
 const delay =
 Math.min(8000, baseDelayMs * Math.pow(2, i)) +
 Math.floor(Math.random() * 200);
-if (isRateLimitError(e)) await sleep(delay);
-else await sleep(150);
+
+if (isTransientRpcError(e)) {
+await sleep(delay);
+} else {
+await sleep(150);
 }
 }
+}
+
 throw lastErr;
+}
+
+async function runBackgroundTask(label, fn) {
+try {
+await fn();
+} catch (error) {
+console.error(`[background:${label}]`, error);
+}
 }
 
 function assertMint(mintStr) {
@@ -245,11 +287,15 @@ return raw || "Invalid token mint";
 
 function respondMintRouteError(res, error) {
 if (isRateLimitError(error)) {
-return res.status(429).json({ error: "RPC rate limited (429). Try again shortly." });
+return res
+.status(429)
+.json({ error: "RPC rate limited (429). Try again shortly." });
 }
 
 if (isMintValidationError(error)) {
-return res.status(error.statusCode || 400).json({ error: mintErrorMessage(error) });
+return res
+.status(error.statusCode || 400)
+.json({ error: mintErrorMessage(error) });
 }
 
 const friendly = mintErrorMessage(error);
@@ -884,7 +930,8 @@ key: "wallet_coordination",
 label: "Wallet Coordination",
 value: clamp(
 Math.round(
-(safeNum(activity?.score, 0) + whaleActivityScore + walletNetConfidence) / 3
+(safeNum(activity?.score, 0) + whaleActivityScore + walletNetConfidence) /
+3
 ),
 0,
 100
@@ -1094,19 +1141,21 @@ memoryHits[0]?.tag ||
 : "No dominant hostile pattern");
 
 const summaryParts = [];
-if (hasMintAuthority || hasFreezeAuthority)
+if (hasMintAuthority || hasFreezeAuthority) {
 summaryParts.push("authority exposure remains live");
+}
 if (top10 >= 55) summaryParts.push("holder concentration is elevated");
-if (hiddenControlScore >= 40)
-summaryParts.push("linked-wallet behavior is visible");
-if (freshWalletPct >= 20)
-summaryParts.push("fresh-wallet participation is elevated");
-if (liqFdvPct > 0 && liqFdvPct < 3)
+if (hiddenControlScore >= 40) summaryParts.push("linked-wallet behavior is visible");
+if (freshWalletPct >= 20) summaryParts.push("fresh-wallet participation is elevated");
+if (liqFdvPct > 0 && liqFdvPct < 3) {
 summaryParts.push("liquidity appears thin versus valuation");
-if (devConfidence >= 45)
+}
+if (devConfidence >= 45) {
 summaryParts.push("developer-network confidence is elevated");
-if (walletNetConfidence >= 45)
+}
+if (walletNetConfidence >= 45) {
 summaryParts.push("wallet control-map confidence is elevated");
+}
 if (momentum === "Escalating" || momentum === "Rising") {
 summaryParts.push(`risk trend is ${momentum.toLowerCase()}`);
 }
@@ -1722,7 +1771,9 @@ top10Pct: top10,
 liquidityText: fmtUsdCompact(liquidityUsd),
 top10Text: `${top10.toFixed(2)}%`,
 imageUrl: `${req.protocol}://${req.get("host")}/api/sol/share-image/${mintStr}`,
-scanUrl: `https://www.mssprotocol.com/token.html?mint=${encodeURIComponent(mintStr)}`,
+scanUrl: `https://www.mssprotocol.com/token.html?mint=${encodeURIComponent(
+mintStr
+)}`,
 });
 } catch (e) {
 return respondMintRouteError(res, e);
@@ -1878,16 +1929,47 @@ return res.status(500).json({ error: String(e?.message || e) });
 }
 });
 
+// ---- Error hardening ----
+if (!globalThis.__mssProcessErrorHandlersBound) {
+globalThis.__mssProcessErrorHandlersBound = true;
+
+process.on("unhandledRejection", (reason) => {
+console.error("UNHANDLED REJECTION:", reason);
+});
+
+process.on("uncaughtException", (error) => {
+console.error("UNCAUGHT EXCEPTION:", error);
+});
+}
+
 // ---- Start ----
+if (!globalThis.__mssApiServerStarted) {
+globalThis.__mssApiServerStarted = true;
+
 app.listen(PORT, "0.0.0.0", () => {
 console.log(`✅ MSS API running on http://0.0.0.0:${PORT}`);
 console.log(`🔒 RPC hidden (${RPC_LABEL})`);
 console.log(`🛡️ Cassie: enabled (defensive middleware + intel layer)`);
 });
 
+if (!globalThis.__mssBackgroundServicesStarted) {
+globalThis.__mssBackgroundServicesStarted = true;
+
+runBackgroundTask("launchWorker:start", async () => {
 startLaunchWorker();
-startWatcher();
-startGraduationWatcher();
-checkLaunchCountdowns().catch((err) => {
-console.error("Initial launch countdown check failed:", err);
 });
+
+runBackgroundTask("alertWatcher:start", async () => {
+startWatcher();
+});
+
+runBackgroundTask("graduationWatcher:start", async () => {
+startGraduationWatcher();
+});
+
+runBackgroundTask("launchCountdowns:start", async () => {
+startLaunchWatcher();
+await checkLaunchCountdowns();
+});
+}
+}

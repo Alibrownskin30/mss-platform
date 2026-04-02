@@ -198,6 +198,39 @@ WHERE id = ?
 );
 }
 
+async function syncLaunchPoolSnapshot(launchId, { solReserve, tokenReserve, price }) {
+const updates = [];
+const values = [];
+
+if (solReserve != null) {
+updates.push("internal_pool_sol = ?");
+values.push(roundSol(solReserve));
+}
+
+if (tokenReserve != null) {
+updates.push("internal_pool_tokens = ?");
+values.push(floorToken(tokenReserve));
+}
+
+if (price != null && Number.isFinite(Number(price))) {
+updates.push("price = ?");
+values.push(Number(price));
+}
+
+updates.push("updated_at = CURRENT_TIMESTAMP");
+
+values.push(launchId);
+
+await db.run(
+`
+UPDATE launches
+SET ${updates.join(", ")}
+WHERE id = ?
+`,
+values
+);
+}
+
 function buildBuyQuote({ solIn, tokenReserve, solReserve }) {
 const grossSolIn = safeNum(solIn, 0);
 const x = safeNum(tokenReserve, 0);
@@ -231,6 +264,7 @@ const newTokenReserve = x - tokensBought;
 const newSolReserve = newSolReserveRaw;
 const newKValue = String(Math.floor(newTokenReserve * newSolReserve));
 const executionPrice = grossSolIn / tokensBought;
+const postTradeUnitPrice = newSolReserve / Math.max(newTokenReserve, 1);
 
 return {
 grossSolIn: roundSol(grossSolIn),
@@ -243,6 +277,7 @@ newTokenReserve: floorToken(newTokenReserve),
 newKValue,
 price: executionPrice,
 executionPrice,
+postTradeUnitPrice,
 feeBreakdown: getFeeBreakdown(feeSol),
 };
 }
@@ -280,6 +315,7 @@ const finalSolReserve = y - netSolOut;
 const finalTokenReserve = x + grossTokensIn;
 const finalK = String(Math.floor(finalTokenReserve * finalSolReserve));
 const executionPrice = grossSolOut / grossTokensIn;
+const postTradeUnitPrice = finalSolReserve / Math.max(finalTokenReserve, 1);
 
 return {
 grossTokensIn,
@@ -292,6 +328,7 @@ newTokenReserve: floorToken(finalTokenReserve),
 newKValue: finalK,
 price: executionPrice,
 executionPrice,
+postTradeUnitPrice,
 feeBreakdown: getFeeBreakdown(feeSol),
 };
 }
@@ -597,6 +634,11 @@ currentBalance + quote.tokensBought
 );
 
 await syncLaunchLiquidityFields(launchIdNum, quote.newSolReserve);
+await syncLaunchPoolSnapshot(launchIdNum, {
+solReserve: quote.newSolReserve,
+tokenReserve: quote.newTokenReserve,
+price: quote.postTradeUnitPrice,
+});
 
 await db.run("COMMIT");
 
@@ -606,10 +648,12 @@ side: "buy",
 tokensReceived: quote.tokensBought,
 price: quote.executionPrice,
 executionPrice: quote.executionPrice,
+marketPriceAfter: quote.postTradeUnitPrice,
 feePct: MSS_TRADING_FEE_PCT,
 feeSol: quote.feeSol,
 feeBreakdown: quote.feeBreakdown,
 walletSolDelta: quote.walletSolDelta,
+walletSolBalanceAfter: null,
 maxBuySol,
 isBuilderWallet,
 ...walletLimit,
@@ -724,6 +768,11 @@ currentBalance - quote.grossTokensIn
 );
 
 await syncLaunchLiquidityFields(launchIdNum, quote.newSolReserve);
+await syncLaunchPoolSnapshot(launchIdNum, {
+solReserve: quote.newSolReserve,
+tokenReserve: quote.newTokenReserve,
+price: quote.postTradeUnitPrice,
+});
 
 await db.run("COMMIT");
 
@@ -731,15 +780,21 @@ return res.json({
 success: true,
 side: "sell",
 solReceived: quote.netSolOut,
+netSolOut: quote.netSolOut,
 grossSolOut: quote.grossSolOut,
 feePct: MSS_TRADING_FEE_PCT,
 feeSol: quote.feeSol,
 feeBreakdown: quote.feeBreakdown,
 price: quote.executionPrice,
 executionPrice: quote.executionPrice,
+marketPriceAfter: quote.postTradeUnitPrice,
 walletSolDelta: quote.walletSolDelta,
+walletSolBalanceAfter: null,
 walletBalanceBefore: currentBalance,
 walletBalanceAfter: nextBalance,
+tokenAmountSold: quote.grossTokensIn,
+soldTokens: quote.grossTokensIn,
+totalSupply: getEffectiveTotalSupply(launch, token),
 pool: {
 sol_reserve: quote.newSolReserve,
 token_reserve: quote.newTokenReserve,

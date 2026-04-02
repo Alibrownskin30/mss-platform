@@ -282,29 +282,30 @@ WHERE id = ?
 );
 }
 
-async function ensureLaunchPromotedToLive(launchId) {
-const claim = await db.run(
+async function forcePromoteLaunchToLive(launchId) {
+await db.run(
 `
 UPDATE launches
 SET status = 'live',
-live_at = COALESCE(live_at, CURRENT_TIMESTAMP),
+live_at = COALESCE(live_at, countdown_ends_at, CURRENT_TIMESTAMP),
 updated_at = CURRENT_TIMESTAMP
 WHERE id = ?
-AND status = 'countdown'
+AND status IN ('countdown', 'live')
 `,
 [launchId]
 );
 
-if (claim?.changes > 0) {
-return { promoted: true };
+const liveLaunch = await getLaunchById(launchId);
+
+if (!liveLaunch) {
+throw new Error("launch not found after live promotion");
 }
 
-const latest = await getLaunchById(launchId);
-if (latest?.status === "live") {
-return { promoted: false, alreadyLive: true, launch: latest };
+if (String(liveLaunch.status || "").toLowerCase() !== "live") {
+throw new Error("launch is not live after promotion");
 }
 
-return { promoted: false, alreadyLive: false, launch: latest };
+return liveLaunch;
 }
 
 async function persistAllocationResult(launchId, allocationResult) {
@@ -516,27 +517,6 @@ feeDistributionError: feeError,
 }
 }
 
-async function ensureReadyForLiveBootstrap(launchId) {
-const claim = await ensureLaunchPromotedToLive(launchId);
-
-if (!claim.promoted && !claim.alreadyLive) {
-return {
-ok: false,
-reason: "launch could not be promoted to live",
-};
-}
-
-const liveLaunch = await getLaunchById(launchId);
-if (!liveLaunch || liveLaunch.status !== "live") {
-throw new Error("launch is not live after promotion");
-}
-
-return {
-ok: true,
-launch: liveLaunch,
-};
-}
-
 export async function finalizeLaunch(launchId) {
 let launch = await getLaunchById(launchId);
 
@@ -544,7 +524,9 @@ if (!launch) {
 throw new Error("Launch not found");
 }
 
-if (launch.status !== "countdown" && launch.status !== "live") {
+const status = String(launch.status || "").toLowerCase();
+
+if (!["countdown", "live"].includes(status)) {
 return {
 ok: false,
 reason: "launch is not in countdown or live",
@@ -552,7 +534,7 @@ reason: "launch is not in countdown or live",
 }
 
 if (!isBuilderLaunchPaid(launch)) {
-if (launch.status === "countdown") {
+if (status === "countdown") {
 await markLaunchFailed(launchId);
 }
 
@@ -562,7 +544,7 @@ reason: "builder bond not paid",
 };
 }
 
-if (launch.status === "live" && hasCompletedLiveBootstrap(launch)) {
+if (status === "live" && hasCompletedLiveBootstrap(launch)) {
 const stats = await getCommitStats(launchId);
 
 console.log(`Launch ${launchId} already finalized/live, skipping re-finalize`);
@@ -582,8 +564,8 @@ alreadyFinalized: true,
 });
 }
 
-if (launch.status === "countdown") {
-const countdownEnds = parseDbTime(launch.countdown_ends_at);
+if (status === "countdown") {
+const countdownEnds = parseDbTime(launch.countdown_ends_at || launch.live_at);
 
 if (!countdownEnds) {
 throw new Error("Invalid countdown end time");
@@ -605,7 +587,7 @@ throw new Error("Launch not found after sync");
 }
 
 if (!isBuilderLaunchPaid(launch)) {
-if (launch.status === "countdown") {
+if (String(launch.status || "").toLowerCase() === "countdown") {
 await markLaunchFailed(launchId);
 }
 
@@ -615,7 +597,10 @@ reason: "builder bond not paid",
 };
 }
 
-if (launch.status === "live" && hasCompletedLiveBootstrap(launch)) {
+if (
+String(launch.status || "").toLowerCase() === "live" &&
+hasCompletedLiveBootstrap(launch)
+) {
 console.log(`Launch ${launchId} finalized during sync window, skipping duplicate finalize`);
 
 return buildFinalizeSuccessResponse({
@@ -637,7 +622,7 @@ const totalCommitted = safeNum(stats.totalCommitted, 0);
 const minRaise = safeNum(launch.min_raise_sol, 0);
 
 if (totalCommitted < minRaise) {
-if (launch.status === "countdown") {
+if (String(launch.status || "").toLowerCase() === "countdown") {
 await markLaunchFailed(launchId);
 }
 
@@ -660,35 +645,30 @@ launch,
 totalCommitted
 );
 
-const liveState = await ensureReadyForLiveBootstrap(launchId);
-if (!liveState.ok) {
-return liveState;
-}
+launch = await forcePromoteLaunchToLive(launchId);
 
-const liveLaunch = liveState.launch || (await getLaunchById(launchId));
-
-if (liveLaunch?.status === "live" && hasCompletedLiveBootstrap(liveLaunch)) {
+if (hasCompletedLiveBootstrap(launch)) {
 console.log(`Launch ${launchId} already live before bootstrap step, returning persisted state`);
 
 return buildFinalizeSuccessResponse({
 launchId,
-launch: liveLaunch,
+launch,
 totalCommitted,
 participants: stats.participants,
 feePlan,
-feeDistribution: liveLaunch.fee_distribution_json || feeDistribution,
+feeDistribution: launch.fee_distribution_json || feeDistribution,
 feeDistributionPending,
 feeDistributionError,
-allocationsBuilt: hasPersistedAllocationResult(liveLaunch),
+allocationsBuilt: hasPersistedAllocationResult(launch),
 marketBootstrap: null,
-allocationResult: liveLaunch.launch_result_json || null,
+allocationResult: launch.launch_result_json || null,
 alreadyFinalized: true,
 });
 }
 
 const { allocationResult, allocationsBuilt } = await ensureAllocationResult(
 launchId,
-liveLaunch
+launch
 );
 
 let marketBootstrap = null;
@@ -698,6 +678,15 @@ marketBootstrap = await bootstrapLiveMarket(launchId);
 console.log("Market bootstrap complete:", marketBootstrap);
 } catch (err) {
 console.error(`Market bootstrap failed for launch ${launchId}:`, err);
+
+const liveButPartial = await getLaunchById(launchId);
+
+if (liveButPartial && String(liveButPartial.status || "").toLowerCase() === "live") {
+throw new Error(
+`launch promoted to live but market bootstrap failed: ${err?.message || err}`
+);
+}
+
 throw err;
 }
 
