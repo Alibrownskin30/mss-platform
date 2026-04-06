@@ -41,15 +41,32 @@ treasury: roundSol(fee * FEE_SPLIT.treasury),
 };
 }
 
-function getDaysSinceLaunch(launch) {
-const launchStart = new Date(
-launch.live_at || launch.updated_at || launch.created_at
-).getTime();
+function parseDbTime(value) {
+if (!value) return null;
+const raw = String(value).trim();
+if (!raw) return null;
 
-if (!Number.isFinite(launchStart)) return 0;
+const hasExplicitTimezone =
+/z$/i.test(raw) || /[+-]\d{2}:\d{2}$/.test(raw);
+
+if (!hasExplicitTimezone && /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/.test(raw)) {
+const sqliteUtc = Date.parse(raw.replace(" ", "T") + "Z");
+return Number.isFinite(sqliteUtc) ? sqliteUtc : null;
+}
+
+const direct = Date.parse(raw);
+return Number.isFinite(direct) ? direct : null;
+}
+
+function getDaysSinceLaunch(launch) {
+const launchStartMs = parseDbTime(
+launch?.live_at || launch?.updated_at || launch?.created_at
+);
+
+if (!Number.isFinite(launchStartMs)) return 0;
 
 const now = Date.now();
-return Math.max(0, Math.floor((now - launchStart) / (24 * 60 * 60 * 1000)));
+return Math.max(0, Math.floor((now - launchStartMs) / (24 * 60 * 60 * 1000)));
 }
 
 function getMaxWalletPercent(launch, isBuilderWallet = false) {
@@ -132,10 +149,9 @@ if (direct) return direct;
 
 if (!launch?.builder_id) return "";
 
-const builder = await db.get(
-`SELECT wallet FROM builders WHERE id = ?`,
-[launch.builder_id]
-);
+const builder = await db.get(`SELECT wallet FROM builders WHERE id = ?`, [
+launch.builder_id,
+]);
 
 return cleanText(builder?.wallet || "", 120);
 }
@@ -229,6 +245,90 @@ WHERE id = ?
 `,
 values
 );
+}
+
+async function syncLaunchMarketFields(launchId, { solReserve, tokenReserve, price }) {
+const circulatingRow = await db.get(
+`
+SELECT COALESCE(SUM(token_amount), 0) AS total
+FROM wallet_balances
+WHERE launch_id = ?
+`,
+[launchId]
+);
+
+const circulatingSupply = floorToken(circulatingRow?.total || 0);
+const oneSidedLiquiditySol = roundSol(solReserve);
+const safePrice = safeNum(price, 0);
+const marketCap = safePrice > 0 ? safePrice * circulatingSupply : 0;
+
+const volumeRow = await db.get(
+`
+SELECT COALESCE(SUM(sol_amount), 0) AS total
+FROM trades
+WHERE launch_id = ?
+AND datetime(created_at) >= datetime('now', '-24 hours')
+`,
+[launchId]
+);
+
+const volume24h = roundSol(volumeRow?.total || 0);
+
+await db.run(
+`
+UPDATE launches
+SET
+liquidity = ?,
+internal_pool_sol = ?,
+internal_pool_tokens = ?,
+price = ?,
+circulating_supply = ?,
+market_cap = ?,
+volume_24h = ?,
+updated_at = CURRENT_TIMESTAMP
+WHERE id = ?
+`,
+[
+oneSidedLiquiditySol,
+oneSidedLiquiditySol,
+floorToken(tokenReserve),
+safePrice,
+circulatingSupply,
+marketCap,
+volume24h,
+launchId,
+]
+);
+}
+
+async function getWalletSolDelta(launchId, wallet) {
+const walletStr = cleanText(wallet, 120);
+if (!walletStr) return 0;
+
+const rows = await db.all(
+`
+SELECT side, sol_amount
+FROM trades
+WHERE launch_id = ? AND wallet = ?
+ORDER BY id ASC
+`,
+[launchId, walletStr]
+);
+
+let delta = 0;
+
+for (const row of rows) {
+const side = String(row?.side || "").toLowerCase();
+const solAmount = safeNum(row?.sol_amount, 0);
+
+if (side === "sell") {
+delta += solAmount;
+} else {
+delta -= solAmount;
+}
+}
+
+return roundSol(delta);
 }
 
 function buildBuyQuote({ solIn, tokenReserve, solReserve }) {
@@ -417,9 +517,12 @@ solReserve: Number(pool.sol_reserve),
 });
 
 let walletBalanceBefore = 0;
+let walletSolDelta = 0;
+
 if (walletStr) {
 const walletBalance = await getOrCreateWalletBalance(launchIdNum, walletStr);
 walletBalanceBefore = safeNum(walletBalance.token_amount, 0);
+walletSolDelta = await getWalletSolDelta(launchIdNum, walletStr);
 }
 
 const walletLimit = buildWalletLimitPayload({
@@ -437,6 +540,9 @@ quote: {
 ...quote,
 maxBuySol,
 isBuilderWallet,
+walletSolBalanceAfter: null,
+walletSolDeltaBefore: walletSolDelta,
+walletSolDeltaAfter: roundSol(walletSolDelta + quote.walletSolDelta),
 ...walletLimit,
 },
 });
@@ -480,10 +586,12 @@ return res.status(400).json({ error: "Market is not live" });
 const walletStr = cleanText(wallet, 120);
 let walletBalanceBefore = null;
 let walletBalanceAfter = null;
+let walletSolDelta = 0;
 
 if (walletStr) {
 const walletBalance = await getOrCreateWalletBalance(launchIdNum, walletStr);
 walletBalanceBefore = safeNum(walletBalance.token_amount, 0);
+walletSolDelta = await getWalletSolDelta(launchIdNum, walletStr);
 
 if (walletBalanceBefore < requestedTokens) {
 return res.status(400).json({
@@ -508,6 +616,9 @@ quote: {
 ...quote,
 walletBalanceBefore,
 walletBalanceAfter,
+walletSolBalanceAfter: null,
+walletSolDeltaBefore: walletSolDelta,
+walletSolDeltaAfter: roundSol(walletSolDelta + quote.walletSolDelta),
 },
 });
 } catch (err) {
@@ -574,6 +685,7 @@ solReserve: Number(pool.sol_reserve),
 
 const walletBalance = await getOrCreateWalletBalance(launchIdNum, walletStr);
 const currentBalance = safeNum(walletBalance.token_amount, 0);
+const walletSolDeltaBefore = await getWalletSolDelta(launchIdNum, walletStr);
 
 const walletLimit = buildWalletLimitPayload({
 launch,
@@ -639,8 +751,15 @@ solReserve: quote.newSolReserve,
 tokenReserve: quote.newTokenReserve,
 price: quote.postTradeUnitPrice,
 });
+await syncLaunchMarketFields(launchIdNum, {
+solReserve: quote.newSolReserve,
+tokenReserve: quote.newTokenReserve,
+price: quote.postTradeUnitPrice,
+});
 
 await db.run("COMMIT");
+
+const walletSolDeltaAfter = roundSol(walletSolDeltaBefore + quote.walletSolDelta);
 
 return res.json({
 success: true,
@@ -653,6 +772,8 @@ feePct: MSS_TRADING_FEE_PCT,
 feeSol: quote.feeSol,
 feeBreakdown: quote.feeBreakdown,
 walletSolDelta: quote.walletSolDelta,
+walletSolDeltaBefore,
+walletSolDeltaAfter,
 walletSolBalanceAfter: null,
 maxBuySol,
 isBuilderWallet,
@@ -713,6 +834,7 @@ return res.status(400).json({ error: "Market is not live" });
 
 const walletBalance = await getOrCreateWalletBalance(launchIdNum, walletStr);
 const currentBalance = safeNum(walletBalance.token_amount, 0);
+const walletSolDeltaBefore = await getWalletSolDelta(launchIdNum, walletStr);
 
 if (currentBalance < tokensIn) {
 return res.status(400).json({
@@ -773,8 +895,15 @@ solReserve: quote.newSolReserve,
 tokenReserve: quote.newTokenReserve,
 price: quote.postTradeUnitPrice,
 });
+await syncLaunchMarketFields(launchIdNum, {
+solReserve: quote.newSolReserve,
+tokenReserve: quote.newTokenReserve,
+price: quote.postTradeUnitPrice,
+});
 
 await db.run("COMMIT");
+
+const walletSolDeltaAfter = roundSol(walletSolDeltaBefore + quote.walletSolDelta);
 
 return res.json({
 success: true,
@@ -789,6 +918,8 @@ price: quote.executionPrice,
 executionPrice: quote.executionPrice,
 marketPriceAfter: quote.postTradeUnitPrice,
 walletSolDelta: quote.walletSolDelta,
+walletSolDeltaBefore,
+walletSolDeltaAfter,
 walletSolBalanceAfter: null,
 walletBalanceBefore: currentBalance,
 walletBalanceAfter: nextBalance,

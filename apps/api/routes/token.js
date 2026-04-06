@@ -14,17 +14,23 @@ return String(value ?? "").trim().slice(0, max);
 }
 
 function normalizeTradeRow(row) {
+const solAmount = toNumber(row.sol_amount, 0);
+const tokenAmount = toNumber(row.token_amount, 0);
+const explicitPrice = toNumber(row.price, 0);
+const derivedPrice = tokenAmount > 0 ? solAmount / tokenAmount : 0;
+const executionPrice = explicitPrice > 0 ? explicitPrice : derivedPrice;
+
 return {
 id: row.id,
 launch_id: row.launch_id,
 token_id: row.token_id,
 wallet: cleanText(row.wallet, 120),
 side: String(row.side || "").toLowerCase() === "sell" ? "sell" : "buy",
-price_sol: toNumber(row.price, 0),
-price: toNumber(row.price, 0),
-token_amount: toNumber(row.token_amount, 0),
-base_amount: toNumber(row.sol_amount, 0),
-sol_amount: toNumber(row.sol_amount, 0),
+price_sol: executionPrice,
+price: executionPrice,
+token_amount: tokenAmount,
+base_amount: solAmount,
+sol_amount: solAmount,
 timestamp: row.created_at,
 created_at: row.created_at,
 };
@@ -192,9 +198,25 @@ internal_pool_sol: toNumber(launch.internal_pool_sol, 0),
 internal_pool_tokens: toNumber(launch.internal_pool_tokens, 0),
 liquidity: toNumber(launch.liquidity, 0),
 liquidity_sol: toNumber(launch.liquidity_sol ?? launch.liquidity, 0),
-liquidity_usd: toNumber(launch.liquidity_usd, 0),
-current_liquidity_usd: toNumber(launch.current_liquidity_usd, 0),
+liquidity_usd: toNumber(
+stats.liquidity_usd ??
+launch.current_liquidity_usd ??
+launch.liquidity_usd,
+0
+),
+current_liquidity_usd: toNumber(
+stats.liquidity_usd ??
+launch.current_liquidity_usd ??
+launch.liquidity_usd,
+0
+),
 sol_usd_price: toNumber(stats.sol_usd_price, 0),
+price: toNumber(stats.price_sol ?? launch.price, 0),
+price_usd: toNumber(stats.price_usd, 0),
+market_cap: toNumber(stats.market_cap_sol ?? launch.market_cap, 0),
+market_cap_usd: toNumber(stats.market_cap_usd, 0),
+volume_24h: toNumber(stats.volume_24h_sol ?? launch.volume_24h, 0),
+volume_24h_usd: toNumber(stats.volume_24h_usd, 0),
 website_url: launch.website_url || "",
 x_url: launch.x_url || "",
 telegram_url: launch.telegram_url || "",

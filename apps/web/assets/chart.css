@@ -405,6 +405,13 @@ color:#fff;
 cursor:pointer;
 font-size:12px;
 font-weight:700;
+transition:transform .16s ease, background .16s ease, border-color .16s ease;
+}
+
+.launch-manage-links-btn:hover{
+transform:translateY(-1px);
+background:rgba(255,255,255,.08);
+border-color:rgba(255,255,255,.15);
 }
 
 .cassie-card{
@@ -924,6 +931,10 @@ font-size:14px;
 line-height:1.55;
 }
 
+.market-overlay-text.hidden{
+display:none !important;
+}
+
 .market-overlay-badges{
 margin-top:14px;
 display:flex;
@@ -977,6 +988,10 @@ font-size:13px;
 position:absolute;
 inset:0;
 z-index:1;
+}
+
+.market-live-layer.hidden{
+display:none !important;
 }
 
 .market-chart-canvas{

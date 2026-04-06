@@ -834,7 +834,12 @@ if (!button) return;
 
 const builderWallet = String(launch?.builder_wallet || "").trim().toLowerCase();
 const wallet = String(connectedWallet || "").trim().toLowerCase();
-const canManage = Boolean(builderWallet && wallet && builderWallet === wallet);
+const canManage = Boolean(
+inferPhase(launch) === PHASES.LIVE &&
+builderWallet &&
+wallet &&
+builderWallet === wallet
+);
 
 button.classList.toggle("hidden", !canManage);
 }
@@ -1141,9 +1146,17 @@ wallet?.sol_balance ??
 wallet?.solBalance ??
 tokenPayload?.wallet_sol_balance ??
 chartStats?.wallet_sol_balance ??
-chartStats?.wallet_sol_delta ??
 0,
 0
+);
+
+const solDelta = toNumber(
+wallet?.sol_delta ??
+wallet?.solDelta ??
+tokenPayload?.wallet_sol_delta ??
+chartStats?.wallet_sol_delta ??
+solBalance,
+solBalance
 );
 
 const isBuilderWallet = Boolean(
@@ -1168,6 +1181,7 @@ lockedBalance,
 sellableBalance,
 positionValueUsd,
 solBalance,
+solDelta,
 isBuilderWallet,
 vestingActive,
 };
@@ -1490,7 +1504,6 @@ this.lastQuote = null;
 this.tradeBusy = false;
 this.quoteBusy = false;
 this.walletTokenBalanceFallback = 0;
-this.walletSolDeltaFallback = 0;
 
 this.refreshTimer = null;
 this.countdownTimer = null;
@@ -1722,10 +1735,6 @@ this.walletTokenBalanceFallback
 
 if (liveWalletSummary.tokenBalance > 0 || this.walletTokenBalanceFallback <= 0) {
 this.walletTokenBalanceFallback = liveWalletSummary.tokenBalance;
-}
-
-if (Math.abs(liveWalletSummary.solBalance) > 0 || this.walletSolDeltaFallback === 0) {
-this.walletSolDeltaFallback = liveWalletSummary.solBalance;
 }
 }
 
@@ -2000,6 +2009,7 @@ const payload = getLinksPayloadFromModal();
 const result = await this.saveLinks(this.launchId, payload);
 this.launch = mergeLaunchTruth(this.launch || {}, result?.launch || payload);
 renderExternalLinks(this.launch);
+setManageLinksVisibility(this.launch, this.connectedWallet);
 closeLinksModal();
 } catch (error) {
 console.error("save links failed:", error);
@@ -2246,18 +2256,10 @@ this.walletTokenBalanceFallback = toNumber(
 result?.walletBalanceAfter,
 this.walletTokenBalanceFallback + toNumber(result?.tokensReceived, 0)
 );
-this.walletSolDeltaFallback = toNumber(
-result?.walletSolBalanceAfter ?? result?.walletSolBalance ?? result?.walletSolDelta ?? this.walletSolDeltaFallback,
-this.walletSolDeltaFallback
-);
 } else {
 this.walletTokenBalanceFallback = toNumber(
 result?.walletBalanceAfter,
 Math.max(0, this.walletTokenBalanceFallback - toNumber(inputAmount, 0))
-);
-this.walletSolDeltaFallback = toNumber(
-result?.walletSolBalanceAfter ?? result?.walletSolBalance ?? result?.walletSolDelta ?? this.walletSolDeltaFallback,
-this.walletSolDeltaFallback
 );
 }
 

@@ -462,6 +462,13 @@ mint_required_tag: cleanText(row?.mint_required_tag, 32) || REQUIRED_MINT_TAG,
 mint_reservation_attempts: Number(row?.mint_reservation_attempts || 0),
 mint_reserved_at: row?.mint_reserved_at || null,
 mint_finalized_at: row?.mint_finalized_at || null,
+website_url: cleanText(row?.website_url, 500),
+x_url: cleanText(row?.x_url, 500),
+telegram_url: cleanText(row?.telegram_url, 500),
+discord_url: cleanText(row?.discord_url, 500),
+builder_wallet: cleanText(row?.builder_wallet, 120),
+builder_alias: cleanText(row?.builder_alias, 120),
+builder_score: Number(row?.builder_score || 0),
 };
 }
 
@@ -548,6 +555,44 @@ msg.includes("failed to get recent blockhash")
 );
 }
 
+function normalizePublicLink(raw, typeKey = "") {
+const value = cleanText(raw, 500);
+if (!value) return "";
+if (/^javascript:/i.test(value) || /^data:/i.test(value)) return "";
+
+let normalized = value;
+if (!/^https?:\/\//i.test(normalized)) {
+normalized = `https://${normalized}`;
+}
+
+try {
+const url = new URL(normalized);
+if (!["http:", "https:"].includes(url.protocol)) return "";
+
+const host = url.hostname.toLowerCase();
+
+if (typeKey === "x_url" && !(host.includes("x.com") || host.includes("twitter.com"))) {
+return "";
+}
+if (
+typeKey === "telegram_url" &&
+!(host.includes("t.me") || host.includes("telegram.me"))
+) {
+return "";
+}
+if (
+typeKey === "discord_url" &&
+!(host.includes("discord.gg") || host.includes("discord.com"))
+) {
+return "";
+}
+
+return url.toString();
+} catch {
+return "";
+}
+}
+
 function shapeLaunchForList(row) {
 const parsed = sanitizeLaunchForPublic(row);
 const totalCommitted = Number(parsed.committed_sol || 0);
@@ -595,6 +640,10 @@ failed_at: parsed.failed_at || null,
 builder_wallet: parsed.builder_wallet || null,
 builder_alias: parsed.builder_alias || null,
 builder_score: parsed.builder_score ?? null,
+website_url: parsed.website_url || "",
+x_url: parsed.x_url || "",
+telegram_url: parsed.telegram_url || "",
+discord_url: parsed.discord_url || "",
 commitPercent: buildCommitPercent(totalCommitted, hardCap),
 };
 }
@@ -659,27 +708,6 @@ return Number.isFinite(sqliteUtc) ? sqliteUtc : null;
 
 const direct = Date.parse(raw);
 return Number.isFinite(direct) ? direct : null;
-}
-
-function getCountdownTargetMs(launch) {
-const endsAt = parseDbTime(launch?.countdown_ends_at || launch?.live_at);
-const startedAt = parseDbTime(launch?.countdown_started_at);
-
-if (Number.isFinite(endsAt)) return endsAt;
-if (Number.isFinite(startedAt)) {
-return startedAt + COUNTDOWN_MINUTES * 60 * 1000;
-}
-
-return null;
-}
-
-function hasCountdownWindow(launch) {
-return Number.isFinite(getCountdownTargetMs(launch));
-}
-
-function isCountdownExpired(launch) {
-const targetMs = getCountdownTargetMs(launch);
-return Number.isFinite(targetMs) && Date.now() >= targetMs;
 }
 
 async function buildEscrowTransferTransaction({ wallet, solAmount, reference }) {
@@ -842,6 +870,24 @@ async function getLaunchById(launchId) {
 return db.get(`SELECT * FROM launches WHERE id = ?`, [launchId]);
 }
 
+async function getLaunchWithBuilderById(launchId) {
+return db.get(
+`
+SELECT
+l.*,
+b.wallet AS builder_wallet,
+b.alias AS builder_alias,
+b.builder_score
+FROM launches l
+LEFT JOIN builders b
+ON b.id = l.builder_id
+WHERE l.id = ?
+LIMIT 1
+`,
+[launchId]
+);
+}
+
 async function getBuilderByWallet(wallet) {
 return db.get(
 `SELECT id, wallet, alias FROM builders WHERE wallet = ?`,
@@ -947,13 +993,23 @@ let launch = await getLaunchById(launchId);
 if (!launch) return null;
 
 const status = String(launch.status || "").toLowerCase();
+const countdownStartedMs = parseDbTime(launch.countdown_started_at);
+const countdownEndsMs = parseDbTime(launch.countdown_ends_at || launch.live_at);
+const hasCountdownWindow =
+Number.isFinite(countdownStartedMs) && Number.isFinite(countdownEndsMs);
+const now = Date.now();
 
-if (status === "commit" && hasCountdownWindow(launch)) {
+if (status === "commit" && hasCountdownWindow) {
+if (now < countdownEndsMs) {
 launch = await forceLaunchStatus(launchId, "countdown");
 return launch;
 }
 
-if (status === "countdown" && hasCountdownWindow(launch) && isCountdownExpired(launch)) {
+launch = await forceLaunchStatus(launchId, "countdown");
+return launch;
+}
+
+if (status === "countdown" && hasCountdownWindow && now >= countdownEndsMs) {
 return launch;
 }
 
@@ -1130,17 +1186,23 @@ refunds,
 
 async function finalizeLaunchIfReady(launchId) {
 let launch = await getLaunchById(launchId);
-if (!launch) return null;
-
-if (String(launch.status || "").toLowerCase() === "commit" && hasCountdownWindow(launch)) {
-launch = await forceLaunchStatus(launchId, "countdown");
-}
-
 if (!launch || launch.status !== "countdown") {
 return launch;
 }
 
-if (!isCountdownExpired(launch)) {
+const countdownCheck = await db.get(
+`
+SELECT CASE
+WHEN countdown_ends_at IS NOT NULL AND datetime('now') >= datetime(countdown_ends_at)
+THEN 1 ELSE 0
+END AS ready
+FROM launches
+WHERE id = ?
+`,
+[launchId]
+);
+
+if (!countdownCheck || Number(countdownCheck.ready) !== 1) {
 return launch;
 }
 
@@ -1157,29 +1219,16 @@ return getLaunchById(launchId);
 throw err;
 }
 
-let latest = await getLaunchById(launchId);
+if (result?.ok) {
+await safeSyncLifecycle(launchId);
+return getLaunchById(launchId);
+}
+
+const latest = await getLaunchById(launchId);
 
 if (latest?.status === "live" || latest?.status === "graduated") {
 await safeSyncLifecycle(launchId);
 return latest;
-}
-
-const latestContractAddress = cleanText(latest?.contract_address, 120);
-const latestMintStatus = cleanText(latest?.mint_reservation_status, 40).toLowerCase();
-
-if (
-latest?.status === "countdown" &&
-latestContractAddress &&
-latestMintStatus === "finalized"
-) {
-latest = await forceLaunchStatus(launchId, "live");
-await safeSyncLifecycle(launchId);
-return latest;
-}
-
-if (result?.ok) {
-await safeSyncLifecycle(launchId);
-return getLaunchById(launchId);
 }
 
 if (result?.reason === "countdown not finished") {
@@ -1646,7 +1695,7 @@ console.error("Mint pool async top-up after create failed:", err);
 });
 }
 
-const launch = await getLaunchById(result.lastID);
+const launch = await getLaunchWithBuilderById(result.lastID);
 
 return res.json({
 ok: true,
@@ -2286,13 +2335,14 @@ if (!launch) {
 return res.status(404).json({ ok: false, error: "launch not found" });
 }
 
+const hydratedLaunch = await getLaunchWithBuilderById(launchId);
 const stats = await getCommitStats(launchId);
 const lifecycle = await safeGetLifecycle(launchId);
 const graduationPlan = await safeGetGraduationPlan(launchId);
 
 return res.json({
 ok: true,
-launch: sanitizeLaunchForPublic(launch),
+launch: sanitizeLaunchForPublic(hydratedLaunch || launch),
 status: launch.status,
 totalCommitted: stats.totalCommitted,
 participants: stats.participants,
@@ -2308,6 +2358,68 @@ console.error("POST /api/launcher/:id/reconcile failed:", err);
 return res.status(500).json({
 ok: false,
 error: err.message || "reconcile failed",
+});
+}
+});
+
+router.patch("/:id/links", async (req, res) => {
+try {
+const launchId = Number(req.params.id);
+const wallet = cleanText(req.body.wallet, 120);
+
+if (!launchId) {
+return res.status(400).json({ ok: false, error: "invalid launch id" });
+}
+
+if (!wallet) {
+return res.status(400).json({ ok: false, error: "wallet is required" });
+}
+
+const hydratedLaunch = await getLaunchWithBuilderById(launchId);
+
+if (!hydratedLaunch) {
+return res.status(404).json({ ok: false, error: "launch not found" });
+}
+
+const builderWallet = cleanText(hydratedLaunch.builder_wallet, 120).toLowerCase();
+const requestWallet = wallet.toLowerCase();
+
+if (!builderWallet || builderWallet !== requestWallet) {
+return res.status(403).json({
+ok: false,
+error: "only the builder wallet can manage launch links",
+});
+}
+
+const websiteUrl = normalizePublicLink(req.body.website_url, "website_url");
+const xUrl = normalizePublicLink(req.body.x_url, "x_url");
+const telegramUrl = normalizePublicLink(req.body.telegram_url, "telegram_url");
+const discordUrl = normalizePublicLink(req.body.discord_url, "discord_url");
+
+await db.run(
+`
+UPDATE launches
+SET website_url = ?,
+x_url = ?,
+telegram_url = ?,
+discord_url = ?,
+updated_at = CURRENT_TIMESTAMP
+WHERE id = ?
+`,
+[websiteUrl, xUrl, telegramUrl, discordUrl, launchId]
+);
+
+const updatedLaunch = await getLaunchWithBuilderById(launchId);
+
+return res.json({
+ok: true,
+launch: sanitizeLaunchForPublic(updatedLaunch),
+});
+} catch (err) {
+console.error("PATCH /api/launcher/:id/links failed:", err);
+return res.status(500).json({
+ok: false,
+error: err.message || "failed to save launch links",
 });
 }
 });
@@ -2392,7 +2504,11 @@ if (!reconciledLaunch) {
 return res.status(404).json({ ok: false, error: "launch not found" });
 }
 
-const parsedLaunch = sanitizeLaunchForPublic(reconciledLaunch, { includeMintMeta: false });
+const hydratedLaunch = await getLaunchWithBuilderById(launchId);
+const parsedLaunch = sanitizeLaunchForPublic(
+hydratedLaunch || reconciledLaunch,
+{ includeMintMeta: false }
+);
 const stats = await getCommitStats(launchId);
 const lifecycle = await safeGetLifecycle(launchId);
 const graduationPlan = await safeGetGraduationPlan(launchId);
@@ -2440,6 +2556,13 @@ teamWalletBreakdown: parsedLaunch.team_wallet_breakdown,
 builderBondSol: Number(parsedLaunch.builder_bond_sol || 0),
 builderBondRefunded: Number(parsedLaunch.builder_bond_refunded || 0),
 builderBondPaid: Number(parsedLaunch.builder_bond_paid || 0),
+builderWallet: parsedLaunch.builder_wallet || null,
+builderAlias: parsedLaunch.builder_alias || null,
+builderScore: Number(parsedLaunch.builder_score || 0),
+websiteUrl: parsedLaunch.website_url || "",
+xUrl: parsedLaunch.x_url || "",
+telegramUrl: parsedLaunch.telegram_url || "",
+discordUrl: parsedLaunch.discord_url || "",
 lifecycle,
 graduationPlan,
 recent,
@@ -2476,7 +2599,7 @@ Number(stats.totalCommitted),
 Number(launch.launch_fee_pct || 5)
 );
 
-const updatedLaunch = sanitizeLaunchForPublic(await getLaunchById(launchId));
+const updatedLaunch = sanitizeLaunchForPublic(await getLaunchWithBuilderById(launchId));
 
 return res.json({
 ok: true,
@@ -2518,7 +2641,8 @@ if (!reconciledLaunch) {
 return res.status(404).json({ ok: false, error: "launch not found" });
 }
 
-const parsedLaunch = sanitizeLaunchForPublic(reconciledLaunch);
+const hydratedLaunch = await getLaunchWithBuilderById(id);
+const parsedLaunch = sanitizeLaunchForPublic(hydratedLaunch || reconciledLaunch);
 const lifecycle = await safeGetLifecycle(id);
 const graduationPlan = await safeGetGraduationPlan(id);
 
