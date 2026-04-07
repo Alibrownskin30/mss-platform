@@ -4,6 +4,7 @@ import { buildLaunchFeeBreakdown, distributeLaunchFees } from "./feeDistributor.
 import { bootstrapLiveMarket } from "./mintLifecycle.js";
 
 const DEFAULT_LAUNCH_FEE_PCT = 5;
+const finalizeRunLocks = new Map();
 
 function safeNum(value, fallback = 0) {
 const n = Number(value);
@@ -517,7 +518,7 @@ feeDistributionError: feeError,
 }
 }
 
-export async function finalizeLaunch(launchId) {
+async function finalizeLaunchInternal(launchId) {
 let launch = await getLaunchById(launchId);
 
 if (!launch) {
@@ -723,4 +724,22 @@ marketBootstrap,
 allocationResult,
 alreadyFinalized: false,
 });
+}
+
+export async function finalizeLaunch(launchId) {
+if (finalizeRunLocks.has(launchId)) {
+return finalizeRunLocks.get(launchId);
+}
+
+const runPromise = (async () => {
+return finalizeLaunchInternal(launchId);
+})();
+
+finalizeRunLocks.set(launchId, runPromise);
+
+try {
+return await runPromise;
+} finally {
+finalizeRunLocks.delete(launchId);
+}
 }

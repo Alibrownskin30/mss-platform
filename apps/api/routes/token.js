@@ -171,6 +171,46 @@ stats.wallet_vesting_active ??
 false
 );
 
+const priceSol = toNumber(
+stats.price_sol ?? stats.price ?? launch.price,
+0
+);
+
+const priceUsd = toNumber(
+stats.price_usd,
+0
+);
+
+const liquiditySol = toNumber(
+stats.liquidity_sol ?? stats.liquidity ?? launch.liquidity_sol ?? launch.liquidity,
+0
+);
+
+const liquidityUsd = toNumber(
+stats.liquidity_usd ?? launch.current_liquidity_usd ?? launch.liquidity_usd,
+0
+);
+
+const marketCapSol = toNumber(
+stats.market_cap_sol ?? stats.market_cap ?? launch.market_cap,
+0
+);
+
+const marketCapUsd = toNumber(
+stats.market_cap_usd,
+0
+);
+
+const volume24hSol = toNumber(
+stats.volume_24h_sol ?? stats.volume_24h ?? launch.volume_24h,
+0
+);
+
+const volume24hUsd = toNumber(
+stats.volume_24h_usd,
+0
+);
+
 return res.json({
 ok: true,
 success: true,
@@ -196,27 +236,20 @@ participants_count: toNumber(launch.participants_count, 0),
 hard_cap_sol: toNumber(launch.hard_cap_sol, 0),
 internal_pool_sol: toNumber(launch.internal_pool_sol, 0),
 internal_pool_tokens: toNumber(launch.internal_pool_tokens, 0),
-liquidity: toNumber(launch.liquidity, 0),
-liquidity_sol: toNumber(launch.liquidity_sol ?? launch.liquidity, 0),
-liquidity_usd: toNumber(
-stats.liquidity_usd ??
-launch.current_liquidity_usd ??
-launch.liquidity_usd,
-0
-),
-current_liquidity_usd: toNumber(
-stats.liquidity_usd ??
-launch.current_liquidity_usd ??
-launch.liquidity_usd,
-0
-),
+liquidity: liquiditySol,
+liquidity_sol: liquiditySol,
+liquidity_usd: liquidityUsd,
+current_liquidity_usd: liquidityUsd,
 sol_usd_price: toNumber(stats.sol_usd_price, 0),
-price: toNumber(stats.price_sol ?? launch.price, 0),
-price_usd: toNumber(stats.price_usd, 0),
-market_cap: toNumber(stats.market_cap_sol ?? launch.market_cap, 0),
-market_cap_usd: toNumber(stats.market_cap_usd, 0),
-volume_24h: toNumber(stats.volume_24h_sol ?? launch.volume_24h, 0),
-volume_24h_usd: toNumber(stats.volume_24h_usd, 0),
+price: priceSol,
+price_sol: priceSol,
+price_usd: priceUsd,
+market_cap: marketCapSol,
+market_cap_sol: marketCapSol,
+market_cap_usd: marketCapUsd,
+volume_24h: volume24hSol,
+volume_24h_sol: volume24hSol,
+volume_24h_usd: volume24hUsd,
 website_url: launch.website_url || "",
 x_url: launch.x_url || "",
 telegram_url: launch.telegram_url || "",
@@ -308,6 +341,22 @@ stats.builder_vesting_days_live,
 },
 stats: {
 ...stats,
+
+price: priceSol,
+price_sol: priceSol,
+price_usd: priceUsd,
+
+liquidity: liquiditySol,
+liquidity_sol: liquiditySol,
+liquidity_usd: liquidityUsd,
+
+market_cap: marketCapSol,
+market_cap_sol: marketCapSol,
+market_cap_usd: marketCapUsd,
+
+volume_24h: volume24hSol,
+volume_24h_sol: volume24hSol,
+volume_24h_usd: volume24hUsd,
 
 wallet_token_balance: walletTokenBalance,
 wallet_total_balance: walletTotalBalance,

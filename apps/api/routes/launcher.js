@@ -21,6 +21,7 @@ import {
 getLiquidityLifecycle,
 syncLiquidityLifecycle,
 buildGraduationPlanForLaunch,
+markLaunchGraduatedLifecycle,
 } from "../services/launcher/liquidityLifecycle.js";
 
 const router = express.Router();
@@ -45,6 +46,9 @@ treasury: 0.2,
 const MEMO_PROGRAM_ID = new PublicKey(
 "MemoSq4gqABAXKb96qnH8TysNcWxMyWCqXgDLGmfcHr"
 );
+
+const reconcileLocks = new Map();
+const finalizeLocks = new Map();
 
 function cleanText(value, max = 280) {
 return String(value ?? "").trim().slice(0, max);
@@ -710,6 +714,15 @@ const direct = Date.parse(raw);
 return Number.isFinite(direct) ? direct : null;
 }
 
+function isDevnetEnvironment() {
+const rpc = getRpcUrl().toLowerCase();
+return rpc.includes("devnet");
+}
+
+function extractGraduationReadiness(lifecycle) {
+return lifecycle?.graduationReadiness || null;
+}
+
 async function buildEscrowTransferTransaction({ wallet, solAmount, reference }) {
 const escrowWallet = getEscrowWallet();
 const expectedLamports = solToLamports(solAmount);
@@ -1184,6 +1197,45 @@ refunds,
 };
 }
 
+async function runFinalizeLaunchOnce(launchId) {
+if (finalizeLocks.has(launchId)) {
+return finalizeLocks.get(launchId);
+}
+
+const promise = (async () => {
+let launch = await getLaunchById(launchId);
+if (!launch) {
+return { ok: false, reason: "launch not found" };
+}
+
+if (launch.status === "live" || launch.status === "graduated") {
+return { ok: true, skipped: true, reason: "already live" };
+}
+
+let result = null;
+
+try {
+result = await finalizeLaunch(launchId);
+} catch (err) {
+if (isTransientFinalizeError(err)) {
+console.warn(`Finalize retry deferred for launch ${launchId}:`, err?.message || err);
+return { ok: false, reason: "transient finalize error", transient: true };
+}
+throw err;
+}
+
+return result || { ok: false, reason: "unknown finalize result" };
+})();
+
+finalizeLocks.set(launchId, promise);
+
+try {
+return await promise;
+} finally {
+finalizeLocks.delete(launchId);
+}
+}
+
 async function finalizeLaunchIfReady(launchId) {
 let launch = await getLaunchById(launchId);
 if (!launch || launch.status !== "countdown") {
@@ -1206,32 +1258,33 @@ if (!countdownCheck || Number(countdownCheck.ready) !== 1) {
 return launch;
 }
 
-let result = null;
+const latestBeforeFinalize = await getLaunchById(launchId);
+if (!latestBeforeFinalize) return null;
 
-try {
-result = await finalizeLaunch(launchId);
-} catch (err) {
-if (isTransientFinalizeError(err)) {
-console.warn(`Finalize retry deferred for launch ${launchId}:`, err?.message || err);
-return getLaunchById(launchId);
-}
-
-throw err;
-}
-
-if (result?.ok) {
+if (
+latestBeforeFinalize.status === "live" ||
+latestBeforeFinalize.status === "graduated"
+) {
 await safeSyncLifecycle(launchId);
-return getLaunchById(launchId);
+return latestBeforeFinalize;
 }
 
+const result = await runFinalizeLaunchOnce(launchId);
 const latest = await getLaunchById(launchId);
 
-if (latest?.status === "live" || latest?.status === "graduated") {
+if (!latest) return null;
+
+if (latest.status === "live" || latest.status === "graduated") {
 await safeSyncLifecycle(launchId);
 return latest;
 }
 
-if (result?.reason === "countdown not finished") {
+if (result?.ok) {
+await safeSyncLifecycle(launchId);
+return latest;
+}
+
+if (result?.reason === "countdown not finished" || result?.transient) {
 return latest;
 }
 
@@ -1254,7 +1307,7 @@ console.warn(`Launch ${launchId} finalize returned: ${result.reason}`);
 return latest;
 }
 
-export async function reconcileLaunchState(launchId) {
+async function reconcileLaunchStateInternal(launchId) {
 let launch = await getLaunchById(launchId);
 if (!launch) return null;
 
@@ -1324,6 +1377,24 @@ return launch;
 }
 
 return launch;
+}
+
+export async function reconcileLaunchState(launchId) {
+if (reconcileLocks.has(launchId)) {
+return reconcileLocks.get(launchId);
+}
+
+const promise = (async () => {
+return reconcileLaunchStateInternal(launchId);
+})();
+
+reconcileLocks.set(launchId, promise);
+
+try {
+return await promise;
+} finally {
+reconcileLocks.delete(launchId);
+}
 }
 
 async function reconcileActiveLaunchesWorker() {
@@ -2273,44 +2344,54 @@ return res.status(500).json({ ok: false, error: "failed to cancel countdown" });
 router.post("/:id/finalize", async (req, res) => {
 try {
 const launchId = Number(req.params.id);
-const result = await finalizeLaunch(launchId);
-const latestLaunch = await getLaunchById(launchId);
 
-if (!latestLaunch) {
+if (!launchId) {
+return res.status(400).json({ ok: false, error: "invalid launch id" });
+}
+
+const launch = await reconcileLaunchState(launchId);
+
+if (!launch) {
 return res.status(404).json({ ok: false, error: "launch not found" });
 }
 
-if (!result?.ok && latestLaunch.status !== "live" && latestLaunch.status !== "graduated") {
+if (launch.status !== "live" && launch.status !== "graduated" && launch.status !== "countdown") {
 return res.status(400).json({
 ok: false,
-error: result?.reason || "launch is not ready to finalize",
+error: "launch is not ready to finalize",
 });
 }
 
+const finalLaunch = await getLaunchById(launchId);
 const stats = await syncLaunchStats(launchId);
-const updatedLaunch = await getLaunchById(launchId);
 const lifecycle = await safeSyncLifecycle(launchId);
 const graduationPlan = await safeGetGraduationPlan(launchId);
 const feeBreakdown = buildFeeBreakdown(
 Number(stats.totalCommitted),
-Number(updatedLaunch.launch_fee_pct || 5)
+Number(finalLaunch?.launch_fee_pct || 5)
 );
 
 return res.json({
 ok: true,
 launchId,
-status: updatedLaunch.status,
-liveAt: updatedLaunch.live_at || null,
+status: finalLaunch?.status || launch.status,
+liveAt: finalLaunch?.live_at || null,
 totalCommitted: stats.totalCommitted,
 participants: stats.participants,
 commitPercent: buildCommitPercent(
 stats.totalCommitted,
-updatedLaunch.hard_cap_sol
+finalLaunch?.hard_cap_sol
 ),
 feeBreakdown,
 lifecycle,
 graduationPlan,
-finalizeResult: result || null,
+finalizeResult: {
+ok: finalLaunch?.status === "live" || finalLaunch?.status === "graduated",
+reason:
+finalLaunch?.status === "live" || finalLaunch?.status === "graduated"
+? "reconciled finalize state"
+: "countdown not finished",
+},
 });
 } catch (err) {
 console.error("POST /api/launcher/:id/finalize failed:", err);
@@ -2358,6 +2439,109 @@ console.error("POST /api/launcher/:id/reconcile failed:", err);
 return res.status(500).json({
 ok: false,
 error: err.message || "reconcile failed",
+});
+}
+});
+
+router.get("/:id/lifecycle", async (req, res) => {
+try {
+const launchId = Number(req.params.id);
+
+if (!launchId) {
+return res.status(400).json({ ok: false, error: "invalid launch id" });
+}
+
+const launch = await getLaunchById(launchId);
+if (!launch) {
+return res.status(404).json({ ok: false, error: "launch not found" });
+}
+
+const lifecycle = await safeSyncLifecycle(launchId);
+const graduationPlan = await safeGetGraduationPlan(launchId);
+
+return res.json({
+ok: true,
+launchId,
+status: launch.status,
+lifecycle,
+graduationPlan,
+graduationReadiness: extractGraduationReadiness(lifecycle),
+});
+} catch (err) {
+console.error("GET /api/launcher/:id/lifecycle failed:", err);
+return res.status(500).json({
+ok: false,
+error: err.message || "failed to fetch lifecycle",
+});
+}
+});
+
+router.post("/:id/graduate-devnet", async (req, res) => {
+try {
+const launchId = Number(req.params.id);
+
+if (!launchId) {
+return res.status(400).json({ ok: false, error: "invalid launch id" });
+}
+
+if (!isDevnetEnvironment()) {
+return res.status(403).json({
+ok: false,
+error: "graduate-devnet is only available on devnet environments",
+});
+}
+
+const launch = await reconcileLaunchState(launchId);
+
+if (!launch) {
+return res.status(404).json({ ok: false, error: "launch not found" });
+}
+
+if (launch.status !== "live" && launch.status !== "graduated") {
+return res.status(400).json({
+ok: false,
+error: "launch must be live before devnet graduation override",
+});
+}
+
+const lifecycle = await safeSyncLifecycle(launchId);
+const readiness = extractGraduationReadiness(lifecycle);
+
+if (launch.status !== "graduated" && !readiness?.ready) {
+return res.status(409).json({
+ok: false,
+error: "launch is not graduation-ready yet",
+lifecycle,
+graduationReadiness: readiness,
+});
+}
+
+const updatedLifecycle = await markLaunchGraduatedLifecycle({
+launchId,
+reason: cleanText(req.body.reason || "devnet_manual_override", 120),
+raydiumPoolId: cleanText(req.body.raydiumPoolId || "", 200),
+raydiumMigrationTx: cleanText(req.body.raydiumMigrationTx || "", 500),
+lockTx: cleanText(req.body.lockTx || "", 500),
+raydiumLpTokens: cleanText(req.body.raydiumLpTokens || "", 500),
+mssLockedLpAmount: cleanText(req.body.mssLockedLpAmount || "", 500),
+lockExpiresAt: cleanText(req.body.lockExpiresAt || "", 120),
+});
+
+const updatedLaunch = await getLaunchWithBuilderById(launchId);
+const graduationPlan = await safeGetGraduationPlan(launchId);
+
+return res.json({
+ok: true,
+launch: sanitizeLaunchForPublic(updatedLaunch || launch),
+lifecycle: updatedLifecycle,
+graduationPlan,
+mode: "devnet_override",
+});
+} catch (err) {
+console.error("POST /api/launcher/:id/graduate-devnet failed:", err);
+return res.status(500).json({
+ok: false,
+error: err.message || "failed to mark launch graduated on devnet",
 });
 }
 });

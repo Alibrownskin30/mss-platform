@@ -37,6 +37,21 @@ function cleanWallet(raw) {
 return String(raw ?? "").trim().slice(0, 120);
 }
 
+function sanitizeLaunchForResponse(launch = null) {
+if (!launch) return null;
+
+const status = String(launch.status || "").toLowerCase();
+const revealContract = status === "live" || status === "graduated";
+
+return {
+...launch,
+contract_address: revealContract ? launch.contract_address || null : null,
+mint_address: revealContract ? launch.mint_address || null : null,
+reserved_mint_address: null,
+reserved_mint_secret: null,
+};
+}
+
 router.get("/:launchId/candles", async (req, res) => {
 try {
 const launchId = parseLaunchId(req.params.launchId);
@@ -63,7 +78,7 @@ success: true,
 launch_id: launchId,
 interval,
 candles: payload?.candles || [],
-launch: payload?.launch || null,
+launch: sanitizeLaunchForResponse(payload?.launch || null),
 token: payload?.token || null,
 pool: payload?.pool || null,
 stats: payload?.stats || {},
@@ -100,7 +115,7 @@ ok: true,
 success: true,
 launch_id: launchId,
 trades: payload?.trades || [],
-launch: payload?.launch || null,
+launch: sanitizeLaunchForResponse(payload?.launch || null),
 token: payload?.token || null,
 pool: payload?.pool || null,
 stats: payload?.stats || {},
@@ -137,7 +152,7 @@ ok: true,
 success: true,
 launch_id: launchId,
 stats: payload?.stats || {},
-launch: payload?.launch || null,
+launch: sanitizeLaunchForResponse(payload?.launch || null),
 token: payload?.token || null,
 pool: payload?.pool || null,
 wallet: payload?.wallet || null,
@@ -181,7 +196,7 @@ ok: true,
 success: true,
 launch_id: launchId,
 interval,
-launch: payload?.launch || null,
+launch: sanitizeLaunchForResponse(payload?.launch || null),
 token: payload?.token || null,
 pool: payload?.pool || null,
 wallet: payload?.wallet || null,

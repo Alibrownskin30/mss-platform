@@ -78,8 +78,7 @@ status: row.status,
 template: row.template,
 
 contract_address: publicCaVisible ? cleanText(row.contract_address, 120) || null : null,
-mint_address:
-publicCaVisible
+mint_address: publicCaVisible
 ? cleanText(row.token_mint_address, 120) ||
 cleanText(row.contract_address, 120) ||
 null
@@ -105,6 +104,9 @@ poolTokenReserve > 0 ? poolTokenReserve : launchInternalPoolTokens,
 liquidity_usd: toNumber(row.liquidity_usd, 0),
 current_liquidity_usd: toNumber(row.current_liquidity_usd, 0),
 sol_usd_price: toNumber(row.sol_usd_price, 0),
+price: toNumber(row.price, 0),
+market_cap: toNumber(row.market_cap, 0),
+volume_24h: toNumber(row.volume_24h, 0),
 
 website_url: cleanText(row.website_url, 500),
 x_url: cleanText(row.x_url, 500),
@@ -206,6 +208,9 @@ l.internal_pool_tokens,
 l.liquidity,
 l.liquidity_usd,
 l.current_liquidity_usd,
+l.price,
+l.market_cap,
+l.volume_24h,
 l.website_url,
 l.x_url,
 l.telegram_url,
@@ -373,6 +378,9 @@ pool?.token_reserve ?? launch?.internal_pool_tokens ?? 0,
 0
 ),
 sol_usd_price: toNumber(launch?.sol_usd_price, 0),
+price: toNumber(launch?.price, 0),
+market_cap: toNumber(launch?.market_cap, 0),
+volume_24h: toNumber(launch?.volume_24h, 0),
 };
 }
 
@@ -467,7 +475,7 @@ builder_vesting_days_live: daysLive,
 };
 }
 
-async function getWalletSolBalanceSnapshot(db, wallet) {
+async function getWalletSolBalanceSnapshot(db, launchId, wallet) {
 const cleanWallet = cleanText(wallet, 120);
 if (!cleanWallet) return null;
 
@@ -480,15 +488,133 @@ const row = await db.get(
 `
 SELECT sol_balance
 FROM wallet_balances
-WHERE wallet = ?
+WHERE launch_id = ? AND wallet = ?
 ORDER BY id DESC
 LIMIT 1
 `,
-[cleanWallet]
+[launchId, cleanWallet]
 );
 
 if (!row) return null;
 return toNumber(row.sol_balance, null);
+}
+
+function getLatestTradePriceSol(trades = []) {
+if (!Array.isArray(trades) || !trades.length) return 0;
+
+for (let i = trades.length - 1; i >= 0; i -= 1) {
+const trade = trades[i];
+const price =
+toNumber(trade?.price_sol, 0) ||
+toNumber(trade?.price, 0) ||
+(
+toNumber(trade?.token_amount, 0) > 0
+? toNumber(trade?.sol_amount ?? trade?.base_amount, 0) / toNumber(trade?.token_amount, 0)
+: 0
+);
+
+if (price > 0) return price;
+}
+
+return 0;
+}
+
+function getPoolSpotPriceSol(pool = {}, launch = {}) {
+const tokenReserve = toNumber(pool?.token_reserve ?? launch?.internal_pool_tokens, 0);
+const solReserve = toNumber(pool?.sol_reserve ?? launch?.internal_pool_sol ?? launch?.liquidity, 0);
+
+if (tokenReserve <= 0 || solReserve <= 0) return 0;
+return solReserve / tokenReserve;
+}
+
+function finalizeMarketStats({
+stats = {},
+launch = {},
+token = {},
+pool = {},
+trades = [],
+}) {
+const finalized = { ...(stats || {}) };
+
+const totalSupply = toNumber(
+finalized.total_supply ??
+token?.supply ??
+launch?.final_supply ??
+launch?.supply,
+0
+);
+
+const circulatingSupply = toNumber(
+finalized.circulating_supply ??
+launch?.circulating_supply ??
+totalSupply,
+totalSupply
+);
+
+const priceSol =
+toNumber(finalized.price_sol, 0) ||
+toNumber(finalized.price, 0) ||
+toNumber(launch?.price, 0) ||
+getLatestTradePriceSol(trades) ||
+getPoolSpotPriceSol(pool, launch);
+
+const solUsdPrice =
+toNumber(finalized.sol_usd_price, 0) ||
+toNumber(launch?.sol_usd_price, 0);
+
+const oneSidedLiquiditySol =
+toNumber(finalized.liquidity_sol, 0) ||
+toNumber(finalized.liquidity, 0) ||
+toNumber(pool?.sol_reserve, 0) ||
+toNumber(launch?.internal_pool_sol, 0) ||
+toNumber(launch?.liquidity, 0);
+
+const marketCapSol =
+toNumber(finalized.market_cap_sol, 0) ||
+toNumber(finalized.market_cap, 0) ||
+toNumber(launch?.market_cap, 0) ||
+(priceSol > 0 && circulatingSupply > 0 ? priceSol * circulatingSupply : 0);
+
+const volume24hSol =
+toNumber(finalized.volume_24h_sol, 0) ||
+toNumber(finalized.volume_24h, 0) ||
+toNumber(launch?.volume_24h, 0);
+
+const liquidityUsd =
+toNumber(finalized.liquidity_usd, 0) ||
+toNumber(launch?.liquidity_usd, 0) ||
+(solUsdPrice > 0 && oneSidedLiquiditySol > 0 ? oneSidedLiquiditySol * solUsdPrice : 0);
+
+const marketCapUsd =
+toNumber(finalized.market_cap_usd, 0) ||
+(solUsdPrice > 0 && marketCapSol > 0 ? marketCapSol * solUsdPrice : 0);
+
+const volume24hUsd =
+toNumber(finalized.volume_24h_usd, 0) ||
+(solUsdPrice > 0 && volume24hSol > 0 ? volume24hSol * solUsdPrice : 0);
+
+finalized.total_supply = totalSupply;
+finalized.circulating_supply = circulatingSupply;
+
+finalized.price_sol = priceSol;
+finalized.price = priceSol;
+finalized.price_usd = toNumber(finalized.price_usd, 0) || (solUsdPrice > 0 && priceSol > 0 ? priceSol * solUsdPrice : 0);
+
+finalized.sol_usd_price = solUsdPrice;
+
+finalized.liquidity = oneSidedLiquiditySol;
+finalized.liquidity_sol = oneSidedLiquiditySol;
+finalized.liquidity_usd = liquidityUsd;
+
+finalized.market_cap = marketCapSol;
+finalized.market_cap_sol = marketCapSol;
+finalized.market_cap_usd = marketCapUsd;
+
+finalized.volume_24h = volume24hSol;
+finalized.volume_24h_sol = volume24hSol;
+finalized.volume_24h_usd = volume24hUsd;
+
+return finalized;
 }
 
 async function buildWalletSummary({
@@ -548,6 +674,7 @@ const walletRow = await db.get(
 SELECT token_amount
 FROM wallet_balances
 WHERE launch_id = ? AND wallet = ?
+ORDER BY id DESC
 LIMIT 1
 `,
 [launchId, cleanWallet]
@@ -589,7 +716,7 @@ walletSolDelta -= tradeSol;
 }
 }
 
-const walletSolSnapshot = await getWalletSolBalanceSnapshot(db, cleanWallet);
+const walletSolSnapshot = await getWalletSolBalanceSnapshot(db, launchId, cleanWallet);
 
 const vesting = buildBuilderVestingSummary({
 launch,
@@ -704,10 +831,16 @@ interval,
 limit
 );
 
-const stats = buildMarketStats({
+const stats = finalizeMarketStats({
+stats: buildMarketStats({
 launch: buildStatsInput({ launch, token, pool }),
 trades,
 candles,
+}),
+launch,
+token,
+pool,
+trades,
 });
 
 return {
@@ -732,10 +865,17 @@ getTradeRows(db, launchId, Math.max(limit, 1)),
 ]);
 
 const recentTrades = trades.slice(-limit);
-const stats = buildMarketStats({
+
+const stats = finalizeMarketStats({
+stats: buildMarketStats({
 launch: buildStatsInput({ launch, token, pool }),
 trades,
 candles: [],
+}),
+launch,
+token,
+pool,
+trades,
 });
 
 return {
@@ -761,10 +901,16 @@ getTradeRows(db, launchId, 2000),
 
 const candles = buildCandlesFromTrades(trades, "1m");
 
-const stats = buildMarketStats({
+const stats = finalizeMarketStats({
+stats: buildMarketStats({
 launch: buildStatsInput({ launch, token, pool }),
 trades,
 candles,
+}),
+launch,
+token,
+pool,
+trades,
 });
 
 const walletSummary = await buildWalletSummary({
@@ -810,10 +956,16 @@ candleLimit
 
 const recentTrades = trades.slice(-tradeLimit);
 
-const stats = buildMarketStats({
+const stats = finalizeMarketStats({
+stats: buildMarketStats({
 launch: buildStatsInput({ launch, token, pool }),
 trades,
 candles,
+}),
+launch,
+token,
+pool,
+trades,
 });
 
 const walletSummary = await buildWalletSummary({

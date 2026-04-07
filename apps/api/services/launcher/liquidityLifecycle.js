@@ -5,6 +5,12 @@ const BUILDER_DAILY_UNLOCK_PCT = 0.5;
 const RAYDIUM_SPLIT_PCT = 50;
 const MSS_LOCK_SPLIT_PCT = 50;
 
+const DEFAULT_GRADUATION_MARKETCAP_SOL = 120;
+const DEFAULT_GRADUATION_VOLUME_24H_SOL = 80;
+const DEFAULT_GRADUATION_MIN_HOLDERS = 25;
+const DEFAULT_GRADUATION_MIN_LIVE_MINUTES = 15;
+const DEFAULT_MSS_LOCK_DAYS = 90;
+
 function safeNum(value, fallback = 0) {
 const n = Number(value);
 return Number.isFinite(n) ? n : fallback;
@@ -41,6 +47,11 @@ return Number.isFinite(direct) ? direct : null;
 
 function nowIso() {
 return new Date().toISOString();
+}
+
+function addDaysIso(days) {
+const ms = Date.now() + Math.max(0, safeNum(days, 0)) * 86400000;
+return new Date(ms).toISOString();
 }
 
 async function tableExists(tableName) {
@@ -200,6 +211,60 @@ AND datetime(created_at) >= datetime('now', '-24 hours')
 );
 
 return roundSol(row?.total || 0);
+}
+
+async function getHolderCount(launchId) {
+if (!(await tableExists("wallet_balances"))) return 0;
+
+const row = await db.get(
+`
+SELECT COUNT(*) AS total
+FROM wallet_balances
+WHERE launch_id = ?
+AND COALESCE(token_amount, 0) > 0
+`,
+[launchId]
+);
+
+return safeNum(row?.total, 0);
+}
+
+function getGraduationThresholds() {
+return {
+marketcapSol: safeNum(
+process.env.MSS_GRADUATION_MARKETCAP_SOL,
+DEFAULT_GRADUATION_MARKETCAP_SOL
+),
+volume24hSol: safeNum(
+process.env.MSS_GRADUATION_VOLUME_24H_SOL,
+DEFAULT_GRADUATION_VOLUME_24H_SOL
+),
+minHolders: Math.max(
+1,
+Math.floor(
+safeNum(process.env.MSS_GRADUATION_MIN_HOLDERS, DEFAULT_GRADUATION_MIN_HOLDERS)
+)
+),
+minLiveMinutes: Math.max(
+0,
+Math.floor(
+safeNum(
+process.env.MSS_GRADUATION_MIN_LIVE_MINUTES,
+DEFAULT_GRADUATION_MIN_LIVE_MINUTES
+)
+)
+),
+lockDays: Math.max(
+1,
+Math.floor(safeNum(process.env.MSS_LP_LOCK_DAYS, DEFAULT_MSS_LOCK_DAYS))
+),
+};
+}
+
+function getLiveMinutes(launch) {
+const liveMs = parseDbTime(launch?.live_at || launch?.updated_at || launch?.created_at);
+if (!liveMs) return 0;
+return Math.max(0, Math.floor((Date.now() - liveMs) / 60000));
 }
 
 async function ensureBuilderVestingRecord(launchId, launch, token) {
@@ -363,7 +428,7 @@ values.push(impliedMarketcapSol);
 }
 if (has("graduation_status")) {
 sets.push(
-"graduation_status = CASE WHEN COALESCE(graduated, 0) = 1 THEN graduation_status ELSE 'internal_live' END"
+"graduation_status = CASE WHEN COALESCE(graduated, 0) = 1 THEN graduation_status ELSE COALESCE(graduation_status, 'internal_live') END"
 );
 }
 if (has("raydium_target_pct")) {
@@ -476,7 +541,73 @@ mssLockedSplitPct: MSS_LOCK_SPLIT_PCT,
 };
 }
 
-function buildLifecycleSummary({ launch, token, pool, lifecycle, vesting, volume24h }) {
+async function buildGraduationReadiness(launchId, launch, token, pool, lifecycle) {
+const thresholds = getGraduationThresholds();
+
+const totalSupply = floorToken(
+token?.supply ||
+launch?.final_supply ||
+launch?.supply ||
+0
+);
+
+const solReserve = roundSol(pool?.sol_reserve || lifecycle?.internal_sol_reserve || 0);
+const tokenReserve = floorToken(pool?.token_reserve || lifecycle?.internal_token_reserve || 0);
+const priceSol = computeSpotPriceSolPerToken(solReserve, tokenReserve);
+const marketcapSol = roundSol(priceSol * totalSupply);
+const volume24hSol = await getTrades24hVolume(launchId);
+const holderCount = await getHolderCount(launchId);
+const liveMinutes = getLiveMinutes(launch);
+
+const status = clean(launch?.status, 64).toLowerCase();
+const alreadyGraduated =
+safeNum(lifecycle?.graduated, 0) === 1 || status === "graduated";
+
+const checks = {
+liveStatus: status === "live" || status === "graduated",
+marketcapReached: marketcapSol >= thresholds.marketcapSol,
+volumeReached: volume24hSol >= thresholds.volume24hSol,
+holdersReached: holderCount >= thresholds.minHolders,
+minimumLiveWindowReached: liveMinutes >= thresholds.minLiveMinutes,
+hasReserves: solReserve > 0 && tokenReserve > 0,
+alreadyGraduated,
+};
+
+const ready =
+!alreadyGraduated &&
+checks.liveStatus &&
+checks.marketcapReached &&
+checks.volumeReached &&
+checks.holdersReached &&
+checks.minimumLiveWindowReached &&
+checks.hasReserves;
+
+return {
+ready,
+thresholds,
+metrics: {
+marketcapSol,
+volume24hSol,
+holderCount,
+liveMinutes,
+solReserve,
+tokenReserve,
+priceSol,
+totalSupply,
+},
+checks,
+};
+}
+
+function buildLifecycleSummary({
+launch,
+token,
+pool,
+lifecycle,
+vesting,
+volume24h,
+readiness = null,
+}) {
 const totalSupply = floorToken(
 token?.supply ||
 launch?.final_supply ||
@@ -538,6 +669,8 @@ lockedAmount: floorToken(vesting?.locked_amount || vestComputed.lockedAmount),
 vestingStartAt: vesting?.vesting_start_at || launch?.live_at || null,
 vestedDays: vestComputed.vestedDays,
 },
+
+graduationReadiness: readiness || null,
 };
 }
 
@@ -560,6 +693,13 @@ throw new Error("pool not found for launch");
 const vesting = await ensureBuilderVestingRecord(launchId, launch, token);
 const lifecycle = await ensureLifecycleRecord(launchId, launch, token, pool);
 const volume24h = await getTrades24hVolume(launchId);
+const readiness = await buildGraduationReadiness(
+launchId,
+launch,
+token,
+pool,
+lifecycle
+);
 
 return buildLifecycleSummary({
 launch,
@@ -568,6 +708,7 @@ pool,
 lifecycle,
 vesting,
 volume24h,
+readiness,
 });
 }
 
@@ -582,6 +723,10 @@ const pool = await getPoolRow(launchId);
 const lifecycle = await getLifecycleRow(launchId);
 const vesting = await getBuilderVestingRow(launchId);
 const volume24h = await getTrades24hVolume(launchId);
+const readiness =
+launch && token && pool
+? await buildGraduationReadiness(launchId, launch, token, pool, lifecycle)
+: null;
 
 return buildLifecycleSummary({
 launch,
@@ -590,6 +735,7 @@ pool,
 lifecycle,
 vesting,
 volume24h,
+readiness,
 });
 }
 
@@ -600,6 +746,21 @@ throw new Error("pool not found for launch");
 }
 
 return buildGraduationPlan(pool);
+}
+
+export async function evaluateGraduationReadiness(launchId) {
+const launch = await getLaunchRow(launchId);
+if (!launch) throw new Error("launch not found");
+
+const token = await getTokenRow(launchId);
+if (!token) throw new Error("token not found for launch");
+
+const pool = await getPoolRow(launchId);
+if (!pool) throw new Error("pool not found for launch");
+
+const lifecycle = await getLifecycleRow(launchId);
+
+return buildGraduationReadiness(launchId, launch, token, pool, lifecycle);
 }
 
 export async function markLaunchGraduatedLifecycle({
@@ -727,4 +888,87 @@ WHERE id = ?
 );
 
 return getLiquidityLifecycle(launchId);
+}
+
+export async function executeLaunchGraduation({
+launchId,
+reason = "thresholds_met",
+raydiumPoolId = "",
+raydiumMigrationTx = "",
+lockTx = "",
+raydiumLpTokens = "",
+mssLockedLpAmount = "",
+lockDays = null,
+allowUnsafe = false,
+} = {}) {
+const launch = await getLaunchRow(launchId);
+if (!launch) {
+throw new Error("launch not found");
+}
+
+const token = await getTokenRow(launchId);
+if (!token) {
+throw new Error("token not found for launch");
+}
+
+const pool = await getPoolRow(launchId);
+if (!pool) {
+throw new Error("pool not found for launch");
+}
+
+const lifecycle = await ensureLifecycleRecord(launchId, launch, token, pool);
+const readiness = await buildGraduationReadiness(
+launchId,
+launch,
+token,
+pool,
+lifecycle
+);
+
+if (!allowUnsafe && !readiness.ready) {
+const unmet = Object.entries(readiness.checks)
+.filter(([key, value]) => {
+if (key === "alreadyGraduated") return false;
+return value === false;
+})
+.map(([key]) => key);
+
+throw new Error(
+`launch not ready for graduation: ${unmet.length ? unmet.join(", ") : "conditions not met"}`
+);
+}
+
+if (readiness.checks.alreadyGraduated) {
+return {
+ok: true,
+alreadyGraduated: true,
+lifecycle: await getLiquidityLifecycle(launchId),
+plan: buildGraduationPlan(pool),
+readiness,
+};
+}
+
+const lockExpiry = clean(
+lockDays != null ? addDaysIso(lockDays) : addDaysIso(getGraduationThresholds().lockDays),
+120
+);
+
+const updatedLifecycle = await markLaunchGraduatedLifecycle({
+launchId,
+reason,
+raydiumPoolId,
+raydiumMigrationTx,
+lockTx,
+raydiumLpTokens,
+mssLockedLpAmount,
+lockExpiresAt: lockExpiry,
+});
+
+return {
+ok: true,
+alreadyGraduated: false,
+lifecycle: updatedLifecycle,
+plan: buildGraduationPlan(pool),
+readiness,
+};
 }

@@ -26,8 +26,30 @@ const interval = String(raw || "1m").trim();
 return ALLOWED_INTERVALS.has(interval) ? interval : "1m";
 }
 
+function shouldRevealContractAddress(status) {
+const normalized = cleanText(status, 64).toLowerCase();
+return normalized === "live" || normalized === "graduated";
+}
+
+function sanitizeLaunchForResponse(launch = null) {
+if (!launch) return null;
+
+const status = cleanText(launch.status, 64).toLowerCase();
+const revealContract = shouldRevealContractAddress(status);
+
+return {
+...launch,
+contract_address: revealContract ? cleanText(launch.contract_address, 120) || null : null,
+mint_address: revealContract ? cleanText(launch.mint_address, 120) || null : null,
+reserved_mint_address: null,
+reserved_mint_secret: null,
+};
+}
+
 function pickLaunchRow(row) {
 if (!row) return null;
+
+const revealContract = shouldRevealContractAddress(row.status);
 
 return {
 id: row.id,
@@ -36,7 +58,8 @@ symbol: row.symbol,
 status: row.status,
 template: row.template,
 
-contract_address: cleanText(row.contract_address, 120) || null,
+contract_address: revealContract ? cleanText(row.contract_address, 120) || null : null,
+mint_address: revealContract ? cleanText(row.contract_address, 120) || null : null,
 builder_wallet: cleanText(row.builder_wallet, 120) || null,
 
 website_url: cleanText(row.website_url, 500),
@@ -62,6 +85,7 @@ final_supply: toNumber(row.final_supply || row.supply, 0),
 circulating_supply: toNumber(row.circulating_supply, 0),
 
 liquidity: toNumber(row.liquidity, 0),
+liquidity_sol: toNumber(row.liquidity, 0),
 liquidity_usd: toNumber(row.liquidity_usd, 0),
 current_liquidity_usd: toNumber(row.current_liquidity_usd, 0),
 };
@@ -151,7 +175,7 @@ const interval = normalizeInterval(req.query.interval);
 const candleLimit = clampNumber(req.query.candle_limit, 1, 500, 120);
 const tradeLimit = clampNumber(req.query.trade_limit, 1, 200, 50);
 
-const launch = pickLaunchRow(launchRow);
+const fallbackLaunch = pickLaunchRow(launchRow);
 
 const snapshot = await getChartSnapshot({
 db: launcherDb,
@@ -161,6 +185,16 @@ candleLimit,
 tradeLimit,
 wallet,
 });
+
+const snapshotLaunch = sanitizeLaunchForResponse(snapshot?.launch || null);
+const resolvedLaunch = snapshotLaunch || fallbackLaunch;
+
+const resolvedMintAddress =
+cleanText(tokenRow.mint_address, 120) ||
+cleanText(snapshot?.token?.mint_address, 120) ||
+cleanText(snapshotLaunch?.mint_address, 120) ||
+cleanText(resolvedLaunch?.mint_address, 120) ||
+null;
 
 return res.json({
 ok: true,
@@ -173,12 +207,14 @@ id: tokenRow.id,
 launch_id: tokenRow.launch_id,
 name: tokenRow.name,
 symbol: tokenRow.symbol,
+ticker: tokenRow.symbol,
 supply: toNumber(tokenRow.supply, 0),
-mint_address: tokenRow.mint_address,
+mint_address: resolvedMintAddress,
+mint: resolvedMintAddress,
 created_at: tokenRow.created_at,
 },
 
-launch: snapshot?.launch || launch,
+launch: resolvedLaunch,
 
 chart: {
 stats: snapshot?.stats || {},
@@ -188,11 +224,12 @@ trades: snapshot?.trades || [],
 
 pool: snapshot?.pool || null,
 wallet_summary: snapshot?.wallet || null,
+wallet: snapshot?.wallet || null,
 
 cassie: snapshot?.cassie || {
 monitoring_active: true,
-phase: String(launch?.status || "").toLowerCase() || "commit",
-layer: "token-market",
+phase: String(resolvedLaunch?.status || "").toLowerCase() || "commit",
+layer: "market-intelligence",
 },
 });
 } catch (error) {

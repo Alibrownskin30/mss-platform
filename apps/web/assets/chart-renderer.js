@@ -853,16 +853,18 @@ return;
 }
 
 const changePct = candle.open > 0 ? ((candle.close - candle.open) / candle.open) * 100 : 0;
-const timeText = candle.time
-? new Date(candle.time).toLocaleString([], {
+const changeText = `${changePct >= 0 ? "+" : ""}${changePct.toFixed(2)}%`;
+
+const timeValue = candle.time ? new Date(candle.time) : null;
+const timeText =
+timeValue && Number.isFinite(timeValue.getTime())
+? timeValue.toLocaleString([], {
 month: "short",
 day: "2-digit",
 hour: "2-digit",
 minute: "2-digit",
 })
 : "—";
-
-const changeText = `${changePct >= 0 ? "+" : ""}${changePct.toFixed(2)}%`;
 
 this.tooltipHost.innerHTML = `
 <div class="elite-chart-tooltip-card ${pinned ? "is-pinned" : ""}">

@@ -150,6 +150,11 @@ circulating_supply: safeNum(row.circulating_supply, 0),
 market_cap: safeNum(row.market_cap, 0),
 price: safeNum(row.price, 0),
 volume_24h: safeNum(row.volume_24h, 0),
+status: clean(row.status, 40).toLowerCase(),
+token_name: clean(row.token_name, 120),
+symbol: clean(row.symbol, 40),
+supply: String(row.supply || "0"),
+live_at: row.live_at || null,
 };
 }
 
@@ -291,7 +296,9 @@ return floorToken((safeNum(totalSupply, 0) * LIQUIDITY_TOKEN_PCT) / 100);
 }
 
 function computeRaydiumReservedTokens(liquidityTokenAllocation) {
-return floorToken((safeNum(liquidityTokenAllocation, 0) * RAYDIUM_LIQUIDITY_SPLIT_PCT) / 100);
+return floorToken(
+(safeNum(liquidityTokenAllocation, 0) * RAYDIUM_LIQUIDITY_SPLIT_PCT) / 100
+);
 }
 
 export function prepareReservedMintReservation({
@@ -636,27 +643,6 @@ source: "pool",
 throw new Error(`failed to claim reserved mint for launch ${launchId}`);
 }
 
-function getInternalPoolSeed(launch) {
-const internalPoolSol = safeNum(
-launch?.internal_pool_sol,
-safeNum(launch?.launch_result_json?.internalPoolSol, 0)
-);
-
-const internalPoolTokens = safeNum(
-launch?.internal_pool_tokens,
-safeNum(launch?.launch_result_json?.internalPoolTokens, 0)
-);
-
-if (internalPoolSol <= 0 || internalPoolTokens <= 0) {
-throw new Error("internal pool seed is missing from launch result");
-}
-
-return {
-internalPoolSol,
-internalPoolTokens,
-};
-}
-
 function getReservedMintKeypairFromLaunch(launch) {
 const reservedSecret = clean(launch?.reserved_mint_secret, 20000);
 const reservedAddress = clean(launch?.reserved_mint_address, 120);
@@ -779,6 +765,11 @@ clean(launch.token_mint, 120) !== existingMint
 await updateLaunchMintFields(launch.id, existingMint, "finalized");
 }
 
+await markPoolReservationFinalizedByLaunch({
+...launch,
+reserved_mint_address: launch.reserved_mint_address || existingMint,
+});
+
 return {
 created: false,
 mintAddress: existingMint,
@@ -796,6 +787,11 @@ reservationStatus === "finalized" &&
 existingLaunchAddress &&
 isValidSolanaAddress(existingLaunchAddress)
 ) {
+await markPoolReservationFinalizedByLaunch({
+...launch,
+reserved_mint_address: launch.reserved_mint_address || existingLaunchAddress,
+});
+
 return {
 created: false,
 mintAddress: existingLaunchAddress,
@@ -861,6 +857,33 @@ mint_address = ?
 WHERE id = ?
 `,
 [launch.token_name, launch.symbol, supply, mintAddress, token.id]
+);
+
+return getTokenByLaunchId(launchId);
+}
+
+const existingByMint = await db.get(
+`
+SELECT *
+FROM tokens
+WHERE mint_address = ?
+ORDER BY id DESC
+LIMIT 1
+`,
+[mintAddress]
+);
+
+if (existingByMint) {
+await db.run(
+`
+UPDATE tokens
+SET launch_id = ?,
+name = ?,
+symbol = ?,
+supply = ?
+WHERE id = ?
+`,
+[launchId, launch.token_name, launch.symbol, supply, existingByMint.id]
 );
 
 return getTokenByLaunchId(launchId);
@@ -956,7 +979,20 @@ await upsertWalletBalance(launchId, wallet, tokenAmount);
 
 async function ensurePoolRow(launchId, tokenId, launch) {
 const existingPool = await getPoolByLaunchId(launchId);
-const { internalPoolSol, internalPoolTokens } = getInternalPoolSeed(launch);
+const internalPoolSol = safeNum(
+launch?.internal_pool_sol,
+safeNum(launch?.launch_result_json?.internalPoolSol, 0)
+);
+const internalPoolTokens = floorToken(
+launch?.internal_pool_tokens ||
+launch?.launch_result_json?.internalPoolTokens ||
+0
+);
+
+if (internalPoolSol <= 0 || internalPoolTokens <= 0) {
+throw new Error("internal pool seed is missing from launch result");
+}
+
 const kValue = Number(internalPoolSol) * Number(internalPoolTokens);
 
 if (existingPool) {
@@ -971,7 +1007,14 @@ status = 'active',
 initial_token_reserve = COALESCE(initial_token_reserve, ?)
 WHERE id = ?
 `,
-[tokenId, internalPoolTokens, internalPoolSol, kValue, internalPoolTokens, existingPool.id]
+[
+tokenId,
+internalPoolTokens,
+internalPoolSol,
+kValue,
+internalPoolTokens,
+existingPool.id,
+]
 );
 
 return getPoolByLaunchId(launchId);
@@ -1182,7 +1225,8 @@ async function updateLaunchMarketFields(launchId, launch, pool) {
 const oneSidedSolLiquidity = safeNum(pool.sol_reserve, 0);
 const distributedCirculatingSupply = await getDistributedCirculatingSupply(launchId, launch);
 const price = computeSpotPriceSolPerToken(pool);
-const marketCap = price > 0 && distributedCirculatingSupply > 0
+const marketCap =
+price > 0 && distributedCirculatingSupply > 0
 ? price * distributedCirculatingSupply
 : 0;
 const volume24h = await getTrades24hVolumeByLaunch(launchId);
@@ -1340,10 +1384,7 @@ if (status !== "countdown" && status !== "live") {
 throw new Error("launch must be countdown or live before market bootstrap");
 }
 
-if (
-!clean(launch.reserved_mint_address, 120) ||
-!clean(launch.reserved_mint_secret, 20000)
-) {
+if (!clean(launch.reserved_mint_address, 120) || !clean(launch.reserved_mint_secret, 20000)) {
 await claimReservedMintForLaunch(
 launchId,
 launch.mint_required_tag || DEFAULT_REQUIRED_MINT_TAG
@@ -1363,9 +1404,7 @@ launch.internal_pool_sol,
 safeNum(launchResult.internalPoolSol, 0)
 );
 const internalPoolTokens = floorToken(
-launch.internal_pool_tokens ||
-launchResult.internalPoolTokens ||
-0
+launch.internal_pool_tokens || launchResult.internalPoolTokens || 0
 );
 
 if (internalPoolSol <= 0) {
@@ -1394,6 +1433,17 @@ throw new Error("pool reserves missing after bootstrap");
 
 await ensureLaunchLiquidityLifecycle(launchId, launch, pool);
 await updateLaunchMarketFields(launchId, launch, pool);
+
+await db.run(
+`
+UPDATE launches
+SET status = 'live',
+live_at = COALESCE(live_at, CURRENT_TIMESTAMP),
+updated_at = CURRENT_TIMESTAMP
+WHERE id = ?
+`,
+[launchId]
+);
 
 const refreshedLaunch = await getLaunchById(launchId);
 if (!refreshedLaunch) {

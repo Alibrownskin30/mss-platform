@@ -773,26 +773,109 @@ if ($("stat4Label")) $("stat4Label").textContent = "Time Left";
 if ($("stat4Value")) $("stat4Value").textContent = getCountdownText(launch, commitStats);
 }
 
-function updateStatsForLive(tokenPayload = {}, chartStats = {}) {
+function getLiveStats(tokenPayload = {}, chartStats = {}, launch = {}) {
 const tokenStats = tokenPayload?.stats || {};
 const stats = { ...chartStats, ...tokenStats };
 
-const priceUsd = toNumber(stats?.price_usd, 0);
-const marketCapUsd = toNumber(stats?.market_cap_usd, 0);
-const liquidityUsd = toNumber(stats?.liquidity_usd, 0);
-const volume24hUsd = toNumber(stats?.volume_24h_usd, 0);
+const solUsdPrice = toNumber(
+stats?.sol_usd_price ??
+tokenPayload?.launch?.sol_usd_price ??
+tokenPayload?.stats?.sol_usd_price,
+0
+);
+
+const priceUsd = toNumber(
+stats?.price_usd,
+0
+);
+
+const fallbackPriceSol = toNumber(
+stats?.price_sol ??
+tokenPayload?.launch?.price ??
+launch?.price,
+0
+);
+
+const resolvedPriceUsd =
+priceUsd > 0
+? priceUsd
+: (fallbackPriceSol > 0 && solUsdPrice > 0 ? fallbackPriceSol * solUsdPrice : 0);
+
+const marketCapUsd = toNumber(
+stats?.market_cap_usd,
+0
+);
+
+const fallbackMarketCapSol = toNumber(
+stats?.market_cap ??
+tokenPayload?.launch?.market_cap ??
+launch?.market_cap,
+0
+);
+
+const resolvedMarketCapUsd =
+marketCapUsd > 0
+? marketCapUsd
+: (fallbackMarketCapSol > 0 && solUsdPrice > 0 ? fallbackMarketCapSol * solUsdPrice : 0);
+
+const liquidityUsd = toNumber(
+stats?.liquidity_usd,
+0
+);
+
+const fallbackLiquiditySol = toNumber(
+stats?.liquidity_sol ??
+stats?.liquidity ??
+tokenPayload?.launch?.liquidity_sol ??
+tokenPayload?.launch?.liquidity ??
+launch?.liquidity,
+0
+);
+
+const resolvedLiquidityUsd =
+liquidityUsd > 0
+? liquidityUsd
+: (fallbackLiquiditySol > 0 && solUsdPrice > 0 ? fallbackLiquiditySol * solUsdPrice : 0);
+
+const volume24hUsd = toNumber(
+stats?.volume_24h_usd,
+0
+);
+
+const fallbackVolume24hSol = toNumber(
+stats?.volume_24h ??
+tokenPayload?.launch?.volume_24h ??
+launch?.volume_24h,
+0
+);
+
+const resolvedVolume24hUsd =
+volume24hUsd > 0
+? volume24hUsd
+: (fallbackVolume24hSol > 0 && solUsdPrice > 0 ? fallbackVolume24hSol * solUsdPrice : 0);
+
+return {
+priceUsd: resolvedPriceUsd,
+marketCapUsd: resolvedMarketCapUsd,
+liquidityUsd: resolvedLiquidityUsd,
+volume24hUsd: resolvedVolume24hUsd,
+};
+}
+
+function updateStatsForLive(tokenPayload = {}, chartStats = {}, launch = {}) {
+const liveStats = getLiveStats(tokenPayload, chartStats, launch);
 
 if ($("stat1Label")) $("stat1Label").textContent = "Price";
-if ($("stat1Value")) $("stat1Value").textContent = priceUsd > 0 ? formatPriceUsd(priceUsd) : "—";
+if ($("stat1Value")) $("stat1Value").textContent = liveStats.priceUsd > 0 ? formatPriceUsd(liveStats.priceUsd) : "—";
 
 if ($("stat2Label")) $("stat2Label").textContent = "Market Cap";
-if ($("stat2Value")) $("stat2Value").textContent = marketCapUsd > 0 ? formatUsdCompact(marketCapUsd, 2) : "—";
+if ($("stat2Value")) $("stat2Value").textContent = liveStats.marketCapUsd > 0 ? formatUsdCompact(liveStats.marketCapUsd, 2) : "—";
 
 if ($("stat3Label")) $("stat3Label").textContent = "Liquidity";
-if ($("stat3Value")) $("stat3Value").textContent = liquidityUsd > 0 ? formatUsdCompact(liquidityUsd, 2) : "—";
+if ($("stat3Value")) $("stat3Value").textContent = liveStats.liquidityUsd > 0 ? formatUsdCompact(liveStats.liquidityUsd, 2) : "—";
 
 if ($("stat4Label")) $("stat4Label").textContent = "24H Volume";
-if ($("stat4Value")) $("stat4Value").textContent = volume24hUsd > 0 ? formatUsdCompact(volume24hUsd, 2) : "—";
+if ($("stat4Value")) $("stat4Value").textContent = liveStats.volume24hUsd > 0 ? formatUsdCompact(liveStats.volume24hUsd, 2) : "—";
 }
 
 function getCountdownParts(launch, commitStats = {}) {
@@ -1852,7 +1935,7 @@ updateStatsForCountdown(this.launch, this.commitStats);
 updateCountdownUi(this.launch, this.commitStats);
 renderCassiePanel(this.phase, this.launch, this.tokenPayload, this.chartStats);
 } else {
-updateStatsForLive(this.tokenPayload, this.chartStats);
+updateStatsForLive(this.tokenPayload, this.chartStats, this.launch);
 updateWalletSummary(
 this.phase,
 this.connectedWallet,

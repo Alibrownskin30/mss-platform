@@ -14,6 +14,8 @@ buyback: 0.3,
 treasury: 0.2,
 };
 
+let walletBalanceColumnsCache = null;
+
 function safeNum(value, fallback = 0) {
 const n = Number(value);
 return Number.isFinite(n) ? n : fallback;
@@ -156,14 +158,23 @@ launch.builder_id,
 return cleanText(builder?.wallet || "", 120);
 }
 
-async function getOrCreateWalletBalance(launchId, wallet) {
+async function getWalletBalanceColumns() {
+if (!walletBalanceColumnsCache) {
+const rows = await db.all(`PRAGMA table_info(wallet_balances)`);
+walletBalanceColumnsCache = new Set(rows.map((row) => String(row.name || "").trim()));
+}
+return walletBalanceColumnsCache;
+}
+
+async function getOrCreateWalletBalanceRow(launchId, wallet) {
 const walletStr = cleanText(wallet, 120);
 
 let walletBalance = await db.get(
 `
-SELECT token_amount
+SELECT *
 FROM wallet_balances
 WHERE launch_id = ? AND wallet = ?
+LIMIT 1
 `,
 [launchId, walletStr]
 );
@@ -177,12 +188,27 @@ VALUES (?, ?, 0)
 [launchId, walletStr]
 );
 
-walletBalance = { token_amount: 0 };
+walletBalance = await db.get(
+`
+SELECT *
+FROM wallet_balances
+WHERE launch_id = ? AND wallet = ?
+LIMIT 1
+`,
+[launchId, walletStr]
+);
 }
 
+return walletBalance || null;
+}
+
+async function getOrCreateWalletBalance(launchId, wallet) {
+const walletRow = await getOrCreateWalletBalanceRow(launchId, wallet);
+
 return {
-wallet: walletStr,
-token_amount: floorToken(walletBalance.token_amount),
+wallet: cleanText(wallet, 120),
+token_amount: floorToken(walletRow?.token_amount),
+sol_balance: safeNum(walletRow?.sol_balance, 0),
 };
 }
 
@@ -200,6 +226,25 @@ WHERE launch_id = ? AND wallet = ?
 );
 
 return nextAmount;
+}
+
+async function setWalletSolBalanceIfSupported(launchId, wallet, solBalance) {
+const columns = await getWalletBalanceColumns();
+if (!columns.has("sol_balance")) return null;
+
+const walletStr = cleanText(wallet, 120);
+const nextSolBalance = roundSol(solBalance);
+
+await db.run(
+`
+UPDATE wallet_balances
+SET sol_balance = ?
+WHERE launch_id = ? AND wallet = ?
+`,
+[nextSolBalance, launchId, walletStr]
+);
+
+return nextSolBalance;
 }
 
 async function syncLaunchLiquidityFields(launchId, solReserve) {
@@ -517,11 +562,13 @@ solReserve: Number(pool.sol_reserve),
 });
 
 let walletBalanceBefore = 0;
+let walletSolBalance = 0;
 let walletSolDelta = 0;
 
 if (walletStr) {
 const walletBalance = await getOrCreateWalletBalance(launchIdNum, walletStr);
 walletBalanceBefore = safeNum(walletBalance.token_amount, 0);
+walletSolBalance = safeNum(walletBalance.sol_balance, 0);
 walletSolDelta = await getWalletSolDelta(launchIdNum, walletStr);
 }
 
@@ -540,7 +587,8 @@ quote: {
 ...quote,
 maxBuySol,
 isBuilderWallet,
-walletSolBalanceAfter: null,
+walletSolBalanceBefore: walletSolBalance,
+walletSolBalanceAfter: roundSol(walletSolBalance + quote.walletSolDelta),
 walletSolDeltaBefore: walletSolDelta,
 walletSolDeltaAfter: roundSol(walletSolDelta + quote.walletSolDelta),
 ...walletLimit,
@@ -586,11 +634,13 @@ return res.status(400).json({ error: "Market is not live" });
 const walletStr = cleanText(wallet, 120);
 let walletBalanceBefore = null;
 let walletBalanceAfter = null;
+let walletSolBalance = 0;
 let walletSolDelta = 0;
 
 if (walletStr) {
 const walletBalance = await getOrCreateWalletBalance(launchIdNum, walletStr);
 walletBalanceBefore = safeNum(walletBalance.token_amount, 0);
+walletSolBalance = safeNum(walletBalance.sol_balance, 0);
 walletSolDelta = await getWalletSolDelta(launchIdNum, walletStr);
 
 if (walletBalanceBefore < requestedTokens) {
@@ -616,7 +666,8 @@ quote: {
 ...quote,
 walletBalanceBefore,
 walletBalanceAfter,
-walletSolBalanceAfter: null,
+walletSolBalanceBefore: walletSolBalance,
+walletSolBalanceAfter: roundSol(walletSolBalance + quote.walletSolDelta),
 walletSolDeltaBefore: walletSolDelta,
 walletSolDeltaAfter: roundSol(walletSolDelta + quote.walletSolDelta),
 },
@@ -685,6 +736,7 @@ solReserve: Number(pool.sol_reserve),
 
 const walletBalance = await getOrCreateWalletBalance(launchIdNum, walletStr);
 const currentBalance = safeNum(walletBalance.token_amount, 0);
+const walletSolBalanceBefore = safeNum(walletBalance.sol_balance, 0);
 const walletSolDeltaBefore = await getWalletSolDelta(launchIdNum, walletStr);
 
 const walletLimit = buildWalletLimitPayload({
@@ -745,6 +797,12 @@ walletStr,
 currentBalance + quote.tokensBought
 );
 
+const nextWalletSolBalance = await setWalletSolBalanceIfSupported(
+launchIdNum,
+walletStr,
+walletSolBalanceBefore + quote.walletSolDelta
+);
+
 await syncLaunchLiquidityFields(launchIdNum, quote.newSolReserve);
 await syncLaunchPoolSnapshot(launchIdNum, {
 solReserve: quote.newSolReserve,
@@ -760,6 +818,10 @@ price: quote.postTradeUnitPrice,
 await db.run("COMMIT");
 
 const walletSolDeltaAfter = roundSol(walletSolDeltaBefore + quote.walletSolDelta);
+const walletSolBalanceAfter =
+nextWalletSolBalance != null
+? nextWalletSolBalance
+: roundSol(walletSolBalanceBefore + quote.walletSolDelta);
 
 return res.json({
 success: true,
@@ -774,7 +836,8 @@ feeBreakdown: quote.feeBreakdown,
 walletSolDelta: quote.walletSolDelta,
 walletSolDeltaBefore,
 walletSolDeltaAfter,
-walletSolBalanceAfter: null,
+walletSolBalanceBefore,
+walletSolBalanceAfter,
 maxBuySol,
 isBuilderWallet,
 ...walletLimit,
@@ -834,6 +897,7 @@ return res.status(400).json({ error: "Market is not live" });
 
 const walletBalance = await getOrCreateWalletBalance(launchIdNum, walletStr);
 const currentBalance = safeNum(walletBalance.token_amount, 0);
+const walletSolBalanceBefore = safeNum(walletBalance.sol_balance, 0);
 const walletSolDeltaBefore = await getWalletSolDelta(launchIdNum, walletStr);
 
 if (currentBalance < tokensIn) {
@@ -889,6 +953,12 @@ walletStr,
 currentBalance - quote.grossTokensIn
 );
 
+const nextWalletSolBalance = await setWalletSolBalanceIfSupported(
+launchIdNum,
+walletStr,
+walletSolBalanceBefore + quote.walletSolDelta
+);
+
 await syncLaunchLiquidityFields(launchIdNum, quote.newSolReserve);
 await syncLaunchPoolSnapshot(launchIdNum, {
 solReserve: quote.newSolReserve,
@@ -904,6 +974,10 @@ price: quote.postTradeUnitPrice,
 await db.run("COMMIT");
 
 const walletSolDeltaAfter = roundSol(walletSolDeltaBefore + quote.walletSolDelta);
+const walletSolBalanceAfter =
+nextWalletSolBalance != null
+? nextWalletSolBalance
+: roundSol(walletSolBalanceBefore + quote.walletSolDelta);
 
 return res.json({
 success: true,
@@ -920,7 +994,8 @@ marketPriceAfter: quote.postTradeUnitPrice,
 walletSolDelta: quote.walletSolDelta,
 walletSolDeltaBefore,
 walletSolDeltaAfter,
-walletSolBalanceAfter: null,
+walletSolBalanceBefore,
+walletSolBalanceAfter,
 walletBalanceBefore: currentBalance,
 walletBalanceAfter: nextBalance,
 tokenAmountSold: quote.grossTokensIn,
