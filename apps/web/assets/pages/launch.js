@@ -11,10 +11,11 @@ sendSolTransfer,
 import { initLaunchMarket } from "../../js/launch-market.js";
 
 const BASE_REFRESH_INTERVAL_MS = 15000;
+const COMMIT_PHASE_REFRESH_INTERVAL_MS = 15000;
 const COUNTDOWN_REFRESH_INTERVAL_MS = 2500;
-const LIVE_REFRESH_INTERVAL_MS = 6000;
 const RENDER_TICK_MS = 1000;
 const FORCE_FINALIZE_COOLDOWN_MS = 8000;
+const LIVE_LIFECYCLE_REFRESH_INTERVAL_MS = 20000;
 
 function $(id) {
 return document.getElementById(id);
@@ -153,6 +154,10 @@ function isCountdownStatus(status) {
 return String(status || "").toLowerCase() === "countdown";
 }
 
+function isCommitStatus(status) {
+return String(status || "").toLowerCase() === "commit";
+}
+
 function getBuilderTrust(score) {
 const n = safeNum(score, 0);
 
@@ -289,6 +294,43 @@ mint_finalized_at: cleanString(raw?.mint_finalized_at, 200),
 return sanitizePublicLaunchFields(normalized);
 }
 
+function normalizeLifecycleData(raw = {}) {
+if (!raw || typeof raw !== "object") return null;
+
+return {
+...raw,
+launchStatus: cleanString(raw.launchStatus, 64).toLowerCase(),
+contractAddress: cleanString(raw.contractAddress, 200),
+builderWallet: cleanString(raw.builderWallet, 200),
+graduationStatus: cleanString(raw.graduationStatus, 120),
+graduationReason: cleanString(raw.graduationReason, 200),
+raydiumPoolId: cleanString(raw.raydiumPoolId, 300),
+lockStatus: cleanString(raw.lockStatus, 120),
+graduationReadiness: raw.graduationReadiness && typeof raw.graduationReadiness === "object"
+? {
+...raw.graduationReadiness,
+reason: cleanString(raw.graduationReadiness.reason, 500),
+}
+: null,
+builderVesting: raw.builderVesting && typeof raw.builderVesting === "object"
+? {
+...raw.builderVesting,
+}
+: null,
+};
+}
+
+function mergeLifecycleTruth(previous = null, next = null) {
+if (!previous && !next) return null;
+if (!previous) return normalizeLifecycleData(next);
+if (!next) return normalizeLifecycleData(previous);
+
+return {
+...normalizeLifecycleData(previous),
+...normalizeLifecycleData(next),
+};
+}
+
 function setStatus(message, type = "", options = {}) {
 const el = $("commitStatus");
 if (!el) return;
@@ -369,9 +411,10 @@ function getCommitEndsMs(launch, stats) {
 return parseTs(stats?.commitEndsAt || launch?.commit_ends_at);
 }
 
-function getLaunchStateMessage(launch, stats) {
+function getLaunchStateMessage(launch, stats, lifecycle = null) {
 const status = String(launch?.status || "");
 const bondState = getBuilderBondState(launch, stats);
+const readiness = lifecycle?.graduationReadiness || null;
 
 if (status === "commit") {
 return {
@@ -392,9 +435,16 @@ message: `Launch moved to countdown. Commits and refunds are closed.${timePart}`
 }
 
 if (status === "live") {
+const readinessLine = readiness
+? readiness.ready
+? " Graduation threshold is currently satisfied."
+: readiness.reason
+? ` ${readiness.reason}`
+: ""
+: "";
 return {
 kind: "good",
-message: "Launch is now live. Commit and refund actions are closed.",
+message: `Launch is now live. Commit and refund actions are closed.${readinessLine}`,
 };
 }
 
@@ -511,13 +561,17 @@ return [
 
 let currentLaunch = null;
 let currentCommitStats = null;
+let currentLifecycle = null;
+let currentGraduationPlan = null;
 let refreshIntervalId = null;
 let renderIntervalId = null;
+let lifecycleRefreshIntervalId = null;
 let loadRequestSeq = 0;
 let commitActionInFlight = false;
 let refundActionInFlight = false;
 let walletActionInFlight = false;
 let refreshInFlight = false;
+let lifecycleRefreshInFlight = false;
 let launchMarketController = null;
 let lastRenderedPhaseStatus = "";
 let countdownRefreshRequested = false;
@@ -540,6 +594,25 @@ throw err;
 return data;
 }
 
+async function defaultSaveLinksWithWallet(launchId, payload) {
+const wallet = getConnectedPublicKey() || "";
+
+if (!wallet) {
+throw new Error("Connect wallet first");
+}
+
+return fetchJson(`/api/launcher/${encodeURIComponent(launchId)}/links`, {
+method: "PATCH",
+headers: {
+"Content-Type": "application/json",
+},
+body: JSON.stringify({
+...payload,
+wallet,
+}),
+});
+}
+
 async function loadLaunch() {
 const id = qs("id");
 if (!id) {
@@ -558,6 +631,36 @@ if (requestSeq !== loadRequestSeq) return;
 const incomingLaunch = normalizeLaunchData(launchRes?.launch || {});
 currentLaunch = mergeLaunchTruth(currentLaunch || {}, incomingLaunch);
 currentCommitStats = commitsRes || {};
+currentLifecycle = mergeLifecycleTruth(
+currentLifecycle,
+launchRes?.lifecycle || commitsRes?.lifecycle || null
+);
+currentGraduationPlan =
+launchRes?.graduationPlan ||
+commitsRes?.graduationPlan ||
+currentGraduationPlan ||
+null;
+}
+
+async function loadLifecycleIfNeeded(force = false) {
+const id = qs("id");
+if (!id) return;
+if (!currentLaunch) return;
+if (!isLiveLikeStatus(currentLaunch?.status) && !isCountdownStatus(currentLaunch?.status)) return;
+if (lifecycleRefreshInFlight) return;
+if (!force && !isLiveLikeStatus(currentLaunch?.status)) return;
+
+lifecycleRefreshInFlight = true;
+
+try {
+const lifecycleRes = await fetchJson(`/api/launcher/${id}/lifecycle`).catch(() => null);
+if (!lifecycleRes) return;
+
+currentLifecycle = mergeLifecycleTruth(currentLifecycle, lifecycleRes.lifecycle || null);
+currentGraduationPlan = lifecycleRes.graduationPlan || currentGraduationPlan || null;
+} finally {
+lifecycleRefreshInFlight = false;
+}
 }
 
 async function forceCountdownFinalization() {
@@ -582,7 +685,7 @@ method: "POST",
 console.warn("launch.js finalize attempt did not complete:", err?.message || err);
 }
 
-await refresh({ syncMarket: true });
+await refresh({ syncMarket: true, syncLifecycle: true });
 } finally {
 countdownFinalizeInFlight = false;
 }
@@ -767,7 +870,7 @@ return `
 .join("");
 }
 
-function renderPhase(launch, committed, minRaise, hardCap, commitEndsAt, stats) {
+function renderPhase(launch, committed, minRaise, hardCap, commitEndsAt, stats, lifecycle = null) {
 const phaseValue = $("phaseValue");
 const phasePill = $("phasePill");
 const phaseNote = $("phaseNote");
@@ -779,6 +882,7 @@ const status = String(launch.status || "");
 const fillDurationMs = getFillDurationMs(launch, stats);
 const isBuilder = String(launch.template || "") === "builder";
 const bondState = getBuilderBondState(launch, stats);
+const readiness = lifecycle?.graduationReadiness || null;
 
 phaseValue.textContent = phaseDisplayText(status);
 phasePill.textContent = phaseDisplayText(status);
@@ -840,9 +944,21 @@ fillDurationMs != null
 if (isBuilder && bondState.paid && !bondState.refunded) {
 note += ` Builder bond of ${fmtSol(bondState.amount)} was collected during launch setup.`;
 }
+
+if (readiness) {
+note += readiness.ready
+? " Graduation conditions are currently satisfied."
+: readiness.reason
+? ` ${readiness.reason}`
+: "";
+}
 } else if (status === "graduated") {
 timeStat.textContent = "GRADUATED";
 note = "This launch has already completed its launch lifecycle and graduated beyond the initial launch phase.";
+
+if (lifecycle?.graduationStatus) {
+note += ` Liquidity lifecycle status: ${lifecycle.graduationStatus}.`;
+}
 } else if (status === "failed") {
 timeStat.textContent = "FAILED";
 note = "This launch failed to reach minimum raise before commit expiry.";
@@ -1036,6 +1152,32 @@ builderPctStat.textContent = `${baseBuilderPct}%`;
 }
 }
 
+function buildLifecycleSummaryText(lifecycle, launch) {
+if (!lifecycle || !launch) return "";
+
+const parts = [];
+
+if (isLiveLikeStatus(launch.status)) {
+if (safeNum(lifecycle.internalSolReserve, 0) > 0) {
+parts.push(`Internal LP reserve: ${fmtSol(lifecycle.internalSolReserve, 4)}`);
+}
+
+if (safeNum(lifecycle.totalSupply, 0) > 0 && safeNum(lifecycle.priceSol, 0) > 0) {
+parts.push(`Internal price: ${safeNum(lifecycle.priceSol).toFixed(8).replace(/\.?0+$/, "")} SOL`);
+}
+
+if (lifecycle.builderVesting?.lockedAmount > 0) {
+parts.push(`Builder locked: ${safeNum(lifecycle.builderVesting.lockedAmount, 0)} tokens`);
+}
+
+if (lifecycle.graduationReadiness?.ready) {
+parts.push("Graduation-ready");
+}
+}
+
+return parts.join(" • ");
+}
+
 function updateWalletUi() {
 const walletState = getConnectedWallet();
 const walletText = walletState.publicKey || "";
@@ -1076,7 +1218,7 @@ badge.textContent = walletState.isConnected ? "Wallet Connected" : "Wallet Disco
 }
 }
 
-function renderActionPanelState(launch, stats) {
+function renderActionPanelState(launch, stats, lifecycle = null) {
 const commitForm = $("commitForm");
 const commitBtn = $("commitBtn");
 const refundBtn = $("refundBtn");
@@ -1086,7 +1228,7 @@ const quickWrap = document.querySelector(".quick");
 const walletField = $("commitWallet")?.closest(".field") || null;
 const actionStack = commitBtn?.closest(".action-stack") || null;
 const quickButtons = Array.from(document.querySelectorAll(".quick button[data-amount]"));
-const stateInfo = getLaunchStateMessage(launch, stats);
+const stateInfo = getLaunchStateMessage(launch, stats, lifecycle);
 
 const status = String(launch.status || "");
 const commitOpen = canCommitForStatus(status);
@@ -1147,6 +1289,7 @@ launchId: Number(id),
 connectedWallet,
 launch: currentLaunch || null,
 commitStats: currentCommitStats || {},
+saveLinks: defaultSaveLinksWithWallet,
 });
 
 if (forceRefresh && typeof launchMarketController.setBaseState === "function") {
@@ -1162,6 +1305,7 @@ return;
 }
 
 launchMarketController.setConnectedWallet(connectedWallet);
+launchMarketController.saveLinks = defaultSaveLinksWithWallet;
 
 if (typeof launchMarketController.setBaseState === "function") {
 launchMarketController.setBaseState(currentLaunch || null, currentCommitStats || {}, { restartPolling: true });
@@ -1190,6 +1334,7 @@ if (!currentLaunch || !currentCommitStats) return;
 
 const launch = currentLaunch;
 const stats = currentCommitStats;
+const lifecycle = currentLifecycle;
 const bondState = getBuilderBondState(launch, stats);
 
 const committed = safeNum(stats.totalCommitted, safeNum(launch.committed_sol));
@@ -1202,8 +1347,9 @@ const pct = hardCap > 0
 : 0;
 
 if ($("launchSubline")) {
+const lifecycleText = buildLifecycleSummaryText(lifecycle, launch);
 $("launchSubline").textContent =
-`${launch.symbol || "—"} • ${String(launch.template || "—").replaceAll("_", " ")} • ${phaseDisplayText(launch.status)}`;
+`${launch.symbol || "—"} • ${String(launch.template || "—").replaceAll("_", " ")} • ${phaseDisplayText(launch.status)}${lifecycleText ? ` • ${lifecycleText}` : ""}`;
 }
 
 if ($("launchDesc")) {
@@ -1226,10 +1372,10 @@ if ($("participantsStat")) $("participantsStat").textContent = String(participan
 if ($("minRaiseStat")) $("minRaiseStat").textContent = `${minRaise} SOL`;
 if ($("hardCapStat")) $("hardCapStat").textContent = `${hardCap} SOL`;
 
-renderPhase(launch, committed, minRaise, hardCap, commitEndsAt, stats);
+renderPhase(launch, committed, minRaise, hardCap, commitEndsAt, stats, lifecycle);
 renderRecent(stats.recent || []);
 updateWalletUi();
-renderActionPanelState(launch, stats);
+renderActionPanelState(launch, stats, lifecycle);
 
 if (launch.status === "failed_refunded") {
 setClosureNote(
@@ -1254,6 +1400,16 @@ setClosureNote(
 } else {
 setClosureNote("");
 }
+} else if (launch.status === "live" && lifecycle?.graduationReadiness?.ready) {
+setClosureNote(
+`Launch is live and currently graduation-ready. Planned split: ${safeNum(lifecycle.raydiumTargetPct, 50)}% Raydium / ${safeNum(lifecycle.mssLockedTargetPct, 50)}% MSS locked.`,
+"good"
+);
+} else if (launch.status === "graduated") {
+setClosureNote(
+`Launch has graduated. Liquidity lifecycle status: ${lifecycle?.graduationStatus || "graduated"}.`,
+"good"
+);
 } else {
 setClosureNote("");
 }
@@ -1262,13 +1418,18 @@ lastRenderedPhaseStatus = String(launch.status || "");
 }
 
 async function refresh(options = {}) {
-const { syncMarket = true } = options;
+const { syncMarket = true, syncLifecycle = false } = options;
 
 if (refreshInFlight) return;
 refreshInFlight = true;
 
 try {
 await loadLaunch();
+
+if (syncLifecycle) {
+await loadLifecycleIfNeeded(true);
+}
+
 render();
 
 if (syncMarket) {
@@ -1280,7 +1441,7 @@ refreshInFlight = false;
 }
 
 async function refreshStateBeforeAction() {
-await refresh({ syncMarket: true });
+await refresh({ syncMarket: true, syncLifecycle: true });
 return {
 launch: currentLaunch,
 stats: currentCommitStats,
@@ -1382,7 +1543,7 @@ throw new Error("Launch not found.");
 }
 
 if (!canCommitForStatus(launch.status)) {
-const stateInfo = getLaunchStateMessage(launch, stats);
+const stateInfo = getLaunchStateMessage(launch, stats, currentLifecycle);
 setStatus(stateInfo.message, stateInfo.kind);
 return;
 }
@@ -1449,8 +1610,9 @@ if ($("commitAmount")) {
 $("commitAmount").value = "";
 }
 
-await refresh({ syncMarket: true });
+await refresh({ syncMarket: true, syncLifecycle: true });
 restartRefreshLoop();
+restartLifecycleRefreshLoop();
 } catch (err) {
 console.error(err);
 
@@ -1461,20 +1623,21 @@ Number(err?.status) === 409 &&
 if (lateRefund) {
 setStatus(buildLateRefundMessage(err, transferSignature), "warn");
 try {
-await refresh({ syncMarket: true });
+await refresh({ syncMarket: true, syncLifecycle: true });
 } catch (refreshErr) {
 console.error(refreshErr);
 }
 } else {
 setStatus(err?.message || "Commit failed.", "bad");
 try {
-await refresh({ syncMarket: true });
+await refresh({ syncMarket: true, syncLifecycle: true });
 } catch (refreshErr) {
 console.error(refreshErr);
 }
 }
 
 restartRefreshLoop();
+restartLifecycleRefreshLoop();
 } finally {
 commitActionInFlight = false;
 render();
@@ -1507,7 +1670,7 @@ throw new Error("Launch not found.");
 }
 
 if (!canRefundForStatus(launch.status)) {
-const stateInfo = getLaunchStateMessage(launch, stats);
+const stateInfo = getLaunchStateMessage(launch, stats, currentLifecycle);
 setStatus(stateInfo.message, stateInfo.kind);
 return;
 }
@@ -1532,17 +1695,19 @@ setStatus(
 "good"
 );
 
-await refresh({ syncMarket: true });
+await refresh({ syncMarket: true, syncLifecycle: true });
 restartRefreshLoop();
+restartLifecycleRefreshLoop();
 } catch (err) {
 console.error(err);
 setStatus(err?.message || "Refund failed.", "bad");
 try {
-await refresh({ syncMarket: true });
+await refresh({ syncMarket: true, syncLifecycle: true });
 } catch (refreshErr) {
 console.error(refreshErr);
 }
 restartRefreshLoop();
+restartLifecycleRefreshLoop();
 } finally {
 refundActionInFlight = false;
 render();
@@ -1589,7 +1754,7 @@ await syncLaunchMarketController(true);
 function getDynamicRefreshIntervalMs() {
 const status = String(currentLaunch?.status || "").toLowerCase();
 if (status === "countdown") return COUNTDOWN_REFRESH_INTERVAL_MS;
-if (status === "live" || status === "graduated") return LIVE_REFRESH_INTERVAL_MS;
+if (status === "commit") return COMMIT_PHASE_REFRESH_INTERVAL_MS;
 return BASE_REFRESH_INTERVAL_MS;
 }
 
@@ -1599,15 +1764,43 @@ clearInterval(refreshIntervalId);
 refreshIntervalId = null;
 }
 
+const status = String(currentLaunch?.status || "").toLowerCase();
+const shouldRunBaseLoop =
+status === "commit" ||
+status === "countdown" ||
+!currentLaunch?.status;
+
+if (!shouldRunBaseLoop) return;
+
 refreshIntervalId = setInterval(async () => {
 if (refreshInFlight || commitActionInFlight || refundActionInFlight || countdownFinalizeInFlight) return;
 
 try {
-await refresh({ syncMarket: false });
+await refresh({ syncMarket: false, syncLifecycle: false });
 } catch (err) {
 console.error(err);
 }
 }, getDynamicRefreshIntervalMs());
+}
+
+function restartLifecycleRefreshLoop() {
+if (lifecycleRefreshIntervalId) {
+clearInterval(lifecycleRefreshIntervalId);
+lifecycleRefreshIntervalId = null;
+}
+
+if (!isLiveLikeStatus(currentLaunch?.status)) return;
+
+lifecycleRefreshIntervalId = setInterval(async () => {
+if (refreshInFlight || lifecycleRefreshInFlight) return;
+
+try {
+await loadLifecycleIfNeeded(true);
+render();
+} catch (err) {
+console.error(err);
+}
+}, LIVE_LIFECYCLE_REFRESH_INTERVAL_MS);
 }
 
 async function init() {
@@ -1623,13 +1816,14 @@ await restoreWalletIfTrusted();
 updateWalletUi();
 
 try {
-await refresh({ syncMarket: true });
+await refresh({ syncMarket: true, syncLifecycle: true });
 } catch (err) {
 console.error(err);
 setStatus(err?.message || "Failed to load launch.", "bad");
 }
 
 restartRefreshLoop();
+restartLifecycleRefreshLoop();
 
 if (renderIntervalId) clearInterval(renderIntervalId);
 
@@ -1655,13 +1849,17 @@ void forceCountdownFinalization()
 .finally(() => {
 countdownRefreshRequested = false;
 restartRefreshLoop();
+restartLifecycleRefreshLoop();
 });
 }
 }
 
 if (status !== lastRenderedPhaseStatus && !refreshInFlight) {
-void refresh({ syncMarket: true })
-.then(() => restartRefreshLoop())
+void refresh({ syncMarket: true, syncLifecycle: true })
+.then(() => {
+restartRefreshLoop();
+restartLifecycleRefreshLoop();
+})
 .catch((err) => console.error(err));
 }
 }, RENDER_TICK_MS);

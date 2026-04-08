@@ -918,6 +918,20 @@ gap:16px;
 margin:0;
 }
 
+.lifecycle-proof-note{
+margin-top:2px;
+font-size:12px;
+color:var(--muted);
+line-height:1.5;
+}
+
+.lifecycle-action-row{
+display:flex;
+gap:10px;
+flex-wrap:wrap;
+align-items:center;
+}
+
 @media (max-width:1180px){
 .terminal-lower-grid{
 grid-template-columns:1fr;
@@ -1474,6 +1488,57 @@ Trading is not open yet. Commitments are being collected before market activatio
 </section>
 </div>
 
+<section id="lifecycleSection" class="panel terminal-section">
+<div class="terminal-section-header">
+<div>
+<div class="terminal-section-title">LP Lifecycle</div>
+<div class="terminal-section-sub">Internal pool truth, graduation posture, migration split, and lock proof.</div>
+</div>
+<div class="lifecycle-action-row">
+<div id="lifecycleStatusPill" class="status-pill commit">pending</div>
+<button id="graduateDevnetBtn" class="btn primary hidden" type="button">Graduate Devnet</button>
+</div>
+</div>
+
+<div class="allocation-grid">
+<div class="stat">
+<div class="k">Lifecycle Status</div>
+<div class="v" id="lifecycleStatusValue">—</div>
+</div>
+<div class="stat">
+<div class="k">Internal Reserves</div>
+<div class="v" id="lifecycleReservesValue">—</div>
+</div>
+<div class="stat">
+<div class="k">Graduation Split</div>
+<div class="v" id="lifecycleSplitValue">—</div>
+</div>
+<div class="stat">
+<div class="k">Builder Vesting</div>
+<div class="v" id="builderVestValue">—</div>
+</div>
+<div class="stat">
+<div class="k">Raydium Migration</div>
+<div class="v" id="lifecycleRaydiumValue">—</div>
+</div>
+<div class="stat">
+<div class="k">MSS Lock</div>
+<div class="v" id="lifecycleLockValue">—</div>
+</div>
+</div>
+
+<div class="compact-note">
+<div style="font-weight:800; margin-bottom:8px;">Graduation Readiness</div>
+<div id="graduationReadinessValue" style="font-size:22px;font-weight:900;">—</div>
+<div id="graduationReadinessNote" class="lifecycle-proof-note">Graduation conditions are still being evaluated.</div>
+</div>
+
+<div>
+<div class="section-title">Proof / Status Feed</div>
+<div id="graduationProofList" class="recent"></div>
+</div>
+</section>
+
 <section id="recentCommitsSection" class="panel terminal-section">
 <div class="terminal-section-header">
 <div>
@@ -1494,7 +1559,8 @@ Trading is not open yet. Commitments are being collected before market activatio
 
 <div class="compact-note">
 MSS launches enforce structured commit logic, capped wallet participation, minimum raise checks,
-countdown-based go-live transitions, automatic lifecycle transitions and refund protection that disables the moment countdown begins.
+countdown-based go-live transitions, automatic lifecycle transitions, internal pool reserve truth,
+builder vesting tracking, and refund protection that disables the moment countdown begins.
 </div>
 </section>
 </div>

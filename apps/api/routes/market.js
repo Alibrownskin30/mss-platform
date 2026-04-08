@@ -1,5 +1,6 @@
 import express from "express";
 import db from "../db/index.js";
+import { getLiquidityLifecycle } from "../services/launcher/liquidityLifecycle.js";
 
 const router = express.Router();
 
@@ -376,6 +377,65 @@ delta -= solAmount;
 return roundSol(delta);
 }
 
+async function getWalletSellability(launchId, launch, wallet, walletBalanceBefore) {
+const walletStr = cleanText(wallet, 120);
+const builderWallet = await getBuilderWalletByLaunch(launch);
+const isBuilderWallet =
+Boolean(walletStr) &&
+Boolean(builderWallet) &&
+walletStr.toLowerCase() === builderWallet.toLowerCase();
+
+const totalBalance = floorToken(walletBalanceBefore);
+
+if (!isBuilderWallet || String(launch?.template || "").toLowerCase() !== "builder") {
+return {
+isBuilderWallet,
+vestingActive: false,
+totalBalance,
+unlockedBalance: totalBalance,
+lockedBalance: 0,
+sellableBalance: totalBalance,
+builderVestingPercentUnlocked: 100,
+builderVestingDaysLive: getDaysSinceLaunch(launch),
+};
+}
+
+try {
+const lifecycle = await getLiquidityLifecycle(launchId);
+const vesting = lifecycle?.builderVesting || null;
+
+const unlockedAmount = floorToken(vesting?.unlockedAmount ?? totalBalance);
+const lockedAmount = floorToken(vesting?.lockedAmount ?? 0);
+const sellableBalance = Math.max(0, Math.min(totalBalance, unlockedAmount));
+const unlockedVisible = Math.max(0, Math.min(totalBalance, unlockedAmount));
+const lockedVisible = Math.max(0, Math.max(lockedAmount, totalBalance - unlockedVisible));
+const totalAllocation = floorToken(vesting?.totalAllocation ?? totalBalance);
+
+return {
+isBuilderWallet: true,
+vestingActive: lockedVisible > 0 || totalAllocation > unlockedVisible,
+totalBalance,
+unlockedBalance: unlockedVisible,
+lockedBalance: lockedVisible,
+sellableBalance,
+builderVestingPercentUnlocked:
+totalAllocation > 0 ? (unlockedAmount / totalAllocation) * 100 : 100,
+builderVestingDaysLive: safeNum(vesting?.vestedDays, getDaysSinceLaunch(launch)),
+};
+} catch {
+return {
+isBuilderWallet: true,
+vestingActive: false,
+totalBalance,
+unlockedBalance: totalBalance,
+lockedBalance: 0,
+sellableBalance: totalBalance,
+builderVestingPercentUnlocked: 100,
+builderVestingDaysLive: getDaysSinceLaunch(launch),
+};
+}
+}
+
 function buildBuyQuote({ solIn, tokenReserve, solReserve }) {
 const grossSolIn = safeNum(solIn, 0);
 const x = safeNum(tokenReserve, 0);
@@ -636,17 +696,32 @@ let walletBalanceBefore = null;
 let walletBalanceAfter = null;
 let walletSolBalance = 0;
 let walletSolDelta = 0;
+let sellability = null;
 
 if (walletStr) {
 const walletBalance = await getOrCreateWalletBalance(launchIdNum, walletStr);
 walletBalanceBefore = safeNum(walletBalance.token_amount, 0);
 walletSolBalance = safeNum(walletBalance.sol_balance, 0);
 walletSolDelta = await getWalletSolDelta(launchIdNum, walletStr);
+sellability = await getWalletSellability(
+launchIdNum,
+launch,
+walletStr,
+walletBalanceBefore
+);
 
-if (walletBalanceBefore < requestedTokens) {
+if (safeNum(sellability?.sellableBalance, walletBalanceBefore) < requestedTokens) {
 return res.status(400).json({
-error: "Insufficient tokens",
+error:
+sellability?.vestingActive
+? "Insufficient sellable tokens"
+: "Insufficient tokens",
 walletBalanceBefore,
+sellableBalance: floorToken(sellability?.sellableBalance ?? walletBalanceBefore),
+unlockedBalance: floorToken(sellability?.unlockedBalance ?? walletBalanceBefore),
+lockedBalance: floorToken(sellability?.lockedBalance ?? 0),
+isBuilderWallet: Boolean(sellability?.isBuilderWallet),
+vestingActive: Boolean(sellability?.vestingActive),
 });
 }
 
@@ -670,6 +745,13 @@ walletSolBalanceBefore: walletSolBalance,
 walletSolBalanceAfter: roundSol(walletSolBalance + quote.walletSolDelta),
 walletSolDeltaBefore: walletSolDelta,
 walletSolDeltaAfter: roundSol(walletSolDelta + quote.walletSolDelta),
+sellableBalance: floorToken(sellability?.sellableBalance ?? walletBalanceBefore ?? 0),
+unlockedBalance: floorToken(sellability?.unlockedBalance ?? walletBalanceBefore ?? 0),
+lockedBalance: floorToken(sellability?.lockedBalance ?? 0),
+isBuilderWallet: Boolean(sellability?.isBuilderWallet),
+vestingActive: Boolean(sellability?.vestingActive),
+builderVestingPercentUnlocked: safeNum(sellability?.builderVestingPercentUnlocked, 0),
+builderVestingDaysLive: safeNum(sellability?.builderVestingDaysLive, 0),
 },
 });
 } catch (err) {
@@ -899,11 +981,27 @@ const walletBalance = await getOrCreateWalletBalance(launchIdNum, walletStr);
 const currentBalance = safeNum(walletBalance.token_amount, 0);
 const walletSolBalanceBefore = safeNum(walletBalance.sol_balance, 0);
 const walletSolDeltaBefore = await getWalletSolDelta(launchIdNum, walletStr);
+const sellability = await getWalletSellability(
+launchIdNum,
+launch,
+walletStr,
+currentBalance
+);
 
-if (currentBalance < tokensIn) {
+const sellableBalance = floorToken(sellability?.sellableBalance ?? currentBalance);
+
+if (sellableBalance < tokensIn) {
 return res.status(400).json({
-error: "Insufficient tokens",
+error:
+sellability?.vestingActive
+? "Insufficient sellable tokens"
+: "Insufficient tokens",
 walletBalanceBefore: currentBalance,
+sellableBalance,
+unlockedBalance: floorToken(sellability?.unlockedBalance ?? currentBalance),
+lockedBalance: floorToken(sellability?.lockedBalance ?? 0),
+isBuilderWallet: Boolean(sellability?.isBuilderWallet),
+vestingActive: Boolean(sellability?.vestingActive),
 });
 }
 
@@ -998,6 +1096,13 @@ walletSolBalanceBefore,
 walletSolBalanceAfter,
 walletBalanceBefore: currentBalance,
 walletBalanceAfter: nextBalance,
+sellableBalanceBefore: sellableBalance,
+unlockedBalanceBefore: floorToken(sellability?.unlockedBalance ?? currentBalance),
+lockedBalanceBefore: floorToken(sellability?.lockedBalance ?? 0),
+isBuilderWallet: Boolean(sellability?.isBuilderWallet),
+vestingActive: Boolean(sellability?.vestingActive),
+builderVestingPercentUnlocked: safeNum(sellability?.builderVestingPercentUnlocked, 0),
+builderVestingDaysLive: safeNum(sellability?.builderVestingDaysLive, 0),
 tokenAmountSold: quote.grossTokensIn,
 soldTokens: quote.grossTokensIn,
 totalSupply: getEffectiveTotalSupply(launch, token),

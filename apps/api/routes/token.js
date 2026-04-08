@@ -9,8 +9,17 @@ const num = Number(value);
 return Number.isFinite(num) ? num : fallback;
 }
 
+function toInt(value, fallback = 0) {
+return Math.max(0, Math.floor(toNumber(value, fallback)));
+}
+
 function cleanText(value, max = 500) {
 return String(value ?? "").trim().slice(0, max);
+}
+
+function shouldRevealContractAddress(status) {
+const normalized = cleanText(status, 64).toLowerCase();
+return normalized === "live" || normalized === "graduated";
 }
 
 function normalizeTradeRow(row) {
@@ -47,6 +56,59 @@ if (priceChangePct >= 12 || flowImbalance >= 5) return "active";
 return "normal";
 }
 
+function normalizeLifecycle(lifecycle = {}) {
+if (!lifecycle || typeof lifecycle !== "object") return null;
+
+return {
+internal_sol_reserve: toNumber(lifecycle.internal_sol_reserve, 0),
+internal_token_reserve: toInt(lifecycle.internal_token_reserve, 0),
+implied_marketcap_sol: toNumber(lifecycle.implied_marketcap_sol, 0),
+
+graduation_status: cleanText(lifecycle.graduation_status, 120) || "internal_live",
+graduated: Boolean(lifecycle.graduated),
+graduation_reason: cleanText(lifecycle.graduation_reason, 200) || null,
+graduated_at: lifecycle.graduated_at || null,
+
+raydium_target_pct: toNumber(lifecycle.raydium_target_pct, 50),
+mss_locked_target_pct: toNumber(lifecycle.mss_locked_target_pct, 50),
+
+raydium_pool_id: cleanText(lifecycle.raydium_pool_id, 200) || null,
+raydium_sol_migrated: toNumber(lifecycle.raydium_sol_migrated, 0),
+raydium_token_migrated: toInt(lifecycle.raydium_token_migrated, 0),
+raydium_lp_tokens: cleanText(lifecycle.raydium_lp_tokens, 200) || null,
+raydium_migration_tx: cleanText(lifecycle.raydium_migration_tx, 300) || null,
+
+mss_locked_sol: toNumber(lifecycle.mss_locked_sol, 0),
+mss_locked_token: toInt(lifecycle.mss_locked_token, 0),
+mss_locked_lp_amount: cleanText(lifecycle.mss_locked_lp_amount, 200) || null,
+lock_status: cleanText(lifecycle.lock_status, 120) || "not_locked",
+lock_tx: cleanText(lifecycle.lock_tx, 300) || null,
+lock_expires_at: lifecycle.lock_expires_at || null,
+};
+}
+
+function normalizeGraduationReadiness(readiness = {}) {
+if (!readiness || typeof readiness !== "object") return null;
+
+return {
+ready: Boolean(readiness.ready),
+reason: cleanText(readiness.reason, 500) || "",
+};
+}
+
+function normalizeBuilderVestingSummary(raw = {}) {
+return {
+builder_wallet: cleanText(raw.builder_wallet, 120) || null,
+total_allocation: toInt(raw.total_allocation, 0),
+daily_unlock: toInt(raw.daily_unlock, 0),
+unlocked_amount: toInt(raw.unlocked_amount, 0),
+locked_amount: toInt(raw.locked_amount, 0),
+vesting_start_at: raw.vesting_start_at || null,
+created_at: raw.created_at || null,
+updated_at: raw.updated_at || null,
+};
+}
+
 router.get("/:launchId", async (req, res) => {
 try {
 const launchId = Number(req.params.launchId);
@@ -77,22 +139,28 @@ if (!launch) {
 return res.status(404).json({ ok: false, error: "Launch not found" });
 }
 
+const revealContract = shouldRevealContractAddress(launch.status);
+
 const mintAddress =
+(revealContract
+? cleanText(
 token?.mint_address ||
 launch?.mint_address ||
-launch?.contract_address ||
-null;
+launch?.contract_address,
+120
+)
+: "") || null;
 
 const cassieRisk = inferCassieRisk(stats);
 
-const walletTokenBalance = toNumber(
+const walletTokenBalance = toInt(
 walletSummary.token_balance ??
 walletSummary.tokenBalance ??
 stats.wallet_token_balance,
 0
 );
 
-const walletTotalBalance = toNumber(
+const walletTotalBalance = toInt(
 walletSummary.total_balance ??
 walletSummary.totalBalance ??
 stats.wallet_total_balance ??
@@ -100,7 +168,7 @@ walletTokenBalance,
 walletTokenBalance
 );
 
-const walletSellableBalance = toNumber(
+const walletSellableBalance = toInt(
 walletSummary.sellable_balance ??
 walletSummary.sellableBalance ??
 walletSummary.sellable_token_balance ??
@@ -111,7 +179,7 @@ walletTokenBalance,
 walletTokenBalance
 );
 
-const walletUnlockedBalance = toNumber(
+const walletUnlockedBalance = toInt(
 walletSummary.unlocked_balance ??
 walletSummary.unlockedBalance ??
 walletSummary.unlocked_token_balance ??
@@ -122,7 +190,7 @@ walletSellableBalance,
 walletSellableBalance
 );
 
-const walletLockedBalance = toNumber(
+const walletLockedBalance = toInt(
 walletSummary.locked_balance ??
 walletSummary.lockedBalance ??
 walletSummary.locked_token_balance ??
@@ -182,12 +250,20 @@ stats.price_usd,
 );
 
 const liquiditySol = toNumber(
-stats.liquidity_sol ?? stats.liquidity ?? launch.liquidity_sol ?? launch.liquidity,
+stats.liquidity_sol ??
+stats.liquidity ??
+pool?.sol_reserve ??
+launch?.lifecycle?.internal_sol_reserve ??
+launch.internal_pool_sol ??
+launch.liquidity_sol ??
+launch.liquidity,
 0
 );
 
 const liquidityUsd = toNumber(
-stats.liquidity_usd ?? launch.current_liquidity_usd ?? launch.liquidity_usd,
+stats.liquidity_usd ??
+launch.current_liquidity_usd ??
+launch.liquidity_usd,
 0
 );
 
@@ -211,6 +287,12 @@ stats.volume_24h_usd,
 0
 );
 
+const lifecycle = normalizeLifecycle(launch.lifecycle || {});
+const graduationReadiness = normalizeGraduationReadiness(
+launch.graduationReadiness || launch.graduation_readiness || null
+);
+const builderVesting = normalizeBuilderVestingSummary(launch.builder_vesting || {});
+
 return res.json({
 ok: true,
 success: true,
@@ -220,40 +302,60 @@ token_name: launch.token_name,
 symbol: launch.symbol,
 status: launch.status,
 template: launch.template || null,
-contract_address: launch.contract_address || null,
-mint_address: mintAddress,
-builder_wallet: launch.builder_wallet || null,
-builder_alias: launch.builder_alias || null,
+
+contract_address: revealContract
+? cleanText(launch.contract_address, 120) || null
+: null,
+mint_address: revealContract ? mintAddress : null,
+
+builder_wallet: cleanText(launch.builder_wallet, 120) || null,
+builder_alias: cleanText(launch.builder_alias, 120) || null,
 builder_score: toNumber(launch.builder_score, 0),
-supply: toNumber(launch.supply, 0),
-final_supply: toNumber(launch.final_supply ?? launch.supply, 0),
-circulating_supply: toNumber(
+
+supply: toInt(launch.supply, 0),
+final_supply: toInt(launch.final_supply ?? launch.supply, 0),
+circulating_supply: toInt(
 launch.circulating_supply ?? launch.final_supply ?? launch.supply,
 0
 ),
+
 committed_sol: toNumber(launch.committed_sol, 0),
-participants_count: toNumber(launch.participants_count, 0),
+participants_count: toInt(launch.participants_count, 0),
 hard_cap_sol: toNumber(launch.hard_cap_sol, 0),
-internal_pool_sol: toNumber(launch.internal_pool_sol, 0),
-internal_pool_tokens: toNumber(launch.internal_pool_tokens, 0),
+
+internal_pool_sol: toNumber(
+launch.internal_pool_sol ?? lifecycle?.internal_sol_reserve,
+0
+),
+internal_pool_tokens: toInt(
+launch.internal_pool_tokens ?? lifecycle?.internal_token_reserve,
+0
+),
+
 liquidity: liquiditySol,
 liquidity_sol: liquiditySol,
 liquidity_usd: liquidityUsd,
 current_liquidity_usd: liquidityUsd,
+
 sol_usd_price: toNumber(stats.sol_usd_price, 0),
+
 price: priceSol,
 price_sol: priceSol,
 price_usd: priceUsd,
+
 market_cap: marketCapSol,
 market_cap_sol: marketCapSol,
 market_cap_usd: marketCapUsd,
+
 volume_24h: volume24hSol,
 volume_24h_sol: volume24hSol,
 volume_24h_usd: volume24hUsd,
-website_url: launch.website_url || "",
-x_url: launch.x_url || "",
-telegram_url: launch.telegram_url || "",
-discord_url: launch.discord_url || "",
+
+website_url: cleanText(launch.website_url, 500),
+x_url: cleanText(launch.x_url, 500),
+telegram_url: cleanText(launch.telegram_url, 500),
+discord_url: cleanText(launch.discord_url, 500),
+
 countdown_started_at: launch.countdown_started_at || null,
 countdown_ends_at: launch.countdown_ends_at || null,
 live_at: launch.live_at || null,
@@ -261,18 +363,24 @@ commit_started_at: launch.commit_started_at || null,
 commit_ends_at: launch.commit_ends_at || null,
 created_at: launch.created_at || null,
 updated_at: launch.updated_at || null,
+
+lifecycle,
+graduation_readiness: graduationReadiness,
+builder_vesting: builderVesting,
 },
+
 token: {
 id: token?.id || null,
 launch_id: token?.launch_id || launchId,
 name: token?.name || launch.token_name || null,
 symbol: token?.symbol || launch.symbol || null,
 ticker: token?.symbol || launch.symbol || null,
-supply: toNumber(token?.supply ?? launch.final_supply ?? launch.supply, 0),
-mint_address: mintAddress,
-mint: mintAddress,
+supply: toInt(token?.supply ?? launch.final_supply ?? launch.supply, 0),
+mint_address: revealContract ? mintAddress : null,
+mint: revealContract ? mintAddress : null,
 created_at: token?.created_at || null,
 },
+
 wallet: {
 token_balance: walletTokenBalance,
 tokenBalance: walletTokenBalance,
@@ -308,22 +416,22 @@ is_builder_wallet: walletIsBuilder,
 vesting_active: walletVestingActive,
 wallet_vesting_active: walletVestingActive,
 
-builder_total_allocation_tokens: toNumber(
+builder_total_allocation_tokens: toInt(
 walletSummary.builder_total_allocation_tokens ??
 stats.builder_total_allocation_tokens,
 0
 ),
-builder_unlocked_tokens: toNumber(
+builder_unlocked_tokens: toInt(
 walletSummary.builder_unlocked_tokens ??
 stats.builder_unlocked_tokens,
 0
 ),
-builder_locked_tokens: toNumber(
+builder_locked_tokens: toInt(
 walletSummary.builder_locked_tokens ??
 stats.builder_locked_tokens,
 0
 ),
-builder_sellable_tokens: toNumber(
+builder_sellable_tokens: toInt(
 walletSummary.builder_sellable_tokens ??
 stats.builder_sellable_tokens,
 0
@@ -333,12 +441,18 @@ walletSummary.builder_vesting_percent_unlocked ??
 stats.builder_vesting_percent_unlocked,
 0
 ),
-builder_vesting_days_live: toNumber(
+builder_vesting_days_live: toInt(
 walletSummary.builder_vesting_days_live ??
 stats.builder_vesting_days_live,
 0
 ),
+builder_daily_unlock_tokens: toInt(
+walletSummary.builder_daily_unlock_tokens ??
+stats.builder_daily_unlock_tokens,
+0
+),
 },
+
 stats: {
 ...stats,
 
@@ -378,22 +492,22 @@ wallet_is_builder: walletIsBuilder,
 is_builder_wallet: walletIsBuilder,
 wallet_vesting_active: walletVestingActive,
 
-builder_total_allocation_tokens: toNumber(
+builder_total_allocation_tokens: toInt(
 stats.builder_total_allocation_tokens ??
 walletSummary.builder_total_allocation_tokens,
 0
 ),
-builder_unlocked_tokens: toNumber(
+builder_unlocked_tokens: toInt(
 stats.builder_unlocked_tokens ??
 walletSummary.builder_unlocked_tokens,
 0
 ),
-builder_locked_tokens: toNumber(
+builder_locked_tokens: toInt(
 stats.builder_locked_tokens ??
 walletSummary.builder_locked_tokens,
 0
 ),
-builder_sellable_tokens: toNumber(
+builder_sellable_tokens: toInt(
 stats.builder_sellable_tokens ??
 walletSummary.builder_sellable_tokens,
 0
@@ -403,12 +517,18 @@ stats.builder_vesting_percent_unlocked ??
 walletSummary.builder_vesting_percent_unlocked,
 0
 ),
-builder_vesting_days_live: toNumber(
+builder_vesting_days_live: toInt(
 stats.builder_vesting_days_live ??
 walletSummary.builder_vesting_days_live,
 0
 ),
+builder_daily_unlock_tokens: toInt(
+stats.builder_daily_unlock_tokens ??
+walletSummary.builder_daily_unlock_tokens,
+0
+),
 },
+
 pool: pool
 ? {
 id: pool.id,
@@ -420,7 +540,9 @@ initial_token_reserve: toNumber(pool.initial_token_reserve, 0),
 created_at: pool.created_at || null,
 }
 : null,
+
 trades,
+
 cassie: {
 monitoring_active: cassie?.monitoring_active !== false,
 phase:

@@ -571,6 +571,7 @@ const launchTokenName = $("launchTokenName");
 const launchTokenSymbol = $("launchTokenSymbol");
 const launchBuilderWalletShort = $("launchBuilderWalletShort");
 const launchTokenLogo = $("launchTokenLogo");
+const launchTokenNameMirror = $("launchTokenNameMirror");
 
 const tokenName =
 launch?.token_name ||
@@ -587,6 +588,7 @@ tokenPayload?.token?.ticker ||
 const builderWallet = launch?.builder_wallet || "";
 
 if (launchTokenName) launchTokenName.textContent = tokenName;
+if (launchTokenNameMirror) launchTokenNameMirror.textContent = tokenName;
 if (launchTokenSymbol) launchTokenSymbol.textContent = `$${tokenSymbol}`;
 if (launchBuilderWalletShort) {
 launchBuilderWalletShort.textContent = shortAddress(builderWallet || "") || "Pending";
@@ -1433,6 +1435,182 @@ setTradeMessage("");
 resetTradeQuoteUi();
 }
 
+function getLifecycleStatusTone(status = "") {
+const normalized = cleanString(status, 80).toLowerCase();
+if (normalized === "graduated") return "good";
+if (normalized === "ready") return "warn";
+if (normalized.includes("pending")) return "warn";
+return "neutral";
+}
+
+function getReadinessTone(readiness = {}) {
+if (readiness?.ready) return "good";
+return "warn";
+}
+
+function renderLifecycleCard(lifecycle = null, graduationPlan = null, phase = PHASES.COMMIT) {
+const section = $("lifecycleSection");
+if (!section) return;
+
+const statusValue = $("lifecycleStatusValue");
+const statusPill = $("lifecycleStatusPill");
+const reservesValue = $("lifecycleReservesValue");
+const splitValue = $("lifecycleSplitValue");
+const lockValue = $("lifecycleLockValue");
+const raydiumValue = $("lifecycleRaydiumValue");
+const builderVestValue = $("lifecycleBuilderVestValue");
+const readinessValue = $("graduationReadinessValue");
+const readinessNote = $("graduationReadinessNote");
+const graduateBtn = $("graduateDevnetBtn");
+const graduationProof = $("graduationProofList");
+
+const readiness = lifecycle?.graduationReadiness || null;
+const statusText = cleanString(
+lifecycle?.graduationStatus ||
+(phase === PHASES.LIVE ? "internal_live" : "pending"),
+80
+) || "pending";
+
+if (statusValue) {
+statusValue.textContent = statusText.replaceAll("_", " ");
+}
+
+if (statusPill) {
+statusPill.textContent = statusText.replaceAll("_", " ");
+statusPill.className = `status-pill ${getLifecycleStatusTone(statusText) === "good" ? "live" : getLifecycleStatusTone(statusText) === "warn" ? "countdown" : "commit"}`;
+}
+
+const internalSol = toNumber(lifecycle?.internalSolReserve, 0);
+const internalTokens = toInt(lifecycle?.internalTokenReserve, 0);
+
+if (reservesValue) {
+reservesValue.innerHTML = `
+<div>${formatSol(internalSol, 4)}</div>
+<div style="margin-top:4px;font-size:12px;opacity:.68;">${formatTokenAmount(internalTokens, 0)} tokens</div>
+`;
+}
+
+const raydiumPct = toNumber(
+lifecycle?.raydiumTargetPct ?? graduationPlan?.raydiumSplitPct,
+50
+);
+const mssPct = toNumber(
+lifecycle?.mssLockedTargetPct ?? graduationPlan?.mssLockedSplitPct,
+50
+);
+
+if (splitValue) {
+splitValue.innerHTML = `
+<div>Raydium ${formatPercent(raydiumPct, 0)}</div>
+<div style="margin-top:4px;font-size:12px;opacity:.68;">MSS locked ${formatPercent(mssPct, 0)}</div>
+`;
+}
+
+const lockStatus = cleanString(lifecycle?.lockStatus, 80) || "not_locked";
+const lockTx = cleanString(lifecycle?.lockTx, 240);
+const lockExpiry = lifecycle?.lockExpiresAt || null;
+
+if (lockValue) {
+lockValue.innerHTML = `
+<div>${escapeHtml(lockStatus.replaceAll("_", " "))}</div>
+<div style="margin-top:4px;font-size:12px;opacity:.68;">
+${lockTx ? escapeHtml(shortAddress(lockTx, 10, 8)) : "No lock proof yet"}
+${lockExpiry ? ` • ${escapeHtml(formatDateTime(lockExpiry))}` : ""}
+</div>
+`;
+}
+
+const raydiumPoolId = cleanString(lifecycle?.raydiumPoolId, 240);
+const raydiumMigrationTx = cleanString(lifecycle?.raydiumMigrationTx, 240);
+const raydiumSolMigrated = toNumber(lifecycle?.raydiumSolMigrated, 0);
+const raydiumTokenMigrated = toInt(lifecycle?.raydiumTokenMigrated, 0);
+
+if (raydiumValue) {
+raydiumValue.innerHTML = `
+<div>${raydiumPoolId ? escapeHtml(shortAddress(raydiumPoolId, 10, 8)) : "Pending"}</div>
+<div style="margin-top:4px;font-size:12px;opacity:.68;">
+${raydiumMigrationTx ? `${escapeHtml(shortAddress(raydiumMigrationTx, 10, 8))} • ` : ""}${escapeHtml(formatSol(raydiumSolMigrated, 4))} / ${escapeHtml(formatTokenAmount(raydiumTokenMigrated, 0))} tokens
+</div>
+`;
+}
+
+const vest = lifecycle?.builderVesting || {};
+const unlockedAmount = toInt(vest?.unlockedAmount, 0);
+const lockedAmount = toInt(vest?.lockedAmount, 0);
+const vestedDays = toInt(vest?.vestedDays, 0);
+
+if (builderVestValue) {
+builderVestValue.innerHTML = `
+<div>${formatTokenAmount(unlockedAmount, 0)} unlocked</div>
+<div style="margin-top:4px;font-size:12px;opacity:.68;">${formatTokenAmount(lockedAmount, 0)} locked • day ${Math.max(1, vestedDays || 1)}</div>
+`;
+}
+
+if (readinessValue) {
+readinessValue.textContent = readiness?.ready
+? "Ready"
+: "Not Ready";
+}
+
+if (readinessNote) {
+readinessNote.textContent = readiness?.reason
+? String(readiness.reason)
+: lifecycle?.graduated
+? "Launch has already graduated."
+: "Graduation conditions are still being monitored.";
+}
+
+if (graduateBtn) {
+const canShow =
+phase === PHASES.LIVE &&
+Boolean(readiness?.ready) &&
+!Boolean(lifecycle?.graduated);
+
+graduateBtn.classList.toggle("hidden", !canShow);
+graduateBtn.disabled = !canShow || graduateBtn.dataset.busy === "1";
+}
+
+if (graduationProof) {
+const items = [];
+
+items.push(`
+<div class="recent-item">
+<div>
+<div class="recent-wallet">Graduation Readiness</div>
+<div class="recent-meta">${escapeHtml(readiness?.ready ? "Ready for graduation execution" : "Awaiting graduation conditions")}</div>
+</div>
+<div class="recent-wallet">${escapeHtml(readiness?.ready ? "READY" : "PENDING")}</div>
+</div>
+`);
+
+if (raydiumPoolId || raydiumMigrationTx) {
+items.push(`
+<div class="recent-item">
+<div>
+<div class="recent-wallet">Raydium Migration</div>
+<div class="recent-meta">${escapeHtml(raydiumMigrationTx || "Migration proof recorded")}</div>
+</div>
+<div class="recent-wallet">${escapeHtml(raydiumPoolId ? shortAddress(raydiumPoolId, 10, 8) : "Tracked")}</div>
+</div>
+`);
+}
+
+if (lockTx || lifecycle?.mssLockedLpAmount) {
+items.push(`
+<div class="recent-item">
+<div>
+<div class="recent-wallet">MSS Lock Proof</div>
+<div class="recent-meta">${escapeHtml(lockTx || "Lock metadata recorded")}</div>
+</div>
+<div class="recent-wallet">${escapeHtml(cleanString(lifecycle?.mssLockedLpAmount, 80) || "Tracked")}</div>
+</div>
+`);
+}
+
+graduationProof.innerHTML = items.join("");
+}
+}
+
 async function fetchJson(path, options = {}) {
 const apiBase = window.API_BASE || getApiBase();
 
@@ -1483,6 +1661,14 @@ async function defaultFetchChartStats(launchId, wallet = "") {
 try {
 const qs = wallet ? `?wallet=${encodeURIComponent(wallet)}` : "";
 return await fetchJson(`/api/chart/${encodeURIComponent(launchId)}/stats${qs}`);
+} catch {
+return {};
+}
+}
+
+async function defaultFetchLifecycle(launchId) {
+try {
+return await fetchJson(`/api/launcher/${encodeURIComponent(launchId)}/lifecycle`);
 } catch {
 return {};
 }
@@ -1550,6 +1736,14 @@ body: JSON.stringify({ launchId, wallet, tokenAmount }),
 });
 }
 
+async function defaultGraduateDevnet(launchId, payload = {}) {
+return fetchJson(`/api/launcher/${encodeURIComponent(launchId)}/graduate-devnet`, {
+method: "POST",
+headers: { "Content-Type": "application/json" },
+body: JSON.stringify(payload),
+});
+}
+
 class LaunchMarketController {
 constructor(options = {}) {
 this.launchId = options.launchId || "";
@@ -1558,16 +1752,20 @@ this.fetchLaunch = options.fetchLaunch || defaultFetchLaunch;
 this.fetchCommitStats = options.fetchCommitStats || defaultFetchCommitStats;
 this.fetchTokenStats = options.fetchTokenStats || defaultFetchTokenStats;
 this.fetchChartStats = options.fetchChartStats || defaultFetchChartStats;
+this.fetchLifecycle = options.fetchLifecycle || defaultFetchLifecycle;
 this.fetchMarketSnapshot = options.fetchMarketSnapshot || defaultFetchMarketSnapshot;
 this.saveLinks = options.saveLinks || defaultSaveLinks;
 this.quoteBuy = options.quoteBuy || defaultQuoteBuy;
 this.quoteSell = options.quoteSell || defaultQuoteSell;
 this.executeBuy = options.executeBuy || defaultExecuteBuy;
 this.executeSell = options.executeSell || defaultExecuteSell;
+this.graduateDevnet = options.graduateDevnet || defaultGraduateDevnet;
 this.onPhaseChange = typeof options.onPhaseChange === "function" ? options.onPhaseChange : null;
 
 this.launch = options.launch ? normalizeLaunchTruth(options.launch) : null;
 this.commitStats = options.commitStats || {};
+this.lifecycle = null;
+this.graduationPlan = null;
 this.phase = PHASES.COMMIT;
 this.currentInterval = options.initialInterval || "1m";
 this.candleLimit = Number(options.candleLimit || 180);
@@ -1608,6 +1806,7 @@ this._boundHandleTradeTabClick = this.handleTradeTabClick.bind(this);
 this._boundHandleTradeQuickClick = this.handleTradeQuickClick.bind(this);
 this._boundHandleTradeSubmitClick = this.handleTradeSubmitClick.bind(this);
 this._boundHandleTradeAmountInput = this.handleTradeAmountInput.bind(this);
+this._boundHandleGraduateDevnetClick = this.handleGraduateDevnetClick.bind(this);
 }
 
 async init() {
@@ -1675,6 +1874,7 @@ $("launchLinksModal")?.addEventListener("click", this._boundHandleBackdropClick)
 
 $("launchCaCopyBtn")?.addEventListener("click", this._boundHandleCaCopy);
 $("chartCaCopyBtn")?.addEventListener("click", this._boundHandleCaCopy);
+$("graduateDevnetBtn")?.addEventListener("click", this._boundHandleGraduateDevnetClick);
 
 document.querySelectorAll(".market-timeframe").forEach((btn) => {
 btn.addEventListener("click", this._boundHandleTimeframeClick);
@@ -1697,6 +1897,7 @@ $("launchLinksModal")?.removeEventListener("click", this._boundHandleBackdropCli
 
 $("launchCaCopyBtn")?.removeEventListener("click", this._boundHandleCaCopy);
 $("chartCaCopyBtn")?.removeEventListener("click", this._boundHandleCaCopy);
+$("graduateDevnetBtn")?.removeEventListener("click", this._boundHandleGraduateDevnetClick);
 
 document.querySelectorAll(".market-timeframe").forEach((btn) => {
 btn.removeEventListener("click", this._boundHandleTimeframeClick);
@@ -1821,6 +2022,14 @@ this.walletTokenBalanceFallback = liveWalletSummary.tokenBalance;
 }
 }
 
+async refreshLifecycleOnly() {
+if (!this.launchId) return;
+
+const payload = await this.fetchLifecycle(this.launchId);
+this.lifecycle = payload?.lifecycle || null;
+this.graduationPlan = payload?.graduationPlan || null;
+}
+
 async refreshLiveMarketOnly({ force = false } = {}) {
 if (!this.launchId) return;
 if (!force && this.phase !== PHASES.LIVE) return;
@@ -1830,13 +2039,16 @@ return this._liveRefreshInFlight;
 }
 
 this._liveRefreshInFlight = (async () => {
-const payload = await this.fetchMarketSnapshot(
+const [payload] = await Promise.all([
+this.fetchMarketSnapshot(
 this.launchId,
 this.currentInterval,
 this.candleLimit,
 50,
 this.connectedWallet || ""
-);
+),
+this.refreshLifecycleOnly().catch(() => null),
+]);
 
 if (this._destroyed) return;
 
@@ -1877,9 +2089,10 @@ return this._launchRefreshInFlight;
 }
 
 this._launchRefreshInFlight = (async () => {
-const [launchPayload, commitStatsPayload] = await Promise.all([
+const [launchPayload, commitStatsPayload, lifecyclePayload] = await Promise.all([
 this.fetchLaunch(this.launchId),
 this.fetchCommitStats(this.launchId),
+this.fetchLifecycle(this.launchId).catch(() => ({})),
 ]);
 
 if (this._destroyed) return;
@@ -1889,6 +2102,8 @@ const previousPhase = this.phase;
 
 this.launch = mergeLaunchTruth(this.launch || {}, incomingLaunch);
 this.commitStats = commitStatsPayload || {};
+this.lifecycle = lifecyclePayload?.lifecycle || null;
+this.graduationPlan = lifecyclePayload?.graduationPlan || null;
 this.phase = inferPhase(this.launch);
 
 if (this.phase === PHASES.LIVE) {
@@ -1972,6 +2187,8 @@ stats: this.chartStats,
 }
 }
 }
+
+renderLifecycleCard(this.lifecycle, this.graduationPlan, this.phase);
 
 this.syncSellQuickButtons();
 this.renderTradePanel();
@@ -2369,6 +2586,39 @@ this.quoteBusy = false;
 this.tradeBusy = false;
 if (submitBtn) submitBtn.textContent = originalText;
 this.renderTradePanel();
+}
+}
+
+async handleGraduateDevnetClick() {
+const btn = $("graduateDevnetBtn");
+if (!btn || !this.launchId) return;
+if (btn.dataset.busy === "1") return;
+
+const originalText = btn.textContent;
+btn.dataset.busy = "1";
+btn.disabled = true;
+btn.textContent = "Graduating...";
+
+try {
+const result = await this.graduateDevnet(this.launchId, {
+reason: "devnet_manual_override",
+});
+
+this.lifecycle = result?.lifecycle || this.lifecycle;
+if (result?.launch) {
+this.launch = mergeLaunchTruth(this.launch || {}, result.launch);
+}
+
+setTradeMessage("Launch marked as graduated on devnet.", "success");
+await this.refreshLaunch({ force: true });
+} catch (error) {
+console.error("graduate devnet failed:", error);
+setTradeMessage(error?.message || "Failed to mark launch graduated.", "error");
+} finally {
+btn.dataset.busy = "0";
+btn.disabled = false;
+btn.textContent = originalText;
+this.applyAll();
 }
 }
 }

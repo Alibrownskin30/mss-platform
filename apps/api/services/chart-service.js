@@ -4,9 +4,15 @@ import { buildMarketStats } from "./market-stats.js";
 const BUILDER_DAILY_UNLOCK_PERCENT = 0.5;
 const BUILDER_MAX_ALLOCATION_PERCENT = 5;
 
+let walletBalanceColumnsCache = null;
+
 function toNumber(value, fallback = 0) {
 const num = Number(value);
 return Number.isFinite(num) ? num : fallback;
+}
+
+function toInt(value, fallback = 0) {
+return Math.max(0, Math.floor(toNumber(value, fallback)));
 }
 
 function cleanText(value, max = 500) {
@@ -48,6 +54,18 @@ return cleanText(value, 120).toLowerCase();
 function shouldRevealContractAddress(status) {
 const normalized = cleanText(status, 64).toLowerCase();
 return normalized === "live" || normalized === "graduated";
+}
+
+function getWalletBalanceColumnsFromRows(rows = []) {
+return new Set(rows.map((row) => String(row.name || "").trim()));
+}
+
+async function getWalletBalanceColumns(db) {
+if (!walletBalanceColumnsCache) {
+const rows = await db.all(`PRAGMA table_info(wallet_balances)`);
+walletBalanceColumnsCache = getWalletBalanceColumnsFromRows(rows);
+}
+return walletBalanceColumnsCache;
 }
 
 function pickLaunchRow(row) {
@@ -131,6 +149,40 @@ commit_started_at: row.commit_started_at || null,
 commit_ends_at: row.commit_ends_at || null,
 created_at: row.created_at || null,
 updated_at: row.updated_at || null,
+
+lifecycle: {
+internal_sol_reserve: toNumber(row.lifecycle_internal_sol_reserve, 0),
+internal_token_reserve: toInt(row.lifecycle_internal_token_reserve, 0),
+implied_marketcap_sol: toNumber(row.lifecycle_implied_marketcap_sol, 0),
+graduation_status: cleanText(row.lifecycle_graduation_status, 120) || "internal_live",
+graduated: toInt(row.lifecycle_graduated, 0) === 1,
+graduation_reason: cleanText(row.lifecycle_graduation_reason, 200) || null,
+graduated_at: row.lifecycle_graduated_at || null,
+raydium_target_pct: toNumber(row.lifecycle_raydium_target_pct, 50),
+mss_locked_target_pct: toNumber(row.lifecycle_mss_locked_target_pct, 50),
+raydium_pool_id: cleanText(row.lifecycle_raydium_pool_id, 200) || null,
+raydium_sol_migrated: toNumber(row.lifecycle_raydium_sol_migrated, 0),
+raydium_token_migrated: toInt(row.lifecycle_raydium_token_migrated, 0),
+raydium_lp_tokens: cleanText(row.lifecycle_raydium_lp_tokens, 200) || null,
+raydium_migration_tx: cleanText(row.lifecycle_raydium_migration_tx, 300) || null,
+mss_locked_sol: toNumber(row.lifecycle_mss_locked_sol, 0),
+mss_locked_token: toInt(row.lifecycle_mss_locked_token, 0),
+mss_locked_lp_amount: cleanText(row.lifecycle_mss_locked_lp_amount, 200) || null,
+lock_status: cleanText(row.lifecycle_lock_status, 120) || "not_locked",
+lock_tx: cleanText(row.lifecycle_lock_tx, 300) || null,
+lock_expires_at: row.lifecycle_lock_expires_at || null,
+},
+
+builder_vesting: {
+builder_wallet: cleanText(row.vesting_builder_wallet, 120) || null,
+total_allocation: toInt(row.vesting_total_allocation, 0),
+daily_unlock: toInt(row.vesting_daily_unlock, 0),
+unlocked_amount: toInt(row.vesting_unlocked_amount, 0),
+locked_amount: toInt(row.vesting_locked_amount, 0),
+vesting_start_at: row.vesting_start_at || null,
+created_at: row.vesting_created_at || null,
+updated_at: row.vesting_updated_at || null,
+},
 };
 }
 
@@ -229,7 +281,38 @@ b.alias AS builder_alias,
 b.builder_score AS builder_score,
 p.sol_reserve,
 p.token_reserve,
-t.mint_address AS token_mint_address
+t.mint_address AS token_mint_address,
+
+ll.internal_sol_reserve AS lifecycle_internal_sol_reserve,
+ll.internal_token_reserve AS lifecycle_internal_token_reserve,
+ll.implied_marketcap_sol AS lifecycle_implied_marketcap_sol,
+ll.graduation_status AS lifecycle_graduation_status,
+ll.graduated AS lifecycle_graduated,
+ll.graduation_reason AS lifecycle_graduation_reason,
+ll.graduated_at AS lifecycle_graduated_at,
+ll.raydium_target_pct AS lifecycle_raydium_target_pct,
+ll.mss_locked_target_pct AS lifecycle_mss_locked_target_pct,
+ll.raydium_pool_id AS lifecycle_raydium_pool_id,
+ll.raydium_sol_migrated AS lifecycle_raydium_sol_migrated,
+ll.raydium_token_migrated AS lifecycle_raydium_token_migrated,
+ll.raydium_lp_tokens AS lifecycle_raydium_lp_tokens,
+ll.raydium_migration_tx AS lifecycle_raydium_migration_tx,
+ll.mss_locked_sol AS lifecycle_mss_locked_sol,
+ll.mss_locked_token AS lifecycle_mss_locked_token,
+ll.mss_locked_lp_amount AS lifecycle_mss_locked_lp_amount,
+ll.lock_status AS lifecycle_lock_status,
+ll.lock_tx AS lifecycle_lock_tx,
+ll.lock_expires_at AS lifecycle_lock_expires_at,
+
+bv.builder_wallet AS vesting_builder_wallet,
+bv.total_allocation AS vesting_total_allocation,
+bv.daily_unlock AS vesting_daily_unlock,
+bv.unlocked_amount AS vesting_unlocked_amount,
+bv.locked_amount AS vesting_locked_amount,
+bv.vesting_start_at AS vesting_start_at,
+bv.created_at AS vesting_created_at,
+bv.updated_at AS vesting_updated_at
+
 FROM launches l
 LEFT JOIN builders b
 ON b.id = l.builder_id
@@ -249,6 +332,10 @@ WHERE t2.launch_id = l.id
 ORDER BY t2.id DESC
 LIMIT 1
 )
+LEFT JOIN launch_liquidity_lifecycle ll
+ON ll.launch_id = l.id
+LEFT JOIN builder_vesting bv
+ON bv.launch_id = l.id
 WHERE l.id = ?
 LIMIT 1
 `,
@@ -360,7 +447,19 @@ launch?.circulating_supply ?? totalSupply,
 );
 
 const oneSidedLiquiditySol = toNumber(
-pool?.sol_reserve ?? launch?.internal_pool_sol ?? launch?.liquidity ?? 0,
+pool?.sol_reserve ??
+launch?.lifecycle?.internal_sol_reserve ??
+launch?.internal_pool_sol ??
+launch?.liquidity ??
+0,
+0
+);
+
+const internalTokenReserve = toNumber(
+pool?.token_reserve ??
+launch?.lifecycle?.internal_token_reserve ??
+launch?.internal_pool_tokens ??
+0,
 0
 );
 
@@ -373,10 +472,7 @@ circulating_supply: circulatingSupply,
 liquidity: oneSidedLiquiditySol,
 liquidity_sol: oneSidedLiquiditySol,
 internal_pool_sol: oneSidedLiquiditySol,
-internal_pool_tokens: toNumber(
-pool?.token_reserve ?? launch?.internal_pool_tokens ?? 0,
-0
-),
+internal_pool_tokens: internalTokenReserve,
 sol_usd_price: toNumber(launch?.sol_usd_price, 0),
 price: toNumber(launch?.price, 0),
 market_cap: toNumber(launch?.market_cap, 0),
@@ -400,7 +496,7 @@ if (teamAllocationPct > 0) return teamAllocationPct;
 return BUILDER_MAX_ALLOCATION_PERCENT;
 }
 
-function buildBuilderVestingSummary({
+function buildFallbackBuilderVestingSummary({
 launch,
 wallet,
 tokenBalance,
@@ -430,6 +526,7 @@ builder_locked_tokens: 0,
 builder_sellable_tokens: tokenBalance,
 builder_vesting_percent_unlocked: 100,
 builder_vesting_days_live: getLiveDays(launch),
+builder_daily_unlock_tokens: 0,
 };
 }
 
@@ -470,18 +567,92 @@ builder_total_allocation_tokens: totalAllocationTokens,
 builder_unlocked_tokens: unlockedVisibleTokens,
 builder_locked_tokens: Math.max(lockedAllocationTokens, lockedVisibleTokens),
 builder_sellable_tokens: sellableTokens,
-builder_vesting_percent_unlocked: unlockedPct,
+builder_vesting_percent_unlocked: allocationPct > 0 ? (unlockedPct / allocationPct) * 100 : 100,
 builder_vesting_days_live: daysLive,
+builder_daily_unlock_tokens: Math.floor((totalSupply * BUILDER_DAILY_UNLOCK_PERCENT) / 100),
 };
+}
+
+function buildBuilderVestingSummary({
+launch,
+wallet,
+tokenBalance,
+}) {
+const cleanWallet = normalizeWallet(wallet);
+const builderWallet = normalizeWallet(launch?.builder_wallet);
+const vestingWallet = normalizeWallet(launch?.builder_vesting?.builder_wallet);
+const template = String(launch?.template || "").toLowerCase();
+
+const isBuilderWallet = Boolean(
+template === "builder" &&
+cleanWallet &&
+(builderWallet === cleanWallet || vestingWallet === cleanWallet)
+);
+
+if (!isBuilderWallet) {
+return {
+is_builder_wallet: false,
+vesting_active: false,
+builder_total_allocation_tokens: 0,
+builder_unlocked_tokens: tokenBalance,
+builder_locked_tokens: 0,
+builder_sellable_tokens: tokenBalance,
+builder_vesting_percent_unlocked: 100,
+builder_vesting_days_live: getLiveDays(launch),
+builder_daily_unlock_tokens: 0,
+};
+}
+
+const vesting = launch?.builder_vesting || {};
+const totalAllocation = toInt(vesting.total_allocation, 0);
+const unlockedAmount = toInt(vesting.unlocked_amount, 0);
+const lockedAmount = toInt(vesting.locked_amount, 0);
+const dailyUnlock = toInt(vesting.daily_unlock, 0);
+
+const vestingStartMs = parseDbTime(
+vesting.vesting_start_at || vesting.created_at || launch?.live_at || launch?.created_at
+);
+const vestedDays = vestingStartMs
+? Math.max(0, Math.floor((Date.now() - vestingStartMs) / 86400000))
+: getLiveDays(launch);
+
+if (totalAllocation > 0 || unlockedAmount > 0 || lockedAmount > 0 || dailyUnlock > 0) {
+const visibleUnlocked = Math.max(0, Math.min(tokenBalance, unlockedAmount));
+const visibleLocked = Math.max(
+0,
+Math.max(lockedAmount, tokenBalance - visibleUnlocked)
+);
+const sellable = Math.max(0, Math.min(tokenBalance, visibleUnlocked));
+const percentUnlocked =
+totalAllocation > 0
+? Math.min(100, (Math.max(0, unlockedAmount) / totalAllocation) * 100)
+: 100;
+
+return {
+is_builder_wallet: true,
+vesting_active: visibleLocked > 0 || lockedAmount > 0,
+builder_total_allocation_tokens: totalAllocation,
+builder_unlocked_tokens: visibleUnlocked,
+builder_locked_tokens: visibleLocked,
+builder_sellable_tokens: sellable,
+builder_vesting_percent_unlocked: percentUnlocked,
+builder_vesting_days_live: vestedDays,
+builder_daily_unlock_tokens: dailyUnlock,
+};
+}
+
+return buildFallbackBuilderVestingSummary({
+launch,
+wallet,
+tokenBalance,
+});
 }
 
 async function getWalletSolBalanceSnapshot(db, launchId, wallet) {
 const cleanWallet = cleanText(wallet, 120);
 if (!cleanWallet) return null;
 
-const walletBalanceColumns = await db.all(`PRAGMA table_info(wallet_balances)`);
-const columnSet = new Set(walletBalanceColumns.map((row) => String(row.name || "").trim()));
-
+const columnSet = await getWalletBalanceColumns(db);
 if (!columnSet.has("sol_balance")) return null;
 
 const row = await db.get(
@@ -520,8 +691,19 @@ return 0;
 }
 
 function getPoolSpotPriceSol(pool = {}, launch = {}) {
-const tokenReserve = toNumber(pool?.token_reserve ?? launch?.internal_pool_tokens, 0);
-const solReserve = toNumber(pool?.sol_reserve ?? launch?.internal_pool_sol ?? launch?.liquidity, 0);
+const tokenReserve = toNumber(
+pool?.token_reserve ??
+launch?.lifecycle?.internal_token_reserve ??
+launch?.internal_pool_tokens,
+0
+);
+const solReserve = toNumber(
+pool?.sol_reserve ??
+launch?.lifecycle?.internal_sol_reserve ??
+launch?.internal_pool_sol ??
+launch?.liquidity,
+0
+);
 
 if (tokenReserve <= 0 || solReserve <= 0) return 0;
 return solReserve / tokenReserve;
@@ -566,6 +748,7 @@ const oneSidedLiquiditySol =
 toNumber(finalized.liquidity_sol, 0) ||
 toNumber(finalized.liquidity, 0) ||
 toNumber(pool?.sol_reserve, 0) ||
+toNumber(launch?.lifecycle?.internal_sol_reserve, 0) ||
 toNumber(launch?.internal_pool_sol, 0) ||
 toNumber(launch?.liquidity, 0);
 
@@ -598,7 +781,9 @@ finalized.circulating_supply = circulatingSupply;
 
 finalized.price_sol = priceSol;
 finalized.price = priceSol;
-finalized.price_usd = toNumber(finalized.price_usd, 0) || (solUsdPrice > 0 && priceSol > 0 ? priceSol * solUsdPrice : 0);
+finalized.price_usd =
+toNumber(finalized.price_usd, 0) ||
+(solUsdPrice > 0 && priceSol > 0 ? priceSol * solUsdPrice : 0);
 
 finalized.sol_usd_price = solUsdPrice;
 
@@ -666,6 +851,7 @@ builder_locked_tokens: 0,
 builder_sellable_tokens: 0,
 builder_vesting_percent_unlocked: 0,
 builder_vesting_days_live: 0,
+builder_daily_unlock_tokens: 0,
 };
 }
 
@@ -779,6 +965,7 @@ builder_locked_tokens: vesting.builder_locked_tokens,
 builder_sellable_tokens: vesting.builder_sellable_tokens,
 builder_vesting_percent_unlocked: vesting.builder_vesting_percent_unlocked,
 builder_vesting_days_live: vesting.builder_vesting_days_live,
+builder_daily_unlock_tokens: vesting.builder_daily_unlock_tokens,
 };
 }
 
@@ -809,6 +996,7 @@ builder_locked_tokens: walletSummary.builder_locked_tokens,
 builder_sellable_tokens: walletSummary.builder_sellable_tokens,
 builder_vesting_percent_unlocked: walletSummary.builder_vesting_percent_unlocked,
 builder_vesting_days_live: walletSummary.builder_vesting_days_live,
+builder_daily_unlock_tokens: walletSummary.builder_daily_unlock_tokens,
 };
 }
 
