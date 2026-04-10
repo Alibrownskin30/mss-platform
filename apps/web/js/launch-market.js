@@ -3,6 +3,7 @@ import { createEliteChartRenderer } from "../assets/chart-renderer.js";
 const PHASES = {
 COMMIT: "commit",
 COUNTDOWN: "countdown",
+BUILDING: "building",
 LIVE: "live",
 };
 
@@ -292,6 +293,20 @@ if (contractAddress && liveAtMs && Date.now() >= liveAtMs) return true;
 return false;
 }
 
+function isLaunchBuilding(launch = {}) {
+if (isLaunchLiveLike(launch)) return false;
+
+const status = cleanString(launch?.status, 64).toLowerCase();
+const liveAtMs = parseDateMs(launch?.live_at || launch?.countdown_ends_at);
+
+if (!liveAtMs) return false;
+
+return (
+(status === "countdown" || status === "live" || !status) &&
+Date.now() >= liveAtMs
+);
+}
+
 function getDaysSinceLive(launch = {}) {
 const liveStartMs = parseDateMs(launch?.live_at || launch?.updated_at || launch?.created_at);
 if (!liveStartMs) return 0;
@@ -312,7 +327,10 @@ return BASE_MAX_WALLET_PERCENT + (days * DAILY_INCREASE_PERCENT);
 function inferPhase(launch) {
 const explicit = String(launch?.status || "").toLowerCase();
 
-if (explicit === "live" || explicit === "graduated") return PHASES.LIVE;
+if (explicit === "graduated") return PHASES.LIVE;
+if (explicit === "live" && isLaunchLiveLike(launch)) return PHASES.LIVE;
+if (isLaunchBuilding(launch)) return PHASES.BUILDING;
+
 if (explicit === PHASES.COUNTDOWN) {
 if (isLaunchLiveLike(launch)) return PHASES.LIVE;
 return PHASES.COUNTDOWN;
@@ -325,7 +343,7 @@ const now = getNowMs();
 const countdownStart = parseDateMs(launch?.countdown_started_at);
 const tradingOpen = parseDateMs(launch?.live_at || launch?.countdown_ends_at);
 
-if (tradingOpen && now >= tradingOpen) return PHASES.LIVE;
+if (tradingOpen && now >= tradingOpen) return PHASES.BUILDING;
 if (countdownStart && tradingOpen && now >= countdownStart && now < tradingOpen) {
 return PHASES.COUNTDOWN;
 }
@@ -333,8 +351,22 @@ return PHASES.COUNTDOWN;
 return PHASES.COMMIT;
 }
 
+function getVisualPhase(phase) {
+return phase === PHASES.BUILDING ? PHASES.COUNTDOWN : phase;
+}
+
 function getPhaseMeta(phase) {
 switch (phase) {
+case PHASES.BUILDING:
+return {
+badgeText: "BUILDING",
+statusText: "Finalizing Market",
+marketModeText: "Bootstrapping",
+overlayEyebrow: "MARKET BOOTSTRAP",
+overlayTitle: "Building Live Market",
+overlayText: "Countdown has ended. Final mint, liquidity, and market state are being finalized.",
+overlaySubtext: "Contract address and live pricing will appear once bootstrap completes.",
+};
 case PHASES.COUNTDOWN:
 return {
 badgeText: "COUNTDOWN",
@@ -410,6 +442,14 @@ structureSignal = "Countdown Armed";
 marketSignal = "Opening Soon";
 note =
 "CassIE is tracking countdown integrity, final participation posture, and opening conditions before live trading begins.";
+} else if (phase === PHASES.BUILDING) {
+state = "Monitoring";
+badge = "BOOTSTRAP WATCH";
+riskState = "Elevated";
+structureSignal = "Finalizing";
+marketSignal = "Building Market";
+note =
+"CassIE is tracking final mint assignment, pool bootstrap, and post-countdown launch state while the market is being brought live.";
 } else if (phase === PHASES.LIVE) {
 state = cassie?.monitoring_active ? "Monitoring" : "Live";
 
@@ -495,12 +535,13 @@ const launchPhaseBadge = $("launchPhaseBadge");
 const marketStatusPill = $("marketStatusPill");
 const marketStatusDot = $("marketStatusDot");
 
+const visualPhase = getVisualPhase(phase);
 const phaseClasses = ["phase-commit", "phase-countdown", "phase-live"];
 
 for (const el of [marketCard, launchPhaseBadge, marketStatusPill, marketStatusDot]) {
 if (!el) continue;
 el.classList.remove(...phaseClasses);
-el.classList.add(`phase-${phase}`);
+el.classList.add(`phase-${visualPhase}`);
 }
 }
 
@@ -547,12 +588,12 @@ marketLiveLayer.classList.toggle("hidden", phase !== PHASES.LIVE);
 }
 
 if (marketCountdownBox) {
-marketCountdownBox.classList.toggle("hidden", phase !== PHASES.COUNTDOWN);
+marketCountdownBox.classList.toggle("hidden", !(phase === PHASES.COUNTDOWN));
 }
 
 if (marketOverlay) {
 marketOverlay.classList.remove("overlay-commit", "overlay-countdown", "overlay-live");
-marketOverlay.classList.add(`overlay-${phase}`);
+marketOverlay.classList.add(`overlay-${getVisualPhase(phase)}`);
 marketOverlay.classList.toggle("hidden", phase === PHASES.LIVE);
 }
 
@@ -560,6 +601,8 @@ if (accessMode) {
 accessMode.textContent =
 phase === PHASES.LIVE
 ? "Live Access"
+: phase === PHASES.BUILDING
+? "Bootstrap Locked"
 : phase === PHASES.COUNTDOWN
 ? "Countdown Locked"
 : "Pre-Live";
@@ -615,7 +658,7 @@ const reservationStatus = cleanString(launch?.mint_reservation_status, 64).toLow
 if (phase !== PHASES.LIVE) {
 return {
 value: "",
-state: "Pending",
+state: phase === PHASES.BUILDING ? "Building" : "Pending",
 };
 }
 
@@ -642,7 +685,7 @@ state: "Pending",
 function updateContractAddress(launch, tokenPayload = null) {
 const resolved = resolveContractAddress(launch || {}, tokenPayload || {});
 const ca = resolved.value || "Pending";
-const short = ca === "Pending" ? "Pending" : shortAddress(ca);
+const short = ca === "Pending" ? resolved.state : shortAddress(ca);
 
 const launchCaText = $("launchCaText");
 const chartCaChipText = $("chartCaChipText");
@@ -775,7 +818,32 @@ if ($("stat4Label")) $("stat4Label").textContent = "Time Left";
 if ($("stat4Value")) $("stat4Value").textContent = getCountdownText(launch, commitStats);
 }
 
-function getLiveStats(tokenPayload = {}, chartStats = {}, launch = {}) {
+function updateStatsForBuilding(launch, lifecycle = null) {
+if ($("stat1Label")) $("stat1Label").textContent = "State";
+if ($("stat1Value")) $("stat1Value").textContent = "Building";
+
+if ($("stat2Label")) $("stat2Label").textContent = "Mint";
+if ($("stat2Value")) {
+const ca = choosePreferredNonEmpty(launch?.contract_address, launch?.mint_address);
+$("stat2Value").textContent = ca ? shortAddress(ca) : "Pending";
+}
+
+if ($("stat3Label")) $("stat3Label").textContent = "Liquidity";
+if ($("stat3Value")) {
+const liq = toNumber(
+lifecycle?.internalSolReserve ??
+launch?.internal_pool_sol ??
+launch?.liquidity,
+0
+);
+$("stat3Value").textContent = liq > 0 ? formatSol(liq, 4) : "Pending";
+}
+
+if ($("stat4Label")) $("stat4Label").textContent = "Status";
+if ($("stat4Value")) $("stat4Value").textContent = "Bootstrapping";
+}
+
+function getLiveStats(tokenPayload = {}, chartStats = {}, launch = {}, lifecycle = null) {
 const tokenStats = tokenPayload?.stats || {};
 const stats = { ...chartStats, ...tokenStats };
 
@@ -793,8 +861,10 @@ stats?.price_usd,
 
 const fallbackPriceSol = toNumber(
 stats?.price_sol ??
+stats?.price ??
 tokenPayload?.launch?.price ??
-launch?.price,
+launch?.price ??
+lifecycle?.priceSol,
 0
 );
 
@@ -809,9 +879,11 @@ stats?.market_cap_usd,
 );
 
 const fallbackMarketCapSol = toNumber(
+stats?.market_cap_sol ??
 stats?.market_cap ??
 tokenPayload?.launch?.market_cap ??
-launch?.market_cap,
+launch?.market_cap ??
+lifecycle?.marketcapSol,
 0
 );
 
@@ -830,7 +902,9 @@ stats?.liquidity_sol ??
 stats?.liquidity ??
 tokenPayload?.launch?.liquidity_sol ??
 tokenPayload?.launch?.liquidity ??
-launch?.liquidity,
+launch?.liquidity ??
+launch?.internal_pool_sol ??
+lifecycle?.internalSolReserve,
 0
 );
 
@@ -845,9 +919,11 @@ stats?.volume_24h_usd,
 );
 
 const fallbackVolume24hSol = toNumber(
+stats?.volume_24h_sol ??
 stats?.volume_24h ??
 tokenPayload?.launch?.volume_24h ??
-launch?.volume_24h,
+launch?.volume_24h ??
+lifecycle?.volume24hSol,
 0
 );
 
@@ -861,23 +937,56 @@ priceUsd: resolvedPriceUsd,
 marketCapUsd: resolvedMarketCapUsd,
 liquidityUsd: resolvedLiquidityUsd,
 volume24hUsd: resolvedVolume24hUsd,
+priceSol: fallbackPriceSol,
+marketCapSol: fallbackMarketCapSol,
+liquiditySol: fallbackLiquiditySol,
+volume24hSol: fallbackVolume24hSol,
+solUsdPrice,
 };
 }
 
-function updateStatsForLive(tokenPayload = {}, chartStats = {}, launch = {}) {
-const liveStats = getLiveStats(tokenPayload, chartStats, launch);
+function updateStatsForLive(tokenPayload = {}, chartStats = {}, launch = {}, lifecycle = null) {
+const liveStats = getLiveStats(tokenPayload, chartStats, launch, lifecycle);
 
 if ($("stat1Label")) $("stat1Label").textContent = "Price";
-if ($("stat1Value")) $("stat1Value").textContent = liveStats.priceUsd > 0 ? formatPriceUsd(liveStats.priceUsd) : "—";
+if ($("stat1Value")) {
+$("stat1Value").textContent =
+liveStats.priceUsd > 0
+? formatPriceUsd(liveStats.priceUsd)
+: liveStats.priceSol > 0
+? `${formatPriceSol(liveStats.priceSol)} SOL`
+: "—";
+}
 
 if ($("stat2Label")) $("stat2Label").textContent = "Market Cap";
-if ($("stat2Value")) $("stat2Value").textContent = liveStats.marketCapUsd > 0 ? formatUsdCompact(liveStats.marketCapUsd, 2) : "—";
+if ($("stat2Value")) {
+$("stat2Value").textContent =
+liveStats.marketCapUsd > 0
+? formatUsdCompact(liveStats.marketCapUsd, 2)
+: liveStats.marketCapSol > 0
+? `${formatNumber(liveStats.marketCapSol, { maximumFractionDigits: 4 })} SOL`
+: "—";
+}
 
 if ($("stat3Label")) $("stat3Label").textContent = "Liquidity";
-if ($("stat3Value")) $("stat3Value").textContent = liveStats.liquidityUsd > 0 ? formatUsdCompact(liveStats.liquidityUsd, 2) : "—";
+if ($("stat3Value")) {
+$("stat3Value").textContent =
+liveStats.liquidityUsd > 0
+? formatUsdCompact(liveStats.liquidityUsd, 2)
+: liveStats.liquiditySol > 0
+? formatSol(liveStats.liquiditySol, 4)
+: "—";
+}
 
 if ($("stat4Label")) $("stat4Label").textContent = "24H Volume";
-if ($("stat4Value")) $("stat4Value").textContent = liveStats.volume24hUsd > 0 ? formatUsdCompact(liveStats.volume24hUsd, 2) : "—";
+if ($("stat4Value")) {
+$("stat4Value").textContent =
+liveStats.volume24hUsd > 0
+? formatUsdCompact(liveStats.volume24hUsd, 2)
+: liveStats.volume24hSol > 0
+? formatSol(liveStats.volume24hSol, 4)
+: "—";
+}
 }
 
 function getCountdownParts(launch, commitStats = {}) {
@@ -934,15 +1043,6 @@ if ($("linkWebsiteInput")) $("linkWebsiteInput").value = launch?.website_url || 
 if ($("linkXInput")) $("linkXInput").value = launch?.x_url || "";
 if ($("linkTelegramInput")) $("linkTelegramInput").value = launch?.telegram_url || "";
 if ($("linkDiscordInput")) $("linkDiscordInput").value = launch?.discord_url || "";
-}
-
-function getLinksPayloadFromModal() {
-return {
-website_url: normalizeUrl($("linkWebsiteInput")?.value || "", "website_url"),
-x_url: normalizeUrl($("linkXInput")?.value || "", "x_url"),
-telegram_url: normalizeUrl($("linkTelegramInput")?.value || "", "telegram_url"),
-discord_url: normalizeUrl($("linkDiscordInput")?.value || "", "discord_url"),
-};
 }
 
 function openLinksModal() {
@@ -1032,10 +1132,12 @@ tradePanelCard.classList.toggle("hidden", !isLive);
 recentTradesCard.classList.toggle("hidden", !isLive);
 
 tradePanelPhasePill.classList.remove("phase-commit", "phase-countdown", "phase-live");
-tradePanelPhasePill.classList.add(`phase-${phase}`);
+tradePanelPhasePill.classList.add(`phase-${getVisualPhase(phase)}`);
 tradePanelPhasePill.textContent =
 phase === PHASES.LIVE
 ? "Market Active"
+: phase === PHASES.BUILDING
+? "Building"
 : phase === PHASES.COUNTDOWN
 ? "Countdown"
 : "Market Locked";
@@ -1127,6 +1229,10 @@ if (phase === PHASES.LIVE) {
 chartShell.style.minHeight = "430px";
 chartCanvas.style.height = "310px";
 volumeCanvas.style.height = "96px";
+} else if (phase === PHASES.BUILDING) {
+chartShell.style.minHeight = "380px";
+chartCanvas.style.height = "250px";
+volumeCanvas.style.height = "80px";
 } else if (phase === PHASES.COUNTDOWN) {
 chartShell.style.minHeight = "360px";
 chartCanvas.style.height = "240px";
@@ -1177,6 +1283,7 @@ const unlockedBalance = Math.max(
 toInt(
 wallet?.unlocked_balance ??
 wallet?.unlockedBalance ??
+wallet?.builder_unlocked_tokens ??
 wallet?.sellable_balance ??
 wallet?.sellableBalance ??
 tokenPayload?.wallet_unlocked_balance ??
@@ -1193,6 +1300,7 @@ const lockedBalance = Math.max(
 toInt(
 wallet?.locked_balance ??
 wallet?.lockedBalance ??
+wallet?.builder_locked_tokens ??
 tokenPayload?.wallet_locked_balance ??
 chartStats?.wallet_locked_balance ??
 Math.max(0, totalBalance - unlockedBalance),
@@ -1207,6 +1315,7 @@ tokenBalance,
 toInt(
 wallet?.sellable_balance ??
 wallet?.sellableBalance ??
+wallet?.builder_sellable_tokens ??
 tokenPayload?.wallet_sellable_balance ??
 chartStats?.wallet_sellable_balance ??
 unlockedBalance,
@@ -1222,7 +1331,7 @@ wallet?.position_value_usd ??
 wallet?.positionValueUsd ??
 tokenPayload?.wallet_position_value_usd ??
 chartStats?.wallet_position_value_usd ??
-(tokenBalance * priceUsd),
+(sellableBalance * priceUsd),
 0
 );
 
@@ -1258,6 +1367,20 @@ chartStats?.wallet_vesting_active ??
 false
 );
 
+const builderVestingPercentUnlocked = toNumber(
+wallet?.builder_vesting_percent_unlocked ??
+tokenPayload?.builder_vesting_percent_unlocked ??
+chartStats?.builder_vesting_percent_unlocked,
+0
+);
+
+const builderVestingDaysLive = toNumber(
+wallet?.builder_vesting_days_live ??
+tokenPayload?.builder_vesting_days_live ??
+chartStats?.builder_vesting_days_live,
+0
+);
+
 return {
 tokenBalance,
 totalBalance,
@@ -1269,6 +1392,8 @@ solBalance,
 solDelta,
 isBuilderWallet,
 vestingActive,
+builderVestingPercentUnlocked,
+builderVestingDaysLive,
 };
 }
 
@@ -1295,11 +1420,11 @@ solBalanceEl.textContent = "—";
 return;
 }
 
-if (summary.isBuilderWallet && summary.vestingActive) {
+if (summary.isBuilderWallet && (summary.vestingActive || summary.lockedBalance > 0)) {
 tokenBalanceEl.innerHTML = `
-<div>${formatTokenAmount(summary.sellableBalance, 0)} sellable</div>
+<div>${formatTokenAmount(summary.sellableBalance, 0)} unlocked</div>
 <div style="margin-top:4px;font-size:12px;opacity:.68;">
-${formatTokenAmount(summary.lockedBalance, 0)} locked
+${formatTokenAmount(summary.lockedBalance, 0)} locked • ${formatPercent(summary.builderVestingPercentUnlocked, 1)}
 </div>
 `;
 } else {
@@ -1359,7 +1484,7 @@ const localMaxWalletTokens = totalSupply > 0
 : 0;
 
 const maxWalletTokens = backendMaxWallet > 0 ? backendMaxWallet : localMaxWalletTokens;
-const effectiveHolding = walletSummary.isBuilderWallet && walletSummary.vestingActive
+const effectiveHolding = walletSummary.isBuilderWallet
 ? walletSummary.sellableBalance
 : walletSummary.tokenBalance;
 const remaining = maxWalletTokens > 0
@@ -1370,7 +1495,7 @@ statePill.classList.remove("is-open", "is-restricted");
 statePill.classList.add("is-open");
 
 tierLabel.textContent = walletSummary.isBuilderWallet
-? "Builder Access Controls"
+? "Builder Vesting Controls"
 : maxWalletTokens > 0
 ? "Wallet Access Controls"
 : "Open Access";
@@ -1381,9 +1506,9 @@ limitValue.textContent = maxWalletTokens > 0
 ? `${formatTokenAmount(maxWalletTokens, 0)} tokens`
 : "Open";
 
-if (walletSummary.isBuilderWallet && walletSummary.vestingActive) {
+if (walletSummary.isBuilderWallet && (walletSummary.vestingActive || walletSummary.lockedBalance > 0)) {
 holdingValue.innerHTML = `
-<div>${formatTokenAmount(walletSummary.sellableBalance, 0)} sellable</div>
+<div>${formatTokenAmount(walletSummary.sellableBalance, 0)} unlocked</div>
 <div style="margin-top:4px;font-size:12px;opacity:.68;">
 ${formatTokenAmount(walletSummary.lockedBalance, 0)} locked
 </div>
@@ -1400,8 +1525,9 @@ totalSupplyValue.textContent = totalSupply > 0
 ? `${formatTokenAmount(totalSupply, 0)} tokens`
 : "—";
 
-if (walletSummary.isBuilderWallet && walletSummary.vestingActive) {
-schedule.textContent = `Builder vesting is active. Only unlocked tokens are treated as currently sellable. Current public cap is ${formatPercent(localMaxWalletPct, 2)} of total supply, while builder holdings are tracked separately.`;
+if (walletSummary.isBuilderWallet) {
+schedule.textContent =
+`Builder vesting releases at 0.5% of total supply per day until the full 5% allocation is unlocked. Currently unlocked: ${formatPercent(walletSummary.builderVestingPercentUnlocked, 1)}.`;
 } else {
 schedule.textContent = maxWalletTokens > 0
 ? `Wallet concentration controls remain active. Current cap is ${formatPercent(localMaxWalletPct, 2)} of total supply.`
@@ -1441,11 +1567,6 @@ if (normalized === "graduated") return "good";
 if (normalized === "ready") return "warn";
 if (normalized.includes("pending")) return "warn";
 return "neutral";
-}
-
-function getReadinessTone(readiness = {}) {
-if (readiness?.ready) return "good";
-return "warn";
 }
 
 function renderLifecycleCard(lifecycle = null, graduationPlan = null, phase = PHASES.COMMIT) {
@@ -1538,26 +1659,31 @@ const vest = lifecycle?.builderVesting || {};
 const unlockedAmount = toInt(vest?.unlockedAmount, 0);
 const lockedAmount = toInt(vest?.lockedAmount, 0);
 const vestedDays = toInt(vest?.vestedDays, 0);
+const totalAllocation = toInt(vest?.totalAllocation, 0);
+const percentUnlocked = totalAllocation > 0 ? (unlockedAmount / totalAllocation) * 100 : 0;
 
 if (builderVestValue) {
 builderVestValue.innerHTML = `
 <div>${formatTokenAmount(unlockedAmount, 0)} unlocked</div>
-<div style="margin-top:4px;font-size:12px;opacity:.68;">${formatTokenAmount(lockedAmount, 0)} locked • day ${Math.max(1, vestedDays || 1)}</div>
+<div style="margin-top:4px;font-size:12px;opacity:.68;">${formatTokenAmount(lockedAmount, 0)} locked • day ${Math.max(1, vestedDays || 1)} • ${formatPercent(percentUnlocked, 1)}</div>
 `;
 }
 
 if (readinessValue) {
-readinessValue.textContent = readiness?.ready
-? "Ready"
-: "Not Ready";
+readinessValue.textContent = readiness?.ready ? "Ready" : "Not Ready";
 }
 
 if (readinessNote) {
-readinessNote.textContent = readiness?.reason
-? String(readiness.reason)
+const thresholdText = readiness?.thresholds
+? `MC ${formatNumber(readiness.thresholds.marketcapSol, { maximumFractionDigits: 0 })} SOL • Vol ${formatNumber(readiness.thresholds.volume24hSol, { maximumFractionDigits: 0 })} SOL • Holders ${formatNumber(readiness.thresholds.minHolders, { maximumFractionDigits: 0 })}`
+: "";
+
+readinessNote.textContent =
+readiness?.ready
+? "Graduation thresholds satisfied."
 : lifecycle?.graduated
 ? "Launch has already graduated."
-: "Graduation conditions are still being monitored.";
+: thresholdText || "Graduation conditions are still being monitored.";
 }
 
 if (graduateBtn) {
@@ -1657,15 +1783,6 @@ return {};
 }
 }
 
-async function defaultFetchChartStats(launchId, wallet = "") {
-try {
-const qs = wallet ? `?wallet=${encodeURIComponent(wallet)}` : "";
-return await fetchJson(`/api/chart/${encodeURIComponent(launchId)}/stats${qs}`);
-} catch {
-return {};
-}
-}
-
 async function defaultFetchLifecycle(launchId) {
 try {
 return await fetchJson(`/api/launcher/${encodeURIComponent(launchId)}/lifecycle`);
@@ -1751,7 +1868,6 @@ this.connectedWallet = options.connectedWallet || "";
 this.fetchLaunch = options.fetchLaunch || defaultFetchLaunch;
 this.fetchCommitStats = options.fetchCommitStats || defaultFetchCommitStats;
 this.fetchTokenStats = options.fetchTokenStats || defaultFetchTokenStats;
-this.fetchChartStats = options.fetchChartStats || defaultFetchChartStats;
 this.fetchLifecycle = options.fetchLifecycle || defaultFetchLifecycle;
 this.fetchMarketSnapshot = options.fetchMarketSnapshot || defaultFetchMarketSnapshot;
 this.saveLinks = options.saveLinks || defaultSaveLinks;
@@ -1772,6 +1888,7 @@ this.candleLimit = Number(options.candleLimit || 180);
 
 this.commitPollMs = Number(options.commitPollMs || 15000);
 this.countdownPollMs = Number(options.countdownPollMs || 2500);
+this.buildingPollMs = Number(options.buildingPollMs || 1800);
 this.livePollMs = Number(options.livePollMs || 6000);
 
 this.tokenPayload = {};
@@ -1939,6 +2056,17 @@ this.startCountdownTicker();
 return;
 }
 
+if (this.phase === PHASES.BUILDING) {
+this.refreshTimer = setInterval(async () => {
+try {
+await this.refreshLaunch({ force: true });
+} catch (error) {
+console.error("launch-market building refresh failed:", error);
+}
+}, this.buildingPollMs);
+return;
+}
+
 if (this.phase !== PHASES.LIVE) {
 this.refreshTimer = setInterval(async () => {
 try {
@@ -1971,33 +2099,21 @@ const nextPhase = inferPhase(this.launch);
 if (nextPhase !== this.phase) {
 this.phase = nextPhase;
 this.applyAll();
+this.startPollingLoop();
 
 if (nextPhase === PHASES.LIVE) {
 void this.refreshLiveMarketOnly({ force: true }).catch((error) => {
 console.error("countdown to live refresh failed:", error);
 });
-this.startPollingLoop();
+}
+
+if (nextPhase === PHASES.BUILDING) {
+void this.refreshLaunch({ force: true }).catch((error) => {
+console.error("countdown to building refresh failed:", error);
+});
 }
 }
 }, 1000);
-}
-
-setBaseState(launch = null, commitStats = null, options = {}) {
-const previousPhase = this.phase;
-
-if (launch) {
-this.launch = mergeLaunchTruth(this.launch || {}, launch);
-}
-
-if (commitStats && typeof commitStats === "object") {
-this.commitStats = commitStats;
-}
-
-this.applyAll();
-
-if (options.restartPolling !== false && previousPhase !== this.phase) {
-this.startPollingLoop();
-}
 }
 
 applySnapshotPayload(payload = {}) {
@@ -2149,8 +2265,12 @@ clearLiveOnlyUi();
 updateStatsForCountdown(this.launch, this.commitStats);
 updateCountdownUi(this.launch, this.commitStats);
 renderCassiePanel(this.phase, this.launch, this.tokenPayload, this.chartStats);
+} else if (this.phase === PHASES.BUILDING) {
+clearLiveOnlyUi();
+updateStatsForBuilding(this.launch, this.lifecycle);
+renderCassiePanel(this.phase, this.launch, this.tokenPayload, this.chartStats);
 } else {
-updateStatsForLive(this.tokenPayload, this.chartStats, this.launch);
+updateStatsForLive(this.tokenPayload, this.chartStats, this.launch, this.lifecycle);
 updateWalletSummary(
 this.phase,
 this.connectedWallet,
@@ -2305,7 +2425,13 @@ saveBtn.disabled = true;
 saveBtn.textContent = "Saving...";
 
 try {
-const payload = getLinksPayloadFromModal();
+const payload = {
+website_url: normalizeUrl($("linkWebsiteInput")?.value || "", "website_url"),
+x_url: normalizeUrl($("linkXInput")?.value || "", "x_url"),
+telegram_url: normalizeUrl($("linkTelegramInput")?.value || "", "telegram_url"),
+discord_url: normalizeUrl($("linkDiscordInput")?.value || "", "discord_url"),
+wallet: this.connectedWallet || "",
+};
 const result = await this.saveLinks(this.launchId, payload);
 this.launch = mergeLaunchTruth(this.launch || {}, result?.launch || payload);
 renderExternalLinks(this.launch);

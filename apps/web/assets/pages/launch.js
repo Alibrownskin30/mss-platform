@@ -13,6 +13,7 @@ import { initLaunchMarket } from "../../js/launch-market.js";
 const BASE_REFRESH_INTERVAL_MS = 15000;
 const COMMIT_PHASE_REFRESH_INTERVAL_MS = 15000;
 const COUNTDOWN_REFRESH_INTERVAL_MS = 2500;
+const BUILDING_PHASE_REFRESH_INTERVAL_MS = 1800;
 const RENDER_TICK_MS = 1000;
 const FORCE_FINALIZE_COOLDOWN_MS = 8000;
 const LIVE_LIFECYCLE_REFRESH_INTERVAL_MS = 20000;
@@ -119,6 +120,7 @@ return Math.round(n * 1_000_000_000);
 function badgeText(status) {
 if (status === "commit") return "Commit";
 if (status === "countdown") return "Countdown";
+if (status === "building") return "Building";
 if (status === "live") return "Live";
 if (status === "graduated") return "Graduated";
 if (status === "failed") return "Failed";
@@ -129,6 +131,7 @@ return String(status || "Unknown");
 function phaseDisplayText(status) {
 if (status === "commit") return "Commit";
 if (status === "countdown") return "Countdown";
+if (status === "building") return "Building";
 if (status === "live") return "Live";
 if (status === "graduated") return "Graduated";
 if (status === "failed") return "Failed";
@@ -138,7 +141,7 @@ return String(status || "Unknown");
 
 function pillClass(status) {
 if (status === "commit") return "commit";
-if (status === "countdown") return "countdown";
+if (status === "countdown" || status === "building") return "countdown";
 if (status === "live") return "live";
 if (status === "graduated") return "graduated";
 if (status === "failed" || status === "failed_refunded") return "failed";
@@ -411,8 +414,29 @@ function getCommitEndsMs(launch, stats) {
 return parseTs(stats?.commitEndsAt || launch?.commit_ends_at);
 }
 
+function isPostCountdownBuilding(launch, stats) {
+if (!launch) return false;
+
+const status = String(launch.status || "").toLowerCase();
+if (status === "building") return true;
+if (status !== "countdown") return false;
+
+const countdownEndsMs = getCountdownEndsMs(launch, stats);
+if (!Number.isFinite(countdownEndsMs)) return false;
+
+const contractAddress = cleanString(launch.contract_address, 200);
+const mintFinalized = cleanString(launch.mint_reservation_status, 64).toLowerCase() === "finalized";
+
+return Date.now() >= countdownEndsMs && !contractAddress && !mintFinalized;
+}
+
+function getDisplayPhaseStatus(launch, stats) {
+if (isPostCountdownBuilding(launch, stats)) return "building";
+return String(launch?.status || "").toLowerCase();
+}
+
 function getLaunchStateMessage(launch, stats, lifecycle = null) {
-const status = String(launch?.status || "");
+const status = getDisplayPhaseStatus(launch, stats);
 const bondState = getBuilderBondState(launch, stats);
 const readiness = lifecycle?.graduationReadiness || null;
 
@@ -428,9 +452,17 @@ const ends = getCountdownEndsMs(launch, stats);
 const timePart = Number.isFinite(ends)
 ? ` Countdown ends in ${fmtCountdown(ends - Date.now())}.`
 : "";
+
 return {
 kind: "warn",
 message: `Launch moved to countdown. Commits and refunds are closed.${timePart}`,
+};
+}
+
+if (status === "building") {
+return {
+kind: "warn",
+message: "Countdown reached zero. MSS is finalizing mint, liquidity, and live market state.",
 };
 }
 
@@ -646,9 +678,20 @@ async function loadLifecycleIfNeeded(force = false) {
 const id = qs("id");
 if (!id) return;
 if (!currentLaunch) return;
-if (!isLiveLikeStatus(currentLaunch?.status) && !isCountdownStatus(currentLaunch?.status)) return;
+
+const effectiveStatus = getDisplayPhaseStatus(currentLaunch, currentCommitStats);
+
+if (
+effectiveStatus !== "live" &&
+effectiveStatus !== "graduated" &&
+effectiveStatus !== "countdown" &&
+effectiveStatus !== "building"
+) {
+return;
+}
+
 if (lifecycleRefreshInFlight) return;
-if (!force && !isLiveLikeStatus(currentLaunch?.status)) return;
+if (!force && effectiveStatus !== "live" && effectiveStatus !== "graduated") return;
 
 lifecycleRefreshInFlight = true;
 
@@ -878,7 +921,7 @@ const timeStat = $("timeStat");
 
 if (!phaseValue || !phasePill || !phaseNote || !timeStat) return;
 
-const status = String(launch.status || "");
+const status = getDisplayPhaseStatus(launch, stats);
 const fillDurationMs = getFillDurationMs(launch, stats);
 const isBuilder = String(launch.template || "") === "builder";
 const bondState = getBuilderBondState(launch, stats);
@@ -933,6 +976,16 @@ msLeft > 0
 
 if (isBuilder && bondState.paid) {
 note += ` Builder bond of ${fmtSol(bondState.amount)} remains locked while the launch progresses.`;
+}
+} else if (status === "building") {
+timeStat.textContent = "BUILDING";
+note =
+fillDurationMs != null
+? `Commit phase filled in ${fmtDuration(fillDurationMs)}. Countdown has ended and MSS is now building the live market, finalizing reserves, and publishing the contract address.`
+: "Countdown has ended and MSS is now building the live market, finalizing reserves, and publishing the contract address.";
+
+if (isBuilder && bondState.paid) {
+note += ` Builder bond of ${fmtSol(bondState.amount)} remains locked while bootstrap completes.`;
 }
 } else if (status === "live") {
 timeStat.textContent = "LIVE";
@@ -1028,6 +1081,7 @@ const pill = $("progressStatusPill");
 const fillDurationMs = getFillDurationMs(launch, stats);
 const isBuilder = String(launch.template || "") === "builder";
 const bondState = getBuilderBondState(launch, stats);
+const status = getDisplayPhaseStatus(launch, stats);
 
 if (headline) headline.textContent = `${committed} / ${hardCap} SOL committed`;
 if (text) text.textContent = `${committed} / ${hardCap} SOL committed`;
@@ -1035,13 +1089,13 @@ if (pctEl) pctEl.textContent = `${pct}%`;
 if (fill) fill.style.width = `${pct}%`;
 
 if (pill) {
-pill.textContent = phaseDisplayText(launch.status);
-pill.className = `status-pill ${pillClass(launch.status)}`;
+pill.textContent = phaseDisplayText(status);
+pill.className = `status-pill ${pillClass(status)}`;
 }
 
 if (!subline) return;
 
-if (launch.status === "commit") {
+if (status === "commit") {
 const minRemaining = Math.max(0, minRaise - committed);
 const hardRemaining = Math.max(0, hardCap - committed);
 const msLeft = commitEndsAt ? commitEndsAt - Date.now() : null;
@@ -1063,7 +1117,7 @@ subline.textContent += " • Bond collected";
 subline.textContent += " • Bond pending";
 }
 }
-} else if (launch.status === "countdown") {
+} else if (status === "countdown") {
 subline.textContent =
 fillDurationMs != null
 ? `Commit phase filled in ${fmtDuration(fillDurationMs)} • Countdown active • ${participants} participant${participants === 1 ? "" : "s"}`
@@ -1072,7 +1126,16 @@ fillDurationMs != null
 if (isBuilder && bondState.paid) {
 subline.textContent += " • Bond locked";
 }
-} else if (launch.status === "live") {
+} else if (status === "building") {
+subline.textContent =
+fillDurationMs != null
+? `Commit phase filled in ${fmtDuration(fillDurationMs)} • Building live market • ${participants} participant${participants === 1 ? "" : "s"}`
+: `Building live market • ${participants} participant${participants === 1 ? "" : "s"}`;
+
+if (isBuilder && bondState.paid) {
+subline.textContent += " • Bond locked";
+}
+} else if (status === "live") {
 subline.textContent =
 fillDurationMs != null
 ? `Commit phase filled in ${fmtDuration(fillDurationMs)} • Launch is live • ${participants} participant${participants === 1 ? "" : "s"}`
@@ -1081,7 +1144,7 @@ fillDurationMs != null
 if (isBuilder && bondState.paid) {
 subline.textContent += " • Bond collected";
 }
-} else if (launch.status === "failed") {
+} else if (status === "failed") {
 subline.textContent = `Launch failed • ${participants} participant${participants === 1 ? "" : "s"}`;
 
 if (isBuilder) {
@@ -1093,7 +1156,7 @@ subline.textContent += " • Bond collected";
 subline.textContent += " • Bond not collected";
 }
 }
-} else if (launch.status === "failed_refunded") {
+} else if (status === "failed_refunded") {
 subline.textContent = "Launch refunded and closed";
 
 if (isBuilder) {
@@ -1230,10 +1293,10 @@ const actionStack = commitBtn?.closest(".action-stack") || null;
 const quickButtons = Array.from(document.querySelectorAll(".quick button[data-amount]"));
 const stateInfo = getLaunchStateMessage(launch, stats, lifecycle);
 
-const status = String(launch.status || "");
-const commitOpen = canCommitForStatus(status);
-const refundOpen = canRefundForStatus(status);
-const refundOnly = status === "failed";
+const rawStatus = String(launch.status || "");
+const commitOpen = canCommitForStatus(rawStatus);
+const refundOpen = canRefundForStatus(rawStatus);
+const refundOnly = rawStatus === "failed";
 
 if (commitForm) commitForm.style.display = commitOpen || refundOpen ? "" : "none";
 if (walletField) walletField.style.display = commitOpen || refundOpen ? "" : "none";
@@ -1253,7 +1316,7 @@ refundBtn.disabled = !refundOpen || refundActionInFlight;
 
 if (amountInput) {
 amountInput.disabled = !commitOpen || commitActionInFlight;
-amountInput.setAttribute("placeholder", commitOpen ? "0.50" : badgeText(status));
+amountInput.setAttribute("placeholder", commitOpen ? "0.50" : badgeText(getDisplayPhaseStatus(launch, stats)));
 }
 
 quickButtons.forEach((btn) => {
@@ -1345,11 +1408,12 @@ const commitEndsAt = getCommitEndsMs(launch, stats);
 const pct = hardCap > 0
 ? Math.max(0, Math.min(100, Math.floor((committed / hardCap) * 100)))
 : 0;
+const displayStatus = getDisplayPhaseStatus(launch, stats);
 
 if ($("launchSubline")) {
 const lifecycleText = buildLifecycleSummaryText(lifecycle, launch);
 $("launchSubline").textContent =
-`${launch.symbol || "—"} • ${String(launch.template || "—").replaceAll("_", " ")} • ${phaseDisplayText(launch.status)}${lifecycleText ? ` • ${lifecycleText}` : ""}`;
+`${launch.symbol || "—"} • ${String(launch.template || "—").replaceAll("_", " ")} • ${phaseDisplayText(displayStatus)}${lifecycleText ? ` • ${lifecycleText}` : ""}`;
 }
 
 if ($("launchDesc")) {
@@ -1357,7 +1421,7 @@ $("launchDesc").textContent = launch.description || "No description provided.";
 }
 
 if ($("launchStatusText")) {
-$("launchStatusText").textContent = phaseDisplayText(launch.status);
+$("launchStatusText").textContent = phaseDisplayText(displayStatus);
 }
 
 updateLifecycleVisibility(launch.status);
@@ -1400,6 +1464,11 @@ setClosureNote(
 } else {
 setClosureNote("");
 }
+} else if (displayStatus === "building") {
+setClosureNote(
+"Countdown has completed and MSS is now finalizing mint assignment, reserve bootstrap, and live market activation.",
+"warn"
+);
 } else if (launch.status === "live" && lifecycle?.graduationReadiness?.ready) {
 setClosureNote(
 `Launch is live and currently graduation-ready. Planned split: ${safeNum(lifecycle.raydiumTargetPct, 50)}% Raydium / ${safeNum(lifecycle.mssLockedTargetPct, 50)}% MSS locked.`,
@@ -1414,7 +1483,7 @@ setClosureNote(
 setClosureNote("");
 }
 
-lastRenderedPhaseStatus = String(launch.status || "");
+lastRenderedPhaseStatus = displayStatus;
 }
 
 async function refresh(options = {}) {
@@ -1752,9 +1821,10 @@ await syncLaunchMarketController(true);
 }
 
 function getDynamicRefreshIntervalMs() {
-const status = String(currentLaunch?.status || "").toLowerCase();
-if (status === "countdown") return COUNTDOWN_REFRESH_INTERVAL_MS;
-if (status === "commit") return COMMIT_PHASE_REFRESH_INTERVAL_MS;
+const displayStatus = getDisplayPhaseStatus(currentLaunch, currentCommitStats);
+if (displayStatus === "building") return BUILDING_PHASE_REFRESH_INTERVAL_MS;
+if (displayStatus === "countdown") return COUNTDOWN_REFRESH_INTERVAL_MS;
+if (displayStatus === "commit") return COMMIT_PHASE_REFRESH_INTERVAL_MS;
 return BASE_REFRESH_INTERVAL_MS;
 }
 
@@ -1764,10 +1834,11 @@ clearInterval(refreshIntervalId);
 refreshIntervalId = null;
 }
 
-const status = String(currentLaunch?.status || "").toLowerCase();
+const displayStatus = getDisplayPhaseStatus(currentLaunch, currentCommitStats);
 const shouldRunBaseLoop =
-status === "commit" ||
-status === "countdown" ||
+displayStatus === "commit" ||
+displayStatus === "countdown" ||
+displayStatus === "building" ||
 !currentLaunch?.status;
 
 if (!shouldRunBaseLoop) return;
@@ -1832,9 +1903,10 @@ if (!currentLaunch || !currentCommitStats) return;
 
 render();
 
-const status = String(currentLaunch.status || "");
+const rawStatus = String(currentLaunch.status || "");
+const displayStatus = getDisplayPhaseStatus(currentLaunch, currentCommitStats);
 
-if (status === "countdown") {
+if (rawStatus === "countdown") {
 const countdownEndsMs = getCountdownEndsMs(currentLaunch, currentCommitStats);
 if (
 Number.isFinite(countdownEndsMs) &&
@@ -1854,7 +1926,7 @@ restartLifecycleRefreshLoop();
 }
 }
 
-if (status !== lastRenderedPhaseStatus && !refreshInFlight) {
+if (displayStatus !== lastRenderedPhaseStatus && !refreshInFlight) {
 void refresh({ syncMarket: true, syncLifecycle: true })
 .then(() => {
 restartRefreshLoop();

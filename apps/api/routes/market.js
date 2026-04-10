@@ -404,22 +404,23 @@ try {
 const lifecycle = await getLiquidityLifecycle(launchId);
 const vesting = lifecycle?.builderVesting || null;
 
-const unlockedAmount = floorToken(vesting?.unlockedAmount ?? totalBalance);
+const totalAllocation = floorToken(vesting?.totalAllocation ?? 0);
+const unlockedAmount = floorToken(vesting?.unlockedAmount ?? 0);
 const lockedAmount = floorToken(vesting?.lockedAmount ?? 0);
-const sellableBalance = Math.max(0, Math.min(totalBalance, unlockedAmount));
-const unlockedVisible = Math.max(0, Math.min(totalBalance, unlockedAmount));
-const lockedVisible = Math.max(0, Math.max(lockedAmount, totalBalance - unlockedVisible));
-const totalAllocation = floorToken(vesting?.totalAllocation ?? totalBalance);
+
+const visibleUnlocked = Math.max(0, Math.min(totalBalance, unlockedAmount));
+const visibleLocked = Math.max(0, Math.max(totalBalance - visibleUnlocked, lockedAmount));
+const sellableBalance = Math.max(0, visibleUnlocked);
 
 return {
 isBuilderWallet: true,
-vestingActive: lockedVisible > 0 || totalAllocation > unlockedVisible,
+vestingActive: totalAllocation > unlockedAmount || visibleLocked > 0,
 totalBalance,
-unlockedBalance: unlockedVisible,
-lockedBalance: lockedVisible,
+unlockedBalance: visibleUnlocked,
+lockedBalance: visibleLocked,
 sellableBalance,
 builderVestingPercentUnlocked:
-totalAllocation > 0 ? (unlockedAmount / totalAllocation) * 100 : 100,
+totalAllocation > 0 ? (unlockedAmount / totalAllocation) * 100 : 0,
 builderVestingDaysLive: safeNum(vesting?.vestedDays, getDaysSinceLaunch(launch)),
 };
 } catch {
@@ -712,8 +713,7 @@ walletBalanceBefore
 
 if (safeNum(sellability?.sellableBalance, walletBalanceBefore) < requestedTokens) {
 return res.status(400).json({
-error:
-sellability?.vestingActive
+error: sellability?.vestingActive
 ? "Insufficient sellable tokens"
 : "Insufficient tokens",
 walletBalanceBefore,
@@ -992,8 +992,7 @@ const sellableBalance = floorToken(sellability?.sellableBalance ?? currentBalanc
 
 if (sellableBalance < tokensIn) {
 return res.status(400).json({
-error:
-sellability?.vestingActive
+error: sellability?.vestingActive
 ? "Insufficient sellable tokens"
 : "Insufficient tokens",
 walletBalanceBefore: currentBalance,
