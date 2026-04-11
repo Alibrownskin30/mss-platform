@@ -226,6 +226,15 @@ website_url: cleanString(raw?.website_url, 500),
 x_url: cleanString(raw?.x_url, 500),
 telegram_url: cleanString(raw?.telegram_url, 500),
 discord_url: cleanString(raw?.discord_url, 500),
+committed_sol: toNumber(raw?.committed_sol, 0),
+participants_count: toNumber(raw?.participants_count, 0),
+hard_cap_sol: toNumber(raw?.hard_cap_sol, 0),
+min_raise_sol: toNumber(raw?.min_raise_sol, 0),
+price: toNumber(raw?.price, 0),
+market_cap: toNumber(raw?.market_cap, 0),
+liquidity: toNumber(raw?.liquidity, 0),
+volume_24h: toNumber(raw?.volume_24h, 0),
+template: cleanString(raw?.template, 80),
 };
 }
 
@@ -786,8 +795,24 @@ countdownEndsAt,
 }
 
 function updateStatsForCommit(launch, commitStats = {}) {
-const { committedSol, participantCount, hardCapSol } = getCommitMetrics(launch, commitStats);
+const { committedSol, participantCount, hardCapSol, minRaiseSol } = getCommitMetrics(launch, commitStats);
 const progress = hardCapSol > 0 ? Math.min(100, (committedSol / hardCapSol) * 100) : 0;
+
+if ($("stat1Label")) $("stat1Label").textContent = "Committed";
+if ($("stat1Value")) $("stat1Value").textContent = formatSol(committedSol, 2);
+
+if ($("stat2Label")) $("stat2Label").textContent = "Participants";
+if ($("stat2Value")) $("stat2Value").textContent = formatNumber(participantCount, { maximumFractionDigits: 0 });
+
+if ($("stat3Label")) $("stat3Label").textContent = "Minimum Raise";
+if ($("stat3Value")) $("stat3Value").textContent = minRaiseSol > 0 ? formatSol(minRaiseSol, 2) : "—";
+
+if ($("stat4Label")) $("stat4Label").textContent = "Progress";
+if ($("stat4Value")) $("stat4Value").textContent = formatPercent(progress, 1);
+}
+
+function updateStatsForCountdown(launch, commitStats = {}) {
+const { committedSol, participantCount, hardCapSol } = getCommitMetrics(launch, commitStats);
 
 if ($("stat1Label")) $("stat1Label").textContent = "Committed";
 if ($("stat1Value")) $("stat1Value").textContent = formatSol(committedSol, 2);
@@ -797,22 +822,6 @@ if ($("stat2Value")) $("stat2Value").textContent = formatNumber(participantCount
 
 if ($("stat3Label")) $("stat3Label").textContent = "Hard Cap";
 if ($("stat3Value")) $("stat3Value").textContent = hardCapSol > 0 ? formatSol(hardCapSol, 2) : "—";
-
-if ($("stat4Label")) $("stat4Label").textContent = "Progress";
-if ($("stat4Value")) $("stat4Value").textContent = formatPercent(progress, 1);
-}
-
-function updateStatsForCountdown(launch, commitStats = {}) {
-const { committedSol, participantCount, countdownEndsAt } = getCommitMetrics(launch, commitStats);
-
-if ($("stat1Label")) $("stat1Label").textContent = "Committed";
-if ($("stat1Value")) $("stat1Value").textContent = formatSol(committedSol, 2);
-
-if ($("stat2Label")) $("stat2Label").textContent = "Participants";
-if ($("stat2Value")) $("stat2Value").textContent = formatNumber(participantCount, { maximumFractionDigits: 0 });
-
-if ($("stat3Label")) $("stat3Label").textContent = "Opens At";
-if ($("stat3Value")) $("stat3Value").textContent = formatDateTime(countdownEndsAt);
 
 if ($("stat4Label")) $("stat4Label").textContent = "Time Left";
 if ($("stat4Value")) $("stat4Value").textContent = getCountdownText(launch, commitStats);
@@ -1084,7 +1093,11 @@ chartStats?.sol_usd_price,
 0
 );
 
-const ordered = [...trades].reverse();
+const ordered = [...trades].sort((a, b) => {
+const aTs = parseDateMs(a?.created_at || a?.timestamp) || 0;
+const bTs = parseDateMs(b?.created_at || b?.timestamp) || 0;
+return bTs - aTs;
+});
 
 list.innerHTML = ordered
 .slice(0, 50)
@@ -1579,7 +1592,7 @@ const reservesValue = $("lifecycleReservesValue");
 const splitValue = $("lifecycleSplitValue");
 const lockValue = $("lifecycleLockValue");
 const raydiumValue = $("lifecycleRaydiumValue");
-const builderVestValue = $("lifecycleBuilderVestValue");
+const builderVestValue = $("builderVestValue");
 const readinessValue = $("graduationReadinessValue");
 const readinessNote = $("graduationReadinessNote");
 const graduateBtn = $("graduateDevnetBtn");
@@ -2745,6 +2758,17 @@ btn.dataset.busy = "0";
 btn.disabled = false;
 btn.textContent = originalText;
 this.applyAll();
+}
+}
+
+setBaseState(launch, commitStats = {}, options = {}) {
+this.launch = mergeLaunchTruth(this.launch || {}, launch || {});
+this.commitStats = commitStats || this.commitStats || {};
+this.phase = inferPhase(this.launch);
+this.applyAll();
+
+if (options.restartPolling) {
+this.startPollingLoop();
 }
 }
 }

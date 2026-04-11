@@ -1380,8 +1380,8 @@ throw new Error("launch not found");
 }
 
 const status = String(launch.status || "").toLowerCase();
-if (status !== "countdown" && status !== "live") {
-throw new Error("launch must be countdown or live before market bootstrap");
+if (status !== "countdown" && status !== "building" && status !== "live") {
+throw new Error("launch must be countdown, building, or live before market bootstrap");
 }
 
 if (!clean(launch.reserved_mint_address, 120) || !clean(launch.reserved_mint_secret, 20000)) {

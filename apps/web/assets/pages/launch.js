@@ -153,14 +153,6 @@ const value = String(status || "").toLowerCase();
 return value === "live" || value === "graduated";
 }
 
-function isCountdownStatus(status) {
-return String(status || "").toLowerCase() === "countdown";
-}
-
-function isCommitStatus(status) {
-return String(status || "").toLowerCase() === "commit";
-}
-
 function getBuilderTrust(score) {
 const n = safeNum(score, 0);
 
@@ -208,9 +200,63 @@ const normalized = cleanString(status, 64).toLowerCase();
 return normalized === "live" || normalized === "graduated";
 }
 
-function sanitizePublicLaunchFields(launchLike = {}) {
-const status = cleanString(launchLike?.status, 64).toLowerCase();
-const exposeCa = shouldExposePublicCa(status);
+function inferEffectiveLaunchStatus(launchLike = {}, statsLike = {}) {
+const rawStatus = cleanString(launchLike?.status, 64).toLowerCase();
+const contractAddress = cleanString(launchLike?.contract_address, 200);
+const mintStatus = cleanString(launchLike?.mint_reservation_status, 64).toLowerCase();
+const countdownEndsMs = parseTs(
+statsLike?.countdownEndsAt ||
+launchLike?.countdown_ends_at ||
+launchLike?.live_at
+);
+const now = Date.now();
+
+if (rawStatus === "graduated") return "graduated";
+
+if (
+rawStatus === "live" ||
+(contractAddress && mintStatus === "finalized")
+) {
+return "live";
+}
+
+if (
+(rawStatus === "building") ||
+(
+countdownEndsMs &&
+now >= countdownEndsMs &&
+!contractAddress
+)
+) {
+return "building";
+}
+
+if (rawStatus === "countdown") {
+return "countdown";
+}
+
+if (rawStatus === "failed" || rawStatus === "failed_refunded") {
+return rawStatus;
+}
+
+if (rawStatus === "commit") {
+return "commit";
+}
+
+if (countdownEndsMs && now < countdownEndsMs) {
+return "countdown";
+}
+
+if (contractAddress) {
+return "live";
+}
+
+return rawStatus || "commit";
+}
+
+function sanitizePublicLaunchFields(launchLike = {}, statsLike = {}) {
+const effectiveStatus = inferEffectiveLaunchStatus(launchLike, statsLike);
+const exposeCa = shouldExposePublicCa(effectiveStatus);
 const contractAddress = exposeCa
 ? cleanString(launchLike?.contract_address, 200)
 : "";
@@ -220,6 +266,7 @@ const mintStatus = exposeCa
 
 return {
 ...launchLike,
+status: effectiveStatus,
 contract_address: contractAddress,
 reserved_mint_address: "",
 reserved_mint_secret: "",
@@ -228,9 +275,9 @@ mint_finalized_at: exposeCa ? cleanString(launchLike?.mint_finalized_at, 200) : 
 };
 }
 
-function mergeLaunchTruth(previous = {}, next = {}) {
-const prevSanitized = sanitizePublicLaunchFields(previous || {});
-const nextSanitized = sanitizePublicLaunchFields(next || {});
+function mergeLaunchTruth(previous = {}, next = {}, statsLike = {}) {
+const prevSanitized = sanitizePublicLaunchFields(previous || {}, statsLike);
+const nextSanitized = sanitizePublicLaunchFields(next || {}, statsLike);
 
 const prevStatus = cleanString(prevSanitized?.mint_reservation_status).toLowerCase();
 const nextStatus = cleanString(nextSanitized?.mint_reservation_status).toLowerCase();
@@ -244,8 +291,10 @@ const merged = {
 };
 
 const strongestContract = choosePreferredString(nextContract, prevContract);
-const exposeCa = shouldExposePublicCa(merged?.status);
+const effectiveStatus = inferEffectiveLaunchStatus(merged, statsLike);
+const exposeCa = shouldExposePublicCa(effectiveStatus);
 
+merged.status = effectiveStatus;
 merged.reserved_mint_address = "";
 merged.reserved_mint_secret = "";
 
@@ -278,7 +327,7 @@ return merged;
 }
 
 function normalizeLaunchData(raw = {}) {
-const normalized = {
+return {
 ...raw,
 status: cleanString(raw?.status, 64),
 symbol: cleanString(raw?.symbol, 64),
@@ -293,8 +342,6 @@ reserved_mint_secret: cleanString(raw?.reserved_mint_secret, 20000),
 mint_reservation_status: cleanString(raw?.mint_reservation_status, 64).toLowerCase(),
 mint_finalized_at: cleanString(raw?.mint_finalized_at, 200),
 };
-
-return sanitizePublicLaunchFields(normalized);
 }
 
 function normalizeLifecycleData(raw = {}) {
@@ -309,16 +356,16 @@ graduationStatus: cleanString(raw.graduationStatus, 120),
 graduationReason: cleanString(raw.graduationReason, 200),
 raydiumPoolId: cleanString(raw.raydiumPoolId, 300),
 lockStatus: cleanString(raw.lockStatus, 120),
-graduationReadiness: raw.graduationReadiness && typeof raw.graduationReadiness === "object"
+graduationReadiness:
+raw.graduationReadiness && typeof raw.graduationReadiness === "object"
 ? {
 ...raw.graduationReadiness,
 reason: cleanString(raw.graduationReadiness.reason, 500),
 }
 : null,
-builderVesting: raw.builderVesting && typeof raw.builderVesting === "object"
-? {
-...raw.builderVesting,
-}
+builderVesting:
+raw.builderVesting && typeof raw.builderVesting === "object"
+? { ...raw.builderVesting }
 : null,
 };
 }
@@ -415,24 +462,11 @@ return parseTs(stats?.commitEndsAt || launch?.commit_ends_at);
 }
 
 function isPostCountdownBuilding(launch, stats) {
-if (!launch) return false;
-
-const status = String(launch.status || "").toLowerCase();
-if (status === "building") return true;
-if (status !== "countdown") return false;
-
-const countdownEndsMs = getCountdownEndsMs(launch, stats);
-if (!Number.isFinite(countdownEndsMs)) return false;
-
-const contractAddress = cleanString(launch.contract_address, 200);
-const mintFinalized = cleanString(launch.mint_reservation_status, 64).toLowerCase() === "finalized";
-
-return Date.now() >= countdownEndsMs && !contractAddress && !mintFinalized;
+return inferEffectiveLaunchStatus(launch, stats) === "building";
 }
 
 function getDisplayPhaseStatus(launch, stats) {
-if (isPostCountdownBuilding(launch, stats)) return "building";
-return String(launch?.status || "").toLowerCase();
+return inferEffectiveLaunchStatus(launch, stats);
 }
 
 function getLaunchStateMessage(launch, stats, lifecycle = null) {
@@ -653,23 +687,59 @@ throw new Error("Missing launch id in URL.");
 
 const requestSeq = ++loadRequestSeq;
 
-const [launchRes, commitsRes] = await Promise.all([
+const [launchRes, commitsRes, reconcileRes] = await Promise.all([
 fetchJson(`/api/launcher/${id}`),
 fetchJson(`/api/launcher/commits/${id}`),
+fetchJson(`/api/launcher/${id}/reconcile`).catch(() => null),
 ]);
 
 if (requestSeq !== loadRequestSeq) return;
 
-const incomingLaunch = normalizeLaunchData(launchRes?.launch || {});
-currentLaunch = mergeLaunchTruth(currentLaunch || {}, incomingLaunch);
-currentCommitStats = commitsRes || {};
+const commitsStats = commitsRes || {};
+const baseLaunchRaw = normalizeLaunchData(launchRes?.launch || {});
+const reconcileLaunchRaw = normalizeLaunchData(reconcileRes?.launch || {});
+
+const strongestLaunch = mergeLaunchTruth(
+baseLaunchRaw,
+reconcileLaunchRaw,
+commitsStats
+);
+
+currentLaunch = mergeLaunchTruth(
+currentLaunch || {},
+strongestLaunch,
+commitsStats
+);
+
+currentCommitStats = {
+...(currentCommitStats || {}),
+...(commitsRes || {}),
+...(reconcileRes
+? {
+status: reconcileRes.status || commitsRes?.status,
+totalCommitted:
+reconcileRes.totalCommitted ?? commitsRes?.totalCommitted,
+participants:
+reconcileRes.participants ?? commitsRes?.participants,
+}
+: {}),
+};
+
+currentLaunch = mergeLaunchTruth(
+currentLaunch || {},
+currentLaunch || {},
+currentCommitStats || {}
+);
+
 currentLifecycle = mergeLifecycleTruth(
 currentLifecycle,
-launchRes?.lifecycle || commitsRes?.lifecycle || null
+launchRes?.lifecycle || commitsRes?.lifecycle || reconcileRes?.lifecycle || null
 );
+
 currentGraduationPlan =
 launchRes?.graduationPlan ||
 commitsRes?.graduationPlan ||
+reconcileRes?.graduationPlan ||
 currentGraduationPlan ||
 null;
 }
@@ -1355,14 +1425,8 @@ commitStats: currentCommitStats || {},
 saveLinks: defaultSaveLinksWithWallet,
 });
 
-if (forceRefresh && typeof launchMarketController.setBaseState === "function") {
-launchMarketController.setBaseState(currentLaunch || null, currentCommitStats || {}, { restartPolling: true });
-if (
-isLiveLikeStatus(currentLaunch?.status) &&
-typeof launchMarketController.refreshLiveMarketOnly === "function"
-) {
-await launchMarketController.refreshLiveMarketOnly({ force: true });
-}
+if (forceRefresh && typeof launchMarketController.refreshLaunch === "function") {
+await launchMarketController.refreshLaunch({ force: true });
 }
 return;
 }
@@ -1375,7 +1439,8 @@ launchMarketController.setBaseState(currentLaunch || null, currentCommitStats ||
 } else {
 launchMarketController.launch = mergeLaunchTruth(
 launchMarketController.launch || {},
-currentLaunch || {}
+currentLaunch || {},
+currentCommitStats || {}
 );
 launchMarketController.commitStats = currentCommitStats || {};
 if (typeof launchMarketController.applyAll === "function") {
@@ -1384,6 +1449,11 @@ launchMarketController.applyAll();
 }
 
 if (
+forceRefresh &&
+typeof launchMarketController.refreshLaunch === "function"
+) {
+await launchMarketController.refreshLaunch({ force: true });
+} else if (
 forceRefresh &&
 isLiveLikeStatus(currentLaunch?.status) &&
 typeof launchMarketController.refreshLiveMarketOnly === "function"
@@ -1424,7 +1494,7 @@ if ($("launchStatusText")) {
 $("launchStatusText").textContent = phaseDisplayText(displayStatus);
 }
 
-updateLifecycleVisibility(launch.status);
+updateLifecycleVisibility(displayStatus);
 renderBuilderInfo(launch);
 renderAllocationStructure(launch, stats);
 renderLaunchEconomics(launch, committed);
@@ -1441,7 +1511,7 @@ renderRecent(stats.recent || []);
 updateWalletUi();
 renderActionPanelState(launch, stats, lifecycle);
 
-if (launch.status === "failed_refunded") {
+if (displayStatus === "failed_refunded") {
 setClosureNote(
 bondState.refunded
 ? `This launch failed, all tracked commitments were automatically refunded, the builder bond of ${fmtSol(bondState.amount)} was refunded, and the launch is now closed.`
@@ -1450,7 +1520,7 @@ bondState.refunded
 : "This launch failed, all tracked commitments were automatically refunded, and the launch is now closed.",
 "warn"
 );
-} else if (launch.status === "failed" && String(launch.template || "") === "builder") {
+} else if (displayStatus === "failed" && String(launch.template || "") === "builder") {
 if (bondState.paid && !bondState.refunded) {
 setClosureNote(
 `This builder launch failed. Commit refunds are available and the collected builder bond of ${fmtSol(bondState.amount)} should be handled by the failed-launch refund flow.`,
@@ -1469,12 +1539,12 @@ setClosureNote(
 "Countdown has completed and MSS is now finalizing mint assignment, reserve bootstrap, and live market activation.",
 "warn"
 );
-} else if (launch.status === "live" && lifecycle?.graduationReadiness?.ready) {
+} else if (displayStatus === "live" && lifecycle?.graduationReadiness?.ready) {
 setClosureNote(
 `Launch is live and currently graduation-ready. Planned split: ${safeNum(lifecycle.raydiumTargetPct, 50)}% Raydium / ${safeNum(lifecycle.mssLockedTargetPct, 50)}% MSS locked.`,
 "good"
 );
-} else if (launch.status === "graduated") {
+} else if (displayStatus === "graduated") {
 setClosureNote(
 `Launch has graduated. Liquidity lifecycle status: ${lifecycle?.graduationStatus || "graduated"}.`,
 "good"

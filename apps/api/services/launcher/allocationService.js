@@ -29,6 +29,23 @@ return [];
 }
 }
 
+function parseDbTime(value) {
+if (!value) return null;
+const raw = String(value).trim();
+if (!raw) return null;
+
+const hasExplicitTimezone =
+/z$/i.test(raw) || /[+-]\d{2}:\d{2}$/.test(raw);
+
+if (!hasExplicitTimezone && /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/.test(raw)) {
+const sqliteUtc = Date.parse(raw.replace(" ", "T") + "Z");
+return Number.isFinite(sqliteUtc) ? sqliteUtc : null;
+}
+
+const direct = Date.parse(raw);
+return Number.isFinite(direct) ? direct : null;
+}
+
 function toTokenAmount(totalSupply, pct) {
 return floorBig((Number(totalSupply) * Number(pct)) / 100);
 }
@@ -81,6 +98,9 @@ team_allocation_pct: safeNum(row.team_allocation_pct, 0),
 builder_bond_sol: safeNum(row.builder_bond_sol, 0),
 builder_bond_paid: safeNum(row.builder_bond_paid, 0),
 team_wallet_breakdown: parseJsonArray(row.team_wallet_breakdown),
+countdown_ends_at: row.countdown_ends_at || null,
+live_at: row.live_at || null,
+team_wallets: parseJsonArray(row.team_wallets),
 };
 }
 
@@ -89,6 +109,25 @@ if (!launch) return false;
 if (String(launch.template || "") !== "builder") return true;
 if (safeNum(launch.builder_bond_sol, 0) <= 0) return false;
 return safeNum(launch.builder_bond_paid, 0) === 1;
+}
+
+function canBuildAllocationsForStatus(launch) {
+const status = String(launch?.status || "").toLowerCase();
+
+if (status === "live" || status === "graduated" || status === "building") {
+return true;
+}
+
+if (status !== "countdown") {
+return false;
+}
+
+const countdownEndsMs = parseDbTime(launch?.countdown_ends_at || launch?.live_at);
+if (!Number.isFinite(countdownEndsMs)) {
+return false;
+}
+
+return Date.now() >= countdownEndsMs;
 }
 
 function buildParticipantBaseAllocations(commits, totalCommitted, baseParticipantTokens) {
@@ -264,37 +303,45 @@ unusedBonusTokensBurned,
 }) {
 const rows = [];
 
+if (builderTokens > 0) {
 rows.push({
 wallet: builderWallet || `BUILDER_LAUNCH_${launchId}`,
 allocation_type: "builder",
 token_amount: builderTokens,
 sol_amount: 0,
 });
+}
 
 for (const row of teamRows) {
 rows.push(row);
 }
 
+if (reserveTokens > 0) {
 rows.push({
 wallet: `RESERVE_LAUNCH_${launchId}`,
 allocation_type: "reserve",
 token_amount: reserveTokens,
 sol_amount: 0,
 });
+}
 
+if (internalPoolTokens > 0 || internalPoolSol > 0) {
 rows.push({
 wallet: `INTERNAL_POOL_LAUNCH_${launchId}`,
 allocation_type: "internal_pool",
 token_amount: internalPoolTokens,
 sol_amount: internalPoolSol,
 });
+}
 
+if (raydiumLiquidityTokensReserved > 0) {
 rows.push({
 wallet: `RAYDIUM_RESERVED_LAUNCH_${launchId}`,
 allocation_type: "raydium_reserved",
 token_amount: raydiumLiquidityTokensReserved,
 sol_amount: 0,
 });
+}
 
 if (unsoldParticipantTokensBurned > 0) {
 rows.push({
@@ -345,6 +392,42 @@ throw new Error("allocation math exceeds total supply");
 return totalAccounted;
 }
 
+async function getCommitsTableName() {
+const row = await db.get(
+`
+SELECT name
+FROM sqlite_master
+WHERE type = 'table' AND name IN ('launcher_commits', 'commits')
+ORDER BY CASE WHEN name = 'launcher_commits' THEN 0 ELSE 1 END
+LIMIT 1
+`
+);
+
+return row?.name || null;
+}
+
+async function getCommittedRowsForLaunch(launchId) {
+const tableName = await getCommitsTableName();
+if (!tableName) return [];
+
+const columns = await db.all(`PRAGMA table_info(${tableName})`);
+const names = new Set(columns.map((row) => String(row.name || "").trim()));
+const hasStatus = names.has("status");
+
+const rows = await db.all(
+`
+SELECT wallet, sol_amount
+FROM ${tableName}
+WHERE launch_id = ?
+${hasStatus ? `AND status IN ('confirmed', 'complete', 'completed')` : ""}
+ORDER BY id ASC
+`,
+[launchId]
+);
+
+return normalizeCommitRows(rows);
+}
+
 export async function buildLaunchAllocations(launchId) {
 let launch = await db.get(
 `SELECT * FROM launches WHERE id = ?`,
@@ -357,8 +440,8 @@ if (!launch) {
 throw new Error("launch not found");
 }
 
-if (launch.status !== "live") {
-throw new Error("launch must be live before allocations can be built");
+if (!canBuildAllocationsForStatus(launch)) {
+throw new Error("launch must be post-countdown before allocations can be built");
 }
 
 if (!isBuilderLaunchPaid(launch)) {
@@ -374,14 +457,9 @@ if (existing) {
 throw new Error("allocations already built for this launch");
 }
 
-const rawCommits = await db.all(
-`SELECT wallet, sol_amount FROM commits WHERE launch_id = ? ORDER BY id ASC`,
-[launchId]
-);
+const commits = await getCommittedRowsForLaunch(launchId);
 
-const commits = normalizeCommitRows(rawCommits);
-
-const totalSupply = normalizeSupply(launch.supply);
+const totalSupply = normalizeSupply(launch.final_supply || launch.supply);
 const totalCommitted = safeNum(launch.committed_sol, 0);
 const launchFeePct = safeNum(launch.launch_fee_pct, 5);
 const hardCap = safeNum(launch.hard_cap_sol, 0);
@@ -511,7 +589,7 @@ WHERE l.id = ?
 
 const systemAllocationRows = buildSystemAllocations({
 launchId,
-builderWallet: builder?.wallet || "",
+builderWallet: builder?.wallet || launch.builder_wallet || "",
 builderTokens,
 teamRows,
 reserveTokens,
