@@ -1239,20 +1239,20 @@ const volumeCanvas = $("marketVolumeCanvas");
 if (!chartShell || !chartCanvas || !volumeCanvas) return;
 
 if (phase === PHASES.LIVE) {
-chartShell.style.minHeight = "430px";
-chartCanvas.style.height = "310px";
-volumeCanvas.style.height = "96px";
+chartShell.style.minHeight = "450px";
+chartCanvas.style.height = "330px";
+volumeCanvas.style.height = "104px";
 } else if (phase === PHASES.BUILDING) {
-chartShell.style.minHeight = "380px";
-chartCanvas.style.height = "250px";
-volumeCanvas.style.height = "80px";
+chartShell.style.minHeight = "390px";
+chartCanvas.style.height = "260px";
+volumeCanvas.style.height = "84px";
 } else if (phase === PHASES.COUNTDOWN) {
-chartShell.style.minHeight = "360px";
-chartCanvas.style.height = "240px";
+chartShell.style.minHeight = "370px";
+chartCanvas.style.height = "245px";
 volumeCanvas.style.height = "80px";
 } else {
-chartShell.style.minHeight = "340px";
-chartCanvas.style.height = "220px";
+chartShell.style.minHeight = "345px";
+chartCanvas.style.height = "225px";
 volumeCanvas.style.height = "72px";
 }
 }
@@ -1505,15 +1505,22 @@ const remaining = maxWalletTokens > 0
 : 0;
 
 statePill.classList.remove("is-open", "is-restricted");
+
+const hasRestriction = maxWalletTokens > 0 || walletSummary.isBuilderWallet;
+
+if (hasRestriction) {
 statePill.classList.add("is-open");
+statePill.textContent = walletSummary.isBuilderWallet ? "Vesting" : "Capped";
+} else {
+statePill.classList.add("is-open");
+statePill.textContent = "Open";
+}
 
 tierLabel.textContent = walletSummary.isBuilderWallet
 ? "Builder Vesting Controls"
 : maxWalletTokens > 0
 ? "Wallet Access Controls"
 : "Open Access";
-
-statePill.textContent = "Live";
 
 limitValue.textContent = maxWalletTokens > 0
 ? `${formatTokenAmount(maxWalletTokens, 0)} tokens`
