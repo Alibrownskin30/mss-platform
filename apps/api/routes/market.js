@@ -280,7 +280,6 @@ values.push(Number(price));
 }
 
 updates.push("updated_at = CURRENT_TIMESTAMP");
-
 values.push(launchId);
 
 await db.run(

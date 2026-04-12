@@ -17,6 +17,43 @@ function cleanText(value, max = 500) {
 return String(value ?? "").trim().slice(0, max);
 }
 
+function parseDbTime(value) {
+if (!value) return null;
+const raw = String(value).trim();
+if (!raw) return null;
+
+const hasExplicitTimezone =
+/z$/i.test(raw) || /[+-]\d{2}:\d{2}$/.test(raw);
+
+if (!hasExplicitTimezone && /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/.test(raw)) {
+const sqliteUtc = Date.parse(raw.replace(" ", "T") + "Z");
+return Number.isFinite(sqliteUtc) ? sqliteUtc : null;
+}
+
+const direct = Date.parse(raw);
+return Number.isFinite(direct) ? direct : null;
+}
+
+function inferRevealStatus(launch = null) {
+if (!launch) return "";
+
+const rawStatus = cleanText(launch.status, 64).toLowerCase();
+if (rawStatus === "graduated") return "graduated";
+if (rawStatus === "live") return "live";
+
+const contractAddress = cleanText(
+launch.contract_address || launch.mint_address,
+200
+);
+const reservationStatus = cleanText(launch.mint_reservation_status, 64).toLowerCase();
+const liveAtMs = parseDbTime(launch.live_at || launch.countdown_ends_at);
+
+if (contractAddress && reservationStatus === "finalized") return "live";
+if (contractAddress && liveAtMs && Date.now() >= liveAtMs) return "live";
+
+return rawStatus;
+}
+
 function shouldRevealContractAddress(status) {
 const normalized = cleanText(status, 64).toLowerCase();
 return normalized === "live" || normalized === "graduated";
@@ -139,7 +176,8 @@ if (!launch) {
 return res.status(404).json({ ok: false, error: "Launch not found" });
 }
 
-const revealContract = shouldRevealContractAddress(launch.status);
+const inferredStatus = inferRevealStatus(launch);
+const revealContract = shouldRevealContractAddress(inferredStatus);
 
 const mintAddress =
 (revealContract
@@ -296,11 +334,12 @@ const builderVesting = normalizeBuilderVestingSummary(launch.builder_vesting || 
 return res.json({
 ok: true,
 success: true,
+
 launch: {
 id: launch.id,
 token_name: launch.token_name,
 symbol: launch.symbol,
-status: launch.status,
+status: inferredStatus || launch.status,
 template: launch.template || null,
 
 contract_address: revealContract
@@ -546,7 +585,7 @@ trades,
 cassie: {
 monitoring_active: cassie?.monitoring_active !== false,
 phase:
-String(cassie?.phase || launch.status || "").toLowerCase() || "commit",
+String(cassie?.phase || inferredStatus || launch.status || "").toLowerCase() || "commit",
 layer: cassie?.layer || "market-intelligence",
 risk_state: cassie?.risk_state || cassieRisk,
 },

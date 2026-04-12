@@ -34,6 +34,43 @@ const interval = String(raw || "1m").trim();
 return ALLOWED_INTERVALS.has(interval) ? interval : "1m";
 }
 
+function parseDbTime(value) {
+if (!value) return null;
+const raw = String(value).trim();
+if (!raw) return null;
+
+const hasExplicitTimezone =
+/z$/i.test(raw) || /[+-]\d{2}:\d{2}$/.test(raw);
+
+if (!hasExplicitTimezone && /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/.test(raw)) {
+const sqliteUtc = Date.parse(raw.replace(" ", "T") + "Z");
+return Number.isFinite(sqliteUtc) ? sqliteUtc : null;
+}
+
+const direct = Date.parse(raw);
+return Number.isFinite(direct) ? direct : null;
+}
+
+function inferRevealStatus(launch = null) {
+if (!launch) return "";
+
+const rawStatus = cleanText(launch.status, 64).toLowerCase();
+if (rawStatus === "graduated") return "graduated";
+if (rawStatus === "live") return "live";
+
+const contractAddress = cleanText(
+launch.contract_address || launch.mint_address,
+200
+);
+const reservationStatus = cleanText(launch.mint_reservation_status, 64).toLowerCase();
+const liveAtMs = parseDbTime(launch.live_at || launch.countdown_ends_at);
+
+if (contractAddress && reservationStatus === "finalized") return "live";
+if (contractAddress && liveAtMs && Date.now() >= liveAtMs) return "live";
+
+return rawStatus;
+}
+
 function shouldRevealContractAddress(status) {
 const normalized = cleanText(status, 64).toLowerCase();
 return normalized === "live" || normalized === "graduated";
@@ -42,19 +79,25 @@ return normalized === "live" || normalized === "graduated";
 function sanitizeLaunchForResponse(launch = null) {
 if (!launch) return null;
 
-const status = cleanText(launch.status, 64).toLowerCase();
-const revealContract = shouldRevealContractAddress(status);
+const inferredStatus = inferRevealStatus(launch);
+const revealContract = shouldRevealContractAddress(inferredStatus);
 
 return {
 ...launch,
+status: inferredStatus || launch.status || null,
 contract_address: revealContract
 ? cleanText(launch.contract_address, 120) || null
 : null,
 mint_address: revealContract
-? cleanText(launch.mint_address, 120) || null
+? cleanText(launch.mint_address, 120) ||
+cleanText(launch.contract_address, 120) ||
+null
 : null,
 reserved_mint_address: null,
 reserved_mint_secret: null,
+mint_reservation_status: revealContract
+? cleanText(launch.mint_reservation_status, 64) || null
+: null,
 };
 }
 
@@ -127,21 +170,29 @@ vested_days: toInt(raw.vested_days, 0),
 function pickLaunchRow(row) {
 if (!row) return null;
 
-const revealContract = shouldRevealContractAddress(row.status);
+const inferredStatus = inferRevealStatus(row);
+const revealContract = shouldRevealContractAddress(inferredStatus);
 
 return {
 id: row.id,
 token_name: row.token_name,
 symbol: row.symbol,
-status: row.status,
+status: inferredStatus || row.status,
 template: row.template,
 
 contract_address: revealContract
 ? cleanText(row.contract_address, 120) || null
 : null,
 mint_address: revealContract
-? cleanText(row.contract_address, 120) || null
+? cleanText(row.mint_address || row.contract_address, 120) || null
 : null,
+
+reserved_mint_address: null,
+reserved_mint_secret: null,
+mint_reservation_status: revealContract
+? cleanText(row.mint_reservation_status, 64).toLowerCase() || null
+: null,
+mint_finalized_at: revealContract ? row.mint_finalized_at || null : null,
 
 builder_wallet: cleanText(row.builder_wallet, 120) || null,
 builder_alias: cleanText(row.builder_alias, 120) || null,
@@ -237,6 +288,8 @@ l.symbol,
 l.status,
 l.template,
 l.contract_address,
+l.mint_reservation_status,
+l.mint_finalized_at,
 l.builder_wallet,
 l.website_url,
 l.x_url,
@@ -280,7 +333,10 @@ const interval = normalizeInterval(req.query.interval);
 const candleLimit = clampNumber(req.query.candle_limit, 1, 500, 120);
 const tradeLimit = clampNumber(req.query.trade_limit, 1, 200, 50);
 
-const fallbackLaunch = pickLaunchRow(launchRow);
+const fallbackLaunch = pickLaunchRow({
+...launchRow,
+mint_address: tokenRow.mint_address,
+});
 
 const [snapshot, lifecycleRaw, graduationPlan] = await Promise.all([
 getChartSnapshot({
@@ -305,8 +361,8 @@ lifecycleRaw?.builderVesting || {}
 
 const snapshotLaunch = sanitizeLaunchForResponse(snapshot?.launch || null);
 const resolvedLaunch = snapshotLaunch || fallbackLaunch;
-
-const revealContract = shouldRevealContractAddress(resolvedLaunch?.status);
+const effectiveStatus = inferRevealStatus(resolvedLaunch || fallbackLaunch || {});
+const revealContract = shouldRevealContractAddress(effectiveStatus);
 
 const resolvedMintAddress =
 (revealContract
@@ -428,10 +484,14 @@ created_at: tokenRow.created_at,
 launch: resolvedLaunch
 ? {
 ...resolvedLaunch,
+status: effectiveStatus || resolvedLaunch.status || null,
 contract_address: revealContract
 ? cleanText(resolvedLaunch.contract_address, 120) || null
 : null,
 mint_address: revealContract ? resolvedMintAddress : null,
+mint_reservation_status: revealContract
+? cleanText(resolvedLaunch.mint_reservation_status, 64) || null
+: null,
 lifecycle,
 graduation_readiness: graduationReadiness,
 builder_vesting: builderVesting,
@@ -586,7 +646,7 @@ graduationReadiness: graduationReadiness,
 
 cassie: snapshot?.cassie || {
 monitoring_active: true,
-phase: String(resolvedLaunch?.status || "").toLowerCase() || "commit",
+phase: String(effectiveStatus || resolvedLaunch?.status || "").toLowerCase() || "commit",
 layer: "market-intelligence",
 },
 });

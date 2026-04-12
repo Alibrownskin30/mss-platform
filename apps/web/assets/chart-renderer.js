@@ -64,7 +64,10 @@ const dpr = window.devicePixelRatio || 1;
 const width = Math.max(1, Math.floor(rect.width));
 const height = Math.max(1, Math.floor(rect.height));
 
-if (canvas.width !== Math.floor(width * dpr) || canvas.height !== Math.floor(height * dpr)) {
+if (
+canvas.width !== Math.floor(width * dpr) ||
+canvas.height !== Math.floor(height * dpr)
+) {
 canvas.width = Math.floor(width * dpr);
 canvas.height = Math.floor(height * dpr);
 }
@@ -84,12 +87,18 @@ return canvas;
 }
 
 function resolveCandle(item = {}) {
+const time = item.time || item.bucket_start || item.timestamp || item.open_time || null;
+const open = toNumber(item.open);
+const high = toNumber(item.high);
+const low = toNumber(item.low);
+const close = toNumber(item.close);
+
 return {
-time: item.time || item.bucket_start || item.timestamp || item.open_time || null,
-open: toNumber(item.open),
-high: toNumber(item.high),
-low: toNumber(item.low),
-close: toNumber(item.close),
+time,
+open,
+high,
+low,
+close,
 volumeBase: toNumber(item.volume_base ?? item.volume ?? item.base_volume ?? 0),
 volumeToken: toNumber(item.volume_token ?? item.token_volume ?? 0),
 buys: toNumber(item.buys ?? 0),
@@ -152,6 +161,8 @@ this.viewportCount = this.options.maxCandles;
 this.isDragging = false;
 this.dragStartX = 0;
 this.dragStartViewport = 0;
+this.lastPointerClientX = 0;
+this.lastPointerCanvas = "chart";
 
 this.palette = {
 up: "#35f5a3",
@@ -187,9 +198,15 @@ this.draw();
 
 destroy() {
 this.unbindEvents();
+
 if (this.resizeObserver) {
 this.resizeObserver.disconnect();
 this.resizeObserver = null;
+}
+
+if (this.tooltipHost) {
+this.tooltipHost.innerHTML = "";
+this.tooltipHost.style.transform = "";
 }
 }
 
@@ -249,11 +266,21 @@ this.resizeObserver.observe(this.volumeHost);
 
 setInterval(interval) {
 this.activeInterval = interval || "1m";
+this.draw();
 }
 
 setData({ candles = [], trades = [], stats = {} } = {}) {
-this.candles = candles.map(resolveCandle).filter((c) => Number.isFinite(c.close));
-this.trades = trades.map(resolveTrade).filter((t) => Number.isFinite(t.price));
+this.candles = candles
+.map(resolveCandle)
+.filter((c) => c.time && Number.isFinite(new Date(c.time).getTime()) && Number.isFinite(c.close));
+
+this.trades = trades
+.map(resolveTrade)
+.filter((t) => t.time && Number.isFinite(new Date(t.time).getTime()) && Number.isFinite(t.price));
+
+this.candles.sort((a, b) => new Date(a.time).getTime() - new Date(b.time).getTime());
+this.trades.sort((a, b) => new Date(a.time).getTime() - new Date(b.time).getTime());
+
 this.stats = stats || {};
 this.activeIndex = -1;
 this.fitToLatest();
@@ -262,16 +289,25 @@ this.draw();
 
 updateData(partial = {}) {
 if (partial.candles) {
-this.candles = partial.candles.map(resolveCandle).filter((c) => Number.isFinite(c.close));
+this.candles = partial.candles
+.map(resolveCandle)
+.filter((c) => c.time && Number.isFinite(new Date(c.time).getTime()) && Number.isFinite(c.close));
+this.candles.sort((a, b) => new Date(a.time).getTime() - new Date(b.time).getTime());
 }
+
 if (partial.trades) {
-this.trades = partial.trades.map(resolveTrade).filter((t) => Number.isFinite(t.price));
+this.trades = partial.trades
+.map(resolveTrade)
+.filter((t) => t.time && Number.isFinite(new Date(t.time).getTime()) && Number.isFinite(t.price));
+this.trades.sort((a, b) => new Date(a.time).getTime() - new Date(b.time).getTime());
 }
+
 if (partial.stats) {
 this.stats = partial.stats || {};
 }
 
 const anchoredToRight = this.viewportStart + this.viewportCount >= this.candles.length - 2;
+
 if (anchoredToRight) {
 this.fitToLatest(this.viewportCount);
 } else {
@@ -292,27 +328,45 @@ Math.floor(visibleCount || this.options.maxCandles),
 this.options.minVisibleCandles,
 this.options.maxVisibleCandles
 );
+
 this.viewportCount = Math.min(total || count, count);
 this.viewportStart = Math.max(0, total - this.viewportCount);
 }
 
 getVisibleCandles() {
 if (!this.candles.length) return [];
+
 const start = clamp(this.viewportStart, 0, Math.max(0, this.candles.length - 1));
 const count = clamp(
 this.viewportCount,
 this.options.minVisibleCandles,
 this.options.maxVisibleCandles
 );
+
 return this.candles.slice(start, start + count);
+}
+
+getCandleSlot(plotWidth, candleCount) {
+return plotWidth / Math.max(candleCount, 1);
+}
+
+getBodyWidth(slot) {
+const gap = slot > 18 ? this.options.candleGap : slot > 10 ? 2 : 1;
+return Math.max(2, slot - gap);
 }
 
 onPointerMove(event) {
 if (!this.visibleCandles.length || this.isDragging) return;
 
-const rect = this.chartCanvas.getBoundingClientRect();
-const plot = this.getPlotArea(rect.width, rect.height);
+const targetCanvas = event.currentTarget === this.volumeCanvas ? this.volumeCanvas : this.chartCanvas;
+const rect = targetCanvas.getBoundingClientRect();
+const plot = targetCanvas === this.volumeCanvas
+? this.getVolumePlotArea(rect.width, rect.height)
+: this.getPlotArea(rect.width, rect.height);
+
 const x = event.clientX - rect.left;
+this.lastPointerClientX = event.clientX;
+this.lastPointerCanvas = targetCanvas === this.volumeCanvas ? "volume" : "chart";
 
 if (x < plot.left || x > plot.right) {
 this.activeIndex = -1;
@@ -321,7 +375,11 @@ return;
 }
 
 const candleWidth = plot.width / Math.max(this.visibleCandles.length, 1);
-const index = clamp(Math.floor((x - plot.left) / candleWidth), 0, this.visibleCandles.length - 1);
+const index = clamp(
+Math.floor((x - plot.left) / candleWidth),
+0,
+this.visibleCandles.length - 1
+);
 
 this.activeIndex = index;
 this.draw();
@@ -360,6 +418,7 @@ this.dragStartViewport - deltaCandles,
 0,
 Math.max(0, this.candles.length - this.viewportCount)
 );
+
 this.activeIndex = -1;
 this.draw();
 }
@@ -426,7 +485,7 @@ this.drawVolumeGrid(volumeSize);
 this.drawCandles(chartSize, visibleCandles, priceBounds);
 this.drawVolumes(volumeSize, visibleCandles, volumeBounds);
 this.drawAxes(chartSize, priceBounds);
-this.drawXAxis(chartSize, visibleCandles);
+this.drawXAxis(volumeSize, visibleCandles);
 this.drawVolumeAxis(volumeSize, volumeBounds);
 this.drawTradeMarkers(chartSize, visibleCandles, priceBounds);
 this.drawLastPriceLine(chartSize, visibleCandles, priceBounds);
@@ -464,6 +523,7 @@ chartSize.height,
 "Waiting for market data",
 "Candles will appear once live trading begins."
 );
+
 drawLabel(
 this.volumeCtx,
 volumeSize.width,
@@ -606,9 +666,8 @@ ctx.restore();
 drawCandles(size, candles, bounds) {
 const ctx = this.chartCtx;
 const plot = this.getPlotArea(size.width, size.height);
-const candleSlot = plot.width / Math.max(candles.length, 1);
-const dynamicGap = candleSlot > 14 ? this.options.candleGap : 1;
-const bodyWidth = Math.max(2, candleSlot - dynamicGap);
+const candleSlot = this.getCandleSlot(plot.width, candles.length);
+const bodyWidth = this.getBodyWidth(candleSlot);
 
 ctx.save();
 
@@ -638,7 +697,12 @@ ctx.fillRect(bodyLeft, bodyTop, bodyWidth, bodyHeight);
 
 ctx.strokeStyle = rgba(color, 1);
 ctx.lineWidth = 1;
-ctx.strokeRect(bodyLeft + 0.5, bodyTop + 0.5, Math.max(1, bodyWidth - 1), Math.max(1, bodyHeight - 1));
+ctx.strokeRect(
+bodyLeft + 0.5,
+bodyTop + 0.5,
+Math.max(1, bodyWidth - 1),
+Math.max(1, bodyHeight - 1)
+);
 
 if (this.activeIndex === index) {
 ctx.strokeStyle = rgba("#ffffff", 0.18);
@@ -653,9 +717,8 @@ ctx.restore();
 drawVolumes(size, candles, bounds) {
 const ctx = this.volumeCtx;
 const plot = this.getVolumePlotArea(size.width, size.height);
-const slot = plot.width / Math.max(candles.length, 1);
-const dynamicGap = slot > 14 ? this.options.candleGap : 1;
-const barWidth = Math.max(2, slot - dynamicGap);
+const slot = this.getCandleSlot(plot.width, candles.length);
+const barWidth = this.getBodyWidth(slot);
 
 ctx.save();
 
@@ -774,7 +837,9 @@ if (!this.trades.length || !candles.length) return;
 
 const ctx = this.chartCtx;
 const plot = this.getPlotArea(size.width, size.height);
-const candleTimes = candles.map((c) => new Date(c.time).getTime()).filter((t) => Number.isFinite(t));
+const candleTimes = candles
+.map((c) => new Date(c.time).getTime())
+.filter((t) => Number.isFinite(t));
 
 if (!candleTimes.length) return;
 
@@ -847,6 +912,7 @@ volumeCtx.restore();
 
 drawTooltip(candle, pinned = false) {
 if (!this.tooltipHost) return;
+
 if (!candle) {
 this.tooltipHost.innerHTML = "";
 return;
@@ -879,6 +945,28 @@ this.tooltipHost.innerHTML = `
 </div>
 </div>
 `;
+
+const hostRect = this.chartHost?.getBoundingClientRect?.();
+if (!hostRect) return;
+
+if (pinned || this.activeIndex < 0 || !this.visibleCandles.length) {
+this.tooltipHost.style.transform = "translate(0px, 0px)";
+return;
+}
+
+const plot = this.getPlotArea(hostRect.width, hostRect.height);
+const slot = plot.width / Math.max(this.visibleCandles.length, 1);
+const x = plot.left + this.activeIndex * slot + slot / 2;
+
+const tooltipCard = this.tooltipHost.firstElementChild;
+const tooltipWidth = tooltipCard?.getBoundingClientRect?.().width || 220;
+const desiredLeft = clamp(
+x - tooltipWidth / 2,
+10,
+Math.max(10, hostRect.width - tooltipWidth - 10)
+);
+
+this.tooltipHost.style.transform = `translate(${Math.round(desiredLeft)}px, 0px)`;
 }
 
 roundRect(ctx, x, y, width, height, radius) {

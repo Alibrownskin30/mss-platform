@@ -221,7 +221,7 @@ return "live";
 }
 
 if (
-(rawStatus === "building") ||
+rawStatus === "building" ||
 (
 countdownEndsMs &&
 now >= countdownEndsMs &&
@@ -459,10 +459,6 @@ return parseTs(stats?.countdownEndsAt || launch?.countdown_ends_at || launch?.li
 
 function getCommitEndsMs(launch, stats) {
 return parseTs(stats?.commitEndsAt || launch?.commit_ends_at);
-}
-
-function isPostCountdownBuilding(launch, stats) {
-return inferEffectiveLaunchStatus(launch, stats) === "building";
 }
 
 function getDisplayPhaseStatus(launch, stats) {
@@ -798,7 +794,7 @@ method: "POST",
 console.warn("launch.js finalize attempt did not complete:", err?.message || err);
 }
 
-await refresh({ syncMarket: true, syncLifecycle: true });
+await refresh({ marketSyncMode: "hard", syncLifecycle: true });
 } finally {
 countdownFinalizeInFlight = false;
 }
@@ -983,308 +979,6 @@ return `
 .join("");
 }
 
-function renderPhase(launch, committed, minRaise, hardCap, commitEndsAt, stats, lifecycle = null) {
-const phaseValue = $("phaseValue");
-const phasePill = $("phasePill");
-const phaseNote = $("phaseNote");
-const timeStat = $("timeStat");
-
-if (!phaseValue || !phasePill || !phaseNote || !timeStat) return;
-
-const status = getDisplayPhaseStatus(launch, stats);
-const fillDurationMs = getFillDurationMs(launch, stats);
-const isBuilder = String(launch.template || "") === "builder";
-const bondState = getBuilderBondState(launch, stats);
-const readiness = lifecycle?.graduationReadiness || null;
-
-phaseValue.textContent = phaseDisplayText(status);
-phasePill.textContent = phaseDisplayText(status);
-phasePill.className = `status-pill ${pillClass(status)}`;
-
-let note = "";
-
-if (status === "commit") {
-const minRemaining = Math.max(0, minRaise - committed);
-const hardRemaining = Math.max(0, hardCap - committed);
-const msLeft = commitEndsAt ? commitEndsAt - Date.now() : null;
-
-timeStat.textContent = Number.isFinite(msLeft) ? fmtCountdown(msLeft) : "COMMIT";
-
-if (committed >= hardCap && hardCap > 0) {
-note = "Hard cap reached. Countdown has been triggered automatically and refunds are now closing.";
-} else if (committed >= minRaise) {
-note = `Minimum raise reached. Commit phase remains open for additional participation until hard cap is reached or the commit timer expires. ${hardRemaining} SOL remains until hard cap.`;
-} else if (Number.isFinite(msLeft)) {
-note = `Commit phase active. ${minRemaining} SOL still needed before launch qualifies for countdown at commit expiry. Refunds are currently allowed. Commit window ends in ${fmtCountdown(msLeft)}.`;
-} else {
-note = `Commit phase active. ${minRemaining} SOL still needed before launch qualifies for countdown at commit expiry. Refunds are currently allowed.`;
-}
-
-if (isBuilder) {
-if (bondState.paid) {
-note += ` Builder bond of ${fmtSol(bondState.amount)} has been collected.`;
-} else if (bondState.pending) {
-note += ` Builder bond of ${fmtSol(bondState.amount)} is not marked as collected yet.`;
-}
-}
-} else if (status === "countdown") {
-const ends = getCountdownEndsMs(launch, stats);
-const msLeft = (ends ?? 0) - Date.now();
-timeStat.textContent = fmtCountdown(msLeft);
-
-if (fillDurationMs != null) {
-note =
-msLeft > 0
-? `Commit phase filled in ${fmtDuration(fillDurationMs)}. Countdown is active. Refunds are disabled. Launch will auto-finalize and go live when the timer reaches zero.`
-: `Commit phase filled in ${fmtDuration(fillDurationMs)}. Countdown has ended. Finalizing live transition now.`;
-} else {
-note =
-msLeft > 0
-? "Countdown is active. Refunds are disabled. Launch will auto-finalize and go live when the timer reaches zero."
-: "Countdown has ended. Finalizing live transition now.";
-}
-
-if (isBuilder && bondState.paid) {
-note += ` Builder bond of ${fmtSol(bondState.amount)} remains locked while the launch progresses.`;
-}
-} else if (status === "building") {
-timeStat.textContent = "BUILDING";
-note =
-fillDurationMs != null
-? `Commit phase filled in ${fmtDuration(fillDurationMs)}. Countdown has ended and MSS is now building the live market, finalizing reserves, and publishing the contract address.`
-: "Countdown has ended and MSS is now building the live market, finalizing reserves, and publishing the contract address.";
-
-if (isBuilder && bondState.paid) {
-note += ` Builder bond of ${fmtSol(bondState.amount)} remains locked while bootstrap completes.`;
-}
-} else if (status === "live") {
-timeStat.textContent = "LIVE";
-note =
-fillDurationMs != null
-? `Launch is now live. Commit phase filled in ${fmtDuration(fillDurationMs)}. Commit and refund actions are closed, and the launch has moved into live state.`
-: "Launch is now live. Commit and refund actions are closed, and the launch has moved into live state.";
-
-if (isBuilder && bondState.paid && !bondState.refunded) {
-note += ` Builder bond of ${fmtSol(bondState.amount)} was collected during launch setup.`;
-}
-
-if (readiness) {
-note += readiness.ready
-? " Graduation conditions are currently satisfied."
-: readiness.reason
-? ` ${readiness.reason}`
-: "";
-}
-} else if (status === "graduated") {
-timeStat.textContent = "GRADUATED";
-note = "This launch has already completed its launch lifecycle and graduated beyond the initial launch phase.";
-
-if (lifecycle?.graduationStatus) {
-note += ` Liquidity lifecycle status: ${lifecycle.graduationStatus}.`;
-}
-} else if (status === "failed") {
-timeStat.textContent = "FAILED";
-note = "This launch failed to reach minimum raise before commit expiry.";
-
-if (isBuilder) {
-if (bondState.refunded) {
-note += ` Builder bond of ${fmtSol(bondState.amount)} has already been refunded.`;
-} else if (bondState.paid) {
-note += ` Builder bond of ${fmtSol(bondState.amount)} was collected and is eligible for refund handling.`;
-} else if (bondState.pending) {
-note += " No collected builder bond is recorded for refund.";
-}
-}
-} else if (status === "failed_refunded") {
-timeStat.textContent = "REFUNDED";
-note = "This launch failed, all tracked commitments were automatically refunded, and the launch is now closed.";
-
-if (isBuilder) {
-if (bondState.refunded) {
-note += ` Builder bond of ${fmtSol(bondState.amount)} was also refunded.`;
-} else if (bondState.paid) {
-note += " Builder bond was collected earlier but is not marked refunded.";
-} else if (bondState.pending) {
-note += " No collected builder bond was recorded on this launch.";
-}
-}
-} else {
-timeStat.textContent = phaseDisplayText(status);
-note = "Launch state loaded.";
-}
-
-phaseNote.textContent = note;
-}
-
-function renderBuilderInfo(launch) {
-const builderAliasEl = $("builderAlias");
-const builderScoreEl = $("builderScore");
-const launchBuilderLabelEl = $("launchBuilderLabel");
-
-if (!builderAliasEl || !builderScoreEl) return;
-
-const builderScore = safeNum(launch.builder_score, 0);
-const builderTrust = getBuilderTrust(builderScore);
-const builderAlias = escapeHtml(launch.builder_alias || launch.builder_wallet || "Unknown");
-const builderWallet = String(launch.builder_wallet || "").trim();
-
-if (builderWallet) {
-builderAliasEl.innerHTML = `<a href="./builder.html?wallet=${encodeURIComponent(builderWallet)}" style="color:rgba(255,255,255,.92);text-decoration:none;">${builderAlias}</a> • Score ${builderScore} • ${builderTrust.label}`;
-} else {
-builderAliasEl.textContent = `${launch.builder_alias || launch.builder_wallet || "Unknown"} • Score ${builderScore} • ${builderTrust.label}`;
-}
-
-builderScoreEl.textContent = `${builderScore} (${builderTrust.label})`;
-
-if (launchBuilderLabelEl) {
-launchBuilderLabelEl.textContent = launch.builder_alias || "Builder";
-}
-}
-
-function renderProgressCard(launch, committed, hardCap, minRaise, participants, pct, commitEndsAt, stats) {
-const headline = $("progressHeadline");
-const subline = $("progressSubline");
-const text = $("progressText");
-const pctEl = $("progressPct");
-const fill = $("progressFill");
-const pill = $("progressStatusPill");
-const fillDurationMs = getFillDurationMs(launch, stats);
-const isBuilder = String(launch.template || "") === "builder";
-const bondState = getBuilderBondState(launch, stats);
-const status = getDisplayPhaseStatus(launch, stats);
-
-if (headline) headline.textContent = `${committed} / ${hardCap} SOL committed`;
-if (text) text.textContent = `${committed} / ${hardCap} SOL committed`;
-if (pctEl) pctEl.textContent = `${pct}%`;
-if (fill) fill.style.width = `${pct}%`;
-
-if (pill) {
-pill.textContent = phaseDisplayText(status);
-pill.className = `status-pill ${pillClass(status)}`;
-}
-
-if (!subline) return;
-
-if (status === "commit") {
-const minRemaining = Math.max(0, minRaise - committed);
-const hardRemaining = Math.max(0, hardCap - committed);
-const msLeft = commitEndsAt ? commitEndsAt - Date.now() : null;
-
-if (committed >= hardCap && hardCap > 0) {
-subline.textContent = `Hard cap reached • ${participants} participant${participants === 1 ? "" : "s"}`;
-} else if (committed >= minRaise) {
-subline.textContent = `${hardRemaining} SOL until hard cap • ${participants} participant${participants === 1 ? "" : "s"}${Number.isFinite(msLeft) ? ` • ${fmtCountdown(msLeft)} left` : ""}`;
-} else if (Number.isFinite(msLeft)) {
-subline.textContent = `${minRemaining} SOL until minimum raise • ${participants} participant${participants === 1 ? "" : "s"} • ${fmtCountdown(msLeft)} left`;
-} else {
-subline.textContent = `${minRemaining} SOL until minimum raise • ${participants} participant${participants === 1 ? "" : "s"}`;
-}
-
-if (isBuilder) {
-if (bondState.paid) {
-subline.textContent += " • Bond collected";
-} else if (bondState.pending) {
-subline.textContent += " • Bond pending";
-}
-}
-} else if (status === "countdown") {
-subline.textContent =
-fillDurationMs != null
-? `Commit phase filled in ${fmtDuration(fillDurationMs)} • Countdown active • ${participants} participant${participants === 1 ? "" : "s"}`
-: `Countdown active • ${participants} participant${participants === 1 ? "" : "s"}`;
-
-if (isBuilder && bondState.paid) {
-subline.textContent += " • Bond locked";
-}
-} else if (status === "building") {
-subline.textContent =
-fillDurationMs != null
-? `Commit phase filled in ${fmtDuration(fillDurationMs)} • Building live market • ${participants} participant${participants === 1 ? "" : "s"}`
-: `Building live market • ${participants} participant${participants === 1 ? "" : "s"}`;
-
-if (isBuilder && bondState.paid) {
-subline.textContent += " • Bond locked";
-}
-} else if (status === "live") {
-subline.textContent =
-fillDurationMs != null
-? `Commit phase filled in ${fmtDuration(fillDurationMs)} • Launch is live • ${participants} participant${participants === 1 ? "" : "s"}`
-: `Launch is live • ${participants} participant${participants === 1 ? "" : "s"}`;
-
-if (isBuilder && bondState.paid) {
-subline.textContent += " • Bond collected";
-}
-} else if (status === "failed") {
-subline.textContent = `Launch failed • ${participants} participant${participants === 1 ? "" : "s"}`;
-
-if (isBuilder) {
-if (bondState.refunded) {
-subline.textContent += " • Bond refunded";
-} else if (bondState.paid) {
-subline.textContent += " • Bond collected";
-} else if (bondState.pending) {
-subline.textContent += " • Bond not collected";
-}
-}
-} else if (status === "failed_refunded") {
-subline.textContent = "Launch refunded and closed";
-
-if (isBuilder) {
-if (bondState.refunded) {
-subline.textContent += " • Bond refunded";
-} else if (bondState.paid) {
-subline.textContent += " • Bond collected";
-} else if (bondState.pending) {
-subline.textContent += " • No bond collected";
-}
-}
-} else {
-subline.textContent = `Launch status • ${participants} participant${participants === 1 ? "" : "s"}`;
-}
-}
-
-function renderAllocationStructure(launch, stats) {
-const participantsPctStat = $("participantsPctStat");
-const liquidityPctStat = $("liquidityPctStat");
-const reservePctStat = $("reservePctStat");
-const builderPctStat = $("builderPctStat");
-
-const participantsPct = safeNum(launch.participants_pct);
-const liquidityPct = safeNum(launch.liquidity_pct);
-const rawReservePct = safeNum(launch.reserve_pct);
-const baseBuilderPct = safeNum(launch.builder_pct);
-const isBuilder = String(launch.template || "") === "builder";
-const teamAllocationPct = safeNum(
-stats.teamAllocationPct,
-safeNum(launch.team_allocation_pct, 0)
-);
-const effectiveReservePct = isBuilder
-? Math.max(0, rawReservePct - teamAllocationPct)
-: rawReservePct;
-const bondState = getBuilderBondState(launch, stats);
-
-if (participantsPctStat) participantsPctStat.textContent = `${participantsPct}%`;
-if (liquidityPctStat) liquidityPctStat.textContent = `${liquidityPct}%`;
-if (reservePctStat) reservePctStat.textContent = `${effectiveReservePct}%`;
-
-if (!builderPctStat) return;
-
-if (isBuilder) {
-let bondLabel = `Bond ${fmtSol(bondState.amount)}`;
-if (bondState.refunded) {
-bondLabel += " • Refunded";
-} else if (bondState.paid) {
-bondLabel += " • Collected";
-} else if (bondState.pending) {
-bondLabel += " • Pending";
-}
-
-builderPctStat.innerHTML = `${baseBuilderPct}%<div style="margin-top:6px;font-size:12px;color:rgba(255,255,255,.62);font-weight:600;">Team ${teamAllocationPct}% • ${bondLabel}</div>`;
-} else {
-builderPctStat.textContent = `${baseBuilderPct}%`;
-}
-}
-
 function buildLifecycleSummaryText(lifecycle, launch) {
 if (!lifecycle || !launch) return "";
 
@@ -1409,7 +1103,7 @@ clearAutoStatus();
 }
 }
 
-async function syncLaunchMarketController(forceRefresh = false) {
+async function syncLaunchMarketController(mode = "soft") {
 const id = qs("id");
 if (!id) return;
 if (!$("marketCard")) return;
@@ -1425,7 +1119,7 @@ commitStats: currentCommitStats || {},
 saveLinks: defaultSaveLinksWithWallet,
 });
 
-if (forceRefresh && typeof launchMarketController.refreshLaunch === "function") {
+if (mode === "hard" && typeof launchMarketController.refreshLaunch === "function") {
 await launchMarketController.refreshLaunch({ force: true });
 }
 return;
@@ -1448,13 +1142,10 @@ launchMarketController.applyAll();
 }
 }
 
-if (
-forceRefresh &&
-typeof launchMarketController.refreshLaunch === "function"
-) {
+if (mode === "hard" && typeof launchMarketController.refreshLaunch === "function") {
 await launchMarketController.refreshLaunch({ force: true });
 } else if (
-forceRefresh &&
+mode === "live-only" &&
 isLiveLikeStatus(currentLaunch?.status) &&
 typeof launchMarketController.refreshLiveMarketOnly === "function"
 ) {
@@ -1557,7 +1248,10 @@ lastRenderedPhaseStatus = displayStatus;
 }
 
 async function refresh(options = {}) {
-const { syncMarket = true, syncLifecycle = false } = options;
+const {
+marketSyncMode = "soft",
+syncLifecycle = false,
+} = options;
 
 if (refreshInFlight) return;
 refreshInFlight = true;
@@ -1571,8 +1265,8 @@ await loadLifecycleIfNeeded(true);
 
 render();
 
-if (syncMarket) {
-await syncLaunchMarketController(true);
+if (marketSyncMode !== "none") {
+await syncLaunchMarketController(marketSyncMode);
 }
 } finally {
 refreshInFlight = false;
@@ -1580,7 +1274,7 @@ refreshInFlight = false;
 }
 
 async function refreshStateBeforeAction() {
-await refresh({ syncMarket: true, syncLifecycle: true });
+await refresh({ marketSyncMode: "hard", syncLifecycle: true });
 return {
 launch: currentLaunch,
 stats: currentCommitStats,
@@ -1598,7 +1292,7 @@ updateWalletUi();
 
 if (wallet?.isConnected) {
 setStatus(`Wallet connected: ${shortenWallet(wallet.publicKey)}`, "good");
-await syncLaunchMarketController(true);
+await syncLaunchMarketController("hard");
 return;
 }
 
@@ -1626,7 +1320,7 @@ await disconnectAnyWallet();
 walletActionInFlight = false;
 updateWalletUi();
 if (currentLaunch && currentCommitStats) render();
-await syncLaunchMarketController(true);
+await syncLaunchMarketController("hard");
 }
 
 setStatus("Wallet disconnected.", "warn");
@@ -1749,7 +1443,7 @@ if ($("commitAmount")) {
 $("commitAmount").value = "";
 }
 
-await refresh({ syncMarket: true, syncLifecycle: true });
+await refresh({ marketSyncMode: "hard", syncLifecycle: true });
 restartRefreshLoop();
 restartLifecycleRefreshLoop();
 } catch (err) {
@@ -1762,14 +1456,14 @@ Number(err?.status) === 409 &&
 if (lateRefund) {
 setStatus(buildLateRefundMessage(err, transferSignature), "warn");
 try {
-await refresh({ syncMarket: true, syncLifecycle: true });
+await refresh({ marketSyncMode: "hard", syncLifecycle: true });
 } catch (refreshErr) {
 console.error(refreshErr);
 }
 } else {
 setStatus(err?.message || "Commit failed.", "bad");
 try {
-await refresh({ syncMarket: true, syncLifecycle: true });
+await refresh({ marketSyncMode: "hard", syncLifecycle: true });
 } catch (refreshErr) {
 console.error(refreshErr);
 }
@@ -1834,14 +1528,14 @@ setStatus(
 "good"
 );
 
-await refresh({ syncMarket: true, syncLifecycle: true });
+await refresh({ marketSyncMode: "hard", syncLifecycle: true });
 restartRefreshLoop();
 restartLifecycleRefreshLoop();
 } catch (err) {
 console.error(err);
 setStatus(err?.message || "Refund failed.", "bad");
 try {
-await refresh({ syncMarket: true, syncLifecycle: true });
+await refresh({ marketSyncMode: "hard", syncLifecycle: true });
 } catch (refreshErr) {
 console.error(refreshErr);
 }
@@ -1886,7 +1580,7 @@ walletChangeBound = true;
 onWalletChange(async () => {
 updateWalletUi();
 if (currentLaunch && currentCommitStats) render();
-await syncLaunchMarketController(true);
+await syncLaunchMarketController("hard");
 });
 }
 
@@ -1917,7 +1611,7 @@ refreshIntervalId = setInterval(async () => {
 if (refreshInFlight || commitActionInFlight || refundActionInFlight || countdownFinalizeInFlight) return;
 
 try {
-await refresh({ syncMarket: false, syncLifecycle: false });
+await refresh({ marketSyncMode: "soft", syncLifecycle: false });
 } catch (err) {
 console.error(err);
 }
@@ -1938,6 +1632,7 @@ if (refreshInFlight || lifecycleRefreshInFlight) return;
 try {
 await loadLifecycleIfNeeded(true);
 render();
+await syncLaunchMarketController("live-only");
 } catch (err) {
 console.error(err);
 }
@@ -1957,7 +1652,7 @@ await restoreWalletIfTrusted();
 updateWalletUi();
 
 try {
-await refresh({ syncMarket: true, syncLifecycle: true });
+await refresh({ marketSyncMode: "hard", syncLifecycle: true });
 } catch (err) {
 console.error(err);
 setStatus(err?.message || "Failed to load launch.", "bad");
@@ -1997,7 +1692,7 @@ restartLifecycleRefreshLoop();
 }
 
 if (displayStatus !== lastRenderedPhaseStatus && !refreshInFlight) {
-void refresh({ syncMarket: true, syncLifecycle: true })
+void refresh({ marketSyncMode: "hard", syncLifecycle: true })
 .then(() => {
 restartRefreshLoop();
 restartLifecycleRefreshLoop();

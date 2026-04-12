@@ -37,18 +37,63 @@ function cleanWallet(raw) {
 return String(raw ?? "").trim().slice(0, 120);
 }
 
+function cleanText(value, max = 200) {
+return String(value ?? "").trim().slice(0, max);
+}
+
+function parseDbTime(value) {
+if (!value) return null;
+const raw = String(value).trim();
+if (!raw) return null;
+
+const hasExplicitTimezone =
+/z$/i.test(raw) || /[+-]\d{2}:\d{2}$/.test(raw);
+
+if (!hasExplicitTimezone && /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/.test(raw)) {
+const sqliteUtc = Date.parse(raw.replace(" ", "T") + "Z");
+return Number.isFinite(sqliteUtc) ? sqliteUtc : null;
+}
+
+const direct = Date.parse(raw);
+return Number.isFinite(direct) ? direct : null;
+}
+
+function inferRevealStatus(launch = null) {
+if (!launch) return "";
+
+const rawStatus = cleanText(launch.status, 64).toLowerCase();
+if (rawStatus === "graduated") return "graduated";
+if (rawStatus === "live") return "live";
+
+const contractAddress = cleanText(
+launch.contract_address || launch.mint_address,
+200
+);
+const reservationStatus = cleanText(launch.mint_reservation_status, 64).toLowerCase();
+const liveAtMs = parseDbTime(launch.live_at || launch.countdown_ends_at);
+
+if (contractAddress && reservationStatus === "finalized") return "live";
+if (contractAddress && liveAtMs && Date.now() >= liveAtMs) return "live";
+
+return rawStatus;
+}
+
 function sanitizeLaunchForResponse(launch = null) {
 if (!launch) return null;
 
-const status = String(launch.status || "").toLowerCase();
-const revealContract = status === "live" || status === "graduated";
+const inferredStatus = inferRevealStatus(launch);
+const revealContract = inferredStatus === "live" || inferredStatus === "graduated";
 
 return {
 ...launch,
+status: inferredStatus || launch.status || null,
 contract_address: revealContract ? launch.contract_address || null : null,
 mint_address: revealContract ? launch.mint_address || null : null,
 reserved_mint_address: null,
 reserved_mint_secret: null,
+mint_reservation_status: revealContract
+? cleanText(launch.mint_reservation_status, 64) || null
+: null,
 };
 }
 

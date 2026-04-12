@@ -8,24 +8,28 @@
 <link rel="stylesheet" href="./assets/chart.css" />
 <style>
 :root{
---bg0:#05070c;
---bg1:#070a12;
---bg2:#0a0f18;
---text:rgba(255,255,255,.92);
---muted:rgba(255,255,255,.68);
---muted2:rgba(255,255,255,.45);
+--bg0:#04060b;
+--bg1:#070b12;
+--bg2:#0b1018;
+--text:rgba(255,255,255,.94);
+--muted:rgba(255,255,255,.70);
+--muted2:rgba(255,255,255,.46);
 --line:rgba(255,255,255,.10);
 --line2:rgba(255,255,255,.08);
+--line3:rgba(255,255,255,.06);
 --a:#00ffd1;
 --b:#3aa0ff;
+--c:#8b7bff;
 --good:#35f5a3;
 --warn:#ffd166;
 --bad:#ff5b6b;
---card:linear-gradient(180deg, rgba(255,255,255,.06), rgba(255,255,255,.035));
---card-soft:linear-gradient(180deg, rgba(255,255,255,.045), rgba(255,255,255,.022));
---shadow-xl:0 28px 80px rgba(0,0,0,.40);
+--card:linear-gradient(180deg, rgba(255,255,255,.062), rgba(255,255,255,.030));
+--card-soft:linear-gradient(180deg, rgba(255,255,255,.048), rgba(255,255,255,.020));
+--panel-deep:linear-gradient(180deg, rgba(255,255,255,.05), rgba(255,255,255,.018));
+--shadow-xl:0 30px 100px rgba(0,0,0,.42);
 --shadow-lg:0 18px 60px rgba(0,0,0,.32);
---radius-xl:24px;
+--shadow-md:0 10px 30px rgba(0,0,0,.24);
+--radius-xl:26px;
 --radius-lg:20px;
 --radius-md:14px;
 }
@@ -38,10 +42,24 @@ margin:0;
 font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial;
 color:var(--text);
 background:
-radial-gradient(1200px 700px at 15% -10%, rgba(0,255,209,.18), transparent 55%),
-radial-gradient(900px 600px at 95% 10%, rgba(58,160,255,.16), transparent 50%),
+radial-gradient(1200px 780px at 10% -10%, rgba(0,255,209,.18), transparent 55%),
+radial-gradient(900px 640px at 96% 8%, rgba(58,160,255,.16), transparent 48%),
+radial-gradient(760px 520px at 55% -16%, rgba(139,123,255,.10), transparent 40%),
 linear-gradient(180deg, var(--bg0), var(--bg1));
 overflow-x:hidden;
+}
+
+body::before{
+content:"";
+position:fixed;
+inset:0;
+pointer-events:none;
+background:
+linear-gradient(90deg, rgba(255,255,255,.018) 1px, transparent 1px),
+linear-gradient(rgba(255,255,255,.018) 1px, transparent 1px);
+background-size:44px 44px;
+mask-image:linear-gradient(180deg, rgba(0,0,0,.35), transparent 72%);
+opacity:.32;
 }
 
 .hidden{ display:none !important; }
@@ -51,15 +69,16 @@ a{ color:inherit; text-decoration:none; }
 position:sticky;
 top:0;
 z-index:50;
-backdrop-filter:blur(14px);
-background:rgba(5,7,12,.58);
+backdrop-filter:blur(18px);
+background:linear-gradient(180deg, rgba(4,7,12,.82), rgba(4,7,12,.58));
 border-bottom:1px solid var(--line2);
+box-shadow:0 10px 30px rgba(0,0,0,.18);
 }
 
 .topbar-inner{
-max-width:1360px;
+max-width:1400px;
 margin:0 auto;
-padding:14px 18px;
+padding:14px 20px;
 display:flex;
 align-items:center;
 justify-content:space-between;
@@ -69,20 +88,28 @@ gap:14px;
 .brand{
 display:flex;
 align-items:center;
-gap:10px;
+gap:12px;
 min-width:0;
 }
 
 .mark{
-width:34px;
-height:34px;
-border-radius:10px;
-background:linear-gradient(135deg, rgba(0,255,209,.9), rgba(58,160,255,.9));
-box-shadow:0 10px 24px rgba(0,255,209,.18), 0 10px 24px rgba(58,160,255,.14);
+width:36px;
+height:36px;
+border-radius:11px;
+background:
+radial-gradient(circle at 30% 24%, rgba(255,255,255,.24), transparent 36%),
+linear-gradient(135deg, rgba(0,255,209,.96), rgba(58,160,255,.94));
+box-shadow:
+0 14px 28px rgba(0,255,209,.16),
+0 14px 28px rgba(58,160,255,.12),
+inset 0 1px 0 rgba(255,255,255,.32);
 flex:0 0 auto;
 }
 
-.brand-title{ font-weight:800; }
+.brand-title{
+font-weight:900;
+letter-spacing:.01em;
+}
 
 .brand-sub{
 font-size:12px;
@@ -123,21 +150,22 @@ flex:0 0 auto;
 }
 
 .nav a:hover{
-color:rgba(255,255,255,.92);
+color:rgba(255,255,255,.94);
 border-color:rgba(255,255,255,.10);
 background:rgba(255,255,255,.04);
 }
 
 .nav a.active{
-color:rgba(255,255,255,.92);
+color:rgba(255,255,255,.94);
 border-color:rgba(0,255,209,.20);
 background:rgba(0,255,209,.06);
+box-shadow:inset 0 1px 0 rgba(255,255,255,.06);
 }
 
 .wrap{
-max-width:1360px;
+max-width:1400px;
 margin:0 auto;
-padding:18px 18px 64px;
+padding:18px 20px 72px;
 }
 
 .back-link{
@@ -149,16 +177,25 @@ color:rgba(255,255,255,.66);
 font-size:13px;
 }
 
-.back-link:hover{ color:rgba(255,255,255,.92); }
+.back-link:hover{ color:rgba(255,255,255,.94); }
 
 .panel{
+position:relative;
 border:1px solid var(--line);
 background:var(--card);
-border-radius:22px;
+border-radius:24px;
 padding:18px;
 box-shadow:var(--shadow-lg);
 min-width:0;
 overflow:hidden;
+}
+
+.panel::before{
+content:"";
+position:absolute;
+inset:0;
+pointer-events:none;
+background:linear-gradient(180deg, rgba(255,255,255,.035), transparent 26%);
 }
 
 .section-title{
@@ -203,10 +240,11 @@ border-radius:999px;
 background:rgba(255,255,255,.04);
 border:1px solid rgba(255,255,255,.10);
 font-size:12px;
-color:rgba(255,255,255,.80);
+color:rgba(255,255,255,.82);
 min-width:0;
 max-width:100%;
 overflow-wrap:anywhere;
+box-shadow:inset 0 1px 0 rgba(255,255,255,.04);
 }
 
 .phase-box{
@@ -234,7 +272,7 @@ letter-spacing:.14em;
 
 .phase-value{
 font-size:22px;
-font-weight:800;
+font-weight:900;
 word-break:break-word;
 }
 
@@ -262,6 +300,7 @@ background:rgba(255,255,255,.05);
 color:rgba(255,255,255,.90);
 text-transform:uppercase;
 flex:0 0 auto;
+box-shadow:inset 0 1px 0 rgba(255,255,255,.06);
 }
 
 .status-pill.commit{
@@ -293,7 +332,7 @@ background:rgba(255,255,255,.06);
 padding:16px;
 border:1px solid rgba(255,255,255,.10);
 background:rgba(255,255,255,.03);
-border-radius:20px;
+border-radius:22px;
 min-width:0;
 }
 
@@ -309,7 +348,7 @@ min-width:0;
 
 .progress-card-title{
 font-size:19px;
-font-weight:800;
+font-weight:900;
 line-height:1.1;
 word-break:break-word;
 }
@@ -375,6 +414,7 @@ background:rgba(255,255,255,.03);
 border-radius:16px;
 padding:13px;
 min-width:0;
+box-shadow:inset 0 1px 0 rgba(255,255,255,.04);
 }
 
 .commit-kpi .k,
@@ -389,7 +429,7 @@ letter-spacing:.12em;
 .stat .v{
 margin-top:8px;
 font-size:22px;
-font-weight:800;
+font-weight:900;
 word-break:break-word;
 }
 
@@ -608,6 +648,221 @@ display:grid;
 gap:18px;
 }
 
+.launch-command-deck{
+display:grid;
+grid-template-columns:minmax(0,1.08fr) minmax(300px,.92fr);
+gap:16px;
+align-items:stretch;
+}
+
+.launch-command-card{
+position:relative;
+overflow:hidden;
+border:1px solid rgba(255,255,255,.10);
+border-radius:24px;
+background:
+radial-gradient(circle at 10% 0%, rgba(58,160,255,.12), transparent 26%),
+radial-gradient(circle at 90% 10%, rgba(0,255,209,.10), transparent 22%),
+linear-gradient(180deg, rgba(255,255,255,.058), rgba(255,255,255,.022));
+box-shadow:var(--shadow-xl);
+padding:18px;
+}
+
+.launch-command-card::before{
+content:"";
+position:absolute;
+inset:0;
+pointer-events:none;
+background:linear-gradient(180deg, rgba(255,255,255,.04), transparent 28%);
+}
+
+.launch-command-top{
+position:relative;
+z-index:1;
+display:flex;
+align-items:flex-start;
+justify-content:space-between;
+gap:12px;
+flex-wrap:wrap;
+}
+
+.launch-command-kicker{
+font-size:11px;
+letter-spacing:.20em;
+text-transform:uppercase;
+color:var(--muted2);
+margin-bottom:10px;
+}
+
+.launch-command-title{
+margin:0;
+font-size:32px;
+line-height:1;
+letter-spacing:-.05em;
+font-weight:900;
+color:#fff;
+}
+
+.launch-command-text{
+margin-top:12px;
+color:var(--muted);
+font-size:14px;
+line-height:1.65;
+max-width:760px;
+}
+
+.launch-command-status{
+display:flex;
+align-items:center;
+gap:8px;
+min-height:34px;
+padding:0 12px;
+border-radius:999px;
+border:1px solid rgba(255,255,255,.12);
+background:rgba(255,255,255,.05);
+color:#fff;
+font-size:11px;
+font-weight:800;
+letter-spacing:.12em;
+text-transform:uppercase;
+box-shadow:inset 0 1px 0 rgba(255,255,255,.05);
+}
+
+.launch-command-status-dot{
+width:8px;
+height:8px;
+border-radius:999px;
+background:var(--a);
+box-shadow:0 0 14px rgba(0,255,209,.55);
+}
+
+.launch-command-grid{
+position:relative;
+z-index:1;
+display:grid;
+grid-template-columns:repeat(4, minmax(0,1fr));
+gap:10px;
+margin-top:16px;
+}
+
+.launch-command-metric{
+border:1px solid rgba(255,255,255,.09);
+background:rgba(255,255,255,.03);
+border-radius:16px;
+padding:12px;
+min-width:0;
+box-shadow:inset 0 1px 0 rgba(255,255,255,.04);
+}
+
+.launch-command-metric-label{
+font-size:10px;
+letter-spacing:.12em;
+text-transform:uppercase;
+color:var(--muted2);
+margin-bottom:8px;
+}
+
+.launch-command-metric-value{
+font-size:18px;
+font-weight:900;
+line-height:1.08;
+color:#fff;
+word-break:break-word;
+}
+
+.launch-command-metric-sub{
+margin-top:6px;
+color:var(--muted);
+font-size:12px;
+line-height:1.4;
+}
+
+.launch-status-board{
+position:relative;
+overflow:hidden;
+border:1px solid rgba(255,255,255,.10);
+border-radius:24px;
+background:
+radial-gradient(circle at 80% 0%, rgba(139,123,255,.12), transparent 24%),
+linear-gradient(180deg, rgba(255,255,255,.052), rgba(255,255,255,.022));
+box-shadow:var(--shadow-lg);
+padding:18px;
+display:grid;
+gap:12px;
+}
+
+.launch-status-board::before{
+content:"";
+position:absolute;
+inset:0;
+pointer-events:none;
+background:linear-gradient(180deg, rgba(255,255,255,.035), transparent 24%);
+}
+
+.launch-status-board-top{
+position:relative;
+z-index:1;
+display:flex;
+justify-content:space-between;
+align-items:flex-start;
+gap:12px;
+flex-wrap:wrap;
+}
+
+.launch-status-board-title{
+font-size:12px;
+letter-spacing:.16em;
+text-transform:uppercase;
+color:var(--muted2);
+}
+
+.launch-status-board-value{
+margin-top:8px;
+font-size:24px;
+line-height:1;
+font-weight:900;
+color:#fff;
+letter-spacing:-.04em;
+}
+
+.launch-status-board-note{
+position:relative;
+z-index:1;
+color:var(--muted);
+font-size:13px;
+line-height:1.55;
+}
+
+.launch-status-board-grid{
+position:relative;
+z-index:1;
+display:grid;
+grid-template-columns:repeat(2,minmax(0,1fr));
+gap:10px;
+}
+
+.launch-status-board-cell{
+border:1px solid rgba(255,255,255,.08);
+background:rgba(255,255,255,.03);
+border-radius:16px;
+padding:12px;
+}
+
+.launch-status-board-cell-label{
+font-size:10px;
+letter-spacing:.10em;
+text-transform:uppercase;
+color:var(--muted2);
+margin-bottom:6px;
+}
+
+.launch-status-board-cell-value{
+font-size:14px;
+font-weight:800;
+color:#fff;
+word-break:break-word;
+}
+
 .terminal-lower-grid{
 display:grid;
 grid-template-columns:minmax(0,1.24fr) minmax(360px,.76fr);
@@ -676,7 +931,7 @@ flex-wrap:wrap;
 }
 
 .overview-card-title{
-font-size:28px;
+font-size:30px;
 font-weight:900;
 line-height:1.02;
 letter-spacing:-.04em;
@@ -695,7 +950,7 @@ word-break:break-word;
 
 .overview-card-desc{
 color:var(--muted);
-line-height:1.65;
+line-height:1.68;
 font-size:14px;
 word-break:break-word;
 }
@@ -732,7 +987,7 @@ margin:0;
 margin:-2px 0 12px;
 color:var(--muted);
 font-size:13px;
-line-height:1.5;
+line-height:1.6;
 }
 
 .hero-wallet-toolbar{
@@ -932,7 +1187,59 @@ flex-wrap:wrap;
 align-items:center;
 }
 
+.launch-overview-hero{
+display:grid;
+grid-template-columns:minmax(0,1.15fr) minmax(260px,.85fr);
+gap:14px;
+}
+
+.launch-overview-copy,
+.launch-overview-side{
+min-width:0;
+}
+
+.launch-overview-side{
+display:grid;
+gap:10px;
+}
+
+.launch-side-stat{
+border:1px solid rgba(255,255,255,.09);
+background:rgba(255,255,255,.03);
+border-radius:16px;
+padding:12px 14px;
+min-width:0;
+}
+
+.launch-side-stat-label{
+font-size:10px;
+letter-spacing:.12em;
+text-transform:uppercase;
+color:var(--muted2);
+margin-bottom:6px;
+}
+
+.launch-side-stat-value{
+font-size:16px;
+font-weight:900;
+color:#fff;
+line-height:1.15;
+word-break:break-word;
+}
+
 @media (max-width:1180px){
+.launch-command-deck{
+grid-template-columns:1fr;
+}
+
+.launch-command-grid{
+grid-template-columns:repeat(2, minmax(0,1fr));
+}
+
+.launch-overview-hero{
+grid-template-columns:1fr;
+}
+
 .terminal-lower-grid{
 grid-template-columns:1fr;
 }
@@ -986,6 +1293,18 @@ font-size:24px;
 .hero-wallet-toolbar{
 padding:10px;
 }
+
+.launch-command-title{
+font-size:26px;
+}
+
+.launch-command-grid{
+grid-template-columns:1fr 1fr;
+}
+
+.launch-status-board-grid{
+grid-template-columns:1fr 1fr;
+}
 }
 
 @media (max-width:620px){
@@ -998,6 +1317,14 @@ grid-template-columns:1fr 1fr;
 
 .quick{
 grid-template-columns:1fr 1fr;
+}
+
+.launch-command-grid{
+grid-template-columns:1fr;
+}
+
+.launch-status-board-grid{
+grid-template-columns:1fr;
 }
 }
 
@@ -1028,6 +1355,21 @@ width:100%;
 
 .hero-wallet-btn{
 flex:1 1 calc(50% - 4px);
+justify-content:center;
+}
+
+.launch-command-card,
+.launch-status-board{
+padding:16px;
+border-radius:20px;
+}
+
+.launch-command-title{
+font-size:22px;
+}
+
+.launch-command-status{
+width:100%;
 justify-content:center;
 }
 }
@@ -1081,6 +1423,84 @@ style="display:none;"
 data-role="wallet-disconnect"
 >Disconnect</button>
 </div>
+</div>
+
+<div class="launch-command-deck">
+<section class="launch-command-card">
+<div class="launch-command-top">
+<div>
+<div class="launch-command-kicker">Market Command Surface</div>
+<h1 id="launchCommandTitle" class="launch-command-title">MSS Launch Terminal</h1>
+<div id="launchCommandText" class="launch-command-text">
+High-signal launch intelligence, live participation controls, and exchange-style market visibility are unified into one operational surface.
+</div>
+</div>
+
+<div class="launch-command-status">
+<span class="launch-command-status-dot"></span>
+<span id="launchCommandStatus">Terminal Armed</span>
+</div>
+</div>
+
+<div class="launch-command-grid">
+<div class="launch-command-metric">
+<div class="launch-command-metric-label">Launch Phase</div>
+<div id="launchCommandPhase" class="launch-command-metric-value">Commit</div>
+<div class="launch-command-metric-sub">Current lifecycle state</div>
+</div>
+
+<div class="launch-command-metric">
+<div class="launch-command-metric-label">Builder Alias</div>
+<div id="launchCommandBuilder" class="launch-command-metric-value">—</div>
+<div class="launch-command-metric-sub">Operator identity</div>
+</div>
+
+<div class="launch-command-metric">
+<div class="launch-command-metric-label">Builder Score</div>
+<div id="launchCommandScore" class="launch-command-metric-value">—</div>
+<div class="launch-command-metric-sub">CassIE-linked posture</div>
+</div>
+
+<div class="launch-command-metric">
+<div class="launch-command-metric-label">Market State</div>
+<div id="launchCommandMarket" class="launch-command-metric-value">Pre-Live</div>
+<div class="launch-command-metric-sub">Execution availability</div>
+</div>
+</div>
+</section>
+
+<aside class="launch-status-board">
+<div class="launch-status-board-top">
+<div>
+<div class="launch-status-board-title">Operational Snapshot</div>
+<div id="launchStatusBoardValue" class="launch-status-board-value">Awaiting Launch Data</div>
+</div>
+<div id="phasePillMirror" class="status-pill commit">Commit</div>
+</div>
+
+<div id="launchStatusBoardNote" class="launch-status-board-note">
+Launch lifecycle, access posture, and market transition signals are reflected here as backend truth updates.
+</div>
+
+<div class="launch-status-board-grid">
+<div class="launch-status-board-cell">
+<div class="launch-status-board-cell-label">Status</div>
+<div id="launchStatusBoardStatus" class="launch-status-board-cell-value">Pending</div>
+</div>
+<div class="launch-status-board-cell">
+<div class="launch-status-board-cell-label">Access</div>
+<div id="launchStatusBoardAccess" class="launch-status-board-cell-value">Pre-Live</div>
+</div>
+<div class="launch-status-board-cell">
+<div class="launch-status-board-cell-label">Builder Wallet</div>
+<div id="launchStatusBoardBuilderWallet" class="launch-status-board-cell-value">Pending</div>
+</div>
+<div class="launch-status-board-cell">
+<div class="launch-status-board-cell-label">Contract State</div>
+<div id="launchStatusBoardCa" class="launch-status-board-cell-value">Pending</div>
+</div>
+</div>
+</aside>
 </div>
 
 <div id="launchMarketHome" class="launch-market-home">
@@ -1371,12 +1791,27 @@ Trading is not open yet. Commitments are being collected before market activatio
 <div id="phasePill" class="status-pill">—</div>
 </div>
 
+<div class="launch-overview-hero">
+<div class="launch-overview-copy">
 <div id="launchDesc" class="overview-card-desc">Loading launch description…</div>
 
 <div class="overview-card-meta">
 <span class="chip">Builder: <strong id="builderAlias" style="margin-left:6px;">—</strong></span>
 <span class="chip">Status: <strong id="launchStatusText" style="margin-left:6px;">—</strong></span>
 <span class="chip">Builder Score: <strong id="builderScore" style="margin-left:6px;">—</strong></span>
+</div>
+</div>
+
+<div class="launch-overview-side">
+<div class="launch-side-stat">
+<div class="launch-side-stat-label">Operational Phase</div>
+<div id="phaseValueMirror" class="launch-side-stat-value">—</div>
+</div>
+<div class="launch-side-stat">
+<div class="launch-side-stat-label">Launch State Note</div>
+<div id="phaseNoteMirror" class="launch-side-stat-value">Awaiting state</div>
+</div>
+</div>
 </div>
 
 <div class="phase-box">
@@ -1781,18 +2216,92 @@ data-role="wallet-input"
 (function syncOverviewMirror(){
 const source = document.getElementById("launchTokenName");
 const target = document.getElementById("launchTokenNameMirror");
+const commandTitle = document.getElementById("launchCommandTitle");
 if (!source || !target) return;
 
 const apply = () => {
-target.textContent = source.textContent && source.textContent.trim()
+const text = source.textContent && source.textContent.trim()
 ? source.textContent
 : "Launch Overview";
+
+target.textContent = text;
+if (commandTitle) commandTitle.textContent = text;
 };
 
 apply();
 
 const observer = new MutationObserver(apply);
 observer.observe(source, { childList:true, characterData:true, subtree:true });
+})();
+
+(function syncPhaseMirrors(){
+const phaseValue = document.getElementById("phaseValue");
+const phaseNote = document.getElementById("phaseNote");
+const statusText = document.getElementById("launchStatusText");
+const accessText = document.getElementById("launchAccessModeText");
+const builderWalletShort = document.getElementById("launchBuilderWalletShort");
+const caState = document.getElementById("launchCaState");
+const builderAlias = document.getElementById("builderAlias");
+const builderScore = document.getElementById("builderScore");
+
+const phaseValueMirror = document.getElementById("phaseValueMirror");
+const phaseNoteMirror = document.getElementById("phaseNoteMirror");
+const boardValue = document.getElementById("launchStatusBoardValue");
+const boardStatus = document.getElementById("launchStatusBoardStatus");
+const boardAccess = document.getElementById("launchStatusBoardAccess");
+const boardBuilderWallet = document.getElementById("launchStatusBoardBuilderWallet");
+const boardCa = document.getElementById("launchStatusBoardCa");
+const phasePill = document.getElementById("phasePill");
+const phasePillMirror = document.getElementById("phasePillMirror");
+const launchCommandPhase = document.getElementById("launchCommandPhase");
+const launchCommandBuilder = document.getElementById("launchCommandBuilder");
+const launchCommandScore = document.getElementById("launchCommandScore");
+const launchCommandMarket = document.getElementById("launchCommandMarket");
+
+const sync = () => {
+const phaseText = phaseValue && phaseValue.textContent.trim() ? phaseValue.textContent.trim() : "Awaiting";
+const phaseNoteText = phaseNote && phaseNote.textContent.trim() ? phaseNote.textContent.trim() : "Awaiting state";
+const status = statusText && statusText.textContent.trim() ? statusText.textContent.trim() : "Pending";
+const access = accessText && accessText.textContent.trim() ? accessText.textContent.trim() : "Pre-Live";
+const builderWallet = builderWalletShort && builderWalletShort.textContent.trim() ? builderWalletShort.textContent.trim() : "Pending";
+const ca = caState && caState.textContent.trim() ? caState.textContent.trim() : "Pending";
+const builder = builderAlias && builderAlias.textContent.trim() ? builderAlias.textContent.trim() : "—";
+const score = builderScore && builderScore.textContent.trim() ? builderScore.textContent.trim() : "—";
+
+if (phaseValueMirror) phaseValueMirror.textContent = phaseText;
+if (phaseNoteMirror) phaseNoteMirror.textContent = phaseNoteText;
+if (boardValue) boardValue.textContent = phaseText;
+if (boardStatus) boardStatus.textContent = status;
+if (boardAccess) boardAccess.textContent = access;
+if (boardBuilderWallet) boardBuilderWallet.textContent = builderWallet;
+if (boardCa) boardCa.textContent = ca;
+if (launchCommandPhase) launchCommandPhase.textContent = phaseText;
+if (launchCommandBuilder) launchCommandBuilder.textContent = builder;
+if (launchCommandScore) launchCommandScore.textContent = score;
+if (launchCommandMarket) launchCommandMarket.textContent = access;
+
+if (phasePill && phasePillMirror) {
+phasePillMirror.className = phasePill.className;
+phasePillMirror.textContent = phasePill.textContent || "Commit";
+}
+};
+
+sync();
+
+const targets = [
+phaseValue,
+phaseNote,
+statusText,
+accessText,
+builderWalletShort,
+caState,
+builderAlias,
+builderScore,
+phasePill
+].filter(Boolean);
+
+const observer = new MutationObserver(sync);
+targets.forEach((el) => observer.observe(el, { childList:true, characterData:true, subtree:true, attributes:true, attributeFilter:["class"] }));
 })();
 </script>
 </body>

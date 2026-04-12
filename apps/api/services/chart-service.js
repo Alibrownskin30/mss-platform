@@ -87,6 +87,9 @@ poolSolReserve > 0
 ? launchLiquidity
 : 0;
 
+const mintAddress = cleanText(row.token_mint_address, 120) || null;
+const contractAddress = cleanText(row.contract_address, 120) || null;
+
 return {
 id: row.id,
 name: row.token_name,
@@ -95,12 +98,15 @@ symbol: row.symbol,
 status: row.status,
 template: row.template,
 
-contract_address: publicCaVisible ? cleanText(row.contract_address, 120) || null : null,
-mint_address: publicCaVisible
-? cleanText(row.token_mint_address, 120) ||
-cleanText(row.contract_address, 120) ||
-null
+contract_address: publicCaVisible ? contractAddress : null,
+mint_address: publicCaVisible ? (mintAddress || contractAddress) : null,
+
+reserved_mint_address: null,
+reserved_mint_secret: null,
+mint_reservation_status: publicCaVisible
+? cleanText(row.mint_reservation_status, 64).toLowerCase() || null
 : null,
+mint_finalized_at: publicCaVisible ? row.mint_finalized_at || null : null,
 
 builder_wallet: cleanText(row.builder_wallet, 120) || null,
 builder_alias: cleanText(row.builder_alias, 120) || null,
@@ -154,7 +160,8 @@ lifecycle: {
 internal_sol_reserve: toNumber(row.lifecycle_internal_sol_reserve, 0),
 internal_token_reserve: toInt(row.lifecycle_internal_token_reserve, 0),
 implied_marketcap_sol: toNumber(row.lifecycle_implied_marketcap_sol, 0),
-graduation_status: cleanText(row.lifecycle_graduation_status, 120) || "internal_live",
+graduation_status:
+cleanText(row.lifecycle_graduation_status, 120) || "internal_live",
 graduated: toInt(row.lifecycle_graduated, 0) === 1,
 graduation_reason: cleanText(row.lifecycle_graduation_reason, 200) || null,
 graduated_at: row.lifecycle_graduated_at || null,
@@ -164,10 +171,12 @@ raydium_pool_id: cleanText(row.lifecycle_raydium_pool_id, 200) || null,
 raydium_sol_migrated: toNumber(row.lifecycle_raydium_sol_migrated, 0),
 raydium_token_migrated: toInt(row.lifecycle_raydium_token_migrated, 0),
 raydium_lp_tokens: cleanText(row.lifecycle_raydium_lp_tokens, 200) || null,
-raydium_migration_tx: cleanText(row.lifecycle_raydium_migration_tx, 300) || null,
+raydium_migration_tx:
+cleanText(row.lifecycle_raydium_migration_tx, 300) || null,
 mss_locked_sol: toNumber(row.lifecycle_mss_locked_sol, 0),
 mss_locked_token: toInt(row.lifecycle_mss_locked_token, 0),
-mss_locked_lp_amount: cleanText(row.lifecycle_mss_locked_lp_amount, 200) || null,
+mss_locked_lp_amount:
+cleanText(row.lifecycle_mss_locked_lp_amount, 200) || null,
 lock_status: cleanText(row.lifecycle_lock_status, 120) || "not_locked",
 lock_tx: cleanText(row.lifecycle_lock_tx, 300) || null,
 lock_expires_at: row.lifecycle_lock_expires_at || null,
@@ -260,6 +269,7 @@ l.internal_pool_tokens,
 l.liquidity,
 l.liquidity_usd,
 l.current_liquidity_usd,
+l.sol_usd_price,
 l.price,
 l.market_cap,
 l.volume_24h,
@@ -277,6 +287,8 @@ l.commit_started_at,
 l.commit_ends_at,
 l.created_at,
 l.updated_at,
+l.mint_reservation_status,
+l.mint_finalized_at,
 b.alias AS builder_alias,
 b.builder_score AS builder_score,
 p.sol_reserve,
@@ -765,6 +777,7 @@ toNumber(launch?.volume_24h, 0);
 
 const liquidityUsd =
 toNumber(finalized.liquidity_usd, 0) ||
+toNumber(launch?.current_liquidity_usd, 0) ||
 toNumber(launch?.liquidity_usd, 0) ||
 (solUsdPrice > 0 && oneSidedLiquiditySol > 0 ? oneSidedLiquiditySol * solUsdPrice : 0);
 
