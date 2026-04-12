@@ -2251,12 +2251,15 @@ const boardStatus = document.getElementById("launchStatusBoardStatus");
 const boardAccess = document.getElementById("launchStatusBoardAccess");
 const boardBuilderWallet = document.getElementById("launchStatusBoardBuilderWallet");
 const boardCa = document.getElementById("launchStatusBoardCa");
+const boardNote = document.getElementById("launchStatusBoardNote");
 const phasePill = document.getElementById("phasePill");
 const phasePillMirror = document.getElementById("phasePillMirror");
 const launchCommandPhase = document.getElementById("launchCommandPhase");
 const launchCommandBuilder = document.getElementById("launchCommandBuilder");
 const launchCommandScore = document.getElementById("launchCommandScore");
 const launchCommandMarket = document.getElementById("launchCommandMarket");
+const launchCommandStatus = document.getElementById("launchCommandStatus");
+const launchCommandText = document.getElementById("launchCommandText");
 
 const sync = () => {
 const phaseText = phaseValue && phaseValue.textContent.trim() ? phaseValue.textContent.trim() : "Awaiting";
@@ -2275,10 +2278,14 @@ if (boardStatus) boardStatus.textContent = status;
 if (boardAccess) boardAccess.textContent = access;
 if (boardBuilderWallet) boardBuilderWallet.textContent = builderWallet;
 if (boardCa) boardCa.textContent = ca;
+if (boardNote) boardNote.textContent = phaseNoteText;
+
 if (launchCommandPhase) launchCommandPhase.textContent = phaseText;
 if (launchCommandBuilder) launchCommandBuilder.textContent = builder;
 if (launchCommandScore) launchCommandScore.textContent = score;
 if (launchCommandMarket) launchCommandMarket.textContent = access;
+if (launchCommandStatus) launchCommandStatus.textContent = phaseText;
+if (launchCommandText) launchCommandText.textContent = phaseNoteText;
 
 if (phasePill && phasePillMirror) {
 phasePillMirror.className = phasePill.className;

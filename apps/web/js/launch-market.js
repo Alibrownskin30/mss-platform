@@ -147,6 +147,32 @@ minute: "2-digit",
 });
 }
 
+function formatRelativeTime(value) {
+if (!value) return "—";
+const ts = parseDateMs(value);
+if (!ts) return "—";
+
+const diffMs = Date.now() - ts;
+const abs = Math.abs(diffMs);
+const future = diffMs < 0;
+
+const minute = 60_000;
+const hour = 60 * minute;
+const day = 24 * hour;
+
+let text = "just now";
+
+if (abs >= day) {
+text = `${Math.floor(abs / day)}d`;
+} else if (abs >= hour) {
+text = `${Math.floor(abs / hour)}h`;
+} else if (abs >= minute) {
+text = `${Math.floor(abs / minute)}m`;
+}
+
+return future ? `in ${text}` : `${text} ago`;
+}
+
 function normalizeUrl(raw, typeKey = "") {
 const value = String(raw || "").trim();
 if (!value) return "";
@@ -198,6 +224,21 @@ const cleaned = cleanString(value, 2000);
 if (cleaned) return cleaned;
 }
 return "";
+}
+
+function setText(id, value) {
+const el = typeof id === "string" ? $(id) : id;
+if (el) el.textContent = value;
+}
+
+function setHtml(id, value) {
+const el = typeof id === "string" ? $(id) : id;
+if (el) el.innerHTML = value;
+}
+
+function toggleHidden(id, hidden) {
+const el = typeof id === "string" ? $(id) : id;
+if (el) el.classList.toggle("hidden", Boolean(hidden));
 }
 
 function normalizeLaunchTruth(raw = {}) {
@@ -486,23 +527,14 @@ note,
 }
 
 function renderCassiePanel(phase, launch = {}, tokenPayload = {}, chartStats = {}) {
-const stateEl = $("cassieState");
-const badgeEl = $("cassieBadgeText");
-const riskEl = $("cassieRiskState");
-const builderEl = $("cassieBuilderSignal");
-const structureEl = $("cassieStructureSignal");
-const marketEl = $("cassieMarketSignal");
-const noteEl = $("cassieNote");
-
 const cassieMeta = getCassieMeta(phase, launch, tokenPayload, chartStats);
-
-if (stateEl) stateEl.textContent = cassieMeta.state;
-if (badgeEl) badgeEl.textContent = cassieMeta.badge;
-if (riskEl) riskEl.textContent = cassieMeta.riskState;
-if (builderEl) builderEl.textContent = cassieMeta.builderSignal;
-if (structureEl) structureEl.textContent = cassieMeta.structureSignal;
-if (marketEl) marketEl.textContent = cassieMeta.marketSignal;
-if (noteEl) noteEl.textContent = cassieMeta.note;
+setText("cassieState", cassieMeta.state);
+setText("cassieBadgeText", cassieMeta.badge);
+setText("cassieRiskState", cassieMeta.riskState);
+setText("cassieBuilderSignal", cassieMeta.builderSignal);
+setText("cassieStructureSignal", cassieMeta.structureSignal);
+setText("cassieMarketSignal", cassieMeta.marketSignal);
+setText("cassieNote", cassieMeta.note);
 }
 
 async function copyText(text) {
@@ -552,33 +584,29 @@ if (!el) continue;
 el.classList.remove(...phaseClasses);
 el.classList.add(`phase-${visualPhase}`);
 }
+
+if (marketCard) {
+marketCard.dataset.phase = phase;
+}
 }
 
 function updatePhaseContent(phase) {
 const meta = getPhaseMeta(phase);
 
-const launchPhaseBadgeText = $("launchPhaseBadgeText");
-const launchStatusText = $("launchStatusText2");
-const launchMarketModeText = $("launchMarketModeText");
-const marketStatusLabel = $("marketStatusLabel");
-const marketOverlayEyebrow = $("marketOverlayEyebrow");
-const marketOverlayTitle = $("marketOverlayTitle");
+setText("launchPhaseBadgeText", meta.badgeText);
+setText("launchStatusText2", meta.statusText);
+setText("launchMarketModeText", meta.marketModeText);
+setText("marketStatusLabel", phase === PHASES.LIVE ? "Live Trading" : meta.statusText);
+setText("marketOverlayEyebrow", meta.overlayEyebrow);
+setText("marketOverlayTitle", meta.overlayTitle);
+
 const marketOverlayText = $("marketOverlayText");
-const marketCountdownSubtext = document.querySelector(".market-countdown-subtext");
-const accessMode = $("launchAccessModeText");
-
-if (launchPhaseBadgeText) launchPhaseBadgeText.textContent = meta.badgeText;
-if (launchStatusText) launchStatusText.textContent = meta.statusText;
-if (launchMarketModeText) launchMarketModeText.textContent = meta.marketModeText;
-if (marketStatusLabel) marketStatusLabel.textContent = phase === PHASES.LIVE ? "Live Trading" : meta.statusText;
-if (marketOverlayEyebrow) marketOverlayEyebrow.textContent = meta.overlayEyebrow;
-if (marketOverlayTitle) marketOverlayTitle.textContent = meta.overlayTitle;
-
 if (marketOverlayText) {
 marketOverlayText.textContent = meta.overlayText;
 marketOverlayText.classList.toggle("hidden", !meta.overlayText);
 }
 
+const marketCountdownSubtext = document.querySelector(".market-countdown-subtext");
 if (marketCountdownSubtext) {
 marketCountdownSubtext.textContent = meta.overlaySubtext || "Market activation is imminent.";
 }
@@ -592,13 +620,8 @@ if (marketTimeframes) {
 marketTimeframes.classList.toggle("disabled", phase !== PHASES.LIVE);
 }
 
-if (marketLiveLayer) {
-marketLiveLayer.classList.toggle("hidden", phase !== PHASES.LIVE);
-}
-
-if (marketCountdownBox) {
-marketCountdownBox.classList.toggle("hidden", !(phase === PHASES.COUNTDOWN));
-}
+toggleHidden(marketLiveLayer, phase !== PHASES.LIVE);
+toggleHidden(marketCountdownBox, !(phase === PHASES.COUNTDOWN));
 
 if (marketOverlay) {
 marketOverlay.classList.remove("overlay-commit", "overlay-countdown", "overlay-live");
@@ -606,25 +629,19 @@ marketOverlay.classList.add(`overlay-${getVisualPhase(phase)}`);
 marketOverlay.classList.toggle("hidden", phase === PHASES.LIVE);
 }
 
-if (accessMode) {
-accessMode.textContent =
+setText(
+"launchAccessModeText",
 phase === PHASES.LIVE
 ? "Live Access"
 : phase === PHASES.BUILDING
 ? "Bootstrap Locked"
 : phase === PHASES.COUNTDOWN
 ? "Countdown Locked"
-: "Pre-Live";
-}
+: "Pre-Live"
+);
 }
 
 function updateTokenIdentity(launch, tokenPayload = null) {
-const launchTokenName = $("launchTokenName");
-const launchTokenSymbol = $("launchTokenSymbol");
-const launchBuilderWalletShort = $("launchBuilderWalletShort");
-const launchTokenLogo = $("launchTokenLogo");
-const launchTokenNameMirror = $("launchTokenNameMirror");
-
 const tokenName =
 launch?.token_name ||
 tokenPayload?.token?.name ||
@@ -639,14 +656,15 @@ tokenPayload?.token?.ticker ||
 
 const builderWallet = launch?.builder_wallet || "";
 
-if (launchTokenName) launchTokenName.textContent = tokenName;
-if (launchTokenNameMirror) launchTokenNameMirror.textContent = tokenName;
-if (launchTokenSymbol) launchTokenSymbol.textContent = `$${tokenSymbol}`;
-if (launchBuilderWalletShort) {
-launchBuilderWalletShort.textContent = shortAddress(builderWallet || "") || "Pending";
-}
-if (launchTokenLogo) {
-launchTokenLogo.textContent = (tokenSymbol[0] || "M").toUpperCase();
+setText("launchTokenName", tokenName);
+setText("launchTokenNameMirror", tokenName);
+setText("launchTokenSymbol", `$${tokenSymbol}`);
+setText("launchBuilderWalletShort", shortAddress(builderWallet || "") || "Pending");
+setText("launchTokenLogo", (tokenSymbol[0] || "M").toUpperCase());
+
+const nameEl = $("launchTokenName");
+if (nameEl) {
+nameEl.title = tokenName;
 }
 }
 
@@ -696,13 +714,9 @@ const resolved = resolveContractAddress(launch || {}, tokenPayload || {});
 const ca = resolved.value || "Pending";
 const short = ca === "Pending" ? resolved.state : shortAddress(ca);
 
-const launchCaText = $("launchCaText");
-const chartCaChipText = $("chartCaChipText");
-const launchCaState = $("launchCaState");
-
-if (launchCaText) launchCaText.textContent = short;
-if (chartCaChipText) chartCaChipText.textContent = short;
-if (launchCaState) launchCaState.textContent = resolved.state;
+setText("launchCaText", short);
+setText("chartCaChipText", short);
+setText("launchCaState", resolved.state);
 
 const launchCaCopyBtn = $("launchCaCopyBtn");
 const chartCaCopyBtn = $("chartCaCopyBtn");
@@ -798,58 +812,54 @@ function updateStatsForCommit(launch, commitStats = {}) {
 const { committedSol, participantCount, hardCapSol, minRaiseSol } = getCommitMetrics(launch, commitStats);
 const progress = hardCapSol > 0 ? Math.min(100, (committedSol / hardCapSol) * 100) : 0;
 
-if ($("stat1Label")) $("stat1Label").textContent = "Committed";
-if ($("stat1Value")) $("stat1Value").textContent = formatSol(committedSol, 2);
+setText("stat1Label", "Committed");
+setText("stat1Value", formatSol(committedSol, 2));
 
-if ($("stat2Label")) $("stat2Label").textContent = "Participants";
-if ($("stat2Value")) $("stat2Value").textContent = formatNumber(participantCount, { maximumFractionDigits: 0 });
+setText("stat2Label", "Participants");
+setText("stat2Value", formatNumber(participantCount, { maximumFractionDigits: 0 }));
 
-if ($("stat3Label")) $("stat3Label").textContent = "Minimum Raise";
-if ($("stat3Value")) $("stat3Value").textContent = minRaiseSol > 0 ? formatSol(minRaiseSol, 2) : "—";
+setText("stat3Label", "Minimum Raise");
+setText("stat3Value", minRaiseSol > 0 ? formatSol(minRaiseSol, 2) : "—");
 
-if ($("stat4Label")) $("stat4Label").textContent = "Progress";
-if ($("stat4Value")) $("stat4Value").textContent = formatPercent(progress, 1);
+setText("stat4Label", "Progress");
+setText("stat4Value", formatPercent(progress, 1));
 }
 
 function updateStatsForCountdown(launch, commitStats = {}) {
 const { committedSol, participantCount, hardCapSol } = getCommitMetrics(launch, commitStats);
 
-if ($("stat1Label")) $("stat1Label").textContent = "Committed";
-if ($("stat1Value")) $("stat1Value").textContent = formatSol(committedSol, 2);
+setText("stat1Label", "Committed");
+setText("stat1Value", formatSol(committedSol, 2));
 
-if ($("stat2Label")) $("stat2Label").textContent = "Participants";
-if ($("stat2Value")) $("stat2Value").textContent = formatNumber(participantCount, { maximumFractionDigits: 0 });
+setText("stat2Label", "Participants");
+setText("stat2Value", formatNumber(participantCount, { maximumFractionDigits: 0 }));
 
-if ($("stat3Label")) $("stat3Label").textContent = "Hard Cap";
-if ($("stat3Value")) $("stat3Value").textContent = hardCapSol > 0 ? formatSol(hardCapSol, 2) : "—";
+setText("stat3Label", "Hard Cap");
+setText("stat3Value", hardCapSol > 0 ? formatSol(hardCapSol, 2) : "—");
 
-if ($("stat4Label")) $("stat4Label").textContent = "Time Left";
-if ($("stat4Value")) $("stat4Value").textContent = getCountdownText(launch, commitStats);
+setText("stat4Label", "Time Left");
+setText("stat4Value", getCountdownText(launch, commitStats));
 }
 
 function updateStatsForBuilding(launch, lifecycle = null) {
-if ($("stat1Label")) $("stat1Label").textContent = "State";
-if ($("stat1Value")) $("stat1Value").textContent = "Building";
+setText("stat1Label", "State");
+setText("stat1Value", "Building");
 
-if ($("stat2Label")) $("stat2Label").textContent = "Mint";
-if ($("stat2Value")) {
+setText("stat2Label", "Mint");
 const ca = choosePreferredNonEmpty(launch?.contract_address, launch?.mint_address);
-$("stat2Value").textContent = ca ? shortAddress(ca) : "Pending";
-}
+setText("stat2Value", ca ? shortAddress(ca) : "Pending");
 
-if ($("stat3Label")) $("stat3Label").textContent = "Liquidity";
-if ($("stat3Value")) {
+setText("stat3Label", "Liquidity");
 const liq = toNumber(
 lifecycle?.internalSolReserve ??
 launch?.internal_pool_sol ??
 launch?.liquidity,
 0
 );
-$("stat3Value").textContent = liq > 0 ? formatSol(liq, 4) : "Pending";
-}
+setText("stat3Value", liq > 0 ? formatSol(liq, 4) : "Pending");
 
-if ($("stat4Label")) $("stat4Label").textContent = "Status";
-if ($("stat4Value")) $("stat4Value").textContent = "Bootstrapping";
+setText("stat4Label", "Status");
+setText("stat4Value", "Bootstrapping");
 }
 
 function getLiveStats(tokenPayload = {}, chartStats = {}, launch = {}, lifecycle = null) {
@@ -957,45 +967,45 @@ solUsdPrice,
 function updateStatsForLive(tokenPayload = {}, chartStats = {}, launch = {}, lifecycle = null) {
 const liveStats = getLiveStats(tokenPayload, chartStats, launch, lifecycle);
 
-if ($("stat1Label")) $("stat1Label").textContent = "Price";
-if ($("stat1Value")) {
-$("stat1Value").textContent =
+setText("stat1Label", "Price");
+setText(
+"stat1Value",
 liveStats.priceUsd > 0
 ? formatPriceUsd(liveStats.priceUsd)
 : liveStats.priceSol > 0
 ? `${formatPriceSol(liveStats.priceSol)} SOL`
-: "—";
-}
+: "—"
+);
 
-if ($("stat2Label")) $("stat2Label").textContent = "Market Cap";
-if ($("stat2Value")) {
-$("stat2Value").textContent =
+setText("stat2Label", "Market Cap");
+setText(
+"stat2Value",
 liveStats.marketCapUsd > 0
 ? formatUsdCompact(liveStats.marketCapUsd, 2)
 : liveStats.marketCapSol > 0
 ? `${formatNumber(liveStats.marketCapSol, { maximumFractionDigits: 4 })} SOL`
-: "—";
-}
+: "—"
+);
 
-if ($("stat3Label")) $("stat3Label").textContent = "Liquidity";
-if ($("stat3Value")) {
-$("stat3Value").textContent =
+setText("stat3Label", "Liquidity");
+setText(
+"stat3Value",
 liveStats.liquidityUsd > 0
 ? formatUsdCompact(liveStats.liquidityUsd, 2)
 : liveStats.liquiditySol > 0
 ? formatSol(liveStats.liquiditySol, 4)
-: "—";
-}
+: "—"
+);
 
-if ($("stat4Label")) $("stat4Label").textContent = "24H Volume";
-if ($("stat4Value")) {
-$("stat4Value").textContent =
+setText("stat4Label", "24H Volume");
+setText(
+"stat4Value",
 liveStats.volume24hUsd > 0
 ? formatUsdCompact(liveStats.volume24hUsd, 2)
 : liveStats.volume24hSol > 0
 ? formatSol(liveStats.volume24hSol, 4)
-: "—";
-}
+: "—"
+);
 }
 
 function getCountdownParts(launch, commitStats = {}) {
@@ -1021,13 +1031,10 @@ return `${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`
 }
 
 function updateCountdownUi(launch, commitStats = {}) {
-const marketCountdownValue = $("marketCountdownValue");
-if (marketCountdownValue) {
-marketCountdownValue.textContent = getCountdownText(launch, commitStats);
-}
+setText("marketCountdownValue", getCountdownText(launch, commitStats));
 
 if ($("stat4Value") && inferPhase(launch) === PHASES.COUNTDOWN) {
-$("stat4Value").textContent = getCountdownText(launch, commitStats);
+setText("stat4Value", getCountdownText(launch, commitStats));
 }
 }
 
@@ -1108,13 +1115,15 @@ const solAmountNum = toNumber(trade?.sol_amount ?? trade?.base_amount, 0);
 const tokenAmountNum = toNumber(trade?.token_amount, 0);
 const priceSolNum = toNumber(trade?.price ?? trade?.price_sol, 0);
 const tradeUsdValue = solUsdPrice > 0 ? solAmountNum * solUsdPrice : 0;
-const createdAt = formatDateTime(trade?.created_at || trade?.timestamp);
+const createdAt = trade?.created_at || trade?.timestamp || "";
+const relativeTime = formatRelativeTime(createdAt);
 
 return `
 <div class="recent-trade-row side-${escapeHtml(side)}">
 <div class="recent-trade-main">
 <div class="recent-trade-side side-${escapeHtml(side)}">${escapeHtml(side.toUpperCase() || "TRADE")}</div>
 <div class="recent-trade-wallet">${escapeHtml(wallet)}</div>
+<div class="recent-trade-sub">${escapeHtml(relativeTime)}</div>
 </div>
 <div class="recent-trade-metrics">
 <div class="recent-trade-value">${escapeHtml(formatSol(solAmountNum, 4))}</div>
@@ -1122,7 +1131,7 @@ return `
 </div>
 <div class="recent-trade-meta">
 <div class="recent-trade-price">@ ${escapeHtml(priceSolNum > 0 ? `${formatPriceSol(priceSolNum)} SOL` : "—")}</div>
-<div class="recent-trade-time">${escapeHtml(createdAt)}</div>
+<div class="recent-trade-time">${escapeHtml(formatDateTime(createdAt))}</div>
 </div>
 </div>
 `;
@@ -1159,13 +1168,8 @@ if (tradeSubmitBtn) {
 tradeSubmitBtn.disabled = !isLive;
 }
 
-if (quickBuyRow) {
-quickBuyRow.classList.toggle("hidden", !isLive);
-}
-
-if (quickSellRow) {
-quickSellRow.classList.toggle("hidden", !isLive);
-}
+toggleHidden(quickBuyRow, !isLive);
+toggleHidden(quickSellRow, !isLive);
 }
 
 function updateTradeTabUi(mode) {
@@ -1197,20 +1201,15 @@ if (walletLimitLabel) {
 walletLimitLabel.textContent = mode === TRADE_MODES.BUY ? "Wallet Limit After" : "Balance After";
 }
 
-if (quickBuyRow) {
-quickBuyRow.classList.toggle("hidden", mode !== TRADE_MODES.BUY);
-}
-
-if (quickSellRow) {
-quickSellRow.classList.toggle("hidden", mode !== TRADE_MODES.SELL);
-}
+toggleHidden(quickBuyRow, mode !== TRADE_MODES.BUY);
+toggleHidden(quickSellRow, mode !== TRADE_MODES.SELL);
 }
 
 function resetTradeQuoteUi() {
-if ($("tradeQuotePrimaryValue")) $("tradeQuotePrimaryValue").textContent = "—";
-if ($("tradeQuotePriceValue")) $("tradeQuotePriceValue").textContent = "—";
-if ($("tradeQuoteFeeValue")) $("tradeQuoteFeeValue").textContent = "—";
-if ($("tradeQuoteWalletLimitValue")) $("tradeQuoteWalletLimitValue").textContent = "—";
+setText("tradeQuotePrimaryValue", "—");
+setText("tradeQuotePriceValue", "—");
+setText("tradeQuoteFeeValue", "—");
+setText("tradeQuoteWalletLimitValue", "—");
 }
 
 function syncMarketShellLayout() {
@@ -1254,6 +1253,35 @@ volumeCanvas.style.height = "80px";
 chartShell.style.minHeight = "345px";
 chartCanvas.style.height = "225px";
 volumeCanvas.style.height = "72px";
+}
+}
+
+function syncTerminalPresentation(phase, launch = {}, chartStats = {}, tokenPayload = {}) {
+const marketCard = $("marketCard");
+const tradePanelCard = $("tradePanelCard");
+const recentTradesCard = $("recentTradesCard");
+const walletSummary = $("marketWalletSummary");
+const accessCard = $("marketAccessCard");
+
+const priceChangePct = toNumber(chartStats?.price_change_pct, 0);
+const flowImbalance = Math.abs(
+toNumber(chartStats?.buys_24h, 0) - toNumber(chartStats?.sells_24h, 0)
+);
+const builderScore = toNumber(launch?.builder_score ?? tokenPayload?.launch?.builder_score, 0);
+
+const tone =
+phase !== PHASES.LIVE
+? "prelive"
+: Math.abs(priceChangePct) >= 25 || flowImbalance >= 10
+? "elevated"
+: builderScore >= 80
+? "strong"
+: "neutral";
+
+for (const el of [marketCard, tradePanelCard, recentTradesCard, walletSummary, accessCard]) {
+if (!el) continue;
+el.dataset.phase = phase;
+el.dataset.tone = tone;
 }
 }
 
@@ -1556,23 +1584,20 @@ schedule.textContent = maxWalletTokens > 0
 }
 
 function clearLiveOnlyUi() {
-const walletSummary = $("marketWalletSummary");
-const accessCard = $("marketAccessCard");
+toggleHidden("marketWalletSummary", true);
+toggleHidden("marketAccessCard", true);
+
+setText("walletTokenBalanceValue", "—");
+setText("walletPositionValueValue", "—");
+setText("walletSolBalanceValue", "—");
+
+setText("marketAccessLimitValue", "—");
+setText("marketAccessHoldingValue", "—");
+setText("marketAccessRemainingValue", "—");
+setText("marketTotalSupplyValue", "—");
+setText("marketAccessSchedule", "Allocation controls active.");
+
 const recentTradesList = $("recentTradesList");
-
-if (walletSummary) walletSummary.classList.add("hidden");
-if (accessCard) accessCard.classList.add("hidden");
-
-if ($("walletTokenBalanceValue")) $("walletTokenBalanceValue").textContent = "—";
-if ($("walletPositionValueValue")) $("walletPositionValueValue").textContent = "—";
-if ($("walletSolBalanceValue")) $("walletSolBalanceValue").textContent = "—";
-
-if ($("marketAccessLimitValue")) $("marketAccessLimitValue").textContent = "—";
-if ($("marketAccessHoldingValue")) $("marketAccessHoldingValue").textContent = "—";
-if ($("marketAccessRemainingValue")) $("marketAccessRemainingValue").textContent = "—";
-if ($("marketTotalSupplyValue")) $("marketTotalSupplyValue").textContent = "—";
-if ($("marketAccessSchedule")) $("marketAccessSchedule").textContent = "Allocation controls active.";
-
 if (recentTradesList) {
 recentTradesList.innerHTML = `<div class="recent-trades-empty">No trades yet.</div>`;
 }
@@ -2275,6 +2300,7 @@ updatePhaseContent(this.phase);
 setTradePanelVisibility(this.phase);
 syncMarketShellLayout();
 syncChartSizing(this.phase);
+syncTerminalPresentation(this.phase, this.launch, this.chartStats, this.tokenPayload);
 
 if (this.phase === PHASES.COMMIT) {
 clearLiveOnlyUi();
@@ -2583,15 +2609,10 @@ const quote = quotePayload?.quote || quotePayload || {};
 this.lastQuote = quotePayload;
 
 if (this.tradeMode === TRADE_MODES.BUY) {
-if ($("tradeQuotePrimaryValue")) {
-$("tradeQuotePrimaryValue").textContent = `${formatTokenAmount(quote?.tokensBought || 0, 0)} tokens`;
-}
-if ($("tradeQuotePriceValue")) {
-$("tradeQuotePriceValue").textContent = quote?.price > 0 ? `${formatPriceSol(quote.price)} SOL` : "—";
-}
-if ($("tradeQuoteFeeValue")) {
-$("tradeQuoteFeeValue").textContent = formatSol(quote?.feeSol || 0, 6);
-}
+setText("tradeQuotePrimaryValue", `${formatTokenAmount(quote?.tokensBought || 0, 0)} tokens`);
+setText("tradeQuotePriceValue", quote?.price > 0 ? `${formatPriceSol(quote.price)} SOL` : "—");
+setText("tradeQuoteFeeValue", formatSol(quote?.feeSol || 0, 6));
+
 if ($("tradeQuoteWalletLimitValue")) {
 if (quote?.maxWallet) {
 const maxWalletText = formatTokenAmount(quote.maxWallet, 0);
@@ -2605,21 +2626,15 @@ $("tradeQuoteWalletLimitValue").textContent = "Applies";
 }
 }
 } else {
-if ($("tradeQuotePrimaryValue")) {
-$("tradeQuotePrimaryValue").textContent = formatSol(quote?.netSolOut || 0, 6);
-}
-if ($("tradeQuotePriceValue")) {
-$("tradeQuotePriceValue").textContent = quote?.price > 0 ? `${formatPriceSol(quote.price)} SOL` : "—";
-}
-if ($("tradeQuoteFeeValue")) {
-$("tradeQuoteFeeValue").textContent = formatSol(quote?.feeSol || 0, 6);
-}
-if ($("tradeQuoteWalletLimitValue")) {
-$("tradeQuoteWalletLimitValue").textContent =
+setText("tradeQuotePrimaryValue", formatSol(quote?.netSolOut || 0, 6));
+setText("tradeQuotePriceValue", quote?.price > 0 ? `${formatPriceSol(quote.price)} SOL` : "—");
+setText("tradeQuoteFeeValue", formatSol(quote?.feeSol || 0, 6));
+setText(
+"tradeQuoteWalletLimitValue",
 quote?.walletBalanceAfter != null
 ? `${formatTokenAmount(quote.walletBalanceAfter, 0)} tokens`
-: "—";
-}
+: "—"
+);
 
 if (quote?.walletBalanceBefore != null) {
 this.walletTokenBalanceFallback = toNumber(quote.walletBalanceBefore, this.walletTokenBalanceFallback);
