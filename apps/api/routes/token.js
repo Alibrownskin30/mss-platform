@@ -48,8 +48,17 @@ launch.contract_address || launch.mint_address,
 const reservationStatus = cleanText(launch.mint_reservation_status, 64).toLowerCase();
 const liveAtMs = parseDbTime(launch.live_at || launch.countdown_ends_at);
 
-if (contractAddress && reservationStatus === "finalized") return "live";
-if (contractAddress && liveAtMs && Date.now() >= liveAtMs) return "live";
+if (
+contractAddress &&
+reservationStatus === "finalized" &&
+(!liveAtMs || Date.now() >= liveAtMs)
+) {
+return "live";
+}
+
+if (contractAddress && liveAtMs && Date.now() >= liveAtMs) {
+return "live";
+}
 
 return rawStatus;
 }
@@ -60,25 +69,25 @@ return normalized === "live" || normalized === "graduated";
 }
 
 function normalizeTradeRow(row) {
-const solAmount = toNumber(row.sol_amount, 0);
-const tokenAmount = toNumber(row.token_amount, 0);
-const explicitPrice = toNumber(row.price, 0);
+const solAmount = toNumber(row?.sol_amount ?? row?.base_amount, 0);
+const tokenAmount = toNumber(row?.token_amount, 0);
+const explicitPrice = toNumber(row?.price ?? row?.price_sol, 0);
 const derivedPrice = tokenAmount > 0 ? solAmount / tokenAmount : 0;
 const executionPrice = explicitPrice > 0 ? explicitPrice : derivedPrice;
 
 return {
-id: row.id,
-launch_id: row.launch_id,
-token_id: row.token_id,
-wallet: cleanText(row.wallet, 120),
-side: String(row.side || "").toLowerCase() === "sell" ? "sell" : "buy",
+id: row?.id ?? null,
+launch_id: row?.launch_id ?? null,
+token_id: row?.token_id ?? null,
+wallet: cleanText(row?.wallet, 120),
+side: String(row?.side || "").toLowerCase() === "sell" ? "sell" : "buy",
 price_sol: executionPrice,
 price: executionPrice,
 token_amount: tokenAmount,
 base_amount: solAmount,
 sol_amount: solAmount,
-timestamp: row.created_at,
-created_at: row.created_at,
+timestamp: row?.created_at || row?.timestamp || null,
+created_at: row?.created_at || row?.timestamp || null,
 };
 }
 
@@ -169,7 +178,9 @@ const token = snapshot?.token || null;
 const pool = snapshot?.pool || null;
 const walletSummary = snapshot?.wallet || {};
 const stats = snapshot?.stats || {};
-const trades = Array.isArray(snapshot?.trades) ? snapshot.trades : [];
+const trades = Array.isArray(snapshot?.trades)
+? snapshot.trades.map(normalizeTradeRow)
+: [];
 const cassie = snapshot?.cassie || null;
 
 if (!launch) {
@@ -194,7 +205,10 @@ const cassieRisk = inferCassieRisk(stats);
 const walletTokenBalance = toInt(
 walletSummary.token_balance ??
 walletSummary.tokenBalance ??
-stats.wallet_token_balance,
+walletSummary.balance_tokens ??
+walletSummary.wallet_balance_tokens ??
+stats.wallet_token_balance ??
+stats.wallet_balance_tokens,
 0
 );
 
@@ -249,7 +263,10 @@ stats.wallet_position_value_usd,
 const walletSolBalance = toNumber(
 walletSummary.sol_balance ??
 walletSummary.solBalance ??
-stats.wallet_sol_balance,
+stats.wallet_sol_balance ??
+walletSummary.sol_delta ??
+walletSummary.solDelta ??
+stats.wallet_sol_delta,
 0
 );
 
@@ -353,6 +370,7 @@ builder_score: toNumber(launch.builder_score, 0),
 
 supply: toInt(launch.supply, 0),
 final_supply: toInt(launch.final_supply ?? launch.supply, 0),
+total_supply: toInt(launch.total_supply ?? launch.final_supply ?? launch.supply, 0),
 circulating_supply: toInt(
 launch.circulating_supply ?? launch.final_supply ?? launch.supply,
 0
@@ -361,6 +379,7 @@ launch.circulating_supply ?? launch.final_supply ?? launch.supply,
 committed_sol: toNumber(launch.committed_sol, 0),
 participants_count: toInt(launch.participants_count, 0),
 hard_cap_sol: toNumber(launch.hard_cap_sol, 0),
+min_raise_sol: toNumber(launch.min_raise_sol, 0),
 
 internal_pool_sol: toNumber(
 launch.internal_pool_sol ?? lifecycle?.internal_sol_reserve,
@@ -423,6 +442,9 @@ created_at: token?.created_at || null,
 wallet: {
 token_balance: walletTokenBalance,
 tokenBalance: walletTokenBalance,
+balance_tokens: walletTokenBalance,
+wallet_balance_tokens: walletTokenBalance,
+
 total_balance: walletTotalBalance,
 totalBalance: walletTotalBalance,
 
@@ -513,6 +535,7 @@ volume_24h_usd: volume24hUsd,
 
 wallet_token_balance: walletTokenBalance,
 wallet_total_balance: walletTotalBalance,
+wallet_balance_tokens: walletTokenBalance,
 
 wallet_sellable_balance: walletSellableBalance,
 wallet_sellable_token_balance: walletSellableBalance,

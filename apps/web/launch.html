@@ -1521,9 +1521,9 @@ Launch lifecycle, access posture, and market transition signals are reflected he
 <div class="launch-token-meta">
 <div class="launch-token-title-row">
 <div class="launch-token-title-stack">
-<div id="launchTokenName" class="launch-token-name">Token Name</div>
+<div id="launchTokenName" class="launch-token-name"><span id="heroTokenName">Token Name</span></div>
 <div class="launch-token-subrow">
-<span id="launchTokenSymbol" class="launch-token-symbol">$MSS</span>
+<span id="launchTokenSymbol" class="launch-token-symbol"><span id="heroTokenSymbol">$MSS</span></span>
 <span class="launch-token-divider">•</span>
 <span id="launchBuilderLabel" class="launch-builder-label">Builder</span>
 <span id="launchBuilderWalletShort" class="launch-builder-wallet">...</span>
@@ -1788,7 +1788,7 @@ Trading is not open yet. Commitments are being collected before market activatio
 <div id="launchTokenNameMirror" class="overview-card-title">Launch Overview</div>
 <div id="launchSubline" class="overview-card-subline">—</div>
 </div>
-<div id="phasePill" class="status-pill">—</div>
+<div id="launchStatusBadge" class="status-pill commit">Commit</div>
 </div>
 
 <div class="launch-overview-hero">
@@ -1798,7 +1798,7 @@ Trading is not open yet. Commitments are being collected before market activatio
 <div class="overview-card-meta">
 <span class="chip">Builder: <strong id="builderAlias" style="margin-left:6px;">—</strong></span>
 <span class="chip">Status: <strong id="launchStatusText" style="margin-left:6px;">—</strong></span>
-<span class="chip">Builder Score: <strong id="builderScore" style="margin-left:6px;">—</strong></span>
+<span class="chip">Builder Score: <strong id="builderScoreStat" style="margin-left:6px;">—</strong></span>
 </div>
 </div>
 
@@ -1807,9 +1807,25 @@ Trading is not open yet. Commitments are being collected before market activatio
 <div class="launch-side-stat-label">Operational Phase</div>
 <div id="phaseValueMirror" class="launch-side-stat-value">—</div>
 </div>
+
 <div class="launch-side-stat">
 <div class="launch-side-stat-label">Launch State Note</div>
 <div id="phaseNoteMirror" class="launch-side-stat-value">Awaiting state</div>
+</div>
+
+<div id="contractAddressRow" class="launch-side-stat">
+<div class="launch-side-stat-label">Contract Address</div>
+<div id="contractAddressStat" class="launch-side-stat-value">Hidden until live</div>
+</div>
+
+<div class="launch-side-stat">
+<div class="launch-side-stat-label">Commit Ends</div>
+<div id="commitEndsAtStat" class="launch-side-stat-value">—</div>
+</div>
+
+<div class="launch-side-stat">
+<div class="launch-side-stat-label">Countdown / Live</div>
+<div id="countdownEndsAtStat" class="launch-side-stat-value">—</div>
 </div>
 </div>
 </div>
@@ -1818,10 +1834,11 @@ Trading is not open yet. Commitments are being collected before market activatio
 <div class="phase-top">
 <div>
 <div class="phase-label">Launch Phase</div>
-<div id="phaseValue" class="phase-value">—</div>
+<div id="phaseHeadline" class="phase-value">—</div>
 </div>
+<div id="launchStatusPill" class="status-pill commit">Commit</div>
 </div>
-<div id="phaseNote" class="phase-note">Loading launch state…</div>
+<div id="phaseSummary" class="phase-note">Loading launch state…</div>
 </div>
 
 <div id="launchClosureNote" class="status"></div>
@@ -1832,19 +1849,19 @@ Trading is not open yet. Commitments are being collected before market activatio
 
 <div class="progress-card-top">
 <div style="min-width:0;">
-<div class="progress-card-title" id="progressHeadline">0 / 0 SOL committed</div>
-<div class="progress-card-sub" id="progressSubline">Launch commit status</div>
+<div class="progress-card-title"><span id="totalCommittedStat">0 SOL</span> committed</div>
+<div class="progress-card-sub"><span id="progressCountdownLabel">Commit ends in</span>: <span id="progressCountdownValue">—</span></div>
 </div>
-<div id="progressStatusPill" class="status-pill commit">Commit</div>
+<div id="phaseBadge" class="status-pill commit">Commit</div>
 </div>
 
 <div class="progress-wrap">
 <div class="progress-top">
-<span id="progressText">0 / 0 SOL committed</span>
-<strong id="progressPct">0%</strong>
+<span id="remainingToMinRaiseStat">0 SOL to minimum</span>
+<strong id="progressPercentStat">0%</strong>
 </div>
 <div class="progress">
-<div id="progressFill" class="progress-fill"></div>
+<div id="launchProgressFill" class="progress-fill"></div>
 </div>
 </div>
 
@@ -1863,7 +1880,7 @@ Trading is not open yet. Commitments are being collected before market activatio
 </div>
 <div class="commit-kpi">
 <div class="k">Countdown / Live</div>
-<div class="v" id="timeStat">—</div>
+<div class="v" id="countdownValue">—</div>
 </div>
 </div>
 </section>
@@ -1880,19 +1897,19 @@ Trading is not open yet. Commitments are being collected before market activatio
 <div class="allocation-grid">
 <div class="stat">
 <div class="k">Participants</div>
-<div class="v" id="participantsPctStat">—</div>
+<div class="v" id="participantAllocationPctStat">—</div>
 </div>
 <div class="stat">
 <div class="k">Liquidity</div>
-<div class="v" id="liquidityPctStat">—</div>
+<div class="v" id="liquidityAllocationPctStat">—</div>
 </div>
 <div class="stat">
 <div class="k">Reserve</div>
-<div class="v" id="reservePctStat">—</div>
+<div class="v" id="reserveAllocationPctStat">—</div>
 </div>
-<div class="stat">
+<div id="builderAllocationStatWrap" class="stat">
 <div class="k">Builder</div>
-<div class="v" id="builderPctStat">—</div>
+<div class="v" id="builderAllocationPctStat">—</div>
 </div>
 </div>
 </section>
@@ -2166,6 +2183,7 @@ data-role="wallet-input"
 </div>
 </div>
 </div>
+</div>
 
 <div id="launchLinksModal" class="launch-links-modal hidden">
 <div class="launch-links-modal-backdrop"></div>
@@ -2208,107 +2226,142 @@ data-role="wallet-input"
 </div>
 </div>
 </div>
-</div>
 
 <script src="https://unpkg.com/@solana/web3.js@latest/lib/index.iife.min.js"></script>
 <script type="module" src="./assets/pages/launch.js"></script>
 <script>
-(function syncOverviewMirror(){
-const source = document.getElementById("launchTokenName");
-const target = document.getElementById("launchTokenNameMirror");
-const commandTitle = document.getElementById("launchCommandTitle");
-if (!source || !target) return;
+(function syncTerminalMirrors(){
+const get = (id) => document.getElementById(id);
 
-const apply = () => {
-const text = source.textContent && source.textContent.trim()
-? source.textContent
-: "Launch Overview";
-
-target.textContent = text;
-if (commandTitle) commandTitle.textContent = text;
+const text = (id, fallback = "") => {
+const el = get(id);
+const value = el && typeof el.textContent === "string" ? el.textContent.trim() : "";
+return value || fallback;
 };
 
-apply();
-
-const observer = new MutationObserver(apply);
-observer.observe(source, { childList:true, characterData:true, subtree:true });
-})();
-
-(function syncPhaseMirrors(){
-const phaseValue = document.getElementById("phaseValue");
-const phaseNote = document.getElementById("phaseNote");
-const statusText = document.getElementById("launchStatusText");
-const accessText = document.getElementById("launchAccessModeText");
-const builderWalletShort = document.getElementById("launchBuilderWalletShort");
-const caState = document.getElementById("launchCaState");
-const builderAlias = document.getElementById("builderAlias");
-const builderScore = document.getElementById("builderScore");
-
-const phaseValueMirror = document.getElementById("phaseValueMirror");
-const phaseNoteMirror = document.getElementById("phaseNoteMirror");
-const boardValue = document.getElementById("launchStatusBoardValue");
-const boardStatus = document.getElementById("launchStatusBoardStatus");
-const boardAccess = document.getElementById("launchStatusBoardAccess");
-const boardBuilderWallet = document.getElementById("launchStatusBoardBuilderWallet");
-const boardCa = document.getElementById("launchStatusBoardCa");
-const boardNote = document.getElementById("launchStatusBoardNote");
-const phasePill = document.getElementById("phasePill");
-const phasePillMirror = document.getElementById("phasePillMirror");
-const launchCommandPhase = document.getElementById("launchCommandPhase");
-const launchCommandBuilder = document.getElementById("launchCommandBuilder");
-const launchCommandScore = document.getElementById("launchCommandScore");
-const launchCommandMarket = document.getElementById("launchCommandMarket");
-const launchCommandStatus = document.getElementById("launchCommandStatus");
-const launchCommandText = document.getElementById("launchCommandText");
+const setText = (id, value) => {
+const el = get(id);
+if (el) el.textContent = value;
+};
 
 const sync = () => {
-const phaseText = phaseValue && phaseValue.textContent.trim() ? phaseValue.textContent.trim() : "Awaiting";
-const phaseNoteText = phaseNote && phaseNote.textContent.trim() ? phaseNote.textContent.trim() : "Awaiting state";
-const status = statusText && statusText.textContent.trim() ? statusText.textContent.trim() : "Pending";
-const access = accessText && accessText.textContent.trim() ? accessText.textContent.trim() : "Pre-Live";
-const builderWallet = builderWalletShort && builderWalletShort.textContent.trim() ? builderWalletShort.textContent.trim() : "Pending";
-const ca = caState && caState.textContent.trim() ? caState.textContent.trim() : "Pending";
-const builder = builderAlias && builderAlias.textContent.trim() ? builderAlias.textContent.trim() : "—";
-const score = builderScore && builderScore.textContent.trim() ? builderScore.textContent.trim() : "—";
+const tokenName =
+text("heroTokenName") ||
+text("launchTokenName") ||
+"Launch Overview";
 
-if (phaseValueMirror) phaseValueMirror.textContent = phaseText;
-if (phaseNoteMirror) phaseNoteMirror.textContent = phaseNoteText;
-if (boardValue) boardValue.textContent = phaseText;
-if (boardStatus) boardStatus.textContent = status;
-if (boardAccess) boardAccess.textContent = access;
-if (boardBuilderWallet) boardBuilderWallet.textContent = builderWallet;
-if (boardCa) boardCa.textContent = ca;
-if (boardNote) boardNote.textContent = phaseNoteText;
+const phaseText =
+text("launchStatusText2") ||
+text("launchStatusText") ||
+text("launchPhaseBadgeText") ||
+"Awaiting";
 
-if (launchCommandPhase) launchCommandPhase.textContent = phaseText;
-if (launchCommandBuilder) launchCommandBuilder.textContent = builder;
-if (launchCommandScore) launchCommandScore.textContent = score;
-if (launchCommandMarket) launchCommandMarket.textContent = access;
-if (launchCommandStatus) launchCommandStatus.textContent = phaseText;
-if (launchCommandText) launchCommandText.textContent = phaseNoteText;
+const phaseNote =
+text("phaseSummary") ||
+text("launchClosureNote") ||
+"Awaiting state";
 
-if (phasePill && phasePillMirror) {
-phasePillMirror.className = phasePill.className;
-phasePillMirror.textContent = phasePill.textContent || "Commit";
+const statusText =
+text("launchStatusText") ||
+phaseText;
+
+const accessText =
+text("launchAccessModeText") ||
+text("launchMarketModeText") ||
+"Pre-Live";
+
+const builderAlias =
+text("builderAlias") ||
+"—";
+
+const builderScore =
+text("builderScoreStat") ||
+"—";
+
+const builderWallet =
+text("launchBuilderWalletShort") ||
+text("builderWalletStat") ||
+"Pending";
+
+const caText =
+text("launchCaText") ||
+text("contractAddressStat") ||
+text("launchCaState") ||
+"Pending";
+
+setText("launchTokenNameMirror", tokenName);
+setText("launchCommandTitle", tokenName);
+
+setText("phaseValueMirror", phaseText);
+setText("phaseNoteMirror", phaseNote);
+
+setText("launchStatusBoardValue", phaseText);
+setText("launchStatusBoardStatus", statusText);
+setText("launchStatusBoardAccess", accessText);
+setText("launchStatusBoardBuilderWallet", builderWallet);
+setText("launchStatusBoardCa", caText);
+setText("launchStatusBoardNote", phaseNote);
+
+setText("launchCommandPhase", phaseText);
+setText("launchCommandBuilder", builderAlias);
+setText("launchCommandScore", builderScore);
+setText("launchCommandMarket", accessText);
+setText("launchCommandStatus", phaseText);
+setText("launchCommandText", phaseNote);
+
+const sourcePill =
+get("launchStatusBadge") ||
+get("launchStatusPill") ||
+get("phaseBadge");
+
+const mirrorPill = get("phasePillMirror");
+
+if (mirrorPill && sourcePill) {
+mirrorPill.className = sourcePill.className;
+mirrorPill.textContent = (sourcePill.textContent || "").trim() || phaseText;
+} else if (mirrorPill) {
+mirrorPill.textContent = phaseText;
 }
 };
 
 sync();
 
-const targets = [
-phaseValue,
-phaseNote,
-statusText,
-accessText,
-builderWalletShort,
-caState,
-builderAlias,
-builderScore,
-phasePill
-].filter(Boolean);
+const observerIds = [
+"heroTokenName",
+"launchTokenName",
+"launchStatusText",
+"launchStatusText2",
+"launchPhaseBadgeText",
+"phaseSummary",
+"launchClosureNote",
+"launchAccessModeText",
+"launchMarketModeText",
+"builderAlias",
+"builderScoreStat",
+"launchBuilderWalletShort",
+"builderWalletStat",
+"launchCaText",
+"contractAddressStat",
+"launchCaState",
+"launchStatusBadge",
+"launchStatusPill",
+"phaseBadge"
+];
 
 const observer = new MutationObserver(sync);
-targets.forEach((el) => observer.observe(el, { childList:true, characterData:true, subtree:true, attributes:true, attributeFilter:["class"] }));
+
+observerIds
+.map((id) => get(id))
+.filter(Boolean)
+.forEach((el) => {
+observer.observe(el, {
+childList: true,
+characterData: true,
+subtree: true,
+attributes: true,
+attributeFilter: ["class"]
+});
+});
 })();
 </script>
 </body>

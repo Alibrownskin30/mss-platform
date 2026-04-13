@@ -2,20 +2,23 @@
 --panel-bg-1:rgba(255,255,255,.055);
 --panel-bg-2:rgba(255,255,255,.025);
 --panel-bg-3:rgba(255,255,255,.016);
+
 --panel-line:rgba(255,255,255,.10);
 --panel-line-soft:rgba(255,255,255,.07);
 --panel-line-strong:rgba(255,255,255,.14);
+
 --text-main:rgba(255,255,255,.95);
 --text-soft:rgba(255,255,255,.72);
 --text-faint:rgba(255,255,255,.52);
 
---commit:#ffd166;
+--commit:#e2c58a;
 --countdown:#ff6b7a;
 --live:#35f5a3;
---accent-a:rgba(58,160,255,.96);
---accent-b:rgba(0,255,209,.96);
 
---shadow-hero:0 40px 120px rgba(0,0,0,.48);
+--accent-a:rgba(200,169,107,.96);
+--accent-b:rgba(159,176,198,.94);
+
+--shadow-hero:0 40px 120px rgba(0,0,0,.50);
 --shadow-lg:0 28px 90px rgba(0,0,0,.40);
 --shadow-md:0 18px 50px rgba(0,0,0,.30);
 --shadow-sm:0 10px 28px rgba(0,0,0,.22);
@@ -41,8 +44,8 @@ overflow:hidden;
 border-radius:var(--radius-2xl);
 border:1px solid rgba(255,255,255,.10);
 background:
-radial-gradient(1200px 420px at 0% 0%, rgba(58,160,255,.22), transparent 55%),
-radial-gradient(900px 320px at 100% 0%, rgba(0,255,209,.16), transparent 52%),
+radial-gradient(1200px 420px at 0% 0%, rgba(200,169,107,.18), transparent 55%),
+radial-gradient(900px 320px at 100% 0%, rgba(159,176,198,.12), transparent 52%),
 linear-gradient(180deg, rgba(255,255,255,.065), rgba(255,255,255,.018));
 box-shadow:var(--shadow-hero);
 isolation:isolate;
@@ -72,15 +75,15 @@ position:absolute;
 inset:0;
 pointer-events:none;
 background:
-radial-gradient(circle at 28% 18%, rgba(255,255,255,.06), transparent 22%),
-radial-gradient(circle at 76% 14%, rgba(255,255,255,.035), transparent 18%);
+radial-gradient(circle at 28% 18%, rgba(255,255,255,.05), transparent 22%),
+radial-gradient(circle at 76% 14%, rgba(255,255,255,.03), transparent 18%);
 }
 
 .launch-hero-noise{
 position:absolute;
 inset:0;
 pointer-events:none;
-opacity:.06;
+opacity:.05;
 mix-blend-mode:overlay;
 background-image:
 linear-gradient(transparent 0%, rgba(255,255,255,.55) 50%, transparent 100%);
@@ -126,8 +129,8 @@ position:absolute;
 inset:0;
 border-radius:26px;
 background:
-linear-gradient(145deg, rgba(255,255,255,.18), rgba(255,255,255,.03)),
-linear-gradient(180deg, rgba(0,255,209,.16), rgba(58,160,255,.16));
+linear-gradient(145deg, rgba(255,255,255,.16), rgba(255,255,255,.03)),
+linear-gradient(180deg, rgba(200,169,107,.18), rgba(159,176,198,.14));
 box-shadow:
 inset 0 1px 0 rgba(255,255,255,.20),
 0 0 0 1px rgba(255,255,255,.08),
@@ -144,8 +147,8 @@ font-weight:900;
 font-size:28px;
 color:#fff;
 background:
-radial-gradient(circle at 30% 20%, rgba(255,255,255,.18), transparent 42%),
-linear-gradient(180deg, rgba(20,24,36,.98), rgba(10,13,21,.98));
+radial-gradient(circle at 30% 20%, rgba(255,255,255,.14), transparent 42%),
+linear-gradient(180deg, rgba(20,22,28,.98), rgba(10,12,17,.98));
 border:1px solid rgba(255,255,255,.08);
 box-shadow:inset 0 1px 0 rgba(255,255,255,.08);
 }
@@ -236,8 +239,8 @@ box-shadow:0 0 12px currentColor;
 
 .launch-phase-badge.phase-commit{
 color:var(--commit);
-background:rgba(255,209,102,.12);
-border-color:rgba(255,209,102,.24);
+background:rgba(226,197,138,.12);
+border-color:rgba(226,197,138,.24);
 }
 
 .launch-phase-badge.phase-countdown{
@@ -418,8 +421,8 @@ border-color:rgba(255,255,255,.15);
 position:relative;
 overflow:hidden;
 background:
-radial-gradient(circle at 12% 10%, rgba(0,255,209,.10), transparent 24%),
-radial-gradient(circle at 88% 18%, rgba(58,160,255,.11), transparent 22%),
+radial-gradient(circle at 12% 10%, rgba(200,169,107,.08), transparent 24%),
+radial-gradient(circle at 88% 18%, rgba(159,176,198,.09), transparent 22%),
 linear-gradient(180deg, rgba(255,255,255,.055), rgba(255,255,255,.026));
 }
 
@@ -503,8 +506,8 @@ overflow:hidden;
 border-radius:var(--radius-2xl);
 border:1px solid rgba(255,255,255,.10);
 background:
-radial-gradient(1100px 380px at 12% 0%, rgba(58,160,255,.12), transparent 46%),
-radial-gradient(820px 260px at 88% 0%, rgba(0,255,209,.10), transparent 40%),
+radial-gradient(1100px 380px at 12% 0%, rgba(200,169,107,.10), transparent 46%),
+radial-gradient(820px 260px at 88% 0%, rgba(159,176,198,.08), transparent 40%),
 linear-gradient(180deg, rgba(255,255,255,.055), rgba(255,255,255,.02));
 box-shadow:var(--shadow-hero);
 isolation:isolate;
@@ -549,8 +552,8 @@ pointer-events:none;
 
 .market-card.phase-commit .market-card-glow{
 box-shadow:
-0 0 0 1px rgba(255,209,102,.18),
-0 0 36px rgba(255,209,102,.07);
+0 0 0 1px rgba(226,197,138,.18),
+0 0 36px rgba(226,197,138,.08);
 }
 
 .market-card.phase-countdown .market-card-glow{
@@ -632,8 +635,8 @@ box-shadow:inset 0 1px 0 rgba(255,255,255,.05);
 }
 
 .market-status-pill.phase-commit{
-background:rgba(255,209,102,.08);
-border-color:rgba(255,209,102,.18);
+background:rgba(226,197,138,.08);
+border-color:rgba(226,197,138,.18);
 }
 
 .market-status-pill.phase-countdown{
@@ -655,7 +658,7 @@ display:inline-block;
 
 .market-status-dot.phase-commit{
 background:var(--commit);
-box-shadow:0 0 14px rgba(255,209,102,.58);
+box-shadow:0 0 14px rgba(226,197,138,.58);
 }
 
 .market-status-dot.phase-countdown{
@@ -786,7 +789,7 @@ opacity:.48;
 }
 
 .market-card.phase-commit .market-live-kpi .market-stat-topline{
-background:linear-gradient(90deg, rgba(255,209,102,.45), transparent);
+background:linear-gradient(90deg, rgba(226,197,138,.45), transparent);
 }
 
 .market-card.phase-countdown .market-live-kpi .market-stat-topline{
@@ -855,7 +858,7 @@ width:260px;
 height:260px;
 left:-50px;
 top:40px;
-background:rgba(58,160,255,.22);
+background:rgba(200,169,107,.18);
 }
 
 .market-chart-bg-orb.orb-b{
@@ -863,7 +866,7 @@ width:220px;
 height:220px;
 right:-30px;
 top:140px;
-background:rgba(0,255,209,.18);
+background:rgba(159,176,198,.16);
 }
 
 .market-chart-grid{
@@ -1056,7 +1059,7 @@ overflow:hidden;
 border-radius:20px;
 border:1px solid rgba(255,255,255,.09);
 background:
-radial-gradient(circle at top right, rgba(53,245,163,.06), transparent 30%),
+radial-gradient(circle at top right, rgba(200,169,107,.06), transparent 30%),
 linear-gradient(180deg, rgba(255,255,255,.05), rgba(255,255,255,.026));
 padding:14px;
 box-shadow:
@@ -1173,7 +1176,7 @@ margin:8vh auto 0;
 border-radius:24px;
 border:1px solid rgba(255,255,255,.10);
 background:
-radial-gradient(circle at top left, rgba(58,160,255,.12), transparent 28%),
+radial-gradient(circle at top left, rgba(200,169,107,.12), transparent 28%),
 linear-gradient(180deg, rgba(12,16,26,.985), rgba(9,12,20,.985));
 padding:20px;
 box-shadow:0 34px 90px rgba(0,0,0,.52);
@@ -1340,8 +1343,8 @@ overflow:hidden;
 border-radius:24px;
 border:1px solid var(--panel-line);
 background:
-radial-gradient(circle at 15% 0%, rgba(58,160,255,.05), transparent 24%),
-radial-gradient(circle at 85% 10%, rgba(0,255,209,.04), transparent 20%),
+radial-gradient(circle at 15% 0%, rgba(200,169,107,.05), transparent 24%),
+radial-gradient(circle at 85% 10%, rgba(159,176,198,.04), transparent 20%),
 linear-gradient(180deg, rgba(255,255,255,.055), rgba(255,255,255,.024));
 box-shadow:var(--shadow-lg);
 }
@@ -1393,8 +1396,8 @@ text-transform:uppercase;
 
 .trade-panel-phase-pill.phase-commit{
 color:var(--commit);
-background:rgba(255,209,102,.08);
-border-color:rgba(255,209,102,.18);
+background:rgba(226,197,138,.08);
+border-color:rgba(226,197,138,.18);
 }
 
 .trade-panel-phase-pill.phase-countdown{
@@ -1697,8 +1700,8 @@ overflow:hidden;
 border-radius:24px;
 border:1px solid var(--panel-line);
 background:
-radial-gradient(circle at 15% 0%, rgba(58,160,255,.05), transparent 24%),
-radial-gradient(circle at 85% 10%, rgba(0,255,209,.04), transparent 20%),
+radial-gradient(circle at 15% 0%, rgba(200,169,107,.05), transparent 24%),
+radial-gradient(circle at 85% 10%, rgba(159,176,198,.04), transparent 20%),
 linear-gradient(180deg, rgba(255,255,255,.055), rgba(255,255,255,.024));
 box-shadow:var(--shadow-lg);
 }
@@ -1754,13 +1757,13 @@ box-shadow:0 0 12px rgba(53,245,163,.55);
 }
 
 .terminal-wallet-badge.is-disconnected{
-border-color:rgba(255,209,102,.18);
-background:rgba(255,209,102,.08);
+border-color:rgba(226,197,138,.18);
+background:rgba(226,197,138,.08);
 }
 
 .terminal-wallet-badge.is-disconnected .terminal-wallet-badge-dot{
 background:var(--commit);
-box-shadow:0 0 12px rgba(255,209,102,.55);
+box-shadow:0 0 12px rgba(226,197,138,.55);
 }
 
 .terminal-wallet-row{

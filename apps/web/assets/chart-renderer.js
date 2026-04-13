@@ -64,12 +64,12 @@ const dpr = window.devicePixelRatio || 1;
 const width = Math.max(1, Math.floor(rect.width));
 const height = Math.max(1, Math.floor(rect.height));
 
-if (
-canvas.width !== Math.floor(width * dpr) ||
-canvas.height !== Math.floor(height * dpr)
-) {
-canvas.width = Math.floor(width * dpr);
-canvas.height = Math.floor(height * dpr);
+const nextW = Math.floor(width * dpr);
+const nextH = Math.floor(height * dpr);
+
+if (canvas.width !== nextW || canvas.height !== nextH) {
+canvas.width = nextW;
+canvas.height = nextH;
 }
 
 return { width, height, dpr };
@@ -161,8 +161,13 @@ this.viewportCount = this.options.maxCandles;
 this.isDragging = false;
 this.dragStartX = 0;
 this.dragStartViewport = 0;
-this.lastPointerClientX = 0;
-this.lastPointerCanvas = "chart";
+
+this.lastChartSize = { width: 1, height: 1, dpr: 1 };
+this.lastVolumeSize = { width: 1, height: 1, dpr: 1 };
+this.lastChartPlot = null;
+this.lastVolumePlot = null;
+this.lastPriceBounds = null;
+this.lastVolumeBounds = null;
 
 this.palette = {
 up: "#35f5a3",
@@ -355,18 +360,64 @@ const gap = slot > 18 ? this.options.candleGap : slot > 10 ? 2 : 1;
 return Math.max(2, slot - gap);
 }
 
+getChartPlotArea(width, height) {
+const left = this.options.leftPadding;
+const right = Math.max(left + 50, width - this.options.rightAxisWidth);
+const top = this.options.topPadding;
+const bottom = Math.max(top + 40, height - this.options.bottomPricePadding);
+
+return {
+left,
+right,
+top,
+bottom,
+width: Math.max(1, right - left),
+height: Math.max(1, bottom - top),
+};
+}
+
+getVolumePlotArea(width, height) {
+const left = this.options.leftPadding;
+const right = Math.max(left + 50, width - this.options.rightAxisWidth);
+const top = 10;
+const bottom = Math.max(top + 20, height - this.options.bottomVolumePadding);
+
+return {
+left,
+right,
+top,
+bottom,
+width: Math.max(1, right - left),
+height: Math.max(1, bottom - top),
+};
+}
+
+priceToY(price, bounds, plot) {
+const range = bounds.max - bounds.min || 1;
+const pct = (price - bounds.min) / range;
+return plot.bottom - plot.height * pct;
+}
+
+volumeToY(volume, bounds, plot) {
+const range = bounds.max - bounds.min || 1;
+const pct = (volume - bounds.min) / range;
+return plot.bottom - plot.height * pct;
+}
+
+xForIndex(index, plot, candleCount) {
+const slot = this.getCandleSlot(plot.width, candleCount);
+return plot.left + index * slot + slot / 2;
+}
+
 onPointerMove(event) {
 if (!this.visibleCandles.length || this.isDragging) return;
 
 const targetCanvas = event.currentTarget === this.volumeCanvas ? this.volumeCanvas : this.chartCanvas;
 const rect = targetCanvas.getBoundingClientRect();
-const plot = targetCanvas === this.volumeCanvas
-? this.getVolumePlotArea(rect.width, rect.height)
-: this.getPlotArea(rect.width, rect.height);
+const plot = targetCanvas === this.volumeCanvas ? this.lastVolumePlot : this.lastChartPlot;
+if (!plot) return;
 
 const x = event.clientX - rect.left;
-this.lastPointerClientX = event.clientX;
-this.lastPointerCanvas = targetCanvas === this.volumeCanvas ? "volume" : "chart";
 
 if (x < plot.left || x > plot.right) {
 this.activeIndex = -1;
@@ -403,11 +454,9 @@ this.isDragging = false;
 }
 
 onPointerDrag(event) {
-if (!this.isDragging || !this.visibleCandles.length) return;
+if (!this.isDragging || !this.visibleCandles.length || !this.lastChartPlot) return;
 
-const rect = this.chartCanvas.getBoundingClientRect();
-const plot = this.getPlotArea(rect.width, rect.height);
-const candleWidth = plot.width / Math.max(this.visibleCandles.length, 1);
+const candleWidth = this.lastChartPlot.width / Math.max(this.visibleCandles.length, 1);
 if (!candleWidth) return;
 
 const deltaPx = event.clientX - this.dragStartX;
@@ -424,21 +473,24 @@ this.draw();
 }
 
 onWheel(event) {
-if (!this.candles.length) return;
+if (!this.candles.length || !this.lastChartPlot) return;
 event.preventDefault();
 
-const delta = Math.sign(event.deltaY);
-const nextCount = clamp(
-this.viewportCount + delta * 8,
-this.options.minVisibleCandles,
-Math.min(this.options.maxVisibleCandles, this.candles.length || this.options.maxVisibleCandles)
-);
+const rect = event.currentTarget.getBoundingClientRect();
+const plot = event.currentTarget === this.volumeCanvas ? this.lastVolumePlot : this.lastChartPlot;
+if (!plot) return;
 
-const rect = this.chartCanvas.getBoundingClientRect();
-const plot = this.getPlotArea(rect.width, rect.height);
 const pointerX = clamp(event.clientX - rect.left, plot.left, plot.right);
 const pointerRatio = plot.width > 0 ? (pointerX - plot.left) / plot.width : 1;
 const centerIndex = this.viewportStart + Math.floor(pointerRatio * this.viewportCount);
+
+const zoomStep = event.deltaY > 0 ? 8 : -8;
+const maxVisible = Math.min(this.options.maxVisibleCandles, Math.max(this.candles.length, this.options.minVisibleCandles));
+const nextCount = clamp(
+this.viewportCount + zoomStep,
+this.options.minVisibleCandles,
+maxVisible
+);
 
 this.viewportCount = nextCount;
 this.viewportStart = clamp(
@@ -463,6 +515,11 @@ if (!this.chartCanvas || !this.volumeCanvas || !this.chartCtx || !this.volumeCtx
 const chartSize = getCanvasSize(this.chartCanvas);
 const volumeSize = getCanvasSize(this.volumeCanvas);
 
+this.lastChartSize = chartSize;
+this.lastVolumeSize = volumeSize;
+this.lastChartPlot = this.getChartPlotArea(chartSize.width, chartSize.height);
+this.lastVolumePlot = this.getVolumePlotArea(volumeSize.width, volumeSize.height);
+
 this.chartCtx.setTransform(chartSize.dpr, 0, 0, chartSize.dpr, 0, 0);
 this.volumeCtx.setTransform(volumeSize.dpr, 0, 0, volumeSize.dpr, 0, 0);
 
@@ -479,6 +536,9 @@ this.visibleCandles = visibleCandles;
 
 const priceBounds = this.getPriceBounds(visibleCandles);
 const volumeBounds = this.getVolumeBounds(visibleCandles);
+
+this.lastPriceBounds = priceBounds;
+this.lastVolumeBounds = volumeBounds;
 
 this.drawChartGrid(chartSize);
 this.drawVolumeGrid(volumeSize);
@@ -571,57 +631,11 @@ max: padded || 1,
 };
 }
 
-getPlotArea(width, height) {
-const left = this.options.leftPadding;
-const right = Math.max(left + 50, width - this.options.rightAxisWidth);
-const top = this.options.topPadding;
-const bottom = Math.max(top + 40, height - this.options.bottomPricePadding);
-
-return {
-left,
-right,
-top,
-bottom,
-width: Math.max(1, right - left),
-height: Math.max(1, bottom - top),
-};
-}
-
-getVolumePlotArea(width, height) {
-const left = this.options.leftPadding;
-const right = Math.max(left + 50, width - this.options.rightAxisWidth);
-const top = 10;
-const bottom = Math.max(top + 20, height - this.options.bottomVolumePadding);
-
-return {
-left,
-right,
-top,
-bottom,
-width: Math.max(1, right - left),
-height: Math.max(1, bottom - top),
-};
-}
-
-yForPrice(height, price, bounds) {
-const plot = this.getPlotArea(this.chartCanvas.getBoundingClientRect().width, height);
-const range = bounds.max - bounds.min || 1;
-const pct = (price - bounds.min) / range;
-return plot.bottom - plot.height * pct;
-}
-
-yForVolume(height, volume, bounds) {
-const plot = this.getVolumePlotArea(this.volumeCanvas.getBoundingClientRect().width, height);
-const range = bounds.max - bounds.min || 1;
-const pct = (volume - bounds.min) / range;
-return plot.bottom - plot.height * pct;
-}
-
 drawChartGrid(size) {
 const ctx = this.chartCtx;
 const rows = 5;
-const cols = 6;
-const plot = this.getPlotArea(size.width, size.height);
+const cols = Math.max(4, Math.min(8, Math.floor(this.visibleCandles.length / 24) + 4));
+const plot = this.lastChartPlot;
 
 ctx.save();
 ctx.strokeStyle = this.palette.grid;
@@ -648,7 +662,7 @@ ctx.restore();
 
 drawVolumeGrid(size) {
 const ctx = this.volumeCtx;
-const plot = this.getVolumePlotArea(size.width, size.height);
+const plot = this.lastVolumePlot;
 
 ctx.save();
 ctx.strokeStyle = "rgba(255,255,255,.05)";
@@ -665,18 +679,18 @@ ctx.restore();
 
 drawCandles(size, candles, bounds) {
 const ctx = this.chartCtx;
-const plot = this.getPlotArea(size.width, size.height);
+const plot = this.lastChartPlot;
 const candleSlot = this.getCandleSlot(plot.width, candles.length);
 const bodyWidth = this.getBodyWidth(candleSlot);
 
 ctx.save();
 
 candles.forEach((candle, index) => {
-const centerX = plot.left + index * candleSlot + candleSlot / 2;
-const openY = this.yForPrice(size.height, candle.open, bounds);
-const highY = this.yForPrice(size.height, candle.high, bounds);
-const lowY = this.yForPrice(size.height, candle.low, bounds);
-const closeY = this.yForPrice(size.height, candle.close, bounds);
+const centerX = this.xForIndex(index, plot, candles.length);
+const openY = this.priceToY(candle.open, bounds, plot);
+const highY = this.priceToY(candle.high, bounds, plot);
+const lowY = this.priceToY(candle.low, bounds, plot);
+const closeY = this.priceToY(candle.close, bounds, plot);
 
 const isUp = candle.close >= candle.open;
 const color = isUp ? this.palette.up : this.palette.down;
@@ -716,16 +730,16 @@ ctx.restore();
 
 drawVolumes(size, candles, bounds) {
 const ctx = this.volumeCtx;
-const plot = this.getVolumePlotArea(size.width, size.height);
+const plot = this.lastVolumePlot;
 const slot = this.getCandleSlot(plot.width, candles.length);
 const barWidth = this.getBodyWidth(slot);
 
 ctx.save();
 
 candles.forEach((candle, index) => {
-const centerX = plot.left + index * slot + slot / 2;
+const centerX = this.xForIndex(index, plot, candles.length);
 const left = centerX - barWidth / 2;
-const top = this.yForVolume(size.height, candle.volumeBase, bounds);
+const top = this.volumeToY(candle.volumeBase, bounds, plot);
 const barHeight = Math.max(2, plot.bottom - top);
 const isUp = candle.close >= candle.open;
 const color = isUp ? rgba(this.palette.up, 0.28) : rgba(this.palette.down, 0.28);
@@ -739,7 +753,7 @@ ctx.restore();
 
 drawAxes(size, bounds) {
 const ctx = this.chartCtx;
-const plot = this.getPlotArea(size.width, size.height);
+const plot = this.lastChartPlot;
 const levels = 5;
 
 ctx.save();
@@ -761,8 +775,10 @@ drawXAxis(size, candles) {
 if (!candles.length) return;
 
 const ctx = this.volumeCtx;
-const plot = this.getVolumePlotArea(size.width, size.height);
-const labelsToShow = Math.min(5, candles.length);
+const plot = this.lastVolumePlot;
+const targetPixelSpacing = 110;
+const labelCount = Math.max(2, Math.floor(plot.width / targetPixelSpacing));
+const labelsToShow = Math.min(labelCount, candles.length);
 if (labelsToShow <= 1) return;
 
 ctx.save();
@@ -770,9 +786,14 @@ ctx.fillStyle = this.palette.faint;
 ctx.font = "500 10px Inter, system-ui, sans-serif";
 ctx.textAlign = "center";
 
+const used = new Set();
+
 for (let i = 0; i < labelsToShow; i += 1) {
-const idx = Math.round((i * (candles.length - 1)) / (labelsToShow - 1));
-const x = plot.left + (idx / Math.max(candles.length - 1, 1)) * plot.width;
+const idx = Math.round((i * (candles.length - 1)) / Math.max(labelsToShow - 1, 1));
+if (used.has(idx)) continue;
+used.add(idx);
+
+const x = this.xForIndex(idx, plot, candles.length);
 const label = formatAxisTime(candles[idx]?.time, this.activeInterval);
 ctx.fillText(label, x, size.height - 6);
 }
@@ -799,8 +820,8 @@ const last = candles[candles.length - 1];
 if (!last) return;
 
 const ctx = this.chartCtx;
-const plot = this.getPlotArea(size.width, size.height);
-const y = this.yForPrice(size.height, last.close, bounds);
+const plot = this.lastChartPlot;
+const y = this.priceToY(last.close, bounds, plot);
 
 ctx.save();
 ctx.setLineDash([6, 5]);
@@ -836,7 +857,7 @@ drawTradeMarkers(size, candles, bounds) {
 if (!this.trades.length || !candles.length) return;
 
 const ctx = this.chartCtx;
-const plot = this.getPlotArea(size.width, size.height);
+const plot = this.lastChartPlot;
 const candleTimes = candles
 .map((c) => new Date(c.time).getTime())
 .filter((t) => Number.isFinite(t));
@@ -849,13 +870,13 @@ const range = Math.max(1, maxTime - minTime);
 
 ctx.save();
 
-for (const trade of this.trades.slice(-20)) {
+for (const trade of this.trades.slice(-30)) {
 const time = new Date(trade.time).getTime();
 if (!Number.isFinite(time)) continue;
 if (time < minTime || time > maxTime) continue;
 
 const x = plot.left + ((time - minTime) / range) * plot.width;
-const y = this.yForPrice(size.height, trade.price, bounds);
+const y = this.priceToY(trade.price, bounds, plot);
 const color = trade.side === "sell" ? this.palette.down : this.palette.up;
 
 ctx.fillStyle = rgba(color, 0.95);
@@ -877,11 +898,10 @@ if (!candle) return;
 
 const chartCtx = this.chartCtx;
 const volumeCtx = this.volumeCtx;
-const plot = this.getPlotArea(chartSize.width, chartSize.height);
-const volumePlot = this.getVolumePlotArea(volumeSize.width, volumeSize.height);
-const slot = plot.width / Math.max(candles.length, 1);
-const x = plot.left + index * slot + slot / 2;
-const y = this.yForPrice(chartSize.height, candle.close, bounds);
+const plot = this.lastChartPlot;
+const volumePlot = this.lastVolumePlot;
+const x = this.xForIndex(index, plot, candles.length);
+const y = this.priceToY(candle.close, bounds, plot);
 
 chartCtx.save();
 chartCtx.strokeStyle = this.palette.crosshair;
@@ -949,14 +969,12 @@ this.tooltipHost.innerHTML = `
 const hostRect = this.chartHost?.getBoundingClientRect?.();
 if (!hostRect) return;
 
-if (pinned || this.activeIndex < 0 || !this.visibleCandles.length) {
+if (pinned || this.activeIndex < 0 || !this.visibleCandles.length || !this.lastChartPlot) {
 this.tooltipHost.style.transform = "translate(0px, 0px)";
 return;
 }
 
-const plot = this.getPlotArea(hostRect.width, hostRect.height);
-const slot = plot.width / Math.max(this.visibleCandles.length, 1);
-const x = plot.left + this.activeIndex * slot + slot / 2;
+const x = this.xForIndex(this.activeIndex, this.lastChartPlot, this.visibleCandles.length);
 
 const tooltipCard = this.tooltipHost.firstElementChild;
 const tooltipWidth = tooltipCard?.getBoundingClientRect?.().width || 220;

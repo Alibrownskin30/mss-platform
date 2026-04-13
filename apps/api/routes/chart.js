@@ -72,17 +72,31 @@ launch.contract_address || launch.mint_address,
 const reservationStatus = cleanText(launch.mint_reservation_status, 64).toLowerCase();
 const liveAtMs = parseDbTime(launch.live_at || launch.countdown_ends_at);
 
-if (contractAddress && reservationStatus === "finalized") return "live";
-if (contractAddress && liveAtMs && Date.now() >= liveAtMs) return "live";
+if (
+contractAddress &&
+reservationStatus === "finalized" &&
+(!liveAtMs || Date.now() >= liveAtMs)
+) {
+return "live";
+}
+
+if (contractAddress && liveAtMs && Date.now() >= liveAtMs) {
+return "live";
+}
 
 return rawStatus;
+}
+
+function shouldRevealContractAddress(status) {
+const normalized = cleanText(status, 64).toLowerCase();
+return normalized === "live" || normalized === "graduated";
 }
 
 function sanitizeLaunchForResponse(launch = null) {
 if (!launch) return null;
 
 const inferredStatus = inferRevealStatus(launch);
-const revealContract = inferredStatus === "live" || inferredStatus === "graduated";
+const revealContract = shouldRevealContractAddress(inferredStatus);
 
 return {
 ...launch,
@@ -93,6 +107,21 @@ reserved_mint_address: null,
 reserved_mint_secret: null,
 mint_reservation_status: revealContract
 ? cleanText(launch.mint_reservation_status, 64) || null
+: null,
+};
+}
+
+function sanitizeTokenForResponse(token = null, launch = null) {
+if (!token) return null;
+
+const inferredStatus = inferRevealStatus(launch);
+const revealContract = shouldRevealContractAddress(inferredStatus);
+
+return {
+...token,
+mint_address: revealContract ? token.mint_address || null : null,
+mint: revealContract
+? cleanText(token.mint || token.mint_address, 120) || null
 : null,
 };
 }
@@ -117,14 +146,16 @@ interval,
 limit,
 });
 
+const sanitizedLaunch = sanitizeLaunchForResponse(payload?.launch || null);
+
 return res.json({
 ok: true,
 success: true,
 launch_id: launchId,
 interval,
 candles: payload?.candles || [],
-launch: sanitizeLaunchForResponse(payload?.launch || null),
-token: payload?.token || null,
+launch: sanitizedLaunch,
+token: sanitizeTokenForResponse(payload?.token || null, sanitizedLaunch),
 pool: payload?.pool || null,
 stats: payload?.stats || {},
 });
@@ -155,13 +186,15 @@ launchId,
 limit,
 });
 
+const sanitizedLaunch = sanitizeLaunchForResponse(payload?.launch || null);
+
 return res.json({
 ok: true,
 success: true,
 launch_id: launchId,
 trades: payload?.trades || [],
-launch: sanitizeLaunchForResponse(payload?.launch || null),
-token: payload?.token || null,
+launch: sanitizedLaunch,
+token: sanitizeTokenForResponse(payload?.token || null, sanitizedLaunch),
 pool: payload?.pool || null,
 stats: payload?.stats || {},
 });
@@ -192,13 +225,15 @@ launchId,
 wallet,
 });
 
+const sanitizedLaunch = sanitizeLaunchForResponse(payload?.launch || null);
+
 return res.json({
 ok: true,
 success: true,
 launch_id: launchId,
 stats: payload?.stats || {},
-launch: sanitizeLaunchForResponse(payload?.launch || null),
-token: payload?.token || null,
+launch: sanitizedLaunch,
+token: sanitizeTokenForResponse(payload?.token || null, sanitizedLaunch),
 pool: payload?.pool || null,
 wallet: payload?.wallet || null,
 cassie: payload?.cassie || null,
@@ -236,13 +271,15 @@ tradeLimit,
 wallet,
 });
 
+const sanitizedLaunch = sanitizeLaunchForResponse(payload?.launch || null);
+
 return res.json({
 ok: true,
 success: true,
 launch_id: launchId,
 interval,
-launch: sanitizeLaunchForResponse(payload?.launch || null),
-token: payload?.token || null,
+launch: sanitizedLaunch,
+token: sanitizeTokenForResponse(payload?.token || null, sanitizedLaunch),
 pool: payload?.pool || null,
 wallet: payload?.wallet || null,
 stats: payload?.stats || {},

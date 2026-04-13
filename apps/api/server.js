@@ -120,6 +120,12 @@ NODE_ENV !== "production"
 ? Array.from(new Set([...defaultDevOrigins, ...rawOrigins]))
 : rawOrigins;
 
+if (NODE_ENV === "production" && allowedOrigins.length === 0) {
+console.warn(
+"⚠️ CORS_ORIGINS is empty in production. Browser requests from external origins will be blocked."
+);
+}
+
 const corsOptions = {
 origin(origin, cb) {
 if (!origin) return cb(null, true);
@@ -137,10 +143,6 @@ credentials: true,
 
 app.use(cors(corsOptions));
 app.options(/.*/, cors(corsOptions));
-
-// ---- Uploads ----
-app.use("/api/upload", uploadRoutes);
-app.use("/uploads", express.static("uploads"));
 
 // ---- Baseline abuse protection (global) ----
 const limiter = rateLimit({
@@ -160,6 +162,10 @@ validate: { delayMs: false },
 
 app.use(limiter);
 app.use(speed);
+
+// ---- Uploads ----
+app.use("/api/upload", uploadRoutes);
+app.use("/uploads", express.static("uploads"));
 
 // ---- Auth route-specific protection (stronger) ----
 const authLimiter = rateLimit({

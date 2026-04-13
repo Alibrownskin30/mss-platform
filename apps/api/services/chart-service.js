@@ -19,6 +19,14 @@ function cleanText(value, max = 500) {
 return String(value ?? "").trim().slice(0, max);
 }
 
+function firstFinite(...values) {
+for (const value of values) {
+const num = Number(value);
+if (Number.isFinite(num)) return num;
+}
+return null;
+}
+
 function parseDbTime(value) {
 if (!value) return null;
 const raw = String(value).trim();
@@ -51,9 +59,30 @@ function normalizeWallet(value) {
 return cleanText(value, 120).toLowerCase();
 }
 
-function shouldRevealContractAddress(status) {
-const normalized = cleanText(status, 64).toLowerCase();
-return normalized === "live" || normalized === "graduated";
+function shouldRevealContractAddress(launchLike = {}) {
+const normalized = cleanText(launchLike?.status, 64).toLowerCase();
+if (normalized === "live" || normalized === "graduated") return true;
+
+const contractAddress = cleanText(
+launchLike?.contract_address || launchLike?.token_mint_address,
+120
+);
+const mintReservationStatus = cleanText(
+launchLike?.mint_reservation_status,
+64
+).toLowerCase();
+
+if (!contractAddress) return false;
+
+const countdownEndsMs = parseDbTime(
+launchLike?.live_at || launchLike?.countdown_ends_at
+);
+
+if (mintReservationStatus === "finalized") {
+return !countdownEndsMs || Date.now() >= countdownEndsMs;
+}
+
+return false;
 }
 
 function getWalletBalanceColumnsFromRows(rows = []) {
@@ -68,6 +97,44 @@ walletBalanceColumnsCache = getWalletBalanceColumnsFromRows(rows);
 return walletBalanceColumnsCache;
 }
 
+async function getWalletBalanceSnapshot(db, launchId, wallet) {
+const cleanWallet = cleanText(wallet, 120);
+if (!cleanWallet) return null;
+
+const columnSet = await getWalletBalanceColumns(db);
+if (!columnSet.size) return null;
+
+const selectedCols = [];
+if (columnSet.has("token_amount")) selectedCols.push("token_amount");
+if (columnSet.has("balance_tokens")) selectedCols.push("balance_tokens");
+if (columnSet.has("balance")) selectedCols.push("balance");
+if (columnSet.has("sol_balance")) selectedCols.push("sol_balance");
+
+if (!selectedCols.length) return null;
+
+const row = await db.get(
+`
+SELECT ${selectedCols.join(", ")}
+FROM wallet_balances
+WHERE launch_id = ? AND wallet = ?
+ORDER BY id DESC
+LIMIT 1
+`,
+[launchId, cleanWallet]
+);
+
+if (!row) return null;
+
+return {
+tokenAmount: firstFinite(
+row.token_amount,
+row.balance_tokens,
+row.balance
+),
+solBalance: firstFinite(row.sol_balance),
+};
+}
+
 function pickLaunchRow(row) {
 if (!row) return null;
 
@@ -76,7 +143,7 @@ const launchInternalPoolSol = toNumber(row.internal_pool_sol, 0);
 const launchLiquidity = toNumber(row.liquidity, 0);
 const poolTokenReserve = toNumber(row.token_reserve, 0);
 const launchInternalPoolTokens = toNumber(row.internal_pool_tokens, 0);
-const publicCaVisible = shouldRevealContractAddress(row.status);
+const publicCaVisible = shouldRevealContractAddress(row);
 
 const oneSidedLiquiditySol =
 poolSolReserve > 0
@@ -141,6 +208,7 @@ committed_sol: toNumber(row.committed_sol, 0),
 participant_count: toNumber(row.participants_count, 0),
 participants_count: toNumber(row.participants_count, 0),
 hard_cap_sol: toNumber(row.hard_cap_sol, 0),
+min_raise_sol: toNumber(row.min_raise_sol, 0),
 
 builder_pct: toNumber(row.builder_pct, 0),
 team_allocation_pct: toNumber(row.team_allocation_pct, 0),
@@ -264,6 +332,7 @@ l.circulating_supply,
 l.committed_sol,
 l.participants_count,
 l.hard_cap_sol,
+l.min_raise_sol,
 l.internal_pool_sol,
 l.internal_pool_tokens,
 l.liquidity,
@@ -415,10 +484,23 @@ sol_amount,
 token_amount,
 price,
 created_at
+FROM (
+SELECT
+id,
+launch_id,
+token_id,
+wallet,
+side,
+sol_amount,
+token_amount,
+price,
+created_at
 FROM trades
 WHERE launch_id = ?
-ORDER BY datetime(created_at) ASC, id ASC
+ORDER BY datetime(created_at) DESC, id DESC
 LIMIT ?
+)
+ORDER BY datetime(created_at) ASC, id ASC
 `,
 [launchId, limit]
 );
@@ -557,28 +639,20 @@ const totalAllocationTokens = Math.floor((totalSupply * allocationPct) / 100);
 const unlockedAllocationTokens = Math.floor((totalSupply * unlockedPct) / 100);
 const lockedAllocationTokens = Math.max(0, totalAllocationTokens - unlockedAllocationTokens);
 
-const sellableTokens = Math.max(
+const builderAllocationHeld = Math.min(tokenBalance, totalAllocationTokens);
+const visibleLockedTokens = Math.max(
 0,
-Math.min(tokenBalance, unlockedAllocationTokens)
+Math.min(lockedAllocationTokens, builderAllocationHeld - unlockedAllocationTokens)
 );
-
-const unlockedVisibleTokens = Math.max(
-0,
-Math.min(tokenBalance, unlockedAllocationTokens)
-);
-
-const lockedVisibleTokens = Math.max(
-0,
-tokenBalance - unlockedVisibleTokens
-);
+const visibleUnlockedTokens = Math.max(0, tokenBalance - visibleLockedTokens);
 
 return {
 is_builder_wallet: true,
-vesting_active: lockedAllocationTokens > 0,
+vesting_active: lockedAllocationTokens > 0 && visibleLockedTokens > 0,
 builder_total_allocation_tokens: totalAllocationTokens,
-builder_unlocked_tokens: unlockedVisibleTokens,
-builder_locked_tokens: Math.max(lockedAllocationTokens, lockedVisibleTokens),
-builder_sellable_tokens: sellableTokens,
+builder_unlocked_tokens: visibleUnlockedTokens,
+builder_locked_tokens: visibleLockedTokens,
+builder_sellable_tokens: visibleUnlockedTokens,
 builder_vesting_percent_unlocked: allocationPct > 0 ? (unlockedPct / allocationPct) * 100 : 100,
 builder_vesting_days_live: daysLive,
 builder_daily_unlock_tokens: Math.floor((totalSupply * BUILDER_DAILY_UNLOCK_PERCENT) / 100),
@@ -629,12 +703,12 @@ const vestedDays = vestingStartMs
 : getLiveDays(launch);
 
 if (totalAllocation > 0 || unlockedAmount > 0 || lockedAmount > 0 || dailyUnlock > 0) {
-const visibleUnlocked = Math.max(0, Math.min(tokenBalance, unlockedAmount));
+const builderAllocationHeld = Math.min(tokenBalance, totalAllocation || tokenBalance);
 const visibleLocked = Math.max(
 0,
-Math.max(lockedAmount, tokenBalance - visibleUnlocked)
+Math.min(lockedAmount, builderAllocationHeld - unlockedAmount)
 );
-const sellable = Math.max(0, Math.min(tokenBalance, visibleUnlocked));
+const visibleUnlocked = Math.max(0, tokenBalance - visibleLocked);
 const percentUnlocked =
 totalAllocation > 0
 ? Math.min(100, (Math.max(0, unlockedAmount) / totalAllocation) * 100)
@@ -646,7 +720,7 @@ vesting_active: visibleLocked > 0 || lockedAmount > 0,
 builder_total_allocation_tokens: totalAllocation,
 builder_unlocked_tokens: visibleUnlocked,
 builder_locked_tokens: visibleLocked,
-builder_sellable_tokens: sellable,
+builder_sellable_tokens: visibleUnlocked,
 builder_vesting_percent_unlocked: percentUnlocked,
 builder_vesting_days_live: vestedDays,
 builder_daily_unlock_tokens: dailyUnlock,
@@ -658,28 +732,6 @@ launch,
 wallet,
 tokenBalance,
 });
-}
-
-async function getWalletSolBalanceSnapshot(db, launchId, wallet) {
-const cleanWallet = cleanText(wallet, 120);
-if (!cleanWallet) return null;
-
-const columnSet = await getWalletBalanceColumns(db);
-if (!columnSet.has("sol_balance")) return null;
-
-const row = await db.get(
-`
-SELECT sol_balance
-FROM wallet_balances
-WHERE launch_id = ? AND wallet = ?
-ORDER BY id DESC
-LIMIT 1
-`,
-[launchId, cleanWallet]
-);
-
-if (!row) return null;
-return toNumber(row.sol_balance, null);
 }
 
 function getLatestTradePriceSol(trades = []) {
@@ -831,8 +883,12 @@ token_balance: 0,
 tokenBalance: 0,
 total_balance: 0,
 totalBalance: 0,
+balance_tokens: 0,
+wallet_balance_tokens: 0,
+
 position_value_usd: 0,
 positionValueUsd: 0,
+
 sol_balance: 0,
 solBalance: 0,
 sol_delta: 0,
@@ -868,18 +924,12 @@ builder_daily_unlock_tokens: 0,
 };
 }
 
-const walletRow = await db.get(
-`
-SELECT token_amount
-FROM wallet_balances
-WHERE launch_id = ? AND wallet = ?
-ORDER BY id DESC
-LIMIT 1
-`,
-[launchId, cleanWallet]
-);
+const walletSnapshot = await getWalletBalanceSnapshot(db, launchId, cleanWallet);
 
-let tokenBalance = Math.max(0, Math.floor(toNumber(walletRow?.token_amount, 0)));
+let tokenBalance = Math.max(
+0,
+Math.floor(toNumber(walletSnapshot?.tokenAmount, 0))
+);
 
 if (tokenBalance <= 0) {
 let derivedBalance = 0;
@@ -915,8 +965,6 @@ walletSolDelta -= tradeSol;
 }
 }
 
-const walletSolSnapshot = await getWalletSolBalanceSnapshot(db, launchId, cleanWallet);
-
 const vesting = buildBuilderVestingSummary({
 launch,
 wallet: cleanWallet,
@@ -934,8 +982,8 @@ tokenBalance > 0 && priceUsd > 0
 : 0;
 
 const visibleSolBalance =
-walletSolSnapshot != null
-? walletSolSnapshot
+walletSnapshot?.solBalance != null
+? toNumber(walletSnapshot.solBalance, walletSolDelta)
 : walletSolDelta;
 
 return {
@@ -943,6 +991,8 @@ token_balance: tokenBalance,
 tokenBalance: tokenBalance,
 total_balance: totalBalance,
 totalBalance: totalBalance,
+balance_tokens: tokenBalance,
+wallet_balance_tokens: tokenBalance,
 
 position_value_usd: positionValueUsd,
 positionValueUsd: positionValueUsd,
@@ -988,6 +1038,7 @@ return {
 
 wallet_token_balance: walletSummary.token_balance,
 wallet_total_balance: walletSummary.total_balance,
+wallet_balance_tokens: walletSummary.wallet_balance_tokens,
 wallet_position_value_usd: walletSummary.position_value_usd,
 wallet_sol_balance: walletSummary.sol_balance,
 wallet_sol_delta: walletSummary.sol_delta,

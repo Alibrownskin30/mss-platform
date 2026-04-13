@@ -226,6 +226,26 @@ if (cleaned) return cleaned;
 return "";
 }
 
+function firstFinite(...values) {
+for (const value of values) {
+const num = Number(value);
+if (Number.isFinite(num)) return num;
+}
+return null;
+}
+
+function firstPositive(...values) {
+for (const value of values) {
+const num = Number(value);
+if (Number.isFinite(num) && num > 0) return num;
+}
+return null;
+}
+
+function arrayFromCandidate(value) {
+return Array.isArray(value) ? value : [];
+}
+
 function setText(id, value) {
 const el = typeof id === "string" ? $(id) : id;
 if (el) el.textContent = value;
@@ -655,12 +675,24 @@ tokenPayload?.token?.ticker ||
 ).replace(/^\$/, "");
 
 const builderWallet = launch?.builder_wallet || "";
+const builderAlias =
+launch?.builder_alias ||
+tokenPayload?.launch?.builder_alias ||
+"—";
+const builderScore = toNumber(
+launch?.builder_score ??
+tokenPayload?.launch?.builder_score,
+0
+);
 
 setText("launchTokenName", tokenName);
 setText("launchTokenNameMirror", tokenName);
 setText("launchTokenSymbol", `$${tokenSymbol}`);
 setText("launchBuilderWalletShort", shortAddress(builderWallet || "") || "Pending");
 setText("launchTokenLogo", (tokenSymbol[0] || "M").toUpperCase());
+
+setText("builderAlias", builderAlias);
+setText("builderScoreStat", builderScore > 0 ? formatNumber(builderScore, { maximumFractionDigits: 0 }) : "—");
 
 const nameEl = $("launchTokenName");
 if (nameEl) {
@@ -682,10 +714,17 @@ tokenPayload?.mint
 const reservedMintAddress = cleanString(launch?.reserved_mint_address, 200);
 const reservationStatus = cleanString(launch?.mint_reservation_status, 64).toLowerCase();
 
-if (phase !== PHASES.LIVE) {
+if (phase === PHASES.COMMIT || phase === PHASES.COUNTDOWN) {
 return {
 value: "",
-state: phase === PHASES.BUILDING ? "Building" : "Pending",
+state: "Hidden",
+};
+}
+
+if (phase === PHASES.BUILDING) {
+return {
+value: "",
+state: "Building",
 };
 }
 
@@ -711,18 +750,18 @@ state: "Pending",
 
 function updateContractAddress(launch, tokenPayload = null) {
 const resolved = resolveContractAddress(launch || {}, tokenPayload || {});
-const ca = resolved.value || "Pending";
-const short = ca === "Pending" ? resolved.state : shortAddress(ca);
+const ca = resolved.value || "";
+const buttonText = ca ? shortAddress(ca) : (resolved.state === "Hidden" ? "Hidden until live" : resolved.state);
 
-setText("launchCaText", short);
-setText("chartCaChipText", short);
+setText("launchCaText", buttonText);
+setText("chartCaChipText", buttonText);
 setText("launchCaState", resolved.state);
 
 const launchCaCopyBtn = $("launchCaCopyBtn");
 const chartCaCopyBtn = $("chartCaCopyBtn");
 
-if (launchCaCopyBtn) launchCaCopyBtn.dataset.copyValue = ca === "Pending" ? "" : ca;
-if (chartCaCopyBtn) chartCaCopyBtn.dataset.copyValue = ca === "Pending" ? "" : ca;
+if (launchCaCopyBtn) launchCaCopyBtn.dataset.copyValue = ca;
+if (chartCaCopyBtn) chartCaCopyBtn.dataset.copyValue = ca;
 }
 
 function renderExternalLinks(launch) {
@@ -1085,6 +1124,27 @@ el.textContent = text;
 el.dataset.state = type;
 }
 
+function resolveTradesFromPayload(payload = {}) {
+const snapshotTrades = arrayFromCandidate(payload?.tokenTrades);
+const genericTrades = arrayFromCandidate(payload?.trades);
+const tokenPayloadTrades = arrayFromCandidate(payload?.tokenPayload?.recent_trades);
+const tokenPayloadTradesAlt = arrayFromCandidate(payload?.tokenPayload?.trades);
+const tokenStatsTrades = arrayFromCandidate(payload?.tokenPayload?.stats?.recent_trades);
+const chartStatsTrades = arrayFromCandidate(payload?.chartStats?.recent_trades);
+
+return snapshotTrades.length
+? snapshotTrades
+: genericTrades.length
+? genericTrades
+: tokenPayloadTrades.length
+? tokenPayloadTrades
+: tokenPayloadTradesAlt.length
+? tokenPayloadTradesAlt
+: tokenStatsTrades.length
+? tokenStatsTrades
+: chartStatsTrades;
+}
+
 function renderRecentTrades(trades = [], tokenPayload = {}, chartStats = {}) {
 const list = $("recentTradesList");
 if (!list) return;
@@ -1101,21 +1161,21 @@ chartStats?.sol_usd_price,
 );
 
 const ordered = [...trades].sort((a, b) => {
-const aTs = parseDateMs(a?.created_at || a?.timestamp) || 0;
-const bTs = parseDateMs(b?.created_at || b?.timestamp) || 0;
+const aTs = parseDateMs(a?.created_at || a?.timestamp || a?.time) || 0;
+const bTs = parseDateMs(b?.created_at || b?.timestamp || b?.time) || 0;
 return bTs - aTs;
 });
 
 list.innerHTML = ordered
 .slice(0, 50)
 .map((trade) => {
-const side = String(trade?.side || "").toLowerCase();
-const wallet = shortAddress(String(trade?.wallet || ""));
-const solAmountNum = toNumber(trade?.sol_amount ?? trade?.base_amount, 0);
-const tokenAmountNum = toNumber(trade?.token_amount, 0);
+const side = String(trade?.side || trade?.type || "").toLowerCase() || "trade";
+const wallet = shortAddress(String(trade?.wallet || trade?.owner || ""));
+const solAmountNum = toNumber(trade?.sol_amount ?? trade?.base_amount ?? trade?.solAmount, 0);
+const tokenAmountNum = toNumber(trade?.token_amount ?? trade?.tokenAmount ?? trade?.amount, 0);
 const priceSolNum = toNumber(trade?.price ?? trade?.price_sol, 0);
 const tradeUsdValue = solUsdPrice > 0 ? solAmountNum * solUsdPrice : 0;
-const createdAt = trade?.created_at || trade?.timestamp || "";
+const createdAt = trade?.created_at || trade?.timestamp || trade?.time || "";
 const relativeTime = formatRelativeTime(createdAt);
 
 return `
@@ -1288,109 +1348,149 @@ el.dataset.tone = tone;
 function getWalletSummaryData(tokenPayload = {}, chartStats = {}, fallbackTokenBalance = null) {
 const wallet = tokenPayload?.wallet || tokenPayload?.position || {};
 const stats = tokenPayload?.stats || {};
+const chartWallet = chartStats?.wallet || {};
 
-const tokenBalance = Math.max(
-0,
-toInt(
-wallet?.token_balance ??
-wallet?.tokenBalance ??
-wallet?.balance_tokens ??
-wallet?.balance ??
-tokenPayload?.wallet_token_balance ??
-tokenPayload?.walletBalance ??
-tokenPayload?.position?.token_balance ??
-chartStats?.wallet_token_balance ??
-chartStats?.wallet_balance_tokens ??
-fallbackTokenBalance ??
-0,
-0
-)
+const tokenBalanceRaw = firstFinite(
+wallet?.token_balance,
+wallet?.tokenBalance,
+wallet?.balance_tokens,
+wallet?.balance,
+wallet?.wallet_token_balance,
+chartWallet?.token_balance,
+chartWallet?.tokenBalance,
+tokenPayload?.wallet_token_balance,
+tokenPayload?.walletBalance,
+tokenPayload?.position?.token_balance,
+stats?.wallet_token_balance,
+stats?.wallet_balance_tokens,
+stats?.walletBalance,
+chartStats?.wallet_token_balance,
+chartStats?.wallet_balance_tokens,
+chartStats?.walletBalance,
+fallbackTokenBalance
 );
 
-const totalBalance = Math.max(
-tokenBalance,
-toInt(
-wallet?.total_balance ??
-wallet?.totalBalance ??
-tokenPayload?.wallet_total_balance ??
-chartStats?.wallet_total_balance ??
-tokenBalance,
+const tokenBalance = Math.max(0, toInt(tokenBalanceRaw ?? 0, 0));
+
+const totalBalanceRaw = firstFinite(
+wallet?.total_balance,
+wallet?.totalBalance,
+wallet?.wallet_total_balance,
+chartWallet?.total_balance,
+tokenPayload?.wallet_total_balance,
+stats?.wallet_total_balance,
+chartStats?.wallet_total_balance,
 tokenBalance
-)
 );
 
-const unlockedBalance = Math.max(
-0,
-toInt(
-wallet?.unlocked_balance ??
-wallet?.unlockedBalance ??
-wallet?.builder_unlocked_tokens ??
-wallet?.sellable_balance ??
-wallet?.sellableBalance ??
-tokenPayload?.wallet_unlocked_balance ??
-tokenPayload?.wallet_sellable_balance ??
-chartStats?.wallet_unlocked_balance ??
-chartStats?.wallet_sellable_balance ??
-tokenBalance,
+const totalBalance = Math.max(tokenBalance, toInt(totalBalanceRaw ?? tokenBalance, tokenBalance));
+
+const unlockedBalanceRaw = firstFinite(
+wallet?.unlocked_balance,
+wallet?.unlockedBalance,
+wallet?.builder_unlocked_tokens,
+wallet?.sellable_balance,
+wallet?.sellableBalance,
+wallet?.wallet_unlocked_balance,
+wallet?.wallet_sellable_balance,
+chartWallet?.unlocked_balance,
+chartWallet?.sellable_balance,
+tokenPayload?.wallet_unlocked_balance,
+tokenPayload?.wallet_sellable_balance,
+stats?.wallet_unlocked_balance,
+stats?.wallet_sellable_balance,
+chartStats?.wallet_unlocked_balance,
+chartStats?.wallet_sellable_balance,
 tokenBalance
-)
 );
 
-const lockedBalance = Math.max(
-0,
-toInt(
-wallet?.locked_balance ??
-wallet?.lockedBalance ??
-wallet?.builder_locked_tokens ??
-tokenPayload?.wallet_locked_balance ??
-chartStats?.wallet_locked_balance ??
-Math.max(0, totalBalance - unlockedBalance),
+const unlockedBalance = Math.max(0, toInt(unlockedBalanceRaw ?? tokenBalance, tokenBalance));
+
+const lockedBalanceRaw = firstFinite(
+wallet?.locked_balance,
+wallet?.lockedBalance,
+wallet?.builder_locked_tokens,
+wallet?.wallet_locked_balance,
+chartWallet?.locked_balance,
+tokenPayload?.wallet_locked_balance,
+stats?.wallet_locked_balance,
+chartStats?.wallet_locked_balance,
 Math.max(0, totalBalance - unlockedBalance)
-)
+);
+
+const lockedBalance = Math.max(0, toInt(lockedBalanceRaw ?? Math.max(0, totalBalance - unlockedBalance), 0));
+
+const sellableBalanceRaw = firstFinite(
+wallet?.sellable_balance,
+wallet?.sellableBalance,
+wallet?.builder_sellable_tokens,
+wallet?.wallet_sellable_balance,
+chartWallet?.sellable_balance,
+tokenPayload?.wallet_sellable_balance,
+stats?.wallet_sellable_balance,
+chartStats?.wallet_sellable_balance,
+unlockedBalance,
+tokenBalance - lockedBalance
 );
 
 const sellableBalance = Math.max(
 0,
 Math.min(
-tokenBalance,
-toInt(
-wallet?.sellable_balance ??
-wallet?.sellableBalance ??
-wallet?.builder_sellable_tokens ??
-tokenPayload?.wallet_sellable_balance ??
-chartStats?.wallet_sellable_balance ??
-unlockedBalance,
-unlockedBalance
-)
+tokenBalance || totalBalance,
+toInt(sellableBalanceRaw ?? unlockedBalance, unlockedBalance)
 )
 );
 
 const priceUsd = toNumber(stats?.price_usd ?? chartStats?.price_usd, 0);
 
-const positionValueUsd = toNumber(
-wallet?.position_value_usd ??
-wallet?.positionValueUsd ??
-tokenPayload?.wallet_position_value_usd ??
-chartStats?.wallet_position_value_usd ??
-(sellableBalance * priceUsd),
+const positionValueUsdRaw = firstFinite(
+wallet?.position_value_usd,
+wallet?.positionValueUsd,
+wallet?.wallet_position_value_usd,
+chartWallet?.position_value_usd,
+tokenPayload?.wallet_position_value_usd,
+stats?.wallet_position_value_usd,
+chartStats?.wallet_position_value_usd,
+sellableBalance * priceUsd
+);
+
+const positionValueUsd = Math.max(0, toNumber(positionValueUsdRaw ?? 0, 0));
+
+const solBalanceRaw = firstFinite(
+wallet?.sol_balance,
+wallet?.solBalance,
+wallet?.wallet_sol_balance,
+wallet?.walletSolBalance,
+wallet?.sol_after,
+wallet?.solAfter,
+chartWallet?.sol_balance,
+chartWallet?.wallet_sol_balance,
+tokenPayload?.wallet_sol_balance,
+tokenPayload?.walletSolBalance,
+stats?.wallet_sol_balance,
+stats?.walletSolBalance,
+chartStats?.wallet_sol_balance,
+chartStats?.walletSolBalance,
+chartStats?.wallet_sol_after,
+chartStats?.walletSolAfter,
+wallet?.sol_delta,
+wallet?.solDelta,
+tokenPayload?.wallet_sol_delta,
+chartStats?.wallet_sol_delta,
 0
 );
 
-const solBalance = toNumber(
-wallet?.sol_balance ??
-wallet?.solBalance ??
-tokenPayload?.wallet_sol_balance ??
-chartStats?.wallet_sol_balance ??
-0,
-0
-);
+const solBalance = Math.max(0, toNumber(solBalanceRaw ?? 0, 0));
 
 const solDelta = toNumber(
-wallet?.sol_delta ??
-wallet?.solDelta ??
-tokenPayload?.wallet_sol_delta ??
-chartStats?.wallet_sol_delta ??
-solBalance,
+firstFinite(
+wallet?.sol_delta,
+wallet?.solDelta,
+tokenPayload?.wallet_sol_delta,
+stats?.wallet_sol_delta,
+chartStats?.wallet_sol_delta,
+solBalance
+) ?? solBalance,
 solBalance
 );
 
@@ -1504,18 +1604,24 @@ if (!show) return;
 
 const walletSummary = getWalletSummaryData(tokenPayload, chartStats, fallbackTokenBalance);
 const totalSupply = toInt(
-tokenPayload?.token?.supply ??
-launch?.final_supply ??
-launch?.supply ??
+firstFinite(
+tokenPayload?.token?.supply,
+tokenPayload?.token?.total_supply,
+tokenPayload?.stats?.total_supply,
 chartStats?.total_supply,
+launch?.final_supply,
+launch?.supply
+) ?? 0,
 0
 );
 
 const backendMaxWallet = toInt(
-quotePayload?.quote?.maxWallet ??
-quotePayload?.quote?.maxWalletTokens ??
-quotePayload?.maxWallet ??
-quotePayload?.maxWalletTokens,
+firstFinite(
+quotePayload?.quote?.maxWallet,
+quotePayload?.quote?.maxWalletTokens,
+quotePayload?.maxWallet,
+quotePayload?.maxWalletTokens
+) ?? 0,
 0
 );
 
@@ -1534,24 +1640,27 @@ const remaining = maxWalletTokens > 0
 
 statePill.classList.remove("is-open", "is-restricted");
 
-const hasRestriction = maxWalletTokens > 0 || walletSummary.isBuilderWallet;
+const hasRestriction = localMaxWalletPct > 0 || maxWalletTokens > 0 || walletSummary.isBuilderWallet;
 
-if (hasRestriction) {
 statePill.classList.add("is-open");
-statePill.textContent = walletSummary.isBuilderWallet ? "Vesting" : "Capped";
+if (walletSummary.isBuilderWallet) {
+statePill.textContent = "Vesting";
+} else if (hasRestriction) {
+statePill.textContent = "Capped";
 } else {
-statePill.classList.add("is-open");
 statePill.textContent = "Open";
 }
 
 tierLabel.textContent = walletSummary.isBuilderWallet
 ? "Builder Vesting Controls"
-: maxWalletTokens > 0
+: hasRestriction
 ? "Wallet Access Controls"
 : "Open Access";
 
 limitValue.textContent = maxWalletTokens > 0
 ? `${formatTokenAmount(maxWalletTokens, 0)} tokens`
+: hasRestriction
+? `${formatPercent(localMaxWalletPct, 2)} max wallet`
 : "Open";
 
 if (walletSummary.isBuilderWallet && (walletSummary.vestingActive || walletSummary.lockedBalance > 0)) {
@@ -1561,25 +1670,35 @@ holdingValue.innerHTML = `
 ${formatTokenAmount(walletSummary.lockedBalance, 0)} locked
 </div>
 `;
+} else if (totalSupply > 0 && effectiveHolding > 0) {
+const holdingPct = (effectiveHolding / totalSupply) * 100;
+holdingValue.innerHTML = `
+<div>${formatTokenAmount(effectiveHolding, 0)} tokens</div>
+<div style="margin-top:4px;font-size:12px;opacity:.68;">${formatPercent(holdingPct, 3)}</div>
+`;
 } else {
-holdingValue.textContent = `${formatTokenAmount(walletSummary.tokenBalance, 0)} tokens`;
+holdingValue.textContent = `${formatTokenAmount(effectiveHolding, 0)} tokens`;
 }
 
 remainingValue.textContent = maxWalletTokens > 0
 ? `${formatTokenAmount(remaining, 0)} tokens`
+: hasRestriction
+? `${formatPercent(localMaxWalletPct, 2)} policy`
 : "Unlimited";
 
 totalSupplyValue.textContent = totalSupply > 0
 ? `${formatTokenAmount(totalSupply, 0)} tokens`
-: "—";
+: "Pending";
 
 if (walletSummary.isBuilderWallet) {
 schedule.textContent =
 `Builder vesting releases at 0.5% of total supply per day until the full 5% allocation is unlocked. Currently unlocked: ${formatPercent(walletSummary.builderVestingPercentUnlocked, 1)}.`;
-} else {
-schedule.textContent = maxWalletTokens > 0
+} else if (hasRestriction) {
+schedule.textContent = totalSupply > 0
 ? `Wallet concentration controls remain active. Current cap is ${formatPercent(localMaxWalletPct, 2)} of total supply.`
-: "No wallet concentration limit detected for the current live phase.";
+: `Wallet concentration controls remain active. Current cap is ${formatPercent(localMaxWalletPct, 2)} of total supply, with token-cap figures pending supply resolution.`;
+} else {
+schedule.textContent = "No wallet concentration limit detected for the current live phase.";
 }
 }
 
@@ -1848,7 +1967,12 @@ fetchJson(
 
 return {
 tokenPayload: tokenPayload || {},
+tokenTrades: resolveTradesFromPayload({
+tokenPayload,
+chartStats: snapshotPayload?.stats || {},
 tokenTrades: snapshotPayload?.trades || [],
+trades: snapshotPayload?.trades || [],
+}),
 chartStats: snapshotPayload?.stats || {},
 candles: snapshotPayload?.candles || [],
 chartLaunch: snapshotPayload?.launch || null,
@@ -1978,7 +2102,7 @@ updateTradeTabUi(this.tradeMode);
 resetTradeQuoteUi();
 
 if (!this.launch && this.launchId) {
-await this.refreshLaunch();
+await this.refreshLaunch({ force: true });
 } else {
 this.applyAll();
 }
@@ -2125,7 +2249,7 @@ return;
 
 this.refreshTimer = setInterval(async () => {
 try {
-await this.refreshLiveMarketOnly();
+await this.refreshLiveMarketOnly({ force: true });
 } catch (error) {
 console.error("launch-market live refresh failed:", error);
 }
@@ -2142,12 +2266,13 @@ updateCountdownUi(this.launch, this.commitStats);
 
 const nextPhase = inferPhase(this.launch);
 if (nextPhase !== this.phase) {
+const previousPhase = this.phase;
 this.phase = nextPhase;
-this.applyAll();
+this.applyAll(previousPhase);
 this.startPollingLoop();
 
 if (nextPhase === PHASES.LIVE) {
-void this.refreshLiveMarketOnly({ force: true }).catch((error) => {
+void this.refreshLiveMarketOnly({ force: true, previousPhaseOverride: previousPhase }).catch((error) => {
 console.error("countdown to live refresh failed:", error);
 });
 }
@@ -2165,7 +2290,12 @@ applySnapshotPayload(payload = {}) {
 this.tokenPayload = payload?.tokenPayload || {};
 this.chartStats = payload?.chartStats || {};
 this.candles = payload?.candles || [];
-this.trades = payload?.tokenTrades || payload?.trades || [];
+this.trades = resolveTradesFromPayload({
+tokenPayload: this.tokenPayload,
+chartStats: this.chartStats,
+tokenTrades: payload?.tokenTrades || [],
+trades: payload?.trades || [],
+});
 this.pool = payload?.pool || null;
 
 if (payload?.chartLaunch) {
@@ -2191,7 +2321,7 @@ this.lifecycle = payload?.lifecycle || null;
 this.graduationPlan = payload?.graduationPlan || null;
 }
 
-async refreshLiveMarketOnly({ force = false } = {}) {
+async refreshLiveMarketOnly({ force = false, previousPhaseOverride = null } = {}) {
 if (!this.launchId) return;
 if (!force && this.phase !== PHASES.LIVE) return;
 
@@ -2214,8 +2344,8 @@ this.refreshLifecycleOnly().catch(() => null),
 if (this._destroyed) return;
 
 this.applySnapshotPayload(payload);
-this.phase = inferPhase(this.launch);
-this.applyAll();
+this.applyAll(previousPhaseOverride);
+if (this.startPollingLoop) this.startPollingLoop();
 
 if (this.chartRenderer) {
 this.chartRenderer.setInterval(this.currentInterval);
@@ -2250,6 +2380,8 @@ return this._launchRefreshInFlight;
 }
 
 this._launchRefreshInFlight = (async () => {
+const previousPhase = this.phase;
+
 const [launchPayload, commitStatsPayload, lifecyclePayload] = await Promise.all([
 this.fetchLaunch(this.launchId),
 this.fetchCommitStats(this.launchId),
@@ -2259,18 +2391,19 @@ this.fetchLifecycle(this.launchId).catch(() => ({})),
 if (this._destroyed) return;
 
 const incomingLaunch = normalizeLaunchTruth(launchPayload?.launch || launchPayload || {});
-const previousPhase = this.phase;
 
 this.launch = mergeLaunchTruth(this.launch || {}, incomingLaunch);
 this.commitStats = commitStatsPayload || {};
 this.lifecycle = lifecyclePayload?.lifecycle || null;
 this.graduationPlan = lifecyclePayload?.graduationPlan || null;
-this.phase = inferPhase(this.launch);
 
-if (this.phase === PHASES.LIVE) {
-await this.refreshLiveMarketOnly({ force: true });
+const nextPhase = inferPhase(this.launch);
+this.phase = nextPhase;
+
+if (nextPhase === PHASES.LIVE) {
+await this.refreshLiveMarketOnly({ force: true, previousPhaseOverride: previousPhase });
 } else {
-this.applyAll();
+this.applyAll(previousPhase);
 }
 
 if (previousPhase !== this.phase || force) {
@@ -2285,10 +2418,10 @@ this._launchRefreshInFlight = null;
 }
 }
 
-applyAll() {
+applyAll(previousPhaseOverride = null) {
 if (!this.launch) return;
 
-const previousPhase = this.phase;
+const previousPhase = previousPhaseOverride ?? this.phase;
 this.phase = inferPhase(this.launch);
 
 updateTokenIdentity(this.launch, this.tokenPayload);
@@ -2365,11 +2498,12 @@ this.onPhaseChange(this.phase, this.launch, this.tokenPayload, this.chartStats);
 }
 
 getWalletTokenBalance() {
-return getWalletSummaryData(
+const summary = getWalletSummaryData(
 this.tokenPayload,
 this.chartStats,
 this.walletTokenBalanceFallback
-).sellableBalance;
+);
+return Math.max(summary.sellableBalance, summary.tokenBalance > 0 && summary.sellableBalance <= 0 ? summary.tokenBalance : 0);
 }
 
 syncSellQuickButtons() {
@@ -2609,26 +2743,29 @@ const quote = quotePayload?.quote || quotePayload || {};
 this.lastQuote = quotePayload;
 
 if (this.tradeMode === TRADE_MODES.BUY) {
-setText("tradeQuotePrimaryValue", `${formatTokenAmount(quote?.tokensBought || 0, 0)} tokens`);
+setText("tradeQuotePrimaryValue", `${formatTokenAmount(quote?.tokensBought || quote?.tokenOut || 0, 0)} tokens`);
 setText("tradeQuotePriceValue", quote?.price > 0 ? `${formatPriceSol(quote.price)} SOL` : "—");
-setText("tradeQuoteFeeValue", formatSol(quote?.feeSol || 0, 6));
+setText("tradeQuoteFeeValue", formatSol(quote?.feeSol || quote?.fee_sol || 0, 6));
 
 if ($("tradeQuoteWalletLimitValue")) {
-if (quote?.maxWallet) {
-const maxWalletText = formatTokenAmount(quote.maxWallet, 0);
+if (quote?.maxWallet || quote?.maxWalletTokens) {
+const maxWalletTokens = toInt(quote?.maxWallet ?? quote?.maxWalletTokens, 0);
+const maxWalletText = formatTokenAmount(maxWalletTokens, 0);
 const afterText =
 quote?.walletBalanceAfter != null
 ? ` / After ${formatTokenAmount(quote.walletBalanceAfter, 0)}`
 : "";
 $("tradeQuoteWalletLimitValue").textContent = `${maxWalletText}${afterText}`;
+} else if (quote?.walletBalanceAfter != null) {
+$("tradeQuoteWalletLimitValue").textContent = `After ${formatTokenAmount(quote.walletBalanceAfter, 0)}`;
 } else {
 $("tradeQuoteWalletLimitValue").textContent = "Applies";
 }
 }
 } else {
-setText("tradeQuotePrimaryValue", formatSol(quote?.netSolOut || 0, 6));
+setText("tradeQuotePrimaryValue", formatSol(quote?.netSolOut || quote?.solOut || quote?.solReceived || 0, 6));
 setText("tradeQuotePriceValue", quote?.price > 0 ? `${formatPriceSol(quote.price)} SOL` : "—");
-setText("tradeQuoteFeeValue", formatSol(quote?.feeSol || 0, 6));
+setText("tradeQuoteFeeValue", formatSol(quote?.feeSol || quote?.fee_sol || 0, 6));
 setText(
 "tradeQuoteWalletLimitValue",
 quote?.walletBalanceAfter != null
@@ -2715,7 +2852,7 @@ const result = await this.executeTrade();
 if (this.tradeMode === TRADE_MODES.BUY) {
 this.walletTokenBalanceFallback = toNumber(
 result?.walletBalanceAfter,
-this.walletTokenBalanceFallback + toNumber(result?.tokensReceived, 0)
+this.walletTokenBalanceFallback + toNumber(result?.tokensReceived ?? result?.tokenOut, 0)
 );
 } else {
 this.walletTokenBalanceFallback = toNumber(
@@ -2726,8 +2863,8 @@ Math.max(0, this.walletTokenBalanceFallback - toNumber(inputAmount, 0))
 
 const message =
 this.tradeMode === TRADE_MODES.BUY
-? `Buy Executed\nReceived: ${formatTokenAmount(result?.tokensReceived || 0, 0)} tokens\nPaid: ${formatSol(inputAmount, 6)}\nFee: ${formatSol(result?.feeSol || 0, 6)}`
-: `Sell Executed\nReceived: ${formatSol(result?.solReceived || result?.netSolOut || 0, 6)}\nSold: ${formatTokenAmount(inputAmount, 0)} tokens\nFee: ${formatSol(result?.feeSol || 0, 6)}`;
+? `Buy Executed\nReceived: ${formatTokenAmount(result?.tokensReceived || result?.tokenOut || 0, 0)} tokens\nPaid: ${formatSol(inputAmount, 6)}\nFee: ${formatSol(result?.feeSol || result?.fee_sol || 0, 6)}`
+: `Sell Executed\nReceived: ${formatSol(result?.solReceived || result?.netSolOut || result?.solOut || 0, 6)}\nSold: ${formatTokenAmount(inputAmount, 0)} tokens\nFee: ${formatSol(result?.feeSol || result?.fee_sol || 0, 6)}`;
 
 setTradeMessage(message, "success");
 
@@ -2784,10 +2921,10 @@ this.applyAll();
 }
 
 setBaseState(launch, commitStats = {}, options = {}) {
+const previousPhase = this.phase;
 this.launch = mergeLaunchTruth(this.launch || {}, launch || {});
 this.commitStats = commitStats || this.commitStats || {};
-this.phase = inferPhase(this.launch);
-this.applyAll();
+this.applyAll(previousPhase);
 
 if (options.restartPolling) {
 this.startPollingLoop();

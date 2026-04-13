@@ -63,8 +63,7 @@ if (!v) return null;
 const raw = String(v).trim();
 if (!raw) return null;
 
-const hasExplicitTimezone =
-/z$/i.test(raw) || /[+-]\d{2}:\d{2}$/.test(raw);
+const hasExplicitTimezone = /z$/i.test(raw) || /[+-]\d{2}:\d{2}$/.test(raw);
 
 if (!hasExplicitTimezone && /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/.test(raw)) {
 const sqliteUtc = Date.parse(raw.replace(" ", "T") + "Z");
@@ -107,6 +106,21 @@ function fmtSol(value, decimals = 2) {
 const n = Number(value);
 if (!Number.isFinite(n)) return "—";
 return `${n.toFixed(decimals).replace(/\.?0+$/, "")} SOL`;
+}
+
+function fmtPct(value, decimals = 0) {
+const n = Number(value);
+if (!Number.isFinite(n)) return "—";
+return `${n.toFixed(decimals).replace(/\.?0+$/, "")}%`;
+}
+
+function fmtTokenAmount(value, decimals = 0) {
+const n = Number(value);
+if (!Number.isFinite(n)) return "—";
+return n.toLocaleString(undefined, {
+minimumFractionDigits: 0,
+maximumFractionDigits: decimals,
+});
 }
 
 function solToLamports(solAmount) {
@@ -205,29 +219,17 @@ const rawStatus = cleanString(launchLike?.status, 64).toLowerCase();
 const contractAddress = cleanString(launchLike?.contract_address, 200);
 const mintStatus = cleanString(launchLike?.mint_reservation_status, 64).toLowerCase();
 const countdownEndsMs = parseTs(
-statsLike?.countdownEndsAt ||
-launchLike?.countdown_ends_at ||
-launchLike?.live_at
+statsLike?.countdownEndsAt || launchLike?.countdown_ends_at || launchLike?.live_at
 );
 const now = Date.now();
 
 if (rawStatus === "graduated") return "graduated";
 
-if (
-rawStatus === "live" ||
-(contractAddress && mintStatus === "finalized")
-) {
+if (rawStatus === "live" || (contractAddress && mintStatus === "finalized")) {
 return "live";
 }
 
-if (
-rawStatus === "building" ||
-(
-countdownEndsMs &&
-now >= countdownEndsMs &&
-!contractAddress
-)
-) {
+if (rawStatus === "building" || (countdownEndsMs && now >= countdownEndsMs && !contractAddress)) {
 return "building";
 }
 
@@ -257,12 +259,8 @@ return rawStatus || "commit";
 function sanitizePublicLaunchFields(launchLike = {}, statsLike = {}) {
 const effectiveStatus = inferEffectiveLaunchStatus(launchLike, statsLike);
 const exposeCa = shouldExposePublicCa(effectiveStatus);
-const contractAddress = exposeCa
-? cleanString(launchLike?.contract_address, 200)
-: "";
-const mintStatus = exposeCa
-? cleanString(launchLike?.mint_reservation_status, 64).toLowerCase()
-: "";
+const contractAddress = exposeCa ? cleanString(launchLike?.contract_address, 200) : "";
+const mintStatus = exposeCa ? cleanString(launchLike?.mint_reservation_status, 64).toLowerCase() : "";
 
 return {
 ...launchLike,
@@ -301,9 +299,7 @@ merged.reserved_mint_secret = "";
 if (exposeCa) {
 merged.contract_address = strongestContract;
 const finalizedWins =
-nextStatus === "finalized" ||
-prevStatus === "finalized" ||
-Boolean(strongestContract);
+nextStatus === "finalized" || prevStatus === "finalized" || Boolean(strongestContract);
 
 merged.mint_reservation_status = finalizedWins
 ? "finalized"
@@ -432,18 +428,10 @@ el.textContent = message;
 }
 
 function getBuilderBondState(launch, stats) {
-const builderBondSol = safeNum(
-stats?.builderBondSol,
-safeNum(launch?.builder_bond_sol, 0)
-);
-const builderBondRefunded = safeNum(
-stats?.builderBondRefunded,
-safeNum(launch?.builder_bond_refunded, 0)
-) === 1;
-const builderBondPaid = safeNum(
-stats?.builderBondPaid,
-safeNum(launch?.builder_bond_paid, 0)
-) === 1;
+const builderBondSol = safeNum(stats?.builderBondSol, safeNum(launch?.builder_bond_sol, 0));
+const builderBondRefunded =
+safeNum(stats?.builderBondRefunded, safeNum(launch?.builder_bond_refunded, 0)) === 1;
+const builderBondPaid = safeNum(stats?.builderBondPaid, safeNum(launch?.builder_bond_paid, 0)) === 1;
 
 return {
 amount: builderBondSol,
@@ -621,6 +609,301 @@ return [
 ].filter(Boolean);
 }
 
+function findFirstElementByIds(ids = []) {
+for (const id of ids) {
+const el = $(id);
+if (el) return el;
+}
+return null;
+}
+
+function setTextByIds(ids, value) {
+for (const id of ids) {
+const el = $(id);
+if (el) el.textContent = value;
+}
+}
+
+function setHtmlByIds(ids, value) {
+for (const id of ids) {
+const el = $(id);
+if (el) el.innerHTML = value;
+}
+}
+
+function setValueByIds(ids, value) {
+for (const id of ids) {
+const el = $(id);
+if (el) el.value = value;
+}
+}
+
+function setWidthByIds(ids, value) {
+for (const id of ids) {
+const el = $(id);
+if (el) el.style.width = value;
+}
+}
+
+function setHiddenByIds(ids, hidden) {
+for (const id of ids) {
+const el = $(id);
+if (el) el.classList.toggle("hidden", Boolean(hidden));
+}
+}
+
+function setDisplayByIds(ids, displayValue) {
+for (const id of ids) {
+const el = $(id);
+if (el) el.style.display = displayValue;
+}
+}
+
+function setStatusPillClasses(el, status) {
+if (!el) return;
+el.classList.remove("commit", "countdown", "live", "graduated", "failed");
+el.classList.add(pillClass(status));
+}
+
+function resolveAllocationPct(primary, fallback) {
+const n = safeNum(primary, NaN);
+if (Number.isFinite(n)) return n;
+return safeNum(fallback, 0);
+}
+
+function renderBuilderInfo(launch) {
+const alias = choosePreferredString(launch.builder_alias, launch.builder_name, "MSS Builder");
+const wallet = choosePreferredString(launch.builder_wallet, launch.builder, "");
+const trustScore = safeNum(
+launch.builder_trust_score,
+safeNum(launch.builder_score, safeNum(launch.trust_score, 0))
+);
+const trust = getBuilderTrust(trustScore);
+const isBuilderLaunch = String(launch.template || "").toLowerCase() === "builder";
+
+setTextByIds(["launchTitle", "tokenName", "launchName", "heroTokenName"], launch.token_name || "Unnamed Launch");
+setTextByIds(["launchSymbol", "symbolBadge", "heroTokenSymbol"], launch.symbol || "—");
+setTextByIds(["builderAlias", "builderAliasStat", "builderNameStat", "builderIdentityName"], alias);
+setTextByIds(["builderWalletStat", "builderWallet", "builderAddress", "builderIdentityWallet"], wallet ? shortenWallet(wallet) : "—");
+setValueByIds(["builderWalletFull", "builderAddressFull"], wallet);
+setTextByIds(["builderTrustStat", "builderTrustLabel", "builderTrustPill"], trust.label);
+setTextByIds(["builderTrustNote", "builderTrustSummary"], trust.note);
+setTextByIds(["builderTrustScore", "builderScoreStat"], trustScore > 0 ? String(Math.round(trustScore)) : "—");
+
+const builderWalletFullEl = findFirstElementByIds(["builderWalletFullText", "builderAddressFullText"]);
+if (builderWalletFullEl) {
+builderWalletFullEl.textContent = wallet || "—";
+}
+
+setHiddenByIds(
+[
+"builderInfoSection",
+"builderCard",
+"builderIdentityCard",
+"builderProfileCard",
+"builderProfileWrap",
+],
+!isBuilderLaunch
+);
+}
+
+function renderAllocationStructure(launch, stats) {
+const isBuilderLaunch = String(launch.template || "").toLowerCase() === "builder";
+const participantPct = resolveAllocationPct(
+stats?.participantAllocationPct,
+launch.participant_allocation_pct ?? launch.participants_allocation_pct ?? 45
+);
+const liquidityPct = resolveAllocationPct(
+stats?.liquidityAllocationPct,
+launch.liquidity_allocation_pct ?? 20
+);
+const reservePct = resolveAllocationPct(
+stats?.reserveAllocationPct,
+launch.reserve_allocation_pct ?? 30
+);
+const builderPct = isBuilderLaunch
+? resolveAllocationPct(stats?.builderAllocationPct, launch.builder_allocation_pct ?? 5)
+: 0;
+
+setTextByIds(["participantAllocationPctStat", "participantsAllocationPctStat"], fmtPct(participantPct));
+setTextByIds(["liquidityAllocationPctStat", "liquiditySplitPctStat"], fmtPct(liquidityPct));
+setTextByIds(["reserveAllocationPctStat", "reserveSplitPctStat"], fmtPct(reservePct));
+setTextByIds(["builderAllocationPctStat", "builderSplitPctStat", "teamReservePctStat"], fmtPct(builderPct));
+
+setHiddenByIds(
+["builderAllocationCard", "builderAllocationStatWrap", "builderAllocationRow"],
+!isBuilderLaunch
+);
+}
+
+function renderProgressCard(launch, committed, hardCap, minRaise, participants, pct, commitEndsAt, stats) {
+const status = getDisplayPhaseStatus(launch, stats);
+const countdownEndsAt = getCountdownEndsMs(launch, stats);
+const commitStartedAt = parseTs(stats.commitStartedAt || launch.commit_started_at);
+const fillDurationMs = getFillDurationMs(launch, stats);
+const now = Date.now();
+
+const remainingToMin = Math.max(0, safeNum(minRaise, 0) - safeNum(committed, 0));
+const remainingToHardCap = Math.max(0, safeNum(hardCap, 0) - safeNum(committed, 0));
+const minMet = safeNum(committed, 0) >= safeNum(minRaise, 0) && safeNum(minRaise, 0) > 0;
+const hardCapMet = safeNum(committed, 0) >= safeNum(hardCap, 0) && safeNum(hardCap, 0) > 0;
+
+let primaryCountdownLabel = "Commit ends in";
+let primaryCountdownValue = Number.isFinite(commitEndsAt) ? fmtCountdown(commitEndsAt - now) : "—";
+let secondaryCountdownLabel = "Fill duration";
+let secondaryCountdownValue = Number.isFinite(fillDurationMs) ? fmtDuration(fillDurationMs) : "—";
+
+if (status === "countdown" || status === "building") {
+primaryCountdownLabel = status === "countdown" ? "Countdown ends in" : "Finalizing";
+primaryCountdownValue =
+status === "countdown" && Number.isFinite(countdownEndsAt)
+? fmtCountdown(countdownEndsAt - now)
+: "In progress";
+secondaryCountdownLabel = "Commit window";
+secondaryCountdownValue =
+Number.isFinite(commitStartedAt) && Number.isFinite(commitEndsAt)
+? fmtDuration(commitEndsAt - commitStartedAt)
+: "—";
+}
+
+if (status === "live" || status === "graduated") {
+primaryCountdownLabel = status === "graduated" ? "Launch state" : "Went live";
+primaryCountdownValue = status === "graduated" ? "Graduated" : (launch.live_at || stats.liveAt || "Live");
+secondaryCountdownLabel = "Commit duration";
+secondaryCountdownValue =
+Number.isFinite(commitStartedAt) && Number.isFinite(commitEndsAt)
+? fmtDuration(commitEndsAt - commitStartedAt)
+: "—";
+}
+
+if (status === "failed" || status === "failed_refunded") {
+primaryCountdownLabel = "Launch state";
+primaryCountdownValue = badgeText(status);
+secondaryCountdownLabel = "Commit duration";
+secondaryCountdownValue =
+Number.isFinite(commitStartedAt) && Number.isFinite(commitEndsAt)
+? fmtDuration(commitEndsAt - commitStartedAt)
+: "—";
+}
+
+setTextByIds(["totalCommittedStat", "committedStat", "currentCommittedStat"], fmtSol(committed));
+setTextByIds(["progressPercentStat", "fillPctStat", "commitFillStat"], `${pct}%`);
+setTextByIds(["remainingToMinRaiseStat", "remainingToMinStat"], minMet ? "Reached" : fmtSol(remainingToMin));
+setTextByIds(["remainingToHardCapStat", "remainingToCapStat"], hardCapMet ? "Filled" : fmtSol(remainingToHardCap));
+setTextByIds(["participantsCountStat", "participantsTotalStat"], String(participants));
+setTextByIds(["progressCountdownLabel", "phaseTimerLabel"], primaryCountdownLabel);
+setTextByIds(["progressCountdownValue", "phaseTimerValue", "countdownValue"], primaryCountdownValue);
+setTextByIds(["progressSecondaryLabel", "phaseMetaLabel"], secondaryCountdownLabel);
+setTextByIds(["progressSecondaryValue", "phaseMetaValue"], secondaryCountdownValue);
+setWidthByIds(["launchProgressFill", "commitProgressFill", "heroProgressFill"], `${pct}%`);
+
+const progressBar = findFirstElementByIds(["launchProgressFill", "commitProgressFill", "heroProgressFill"]);
+if (progressBar) {
+progressBar.setAttribute("aria-valuenow", String(pct));
+progressBar.setAttribute("aria-valuemin", "0");
+progressBar.setAttribute("aria-valuemax", "100");
+}
+
+setTextByIds(["minRaiseStateStat"], minMet ? "Reached" : "Pending");
+setTextByIds(["hardCapStateStat"], hardCapMet ? "Filled" : "Open");
+}
+
+function renderPhase(launch, committed, minRaise, hardCap, commitEndsAt, stats, lifecycle) {
+const status = getDisplayPhaseStatus(launch, stats);
+const countdownEndsAt = getCountdownEndsMs(launch, stats);
+const caVisible = shouldExposePublicCa(status);
+const contractAddress = caVisible ? choosePreferredString(launch.contract_address, lifecycle?.contractAddress) : "";
+const contractDisplay = contractAddress || (caVisible ? "Pending" : "Hidden until live");
+
+setTextByIds(
+[
+"launchStatusBadge",
+"launchStatusPill",
+"launchPhasePill",
+"launchStatusText2",
+"phaseBadge",
+"heroPhasePill",
+],
+phaseDisplayText(status)
+);
+
+[
+"launchStatusBadge",
+"launchStatusPill",
+"launchPhasePill",
+"launchStatusText2",
+"phaseBadge",
+"heroPhasePill",
+].forEach((id) => setStatusPillClasses($(id), status));
+
+const phaseHeadline = (() => {
+if (status === "commit") return "Commit window is open";
+if (status === "countdown") return "Launch has entered countdown";
+if (status === "building") return "MSS is finalizing launch infrastructure";
+if (status === "live") return "Launch is now live";
+if (status === "graduated") return "Launch has graduated";
+if (status === "failed_refunded") return "Launch closed and refunded";
+if (status === "failed") return "Launch did not reach threshold";
+return `Launch is ${phaseDisplayText(status).toLowerCase()}`;
+})();
+
+const phaseSummary = (() => {
+if (status === "commit") {
+const minLeft = Math.max(0, safeNum(minRaise, 0) - safeNum(committed, 0));
+return minLeft > 0
+? `${fmtSol(minLeft)} remains to reach minimum raise.`
+: `Minimum raise reached. ${fmtSol(Math.max(0, safeNum(hardCap, 0) - safeNum(committed, 0)))} remains to hard cap.`;
+}
+
+if (status === "countdown") {
+return Number.isFinite(countdownEndsAt)
+? `Countdown ends in ${fmtCountdown(countdownEndsAt - Date.now())}.`
+: "Countdown is active.";
+}
+
+if (status === "building") {
+return "Mint reservation, LP bootstrap, and live market activation are in progress.";
+}
+
+if (status === "live") {
+if (lifecycle?.graduationReadiness?.ready) {
+return "Graduation threshold is currently satisfied.";
+}
+return lifecycle?.graduationReadiness?.reason || "Live market is active.";
+}
+
+if (status === "graduated") {
+return lifecycle?.graduationStatus || "Launch completed graduation flow.";
+}
+
+if (status === "failed_refunded") {
+return "All tracked commitments have been refunded and the launch is closed.";
+}
+
+if (status === "failed") {
+return "Commit refunds remain available for eligible wallets.";
+}
+
+return `Current status: ${phaseDisplayText(status)}.`;
+})();
+
+setTextByIds(["phaseHeadline", "phaseTitle", "launchPhaseTitle"], phaseHeadline);
+setTextByIds(["phaseSummary", "phaseDescription", "launchPhaseSummary"], phaseSummary);
+setTextByIds(["contractAddressText", "contractAddressValue", "launchContractAddress", "contractAddressStat"], contractDisplay);
+setTextByIds(["commitEndsValue", "commitEndsAtStat"], Number.isFinite(commitEndsAt) ? new Date(commitEndsAt).toLocaleString() : "—");
+setTextByIds(
+["countdownEndsValue", "countdownEndsAtStat"],
+Number.isFinite(countdownEndsAt) ? new Date(countdownEndsAt).toLocaleString() : "—"
+);
+
+const contractRows = ["contractAddressRow", "caRow", "launchCaRow"];
+contractRows.forEach((id) => {
+const el = $(id);
+if (!el) return;
+el.classList.toggle("hidden", !caVisible && !contractAddress);
+});
+}
+
 let currentLaunch = null;
 let currentCommitStats = null;
 let currentLifecycle = null;
@@ -695,17 +978,9 @@ const commitsStats = commitsRes || {};
 const baseLaunchRaw = normalizeLaunchData(launchRes?.launch || {});
 const reconcileLaunchRaw = normalizeLaunchData(reconcileRes?.launch || {});
 
-const strongestLaunch = mergeLaunchTruth(
-baseLaunchRaw,
-reconcileLaunchRaw,
-commitsStats
-);
+const strongestLaunch = mergeLaunchTruth(baseLaunchRaw, reconcileLaunchRaw, commitsStats);
 
-currentLaunch = mergeLaunchTruth(
-currentLaunch || {},
-strongestLaunch,
-commitsStats
-);
+currentLaunch = mergeLaunchTruth(currentLaunch || {}, strongestLaunch, commitsStats);
 
 currentCommitStats = {
 ...(currentCommitStats || {}),
@@ -713,19 +988,13 @@ currentCommitStats = {
 ...(reconcileRes
 ? {
 status: reconcileRes.status || commitsRes?.status,
-totalCommitted:
-reconcileRes.totalCommitted ?? commitsRes?.totalCommitted,
-participants:
-reconcileRes.participants ?? commitsRes?.participants,
+totalCommitted: reconcileRes.totalCommitted ?? commitsRes?.totalCommitted,
+participants: reconcileRes.participants ?? commitsRes?.participants,
 }
 : {}),
 };
 
-currentLaunch = mergeLaunchTruth(
-currentLaunch || {},
-currentLaunch || {},
-currentCommitStats || {}
-);
+currentLaunch = mergeLaunchTruth(currentLaunch || {}, currentLaunch || {}, currentCommitStats || {});
 
 currentLifecycle = mergeLifecycleTruth(
 currentLifecycle,
@@ -746,13 +1015,9 @@ if (!id) return;
 if (!currentLaunch) return;
 
 const effectiveStatus = getDisplayPhaseStatus(currentLaunch, currentCommitStats);
+const eligibleStatuses = new Set(["countdown", "building", "live", "graduated"]);
 
-if (
-effectiveStatus !== "live" &&
-effectiveStatus !== "graduated" &&
-effectiveStatus !== "countdown" &&
-effectiveStatus !== "building"
-) {
+if (!eligibleStatuses.has(effectiveStatus)) {
 return;
 }
 
@@ -933,10 +1198,7 @@ return;
 
 wrap.classList.remove("hidden");
 
-const teamAllocationPct = safeNum(
-stats.teamAllocationPct,
-safeNum(launch.team_allocation_pct, 0)
-);
+const teamAllocationPct = safeNum(stats.teamAllocationPct, safeNum(launch.team_allocation_pct, 0));
 const breakdown = Array.isArray(stats.teamWalletBreakdown)
 ? stats.teamWalletBreakdown
 : Array.isArray(launch.team_wallet_breakdown)
@@ -994,7 +1256,7 @@ parts.push(`Internal price: ${safeNum(lifecycle.priceSol).toFixed(8).replace(/\.
 }
 
 if (lifecycle.builderVesting?.lockedAmount > 0) {
-parts.push(`Builder locked: ${safeNum(lifecycle.builderVesting.lockedAmount, 0)} tokens`);
+parts.push(`Builder locked: ${fmtTokenAmount(lifecycle.builderVesting.lockedAmount, 0)} tokens`);
 }
 
 if (lifecycle.graduationReadiness?.ready) {
@@ -1166,15 +1428,12 @@ const hardCap = safeNum(stats.hardCap, safeNum(launch.hard_cap_sol));
 const minRaise = safeNum(stats.minRaise, safeNum(launch.min_raise_sol));
 const participants = safeNum(stats.participants, safeNum(launch.participants_count));
 const commitEndsAt = getCommitEndsMs(launch, stats);
-const pct = hardCap > 0
-? Math.max(0, Math.min(100, Math.floor((committed / hardCap) * 100)))
-: 0;
+const pct = hardCap > 0 ? Math.max(0, Math.min(100, Math.floor((committed / hardCap) * 100))) : 0;
 const displayStatus = getDisplayPhaseStatus(launch, stats);
 
 if ($("launchSubline")) {
 const lifecycleText = buildLifecycleSummaryText(lifecycle, launch);
-$("launchSubline").textContent =
-`${launch.symbol || "—"} • ${String(launch.template || "—").replaceAll("_", " ")} • ${phaseDisplayText(displayStatus)}${lifecycleText ? ` • ${lifecycleText}` : ""}`;
+$("launchSubline").textContent = `${launch.symbol || "—"} • ${String(launch.template || "—").replaceAll("_", " ")} • ${phaseDisplayText(displayStatus)}${lifecycleText ? ` • ${lifecycleText}` : ""}`;
 }
 
 if ($("launchDesc")) {
@@ -1248,10 +1507,7 @@ lastRenderedPhaseStatus = displayStatus;
 }
 
 async function refresh(options = {}) {
-const {
-marketSyncMode = "soft",
-syncLifecycle = false,
-} = options;
+const { marketSyncMode = "soft", syncLifecycle = false } = options;
 
 if (refreshInFlight) return;
 refreshInFlight = true;
@@ -1332,9 +1588,7 @@ const refundedSol = data.refundedSol;
 const refundTxSignature = data.refundTxSignature || "";
 const originalTx = data.txSignature || fallbackSignature || "";
 const status = data.status ? `\nLaunch status: ${data.status}` : "";
-const refundLine = Number.isFinite(Number(refundedSol))
-? `\nRefunded: ${refundedSol} SOL`
-: "";
+const refundLine = Number.isFinite(Number(refundedSol)) ? `\nRefunded: ${refundedSol} SOL` : "";
 const originalTxLine = originalTx ? `\nOriginal transaction: ${originalTx}` : "";
 const refundTxLine = refundTxSignature ? `\nRefund transaction: ${refundTxSignature}` : "";
 
@@ -1395,9 +1649,7 @@ solAmount,
 }),
 });
 
-const destinationWallet = String(
-prepare.escrowWallet || prepare.destinationWallet || ""
-).trim();
+const destinationWallet = String(prepare.escrowWallet || prepare.destinationWallet || "").trim();
 
 if (!destinationWallet) {
 throw new Error("Escrow wallet was not returned by the server.");
@@ -1519,7 +1771,8 @@ wallet,
 }),
 });
 
-const bondLine = safeNum(data.builderBondRefunded, 0) > 0
+const bondLine =
+safeNum(data.builderBondRefunded, 0) > 0
 ? `\nBuilder bond refunded: ${data.builderBondRefunded} SOL`
 : "";
 
