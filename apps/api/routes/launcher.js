@@ -840,45 +840,6 @@ refundedLamports: lamports,
 };
 }
 
-async function refundRejectedCommit({
-wallet,
-solAmount,
-txSignature,
-reason,
-status = null,
-logLabel = "Late confirm refund failed",
-}) {
-try {
-const refundTransfer = await sendRefundTransfer({
-destinationWallet: wallet,
-solAmount,
-});
-
-return {
-httpStatus: 409,
-body: {
-ok: false,
-error: `${reason}; funds refunded`,
-txSignature,
-refundTxSignature: refundTransfer?.signature || null,
-refundedSol: refundTransfer?.refundedSol || 0,
-status,
-},
-};
-} catch (refundErr) {
-console.error(`${logLabel}:`, refundErr);
-return {
-httpStatus: 409,
-body: {
-ok: false,
-error: `${reason} and refund failed: ${refundErr?.message || refundErr}`,
-txSignature,
-status,
-},
-};
-}
-}
-
 async function getLaunchById(launchId) {
 return db.get(`SELECT * FROM launches WHERE id = ?`, [launchId]);
 }
@@ -1023,19 +984,6 @@ return launch;
 }
 
 if (status === "countdown" && hasCountdownWindow && now >= countdownEndsMs) {
-return launch;
-}
-
-const contractAddress = cleanText(launch.contract_address, 120);
-const mintStatus = cleanText(launch.mint_reservation_status, 40).toLowerCase();
-
-if (
-status !== "live" &&
-status !== "graduated" &&
-contractAddress &&
-mintStatus === "finalized"
-) {
-launch = await forceLaunchStatus(launchId, "live");
 return launch;
 }
 

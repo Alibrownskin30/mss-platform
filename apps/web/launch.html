@@ -1430,28 +1430,28 @@ data-role="wallet-disconnect"
 <div class="launch-command-top">
 <div>
 <div class="launch-command-kicker">Market Command Surface</div>
-<h1 id="launchCommandTitle" class="launch-command-title">MSS Launch Terminal</h1>
+<h1 id="launchCommandTitle" class="launch-command-title">Pending Launch</h1>
 <div id="launchCommandText" class="launch-command-text">
-High-signal launch intelligence, live participation controls, and exchange-style market visibility are unified into one operational surface.
+Launch data is loading. Lifecycle, access posture, and market state will populate from backend truth.
 </div>
 </div>
 
 <div class="launch-command-status">
 <span class="launch-command-status-dot"></span>
-<span id="launchCommandStatus">Terminal Armed</span>
+<span id="launchCommandStatus">Pending</span>
 </div>
 </div>
 
 <div class="launch-command-grid">
 <div class="launch-command-metric">
 <div class="launch-command-metric-label">Launch Phase</div>
-<div id="launchCommandPhase" class="launch-command-metric-value">Commit</div>
+<div id="launchCommandPhase" class="launch-command-metric-value">Pending</div>
 <div class="launch-command-metric-sub">Current lifecycle state</div>
 </div>
 
 <div class="launch-command-metric">
 <div class="launch-command-metric-label">Builder Alias</div>
-<div id="launchCommandBuilder" class="launch-command-metric-value">—</div>
+<div id="launchCommandBuilder" class="launch-command-metric-value">Pending</div>
 <div class="launch-command-metric-sub">Operator identity</div>
 </div>
 
@@ -1473,9 +1473,9 @@ High-signal launch intelligence, live participation controls, and exchange-style
 <div class="launch-status-board-top">
 <div>
 <div class="launch-status-board-title">Operational Snapshot</div>
-<div id="launchStatusBoardValue" class="launch-status-board-value">Awaiting Launch Data</div>
+<div id="launchStatusBoardValue" class="launch-status-board-value">Pending</div>
 </div>
-<div id="phasePillMirror" class="status-pill commit">Commit</div>
+<div id="phasePillMirror" class="status-pill commit">Pending</div>
 </div>
 
 <div id="launchStatusBoardNote" class="launch-status-board-note">
@@ -1521,19 +1521,19 @@ Launch lifecycle, access posture, and market transition signals are reflected he
 <div class="launch-token-meta">
 <div class="launch-token-title-row">
 <div class="launch-token-title-stack">
-<div id="launchTokenName" class="launch-token-name"><span id="heroTokenName">Token Name</span></div>
+<div id="launchTokenName" class="launch-token-name"><span id="heroTokenName">Pending Launch</span></div>
 <div class="launch-token-subrow">
-<span id="launchTokenSymbol" class="launch-token-symbol"><span id="heroTokenSymbol">$MSS</span></span>
+<span id="launchTokenSymbol" class="launch-token-symbol"><span id="heroTokenSymbol">PENDING</span></span>
 <span class="launch-token-divider">•</span>
 <span id="launchBuilderLabel" class="launch-builder-label">Builder</span>
-<span id="launchBuilderWalletShort" class="launch-builder-wallet">...</span>
+<span id="launchBuilderWalletShort" class="launch-builder-wallet">Pending</span>
 </div>
 </div>
 
 <div class="launch-phase-wrap">
 <span id="launchPhaseBadge" class="launch-phase-badge phase-commit">
 <span class="launch-phase-badge-dot"></span>
-<span id="launchPhaseBadgeText">COMMIT</span>
+<span id="launchPhaseBadgeText">PENDING</span>
 </span>
 </div>
 </div>
@@ -1541,7 +1541,7 @@ Launch lifecycle, access posture, and market transition signals are reflected he
 <div class="launch-token-meta-strip">
 <div class="launch-meta-pill">
 <span class="launch-meta-pill-label">Status</span>
-<span id="launchStatusText2" class="launch-meta-pill-value">Commit Phase</span>
+<span id="launchStatusText2" class="launch-meta-pill-value">Pending</span>
 </div>
 <div class="launch-meta-pill">
 <span class="launch-meta-pill-label">Market</span>
@@ -1785,10 +1785,10 @@ Trading is not open yet. Commitments are being collected before market activatio
 <div class="overview-card-top">
 <div>
 <div class="terminal-section-title">Launch Overview</div>
-<div id="launchTokenNameMirror" class="overview-card-title">Launch Overview</div>
+<div id="launchTokenNameMirror" class="overview-card-title">Pending Launch</div>
 <div id="launchSubline" class="overview-card-subline">—</div>
 </div>
-<div id="launchStatusBadge" class="status-pill commit">Commit</div>
+<div id="launchStatusBadge" class="status-pill commit">Pending</div>
 </div>
 
 <div class="launch-overview-hero">
@@ -1815,7 +1815,7 @@ Trading is not open yet. Commitments are being collected before market activatio
 
 <div id="contractAddressRow" class="launch-side-stat">
 <div class="launch-side-stat-label">Contract Address</div>
-<div id="contractAddressStat" class="launch-side-stat-value">Hidden until live</div>
+<div id="contractAddressStat" class="launch-side-stat-value">Pending</div>
 </div>
 
 <div class="launch-side-stat">
@@ -2233,10 +2233,10 @@ data-role="wallet-input"
 (function syncTerminalMirrors(){
 const get = (id) => document.getElementById(id);
 
-const text = (id, fallback = "") => {
+const rawText = (id) => {
 const el = get(id);
 const value = el && typeof el.textContent === "string" ? el.textContent.trim() : "";
-return value || fallback;
+return value || "";
 };
 
 const setText = (id, value) => {
@@ -2244,50 +2244,121 @@ const el = get(id);
 if (el) el.textContent = value;
 };
 
+const isPlaceholder = (value) => {
+const normalized = String(value || "").trim().toLowerCase();
+return !normalized ||
+normalized === "token name" ||
+normalized === "launch overview" ||
+normalized === "awaiting launch data" ||
+normalized === "awaiting" ||
+normalized === "..." ||
+normalized === "—";
+};
+
+const pickFirstMeaningful = (values, fallback = "") => {
+for (const value of values) {
+const clean = String(value || "").trim();
+if (!clean) continue;
+if (isPlaceholder(clean)) continue;
+return clean;
+}
+return fallback;
+};
+
+const normalizeCaDisplay = (value) => {
+const clean = String(value || "").trim();
+if (!clean) return "Pending";
+
+const normalized = clean.toLowerCase();
+if (
+normalized === "hidden until live" ||
+normalized === "hidden" ||
+normalized === "pending" ||
+normalized === "awaiting"
+) {
+return "Pending";
+}
+
+return clean;
+};
+
 const sync = () => {
-const tokenName =
-text("heroTokenName") ||
-text("launchTokenName") ||
-"Launch Overview";
+const tokenName = pickFirstMeaningful(
+[
+rawText("heroTokenName"),
+rawText("launchTokenName")
+],
+"Pending Launch"
+);
 
-const phaseText =
-text("launchStatusText2") ||
-text("launchStatusText") ||
-text("launchPhaseBadgeText") ||
-"Awaiting";
+const phaseText = pickFirstMeaningful(
+[
+rawText("launchStatusText2"),
+rawText("launchStatusText"),
+rawText("launchPhaseBadgeText"),
+rawText("phaseHeadline")
+],
+"Pending"
+);
 
-const phaseNote =
-text("phaseSummary") ||
-text("launchClosureNote") ||
-"Awaiting state";
+const phaseNote = pickFirstMeaningful(
+[
+rawText("phaseSummary"),
+rawText("launchClosureNote"),
+rawText("launchCommandText")
+],
+"Awaiting launch state"
+);
 
-const statusText =
-text("launchStatusText") ||
-phaseText;
+const statusText = pickFirstMeaningful(
+[
+rawText("launchStatusText"),
+rawText("launchStatusText2"),
+rawText("launchPhaseBadgeText")
+],
+"Pending"
+);
 
-const accessText =
-text("launchAccessModeText") ||
-text("launchMarketModeText") ||
-"Pre-Live";
+const accessText = pickFirstMeaningful(
+[
+rawText("launchAccessModeText"),
+rawText("launchMarketModeText"),
+rawText("marketStatusLabel")
+],
+"Pre-Live"
+);
 
-const builderAlias =
-text("builderAlias") ||
-"—";
+const builderAlias = pickFirstMeaningful(
+[
+rawText("builderAlias")
+],
+"Pending"
+);
 
-const builderScore =
-text("builderScoreStat") ||
-"—";
+const builderScore = pickFirstMeaningful(
+[
+rawText("builderScoreStat")
+],
+"—"
+);
 
-const builderWallet =
-text("launchBuilderWalletShort") ||
-text("builderWalletStat") ||
-"Pending";
+const builderWallet = pickFirstMeaningful(
+[
+rawText("launchBuilderWalletShort")
+],
+"Pending"
+);
 
-const caText =
-text("launchCaText") ||
-text("contractAddressStat") ||
-text("launchCaState") ||
-"Pending";
+const caText = normalizeCaDisplay(
+pickFirstMeaningful(
+[
+rawText("launchCaText"),
+rawText("chartCaChipText"),
+rawText("launchCaState")
+],
+"Pending"
+)
+);
 
 setText("launchTokenNameMirror", tokenName);
 setText("launchCommandTitle", tokenName);
@@ -2308,6 +2379,8 @@ setText("launchCommandScore", builderScore);
 setText("launchCommandMarket", accessText);
 setText("launchCommandStatus", phaseText);
 setText("launchCommandText", phaseNote);
+
+setText("contractAddressStat", caText);
 
 const sourcePill =
 get("launchStatusBadge") ||
@@ -2332,6 +2405,7 @@ const observerIds = [
 "launchStatusText",
 "launchStatusText2",
 "launchPhaseBadgeText",
+"phaseHeadline",
 "phaseSummary",
 "launchClosureNote",
 "launchAccessModeText",
@@ -2339,10 +2413,9 @@ const observerIds = [
 "builderAlias",
 "builderScoreStat",
 "launchBuilderWalletShort",
-"builderWalletStat",
 "launchCaText",
-"contractAddressStat",
 "launchCaState",
+"chartCaChipText",
 "launchStatusBadge",
 "launchStatusPill",
 "phaseBadge"

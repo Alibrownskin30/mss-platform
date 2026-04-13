@@ -214,22 +214,47 @@ const normalized = cleanString(status, 64).toLowerCase();
 return normalized === "live" || normalized === "graduated";
 }
 
-function inferEffectiveLaunchStatus(launchLike = {}, statsLike = {}) {
+function inferEffectiveLaunchStatus(launchLike = {}, statsLike = {}, lifecycleLike = null) {
 const rawStatus = cleanString(launchLike?.status, 64).toLowerCase();
-const contractAddress = cleanString(launchLike?.contract_address, 200);
+const lifecycleStatus = cleanString(
+lifecycleLike?.launchStatus || lifecycleLike?.status || lifecycleLike?.graduationStatus,
+64
+).toLowerCase();
+
+const contractAddress = choosePreferredString(
+launchLike?.contract_address,
+launchLike?.mint_address,
+lifecycleLike?.contractAddress,
+lifecycleLike?.contract_address
+);
+
 const mintStatus = cleanString(launchLike?.mint_reservation_status, 64).toLowerCase();
 const countdownEndsMs = parseTs(
 statsLike?.countdownEndsAt || launchLike?.countdown_ends_at || launchLike?.live_at
 );
 const now = Date.now();
 
-if (rawStatus === "graduated") return "graduated";
+if (rawStatus === "graduated" || lifecycleStatus === "graduated" || lifecycleLike?.graduated) {
+return "graduated";
+}
 
-if (rawStatus === "live" || (contractAddress && mintStatus === "finalized")) {
+if (rawStatus === "live" || lifecycleStatus === "live") {
 return "live";
 }
 
-if (rawStatus === "building" || (countdownEndsMs && now >= countdownEndsMs && !contractAddress)) {
+if (
+contractAddress &&
+(
+mintStatus === "finalized" ||
+rawStatus === "building" ||
+lifecycleStatus === "building" ||
+(Number.isFinite(countdownEndsMs) && now >= countdownEndsMs)
+)
+) {
+return "live";
+}
+
+if (rawStatus === "building" || lifecycleStatus === "building") {
 return "building";
 }
 
@@ -245,7 +270,7 @@ if (rawStatus === "commit") {
 return "commit";
 }
 
-if (countdownEndsMs && now < countdownEndsMs) {
+if (Number.isFinite(countdownEndsMs) && now < countdownEndsMs) {
 return "countdown";
 }
 
@@ -256,10 +281,17 @@ return "live";
 return rawStatus || "commit";
 }
 
-function sanitizePublicLaunchFields(launchLike = {}, statsLike = {}) {
-const effectiveStatus = inferEffectiveLaunchStatus(launchLike, statsLike);
+function sanitizePublicLaunchFields(launchLike = {}, statsLike = {}, lifecycleLike = null) {
+const effectiveStatus = inferEffectiveLaunchStatus(launchLike, statsLike, lifecycleLike);
 const exposeCa = shouldExposePublicCa(effectiveStatus);
-const contractAddress = exposeCa ? cleanString(launchLike?.contract_address, 200) : "";
+const contractAddress = exposeCa
+? choosePreferredString(
+launchLike?.contract_address,
+launchLike?.mint_address,
+lifecycleLike?.contractAddress,
+lifecycleLike?.contract_address
+)
+: "";
 const mintStatus = exposeCa ? cleanString(launchLike?.mint_reservation_status, 64).toLowerCase() : "";
 
 return {
@@ -273,23 +305,27 @@ mint_finalized_at: exposeCa ? cleanString(launchLike?.mint_finalized_at, 200) : 
 };
 }
 
-function mergeLaunchTruth(previous = {}, next = {}, statsLike = {}) {
-const prevSanitized = sanitizePublicLaunchFields(previous || {}, statsLike);
-const nextSanitized = sanitizePublicLaunchFields(next || {}, statsLike);
+function mergeLaunchTruth(previous = {}, next = {}, statsLike = {}, lifecycleLike = null) {
+const prevSanitized = sanitizePublicLaunchFields(previous || {}, statsLike, lifecycleLike);
+const nextSanitized = sanitizePublicLaunchFields(next || {}, statsLike, lifecycleLike);
 
 const prevStatus = cleanString(prevSanitized?.mint_reservation_status).toLowerCase();
 const nextStatus = cleanString(nextSanitized?.mint_reservation_status).toLowerCase();
 
 const prevContract = cleanString(prevSanitized?.contract_address, 200);
 const nextContract = cleanString(nextSanitized?.contract_address, 200);
+const lifecycleContract = cleanString(
+lifecycleLike?.contractAddress || lifecycleLike?.contract_address,
+200
+);
 
 const merged = {
 ...(prevSanitized || {}),
 ...(nextSanitized || {}),
 };
 
-const strongestContract = choosePreferredString(nextContract, prevContract);
-const effectiveStatus = inferEffectiveLaunchStatus(merged, statsLike);
+const strongestContract = choosePreferredString(nextContract, prevContract, lifecycleContract);
+const effectiveStatus = inferEffectiveLaunchStatus(merged, statsLike, lifecycleLike);
 const exposeCa = shouldExposePublicCa(effectiveStatus);
 
 merged.status = effectiveStatus;
@@ -299,7 +335,9 @@ merged.reserved_mint_secret = "";
 if (exposeCa) {
 merged.contract_address = strongestContract;
 const finalizedWins =
-nextStatus === "finalized" || prevStatus === "finalized" || Boolean(strongestContract);
+nextStatus === "finalized" ||
+prevStatus === "finalized" ||
+Boolean(strongestContract);
 
 merged.mint_reservation_status = finalizedWins
 ? "finalized"
@@ -449,12 +487,12 @@ function getCommitEndsMs(launch, stats) {
 return parseTs(stats?.commitEndsAt || launch?.commit_ends_at);
 }
 
-function getDisplayPhaseStatus(launch, stats) {
-return inferEffectiveLaunchStatus(launch, stats);
+function getDisplayPhaseStatus(launch, stats, lifecycle = currentLifecycle) {
+return inferEffectiveLaunchStatus(launch, stats, lifecycle);
 }
 
 function getLaunchStateMessage(launch, stats, lifecycle = null) {
-const status = getDisplayPhaseStatus(launch, stats);
+const status = getDisplayPhaseStatus(launch, stats, lifecycle);
 const bondState = getBuilderBondState(launch, stats);
 const readiness = lifecycle?.graduationReadiness || null;
 
@@ -523,7 +561,7 @@ bondState.paid && !bondState.refunded && bondState.amount > 0
 : "";
 return {
 kind: "warn",
-message: `This launch failed to reach requirements before commit expiry.${bondLine}`,
+message: `This launch failed to meet requirements before commit expiry.${bondLine}`,
 };
 }
 
@@ -809,11 +847,17 @@ setTextByIds(["hardCapStateStat"], hardCapMet ? "Filled" : "Open");
 }
 
 function renderPhase(launch, committed, minRaise, hardCap, commitEndsAt, stats, lifecycle) {
-const status = getDisplayPhaseStatus(launch, stats);
+const status = getDisplayPhaseStatus(launch, stats, lifecycle);
 const countdownEndsAt = getCountdownEndsMs(launch, stats);
 const caVisible = shouldExposePublicCa(status);
-const contractAddress = caVisible ? choosePreferredString(launch.contract_address, lifecycle?.contractAddress) : "";
-const contractDisplay = contractAddress || (caVisible ? "Pending" : "Hidden until live");
+const contractAddress = caVisible
+? choosePreferredString(
+launch.contract_address,
+lifecycle?.contractAddress,
+lifecycle?.contract_address
+)
+: "";
+const contractDisplay = contractAddress || "Pending";
 
 setTextByIds(
 [
@@ -978,9 +1022,9 @@ const commitsStats = commitsRes || {};
 const baseLaunchRaw = normalizeLaunchData(launchRes?.launch || {});
 const reconcileLaunchRaw = normalizeLaunchData(reconcileRes?.launch || {});
 
-const strongestLaunch = mergeLaunchTruth(baseLaunchRaw, reconcileLaunchRaw, commitsStats);
+const strongestLaunch = mergeLaunchTruth(baseLaunchRaw, reconcileLaunchRaw, commitsStats, currentLifecycle);
 
-currentLaunch = mergeLaunchTruth(currentLaunch || {}, strongestLaunch, commitsStats);
+currentLaunch = mergeLaunchTruth(currentLaunch || {}, strongestLaunch, commitsStats, currentLifecycle);
 
 currentCommitStats = {
 ...(currentCommitStats || {}),
@@ -994,7 +1038,7 @@ participants: reconcileRes.participants ?? commitsRes?.participants,
 : {}),
 };
 
-currentLaunch = mergeLaunchTruth(currentLaunch || {}, currentLaunch || {}, currentCommitStats || {});
+currentLaunch = mergeLaunchTruth(currentLaunch || {}, currentLaunch || {}, currentCommitStats || {}, currentLifecycle);
 
 currentLifecycle = mergeLifecycleTruth(
 currentLifecycle,
@@ -1014,7 +1058,7 @@ const id = qs("id");
 if (!id) return;
 if (!currentLaunch) return;
 
-const effectiveStatus = getDisplayPhaseStatus(currentLaunch, currentCommitStats);
+const effectiveStatus = getDisplayPhaseStatus(currentLaunch, currentCommitStats, currentLifecycle);
 const eligibleStatuses = new Set(["countdown", "building", "live", "graduated"]);
 
 if (!eligibleStatuses.has(effectiveStatus)) {
@@ -1032,6 +1076,16 @@ if (!lifecycleRes) return;
 
 currentLifecycle = mergeLifecycleTruth(currentLifecycle, lifecycleRes.lifecycle || null);
 currentGraduationPlan = lifecycleRes.graduationPlan || currentGraduationPlan || null;
+
+currentLaunch = mergeLaunchTruth(
+currentLaunch || {},
+{
+status: currentLifecycle?.launchStatus || currentLaunch?.status || "",
+contract_address: currentLifecycle?.contractAddress || currentLifecycle?.contract_address || currentLaunch?.contract_address || "",
+},
+currentCommitStats || {},
+currentLifecycle
+);
 } finally {
 lifecycleRefreshInFlight = false;
 }
@@ -1246,7 +1300,7 @@ if (!lifecycle || !launch) return "";
 
 const parts = [];
 
-if (isLiveLikeStatus(launch.status)) {
+if (isLiveLikeStatus(getDisplayPhaseStatus(launch, currentCommitStats, lifecycle))) {
 if (safeNum(lifecycle.internalSolReserve, 0) > 0) {
 parts.push(`Internal LP reserve: ${fmtSol(lifecycle.internalSolReserve, 4)}`);
 }
@@ -1319,7 +1373,7 @@ const actionStack = commitBtn?.closest(".action-stack") || null;
 const quickButtons = Array.from(document.querySelectorAll(".quick button[data-amount]"));
 const stateInfo = getLaunchStateMessage(launch, stats, lifecycle);
 
-const rawStatus = String(launch.status || "");
+const rawStatus = getDisplayPhaseStatus(launch, stats, lifecycle);
 const commitOpen = canCommitForStatus(rawStatus);
 const refundOpen = canRefundForStatus(rawStatus);
 const refundOnly = rawStatus === "failed";
@@ -1342,7 +1396,7 @@ refundBtn.disabled = !refundOpen || refundActionInFlight;
 
 if (amountInput) {
 amountInput.disabled = !commitOpen || commitActionInFlight;
-amountInput.setAttribute("placeholder", commitOpen ? "0.50" : badgeText(getDisplayPhaseStatus(launch, stats)));
+amountInput.setAttribute("placeholder", commitOpen ? "0.50" : badgeText(getDisplayPhaseStatus(launch, stats, lifecycle)));
 }
 
 quickButtons.forEach((btn) => {
@@ -1396,7 +1450,8 @@ launchMarketController.setBaseState(currentLaunch || null, currentCommitStats ||
 launchMarketController.launch = mergeLaunchTruth(
 launchMarketController.launch || {},
 currentLaunch || {},
-currentCommitStats || {}
+currentCommitStats || {},
+currentLifecycle
 );
 launchMarketController.commitStats = currentCommitStats || {};
 if (typeof launchMarketController.applyAll === "function") {
@@ -1408,7 +1463,7 @@ if (mode === "hard" && typeof launchMarketController.refreshLaunch === "function
 await launchMarketController.refreshLaunch({ force: true });
 } else if (
 mode === "live-only" &&
-isLiveLikeStatus(currentLaunch?.status) &&
+isLiveLikeStatus(getDisplayPhaseStatus(currentLaunch, currentCommitStats, currentLifecycle)) &&
 typeof launchMarketController.refreshLiveMarketOnly === "function"
 ) {
 await launchMarketController.refreshLiveMarketOnly({ force: true });
@@ -1429,7 +1484,7 @@ const minRaise = safeNum(stats.minRaise, safeNum(launch.min_raise_sol));
 const participants = safeNum(stats.participants, safeNum(launch.participants_count));
 const commitEndsAt = getCommitEndsMs(launch, stats);
 const pct = hardCap > 0 ? Math.max(0, Math.min(100, Math.floor((committed / hardCap) * 100))) : 0;
-const displayStatus = getDisplayPhaseStatus(launch, stats);
+const displayStatus = getDisplayPhaseStatus(launch, stats, lifecycle);
 
 if ($("launchSubline")) {
 const lifecycleText = buildLifecycleSummaryText(lifecycle, launch);
@@ -1517,6 +1572,16 @@ await loadLaunch();
 
 if (syncLifecycle) {
 await loadLifecycleIfNeeded(true);
+} else if (currentLifecycle) {
+currentLaunch = mergeLaunchTruth(
+currentLaunch || {},
+{
+status: currentLifecycle?.launchStatus || currentLaunch?.status || "",
+contract_address: currentLifecycle?.contractAddress || currentLifecycle?.contract_address || currentLaunch?.contract_address || "",
+},
+currentCommitStats || {},
+currentLifecycle
+);
 }
 
 render();
@@ -1629,7 +1694,7 @@ if (!launch) {
 throw new Error("Launch not found.");
 }
 
-if (!canCommitForStatus(launch.status)) {
+if (!canCommitForStatus(getDisplayPhaseStatus(launch, stats, currentLifecycle))) {
 const stateInfo = getLaunchStateMessage(launch, stats, currentLifecycle);
 setStatus(stateInfo.message, stateInfo.kind);
 return;
@@ -1754,7 +1819,7 @@ if (!launch) {
 throw new Error("Launch not found.");
 }
 
-if (!canRefundForStatus(launch.status)) {
+if (!canRefundForStatus(getDisplayPhaseStatus(launch, stats, currentLifecycle))) {
 const stateInfo = getLaunchStateMessage(launch, stats, currentLifecycle);
 setStatus(stateInfo.message, stateInfo.kind);
 return;
@@ -1838,7 +1903,7 @@ await syncLaunchMarketController("hard");
 }
 
 function getDynamicRefreshIntervalMs() {
-const displayStatus = getDisplayPhaseStatus(currentLaunch, currentCommitStats);
+const displayStatus = getDisplayPhaseStatus(currentLaunch, currentCommitStats, currentLifecycle);
 if (displayStatus === "building") return BUILDING_PHASE_REFRESH_INTERVAL_MS;
 if (displayStatus === "countdown") return COUNTDOWN_REFRESH_INTERVAL_MS;
 if (displayStatus === "commit") return COMMIT_PHASE_REFRESH_INTERVAL_MS;
@@ -1851,7 +1916,7 @@ clearInterval(refreshIntervalId);
 refreshIntervalId = null;
 }
 
-const displayStatus = getDisplayPhaseStatus(currentLaunch, currentCommitStats);
+const displayStatus = getDisplayPhaseStatus(currentLaunch, currentCommitStats, currentLifecycle);
 const shouldRunBaseLoop =
 displayStatus === "commit" ||
 displayStatus === "countdown" ||
@@ -1877,7 +1942,7 @@ clearInterval(lifecycleRefreshIntervalId);
 lifecycleRefreshIntervalId = null;
 }
 
-if (!isLiveLikeStatus(currentLaunch?.status)) return;
+if (!isLiveLikeStatus(getDisplayPhaseStatus(currentLaunch, currentCommitStats, currentLifecycle))) return;
 
 lifecycleRefreshIntervalId = setInterval(async () => {
 if (refreshInFlight || lifecycleRefreshInFlight) return;
@@ -1921,8 +1986,7 @@ if (!currentLaunch || !currentCommitStats) return;
 
 render();
 
-const rawStatus = String(currentLaunch.status || "");
-const displayStatus = getDisplayPhaseStatus(currentLaunch, currentCommitStats);
+const rawStatus = getDisplayPhaseStatus(currentLaunch, currentCommitStats, currentLifecycle);
 
 if (rawStatus === "countdown") {
 const countdownEndsMs = getCountdownEndsMs(currentLaunch, currentCommitStats);
@@ -1944,7 +2008,7 @@ restartLifecycleRefreshLoop();
 }
 }
 
-if (displayStatus !== lastRenderedPhaseStatus && !refreshInFlight) {
+if (rawStatus !== lastRenderedPhaseStatus && !refreshInFlight) {
 void refresh({ marketSyncMode: "hard", syncLifecycle: true })
 .then(() => {
 restartRefreshLoop();

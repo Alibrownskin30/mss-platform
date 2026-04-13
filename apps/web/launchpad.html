@@ -4,6 +4,7 @@
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width,initial-scale=1" />
 <title>MSS Protocol — Launchpad</title>
+<link rel="stylesheet" href="./assets/app.css" />
 <style>
 :root{
 --bg0:#040506;
@@ -11,8 +12,10 @@
 --bg2:#111419;
 --panel:rgba(255,255,255,.035);
 --panel-strong:rgba(255,255,255,.055);
+--panel-soft:rgba(255,255,255,.025);
 --line:rgba(255,255,255,.10);
 --line-soft:rgba(255,255,255,.06);
+--line-strong:rgba(255,255,255,.14);
 --text:rgba(255,255,255,.94);
 --muted:rgba(255,255,255,.68);
 --muted2:rgba(255,255,255,.42);
@@ -27,6 +30,7 @@
 --bad:#ff5b6b;
 --shadow-xl:0 28px 90px rgba(0,0,0,.48);
 --shadow-lg:0 18px 58px rgba(0,0,0,.34);
+--shadow-md:0 12px 34px rgba(0,0,0,.24);
 --radius-xl:28px;
 --radius-lg:20px;
 --radius-md:14px;
@@ -42,6 +46,7 @@ color:var(--text);
 background:
 radial-gradient(1200px 700px at 14% -10%, rgba(226,197,138,.10), transparent 55%),
 radial-gradient(900px 520px at 100% 0%, rgba(255,255,255,.05), transparent 46%),
+radial-gradient(800px 420px at 50% 100%, rgba(200,169,107,.04), transparent 56%),
 linear-gradient(180deg, var(--bg0), var(--bg1) 42%, var(--bg2));
 position:relative;
 }
@@ -225,7 +230,6 @@ position:relative;
 z-index:1;
 }
 
-.shell-card,
 .hero-command,
 .ops-board,
 .command-rail,
@@ -239,7 +243,6 @@ box-shadow:var(--shadow-lg);
 overflow:hidden;
 }
 
-.shell-card::before,
 .hero-command::before,
 .ops-board::before,
 .command-rail::before,
@@ -460,7 +463,9 @@ line-height:1.5;
 }
 
 .ops-stack.two{
+display:grid;
 grid-template-columns:1fr 1fr;
+gap:12px;
 }
 
 .command-rail{
@@ -632,6 +637,8 @@ font-size:12px;
 color:var(--muted2);
 }
 
+/* grid + card system used by launches.js */
+
 .token-grid{
 display:grid;
 grid-template-columns:repeat(3, minmax(0,1fr));
@@ -641,6 +648,435 @@ gap:16px;
 .launch-list{
 display:grid;
 gap:14px;
+}
+
+.token-card,
+.list-row{
+position:relative;
+border:1px solid rgba(255,255,255,.10);
+border-radius:24px;
+background:
+radial-gradient(800px 180px at 0% 0%, rgba(200,169,107,.06), transparent 34%),
+linear-gradient(180deg, rgba(255,255,255,.06), rgba(255,255,255,.028));
+box-shadow:var(--shadow-lg);
+overflow:hidden;
+}
+
+.token-card::before,
+.list-row::before{
+content:"";
+position:absolute;
+inset:0;
+pointer-events:none;
+background:linear-gradient(180deg, rgba(255,255,255,.04), transparent 26%);
+}
+
+.token-card{
+padding:18px;
+display:flex;
+flex-direction:column;
+gap:14px;
+min-width:0;
+}
+
+.token-card:hover,
+.list-row:hover{
+border-color:rgba(226,197,138,.18);
+box-shadow:0 20px 60px rgba(0,0,0,.40), 0 0 28px rgba(200,169,107,.06);
+}
+
+.token-head{
+display:flex;
+justify-content:space-between;
+align-items:flex-start;
+gap:12px;
+min-width:0;
+position:relative;
+z-index:1;
+}
+
+.logo-box{
+width:58px;
+height:58px;
+border-radius:18px;
+border:1px solid rgba(255,255,255,.10);
+background:
+linear-gradient(180deg, rgba(255,255,255,.05), rgba(255,255,255,.03));
+overflow:hidden;
+display:grid;
+place-items:center;
+flex:0 0 auto;
+color:rgba(255,255,255,.40);
+font-size:10px;
+font-weight:900;
+letter-spacing:.12em;
+text-transform:uppercase;
+box-shadow:inset 0 1px 0 rgba(255,255,255,.05);
+}
+
+.logo-box img{
+width:100%;
+height:100%;
+object-fit:cover;
+display:block;
+}
+
+.token-name{
+font-size:22px;
+font-weight:900;
+line-height:1.06;
+letter-spacing:-.02em;
+word-break:break-word;
+}
+
+.token-symbol,
+.list-sub{
+margin-top:6px;
+font-size:11px;
+color:var(--muted2);
+letter-spacing:.16em;
+text-transform:uppercase;
+word-break:break-word;
+}
+
+.badge{
+display:inline-flex;
+align-items:center;
+justify-content:center;
+gap:7px;
+min-width:84px;
+height:32px;
+padding:0 12px;
+border-radius:999px;
+font-size:10px;
+font-weight:900;
+letter-spacing:.16em;
+border:1px solid rgba(255,255,255,.10);
+background:rgba(255,255,255,.05);
+color:rgba(255,255,255,.92);
+text-transform:uppercase;
+box-shadow:inset 0 1px 0 rgba(255,255,255,.05);
+flex:0 0 auto;
+}
+
+.badge::before{
+content:"";
+width:6px;
+height:6px;
+border-radius:999px;
+background:currentColor;
+opacity:.9;
+box-shadow:0 0 10px currentColor;
+}
+
+.badge.commit{
+color:#e2c58a;
+border-color:rgba(226,197,138,.24);
+background:rgba(226,197,138,.10);
+}
+
+.badge.countdown{
+color:#ffd98b;
+border-color:rgba(255,209,102,.24);
+background:rgba(255,209,102,.10);
+}
+
+.badge.live{
+color:#86ffc6;
+border-color:rgba(53,245,163,.24);
+background:rgba(53,245,163,.10);
+}
+
+.badge.failed{
+color:#ff93a2;
+border-color:rgba(255,91,107,.24);
+background:rgba(255,91,107,.10);
+}
+
+.builder-badges,
+.meta-line,
+.quick-row,
+.live-feed,
+.safeguards{
+display:flex;
+gap:8px;
+flex-wrap:wrap;
+position:relative;
+z-index:1;
+}
+
+.small-chip,
+.safe-chip{
+display:inline-flex;
+align-items:center;
+gap:6px;
+min-height:28px;
+padding:0 10px;
+border-radius:999px;
+font-size:11px;
+font-weight:700;
+border:1px solid rgba(255,255,255,.10);
+background:rgba(255,255,255,.04);
+color:rgba(255,255,255,.84);
+}
+
+.kv{
+display:grid;
+grid-template-columns:1fr 1fr;
+gap:12px;
+position:relative;
+z-index:1;
+}
+
+.k{
+color:var(--muted2);
+font-size:11px;
+text-transform:uppercase;
+letter-spacing:.16em;
+}
+
+.v{
+margin-top:6px;
+font-size:18px;
+font-weight:900;
+word-break:break-word;
+letter-spacing:-.01em;
+}
+
+.progress-wrap{
+display:flex;
+flex-direction:column;
+gap:9px;
+position:relative;
+z-index:1;
+padding:12px 12px 10px;
+border-radius:18px;
+border:1px solid rgba(255,255,255,.08);
+background:rgba(255,255,255,.03);
+}
+
+.progress-top{
+display:flex;
+justify-content:space-between;
+gap:8px;
+align-items:center;
+font-size:12px;
+color:var(--muted);
+flex-wrap:wrap;
+}
+
+.progress{
+width:100%;
+height:12px;
+background:rgba(255,255,255,.06);
+border-radius:999px;
+overflow:hidden;
+border:1px solid rgba(255,255,255,.08);
+position:relative;
+}
+
+.progress::after{
+content:"";
+position:absolute;
+inset:0;
+background:linear-gradient(90deg, rgba(255,255,255,.04), transparent 45%);
+pointer-events:none;
+}
+
+.progress-fill{
+height:100%;
+width:0%;
+background:linear-gradient(90deg, rgba(226,197,138,.98), rgba(141,106,46,.96));
+box-shadow:0 0 18px rgba(200,169,107,.18), 0 0 24px rgba(141,106,46,.10);
+transition:width .25s ease;
+position:relative;
+}
+
+.progress-fill::after{
+content:"";
+position:absolute;
+top:0;
+right:0;
+width:24px;
+height:100%;
+background:linear-gradient(90deg, rgba(255,255,255,0), rgba(255,255,255,.24));
+filter:blur(3px);
+}
+
+.feed-line{
+display:flex;
+justify-content:space-between;
+gap:8px;
+padding:8px 10px;
+border-radius:13px;
+border:1px solid rgba(255,255,255,.08);
+background:rgba(255,255,255,.03);
+font-size:12px;
+color:rgba(255,255,255,.80);
+box-shadow:inset 0 1px 0 rgba(255,255,255,.03);
+min-width:0;
+}
+
+.quick-commit{
+position:relative;
+z-index:1;
+padding:14px;
+border-radius:18px;
+border:1px solid rgba(255,255,255,.08);
+background:rgba(255,255,255,.03);
+display:flex;
+flex-direction:column;
+gap:10px;
+}
+
+.quick-title{
+font-size:11px;
+font-weight:900;
+letter-spacing:.16em;
+text-transform:uppercase;
+color:var(--muted2);
+}
+
+.quick-commit-btn{
+min-height:38px;
+padding:0 13px;
+border-radius:13px;
+border:1px solid rgba(255,255,255,.12);
+background:rgba(255,255,255,.05);
+color:var(--text);
+cursor:pointer;
+font-weight:900;
+font-size:11px;
+letter-spacing:.08em;
+text-transform:uppercase;
+transition:.16s ease;
+box-shadow:inset 0 1px 0 rgba(255,255,255,.04);
+}
+
+.quick-commit-btn:hover{
+background:rgba(255,255,255,.09);
+}
+
+.quick-commit-btn[disabled]{
+opacity:.5;
+cursor:not-allowed;
+}
+
+.quick-commit-btn.is-loading{
+border-color:rgba(255,209,102,.26);
+background:rgba(255,209,102,.12);
+color:#fff3cf;
+box-shadow:0 0 18px rgba(255,209,102,.10), inset 0 1px 0 rgba(255,255,255,.05);
+}
+
+.quick-commit-btn.is-success{
+border-color:rgba(53,245,163,.28);
+background:rgba(53,245,163,.12);
+color:#d8ffee;
+box-shadow:0 0 18px rgba(53,245,163,.10), inset 0 1px 0 rgba(255,255,255,.05);
+}
+
+.token-footer{
+display:flex;
+justify-content:space-between;
+align-items:center;
+gap:12px;
+flex-wrap:wrap;
+margin-top:auto;
+position:relative;
+z-index:1;
+}
+
+.btn{
+display:inline-flex;
+align-items:center;
+justify-content:center;
+min-height:42px;
+padding:0 14px;
+border-radius:14px;
+border:1px solid rgba(255,255,255,.12);
+background:rgba(255,255,255,.05);
+color:#fff;
+font-weight:900;
+font-size:12px;
+letter-spacing:.08em;
+text-transform:uppercase;
+cursor:pointer;
+transition:.18s ease;
+}
+
+.btn.primary{
+border-color:rgba(226,197,138,.24);
+background:linear-gradient(180deg, rgba(200,169,107,.14), rgba(200,169,107,.08));
+box-shadow:0 0 22px rgba(200,169,107,.08);
+}
+
+.btn:hover{transform:translateY(-1px)}
+
+.list-section{
+display:grid;
+gap:12px;
+}
+
+.list-section-title{
+font-size:12px;
+letter-spacing:.16em;
+text-transform:uppercase;
+color:var(--muted2);
+padding:4px 2px 0;
+font-weight:800;
+}
+
+.list-row{
+padding:16px;
+display:grid;
+gap:14px;
+}
+
+.list-row-top{
+display:grid;
+grid-template-columns:minmax(0,1.15fr) minmax(0,.95fr) auto;
+gap:14px;
+align-items:start;
+}
+
+.list-title-wrap{
+display:flex;
+gap:12px;
+min-width:0;
+}
+
+.list-mid{
+display:grid;
+gap:10px;
+}
+
+.list-actions{
+display:grid;
+gap:10px;
+justify-items:end;
+}
+
+.list-stats{
+display:grid;
+grid-template-columns:repeat(5, minmax(0,1fr));
+gap:10px;
+}
+
+.list-stat{
+border:1px solid rgba(255,255,255,.10);
+border-radius:15px;
+padding:10px 12px;
+background:rgba(255,255,255,.03);
+box-shadow:inset 0 1px 0 rgba(255,255,255,.04);
+}
+
+.list-footer{
+display:flex;
+justify-content:space-between;
+align-items:center;
+gap:12px;
+flex-wrap:wrap;
 }
 
 .empty{
@@ -699,6 +1135,18 @@ grid-template-columns:1fr;
 .ops-stack.two{
 grid-template-columns:1fr 1fr;
 }
+
+.list-row-top{
+grid-template-columns:1fr;
+}
+
+.list-actions{
+justify-items:start;
+}
+
+.list-stats{
+grid-template-columns:repeat(2, minmax(0,1fr));
+}
 }
 
 @media (max-width:720px){
@@ -721,6 +1169,89 @@ align-items:stretch;
 
 .hero-cta{
 width:100%;
+}
+
+.kv{
+grid-template-columns:1fr 1fr;
+}
+}
+
+@media (max-width:560px){
+.wrap{
+padding:22px 14px 80px;
+}
+
+.hero-command,
+.ops-board,
+.command-rail,
+.featured-launch,
+.launch-terminal{
+border-radius:22px;
+}
+
+.hero-command{
+padding:20px 16px;
+}
+
+.ops-board,
+.launch-terminal,
+.featured-launch{
+padding:16px;
+}
+
+.command-rail{
+padding:12px;
+}
+
+.search-shell{
+flex-direction:column;
+align-items:stretch;
+}
+
+.segment{
+width:100%;
+}
+
+.view-btn{
+flex:1 1 0;
+}
+
+.wallet-access{
+width:100%;
+}
+
+.wallet-pill{
+width:100%;
+justify-content:center;
+}
+
+.command-rail select{
+width:100%;
+min-width:0;
+}
+
+.kv{
+grid-template-columns:1fr;
+}
+
+.list-stats{
+grid-template-columns:1fr;
+}
+
+.quick-row{
+display:grid;
+grid-template-columns:repeat(2, minmax(0,1fr));
+width:100%;
+}
+
+.quick-commit-btn{
+width:100%;
+}
+
+.token-footer,
+.list-footer{
+flex-direction:column;
+align-items:flex-start;
 }
 }
 </style>
@@ -880,11 +1411,11 @@ Connected wallets can jump directly into their builder profile and manage launch
 <section class="featured-launch">
 <div class="featured-head">
 <div class="section-title">Featured Opportunity</div>
-<div class="section-note">Primary momentum launch chosen from current activity.</div>
+<div class="section-note">Primary momentum launch selected from current field activity.</div>
 </div>
 
 <div id="featuredLaunchMount" class="featured-placeholder">
-Featured launch module will be wired next from <code>launches.js</code>.
+Featured launch module is reserved here and can be wired next without changing the command layout.
 </div>
 </section>
 
