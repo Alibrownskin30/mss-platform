@@ -690,13 +690,6 @@ if (el) el.classList.toggle("hidden", Boolean(hidden));
 }
 }
 
-function setDisplayByIds(ids, displayValue) {
-for (const id of ids) {
-const el = $(id);
-if (el) el.style.display = displayValue;
-}
-}
-
 function setStatusPillClasses(el, status) {
 if (!el) return;
 el.classList.remove("commit", "countdown", "live", "graduated", "failed");
@@ -709,6 +702,26 @@ if (Number.isFinite(n)) return n;
 return safeNum(fallback, 0);
 }
 
+function getContractDisplay(status, launch, lifecycle = null) {
+if (!shouldExposePublicCa(status)) {
+return "Hidden until live";
+}
+
+return choosePreferredString(
+launch?.contract_address,
+lifecycle?.contractAddress,
+lifecycle?.contract_address
+) || "Pending";
+}
+
+function getAccessModeLabel(status) {
+if (status === "live") return "Live Access";
+if (status === "graduated") return "Graduated";
+if (status === "building") return "Bootstrapping";
+if (status === "countdown") return "Countdown Locked";
+return "Pre-Live";
+}
+
 function renderBuilderInfo(launch) {
 const alias = choosePreferredString(launch.builder_alias, launch.builder_name, "MSS Builder");
 const wallet = choosePreferredString(launch.builder_wallet, launch.builder, "");
@@ -718,15 +731,15 @@ safeNum(launch.builder_score, safeNum(launch.trust_score, 0))
 );
 const trust = getBuilderTrust(trustScore);
 const isBuilderLaunch = String(launch.template || "").toLowerCase() === "builder";
+const tokenName = launch.token_name || "Unnamed Launch";
 
-setTextByIds(["launchTitle", "tokenName", "launchName", "heroTokenName"], launch.token_name || "Unnamed Launch");
-setTextByIds(["launchSymbol", "symbolBadge", "heroTokenSymbol"], launch.symbol || "—");
-setTextByIds(["builderAlias", "builderAliasStat", "builderNameStat", "builderIdentityName"], alias);
+setTextByIds(["launchTokenNameMirror", "launchCommandTitle"], tokenName);
+setTextByIds(["builderAlias", "builderAliasStat", "builderNameStat", "builderIdentityName", "launchCommandBuilder"], alias);
 setTextByIds(["builderWalletStat", "builderWallet", "builderAddress", "builderIdentityWallet"], wallet ? shortenWallet(wallet) : "—");
 setValueByIds(["builderWalletFull", "builderAddressFull"], wallet);
 setTextByIds(["builderTrustStat", "builderTrustLabel", "builderTrustPill"], trust.label);
 setTextByIds(["builderTrustNote", "builderTrustSummary"], trust.note);
-setTextByIds(["builderTrustScore", "builderScoreStat"], trustScore > 0 ? String(Math.round(trustScore)) : "—");
+setTextByIds(["builderTrustScore", "builderScoreStat", "launchCommandScore"], trustScore > 0 ? String(Math.round(trustScore)) : "—");
 
 const builderWalletFullEl = findFirstElementByIds(["builderWalletFullText", "builderAddressFullText"]);
 if (builderWalletFullEl) {
@@ -775,7 +788,7 @@ setHiddenByIds(
 }
 
 function renderProgressCard(launch, committed, hardCap, minRaise, participants, pct, commitEndsAt, stats) {
-const status = getDisplayPhaseStatus(launch, stats);
+const status = getDisplayPhaseStatus(launch, stats, currentLifecycle);
 const countdownEndsAt = getCountdownEndsMs(launch, stats);
 const commitStartedAt = parseTs(stats.commitStartedAt || launch.commit_started_at);
 const fillDurationMs = getFillDurationMs(launch, stats);
@@ -850,23 +863,13 @@ function renderPhase(launch, committed, minRaise, hardCap, commitEndsAt, stats, 
 const status = getDisplayPhaseStatus(launch, stats, lifecycle);
 const countdownEndsAt = getCountdownEndsMs(launch, stats);
 const caVisible = shouldExposePublicCa(status);
-const contractAddress = caVisible
-? choosePreferredString(
-launch.contract_address,
-lifecycle?.contractAddress,
-lifecycle?.contract_address
-)
-: "";
-const contractDisplay = contractAddress || "Pending";
+const contractDisplay = getContractDisplay(status, launch, lifecycle);
 
 setTextByIds(
 [
 "launchStatusBadge",
 "launchStatusPill",
-"launchPhasePill",
-"launchStatusText2",
 "phaseBadge",
-"heroPhasePill",
 ],
 phaseDisplayText(status)
 );
@@ -874,10 +877,7 @@ phaseDisplayText(status)
 [
 "launchStatusBadge",
 "launchStatusPill",
-"launchPhasePill",
-"launchStatusText2",
 "phaseBadge",
-"heroPhasePill",
 ].forEach((id) => setStatusPillClasses($(id), status));
 
 const phaseHeadline = (() => {
@@ -933,6 +933,7 @@ return `Current status: ${phaseDisplayText(status)}.`;
 
 setTextByIds(["phaseHeadline", "phaseTitle", "launchPhaseTitle"], phaseHeadline);
 setTextByIds(["phaseSummary", "phaseDescription", "launchPhaseSummary"], phaseSummary);
+setTextByIds(["launchStatusText"], phaseDisplayText(status));
 setTextByIds(["contractAddressText", "contractAddressValue", "launchContractAddress", "contractAddressStat"], contractDisplay);
 setTextByIds(["commitEndsValue", "commitEndsAtStat"], Number.isFinite(commitEndsAt) ? new Date(commitEndsAt).toLocaleString() : "—");
 setTextByIds(
@@ -944,8 +945,34 @@ const contractRows = ["contractAddressRow", "caRow", "launchCaRow"];
 contractRows.forEach((id) => {
 const el = $(id);
 if (!el) return;
-el.classList.toggle("hidden", !caVisible && !contractAddress);
+el.classList.toggle("hidden", !caVisible);
 });
+}
+
+function renderCommandSurface(launch, stats, lifecycle) {
+const status = getDisplayPhaseStatus(launch, stats, lifecycle);
+const stateInfo = getLaunchStateMessage(launch, stats, lifecycle);
+const phaseText = phaseDisplayText(status);
+const accessText = getAccessModeLabel(status);
+const builderWallet = choosePreferredString(
+launch?.builder_wallet,
+lifecycle?.builderWallet,
+lifecycle?.builder_wallet
+);
+const caText = getContractDisplay(status, launch, lifecycle);
+
+setTextByIds(["phaseValueMirror", "launchStatusBoardValue", "launchCommandPhase", "launchCommandStatus"], phaseText);
+setTextByIds(["phaseNoteMirror", "launchStatusBoardNote", "launchCommandText"], stateInfo.message || "Awaiting launch state.");
+setTextByIds(["launchStatusBoardStatus"], phaseText);
+setTextByIds(["launchStatusBoardAccess", "launchCommandMarket"], accessText);
+setTextByIds(["launchStatusBoardBuilderWallet"], builderWallet ? shortenWallet(builderWallet) : "Pending");
+setTextByIds(["launchStatusBoardCa"], caText);
+
+const mirrorPill = $("phasePillMirror");
+if (mirrorPill) {
+setStatusPillClasses(mirrorPill, status);
+mirrorPill.textContent = phaseText;
+}
 }
 
 let currentLaunch = null;
@@ -1038,11 +1065,16 @@ participants: reconcileRes.participants ?? commitsRes?.participants,
 : {}),
 };
 
-currentLaunch = mergeLaunchTruth(currentLaunch || {}, currentLaunch || {}, currentCommitStats || {}, currentLifecycle);
-
 currentLifecycle = mergeLifecycleTruth(
 currentLifecycle,
 launchRes?.lifecycle || commitsRes?.lifecycle || reconcileRes?.lifecycle || null
+);
+
+currentLaunch = mergeLaunchTruth(
+currentLaunch || {},
+currentLaunch || {},
+currentCommitStats || {},
+currentLifecycle
 );
 
 currentGraduationPlan =
@@ -1396,7 +1428,7 @@ refundBtn.disabled = !refundOpen || refundActionInFlight;
 
 if (amountInput) {
 amountInput.disabled = !commitOpen || commitActionInFlight;
-amountInput.setAttribute("placeholder", commitOpen ? "0.50" : badgeText(getDisplayPhaseStatus(launch, stats, lifecycle)));
+amountInput.setAttribute("placeholder", commitOpen ? "0.50" : badgeText(rawStatus));
 }
 
 quickButtons.forEach((btn) => {
@@ -1495,12 +1527,9 @@ if ($("launchDesc")) {
 $("launchDesc").textContent = launch.description || "No description provided.";
 }
 
-if ($("launchStatusText")) {
-$("launchStatusText").textContent = phaseDisplayText(displayStatus);
-}
-
 updateLifecycleVisibility(displayStatus);
 renderBuilderInfo(launch);
+renderCommandSurface(launch, stats, lifecycle);
 renderAllocationStructure(launch, stats);
 renderLaunchEconomics(launch, committed);
 renderTeamWalletBreakdown(launch, stats);
