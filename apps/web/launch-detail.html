@@ -1072,38 +1072,12 @@ padding:14px;
 }
 </style>
 </head>
-<body class="launch-detail-page">
-<div class="topbar">
-<div class="topbar-inner">
-<a class="brand" href="./index.html" aria-label="MSS Protocol Home">
-<div class="mark" aria-hidden="true"></div>
-<div class="brand__text">
-<div class="brand-title">MSS Protocol</div>
-<div class="brand-sub">Launch Terminal</div>
-</div>
-</a>
-
-<div class="navwrap">
-<div class="nav" role="navigation" aria-label="Main">
-<a href="./index.html">Home</a>
-<a href="./token.html">Scanner</a>
-<a href="./explore.html">Explore</a>
-<a href="./alerts.html">Alerts</a>
-<a class="active" href="./launchpad.html">Launchpad</a>
-<a href="./methodology.html">Methodology</a>
-<a href="./legal.html">Legal</a>
-</div>
-
-<div class="authbar">
-<button id="sessionPill" class="session-pill" type="button" title="Login">
-<span id="sessionDot" class="dot warn"></span>
-<span id="sessionText">Login</span>
-</button>
-<button id="logoutBtn" class="authbtn danger" type="button" style="display:none">Logout</button>
-</div>
-</div>
-</div>
-</div>
+<body
+class="launch-detail-page"
+data-shell-active="launchpad"
+data-shell-subtitle="Launch Terminal"
+>
+<div id="layoutShellHeader"></div>
 
 <div class="page-wrap">
 <div class="back-row">
@@ -1137,7 +1111,7 @@ padding:14px;
 <div class="launch-token-meta">
 <div class="launch-token-title-row">
 <div class="launch-token-title-stack">
-<h1 id="launchTokenName" class="launch-token-name">Token Name</h1>
+<h1 id="launchTokenName" class="launch-token-name">Loading Launch</h1>
 
 <div class="launch-token-subrow">
 <span id="launchTokenSymbol" class="launch-token-symbol">$MSS</span>
@@ -1169,7 +1143,7 @@ padding:14px;
 
 <div class="launch-meta-pill">
 <span class="launch-meta-pill-label">Access</span>
-<span class="launch-meta-pill-value">Public</span>
+<span id="launchOverviewAccessTextHero" class="launch-meta-pill-value">Public</span>
 </div>
 
 <div class="launch-meta-pill">
@@ -1356,29 +1330,29 @@ Commit phase closed. Market activation is imminent.
 </div>
 
 <div class="market-card-footer">
-<div id="marketStatsGrid" class="market-stats-grid">
-<div class="market-stat">
+<div id="marketStatsGrid" class="market-live-kpis">
+<div class="market-live-kpi">
 <div class="market-stat-topline"></div>
-<div class="market-stat-label" id="stat1Label">Committed</div>
-<div class="market-stat-value" id="stat1Value">0 SOL</div>
+<div class="market-live-kpi-label" id="stat1Label">Committed</div>
+<div class="market-live-kpi-value" id="stat1Value">0 SOL</div>
 </div>
 
-<div class="market-stat">
+<div class="market-live-kpi">
 <div class="market-stat-topline"></div>
-<div class="market-stat-label" id="stat2Label">Participants</div>
-<div class="market-stat-value" id="stat2Value">0</div>
+<div class="market-live-kpi-label" id="stat2Label">Participants</div>
+<div class="market-live-kpi-value" id="stat2Value">0</div>
 </div>
 
-<div class="market-stat">
+<div class="market-live-kpi">
 <div class="market-stat-topline"></div>
-<div class="market-stat-label" id="stat3Label">Hard Cap</div>
-<div class="market-stat-value" id="stat3Value">0 SOL</div>
+<div class="market-live-kpi-label" id="stat3Label">Hard Cap</div>
+<div class="market-live-kpi-value" id="stat3Value">0 SOL</div>
 </div>
 
-<div class="market-stat">
+<div class="market-live-kpi">
 <div class="market-stat-topline"></div>
-<div class="market-stat-label" id="stat4Label">Progress</div>
-<div class="market-stat-value" id="stat4Value">0%</div>
+<div class="market-live-kpi-label" id="stat4Label">Progress</div>
+<div class="market-live-kpi-value" id="stat4Value">0%</div>
 </div>
 </div>
 </div>
@@ -1654,6 +1628,8 @@ Connected wallet state, current access posture, and position summary.
 </section>
 </div>
 
+<div id="layoutShellFooter"></div>
+
 <div id="launchLinksModal" class="launch-links-modal hidden">
 <div class="launch-links-modal-backdrop"></div>
 
@@ -1699,19 +1675,31 @@ Connected wallet state, current access posture, and position summary.
 <script src="https://unpkg.com/@solana/web3.js@latest/lib/index.iife.js"></script>
 
 <script type="module">
-import { bindSessionUi } from "./assets/auth.js";
+async function mountSharedShell() {
+try {
+const shellModule = await import("./assets/layout-shell.js");
+const mountShell =
+shellModule.mountLayoutShell ||
+shellModule.renderLayoutShell ||
+shellModule.initLayoutShell ||
+shellModule.default;
 
-bindSessionUi({
-sessionPillId: "sessionPill",
-sessionDotId: "sessionDot",
-sessionTextId: "sessionText",
-logoutBtnId: "logoutBtn",
-loggedOutHref: "./login.html",
-loggedInHref: "./index.html#access",
-onLogout() {
-window.location.reload();
-},
+if (typeof mountShell === "function") {
+await mountShell({
+activeNav: "launchpad",
+pageLabel: "Launch Terminal",
+pageTitle: "MSS Protocol Launch Terminal",
+pageSubtitle: "Launch Terminal",
+headerTargetId: "layoutShellHeader",
+footerTargetId: "layoutShellFooter",
 });
+}
+} catch (err) {
+console.error("Shared shell mount failed:", err);
+}
+}
+
+await mountSharedShell();
 </script>
 
 <script type="module" src="./assets/pages/launch.js"></script>

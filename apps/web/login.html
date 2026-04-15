@@ -11,7 +11,7 @@ content="MSS Protocol Login — sign in to manage alerts and access account-link
 <link rel="stylesheet" href="./assets/app.css" />
 <style>
 .auth-page .wrap{
-max-width:1120px;
+max-width:1200px;
 margin:0 auto;
 padding:28px 20px 88px;
 position:relative;
@@ -20,18 +20,20 @@ z-index:1;
 
 .auth-page .auth-grid{
 display:grid;
-grid-template-columns:.92fr 1.08fr;
+grid-template-columns:minmax(0,.98fr) minmax(0,1.02fr);
 gap:18px;
+align-items:stretch;
 }
 
 .auth-page .hero-shell,
 .auth-page .auth-card{
 position:relative;
 border:1px solid var(--line);
-border-radius:var(--radius-xl);
+border-radius:28px;
 background:linear-gradient(180deg, rgba(255,255,255,.055), rgba(255,255,255,.026));
 box-shadow:var(--shadow-lg);
 overflow:hidden;
+min-width:0;
 }
 
 .auth-page .hero-shell::before,
@@ -48,6 +50,9 @@ radial-gradient(760px 220px at 0% 0%, rgba(243,217,139,.05), transparent 38%);
 .auth-page .hero-shell,
 .auth-page .auth-card{
 padding:24px;
+display:flex;
+flex-direction:column;
+min-height:100%;
 }
 
 .auth-page .hero-shell > *,
@@ -60,7 +65,7 @@ z-index:1;
 display:inline-flex;
 align-items:center;
 gap:10px;
-min-height:32px;
+min-height:34px;
 padding:0 12px;
 border-radius:999px;
 border:1px solid rgba(243,217,139,.18);
@@ -70,6 +75,8 @@ font-weight:800;
 letter-spacing:.18em;
 text-transform:uppercase;
 color:#fff;
+width:max-content;
+max-width:100%;
 }
 
 .auth-page .eyebrow-dot{
@@ -78,49 +85,141 @@ height:7px;
 border-radius:999px;
 background:var(--gold-2);
 box-shadow:0 0 12px rgba(243,217,139,.26);
+flex:0 0 auto;
 }
 
 .auth-page .hero-title{
 margin:18px 0 12px;
-font-size:38px;
-line-height:1.02;
-letter-spacing:-.04em;
+font-size:clamp(34px, 4.2vw, 56px);
+line-height:.98;
+letter-spacing:-.05em;
 font-weight:900;
+max-width:10ch;
 }
 
 .auth-page .hero-copy{
 color:var(--muted);
 font-size:14px;
 line-height:1.72;
+max-width:42ch;
 }
 
-.auth-page .hero-pills{
+.auth-page .hero-feature-grid{
+display:grid;
+grid-template-columns:repeat(2, minmax(0,1fr));
+gap:12px;
+margin-top:20px;
+}
+
+.auth-page .hero-feature-card{
+border:1px solid rgba(255,255,255,.08);
+border-radius:18px;
+background:rgba(255,255,255,.03);
+padding:16px;
+min-width:0;
+min-height:156px;
+box-shadow:inset 0 1px 0 rgba(255,255,255,.03);
 display:flex;
-flex-wrap:wrap;
-gap:10px;
-margin-top:18px;
+flex-direction:column;
+justify-content:space-between;
 }
 
-.auth-page .hero-pill{
-display:inline-flex;
-align-items:center;
-gap:8px;
-min-height:34px;
-padding:0 11px;
-border-radius:999px;
-border:1px solid rgba(255,255,255,.10);
-background:rgba(255,255,255,.04);
-font-size:12px;
-color:rgba(255,255,255,.82);
+.auth-page .hero-feature-k{
+font-size:10px;
+letter-spacing:.14em;
+text-transform:uppercase;
+color:var(--muted2);
+font-weight:800;
+}
+
+.auth-page .hero-feature-v{
+margin-top:10px;
+font-size:18px;
+line-height:1.06;
+letter-spacing:-.02em;
+font-weight:900;
+color:#fff;
+word-break:break-word;
+}
+
+.auth-page .hero-feature-s{
+margin-top:10px;
+color:var(--muted);
+font-size:13px;
+line-height:1.58;
+}
+
+.auth-page .hero-note{
+margin-top:auto;
+padding:14px 16px;
+border-radius:16px;
+border:1px solid rgba(255,255,255,.08);
+background:rgba(255,255,255,.03);
+color:var(--muted);
+font-size:13px;
+line-height:1.65;
+}
+
+.auth-page .auth-head{
+display:flex;
+align-items:flex-start;
+justify-content:space-between;
+gap:12px;
+flex-wrap:wrap;
+margin-bottom:10px;
 }
 
 .auth-page .section-title{
-font-size:14px;
+font-size:11px;
 letter-spacing:.18em;
 text-transform:uppercase;
 color:rgba(255,255,255,.60);
 font-weight:800;
-margin:0 0 14px;
+margin:0 0 10px;
+}
+
+.auth-page .auth-title{
+margin:0;
+font-size:clamp(28px, 3vw, 42px);
+line-height:1.02;
+letter-spacing:-.04em;
+font-weight:900;
+color:#fff;
+}
+
+.auth-page .auth-copy{
+color:var(--muted);
+font-size:14px;
+line-height:1.72;
+max-width:52ch;
+margin:12px 0 18px;
+}
+
+.auth-page .secure-pill{
+display:inline-flex;
+align-items:center;
+gap:8px;
+min-height:32px;
+padding:0 12px;
+border-radius:999px;
+border:1px solid rgba(243,217,139,.18);
+background:rgba(214,178,94,.08);
+color:#fff;
+font-size:10px;
+font-weight:900;
+letter-spacing:.14em;
+text-transform:uppercase;
+white-space:nowrap;
+}
+
+.auth-page .secure-pill::before{
+content:"";
+width:7px;
+height:7px;
+border-radius:999px;
+background:var(--gold-2);
+box-shadow:0 0 12px rgba(243,217,139,.26);
+flex:0 0 auto;
 }
 
 .auth-page .field-grid{
@@ -143,7 +242,7 @@ text-transform:uppercase;
 
 .auth-page .input{
 width:100%;
-min-height:46px;
+min-height:48px;
 padding:0 14px;
 border-radius:14px;
 border:1px solid rgba(255,255,255,.12);
@@ -168,7 +267,7 @@ display:none !important;
 display:flex;
 gap:10px;
 align-items:flex-start;
-padding:12px 14px;
+padding:13px 14px;
 border-radius:14px;
 border:1px solid rgba(255,255,255,.10);
 background:rgba(255,255,255,.04);
@@ -188,9 +287,14 @@ font-size:12px;
 line-height:1.6;
 }
 
+.auth-page .helper strong{
+color:#fff;
+font-weight:800;
+}
+
 .auth-page .btn{
 width:100%;
-min-height:46px;
+min-height:48px;
 }
 
 .auth-page .status{
@@ -201,30 +305,46 @@ color:var(--muted);
 line-height:1.5;
 }
 
+.auth-page .status.good{ color:var(--good); }
+.auth-page .status.bad{ color:var(--bad); }
+.auth-page .status.warn{ color:var(--warn); }
+
+.auth-page .auth-foot{
+margin-top:auto;
+padding-top:16px;
+border-top:1px solid rgba(255,255,255,.08);
+}
+
 .auth-page .link-row{
-display:grid;
-gap:8px;
-margin-top:14px;
+display:flex;
+gap:16px;
+flex-wrap:wrap;
+align-items:center;
 }
 
 .auth-page .link-row a{
 color:rgba(255,255,255,.78);
 font-size:12px;
+font-weight:700;
 }
 
 .auth-page .link-row a:hover{
 color:#fff;
 }
 
-@media (max-width:900px){
+@media (max-width:980px){
 .auth-page .auth-grid{
 grid-template-columns:1fr;
+}
+
+.auth-page .hero-title{
+max-width:none;
 }
 }
 
 @media (max-width:760px){
-.auth-page .hero-title{
-font-size:32px;
+.auth-page .wrap{
+padding:22px 14px 80px;
 }
 
 .auth-page .hero-shell,
@@ -233,13 +353,18 @@ border-radius:22px;
 padding:20px 16px;
 }
 
-.auth-page .wrap{
-padding:22px 14px 80px;
+.auth-page .hero-feature-grid{
+grid-template-columns:1fr;
+}
+
+.auth-page .link-row{
+display:grid;
+gap:10px;
 }
 }
 </style>
 </head>
-<body class="auth-page">
+<body class="auth-page" data-shell-active="login" data-shell-subtitle="Account Access">
 <div id="layoutShellHeader"></div>
 
 <div class="wrap">
@@ -257,41 +382,79 @@ Login gives you access to account-linked monitoring, saved alerts, and future in
 across the MSS ecosystem.
 </div>
 
-<div class="hero-pills">
-<span class="hero-pill">Alerts</span>
-<span class="hero-pill">Account-Linked Features</span>
-<span class="hero-pill">Blockchain Security Intelligence</span>
+<div class="hero-feature-grid">
+<div class="hero-feature-card">
+<div class="hero-feature-k">Access Scope</div>
+<div class="hero-feature-v">Alerts</div>
+<div class="hero-feature-s">Review, manage, and expand account-linked monitoring rules.</div>
+</div>
+
+<div class="hero-feature-card">
+<div class="hero-feature-k">Session Layer</div>
+<div class="hero-feature-v">Persistent Account</div>
+<div class="hero-feature-s">Keep monitoring state and future intelligence tools linked to one MSS account.</div>
+</div>
+
+<div class="hero-feature-card">
+<div class="hero-feature-k">Intelligence Surface</div>
+<div class="hero-feature-v">Security Signals</div>
+<div class="hero-feature-s">Access the expanding MSS layer for structural market risk and on-chain visibility.</div>
+</div>
+
+<div class="hero-feature-card">
+<div class="hero-feature-k">System Direction</div>
+<div class="hero-feature-v">CassIE Expansion</div>
+<div class="hero-feature-s">Future account-linked intelligence features will connect into the same access layer.</div>
+</div>
+</div>
+
+<div class="hero-note">
+This page is for MSS account login only. Wallet connection and account access are separate layers inside the platform.
 </div>
 </section>
 
 <section class="auth-card">
+<div class="auth-head">
+<div>
 <div class="section-title">Login</div>
+<h2 class="auth-title">Access Your Account</h2>
+</div>
+<div class="secure-pill">Secure Access</div>
+</div>
+
+<div class="auth-copy">
+Sign in to manage alerts, review account-linked monitoring, and continue inside the MSS interface.
+</div>
 
 <div class="field-grid">
 <div class="field">
 <label class="label" for="email">Email</label>
-<input id="email" class="input" placeholder="Email" type="email" autocomplete="email" />
+<input id="email" class="input" placeholder="you@example.com" type="email" autocomplete="email" />
 </div>
 
 <div class="field">
 <label class="label" for="password">Password</label>
-<input id="password" class="input" placeholder="Password" type="password" autocomplete="current-password" />
+<input id="password" class="input" placeholder="Enter your password" type="password" autocomplete="current-password" />
 </div>
 
 <input id="website" class="input hp" type="text" tabindex="-1" autocomplete="off" aria-hidden="true" />
 
 <label class="check-row" for="humanCheck">
 <input id="humanCheck" class="checkbox" type="checkbox" />
-<span class="helper">Verify you’re human before signing into your MSS account.</span>
+<span class="helper"><strong>Human verification:</strong> confirm you are signing into your own MSS account.</span>
 </label>
+
+<div class="helper">Account access is required for saved alerts and future account-linked intelligence features.</div>
 
 <button id="btn" class="btn primary" type="button">Login</button>
 <div class="status" id="msg"></div>
 </div>
 
+<div class="auth-foot">
 <div class="link-row">
 <a href="./register.html">No account? Create one</a>
 <a href="./token.html">Back to Scanner</a>
+</div>
 </div>
 </section>
 </div>
@@ -313,7 +476,7 @@ shellModule.default;
 
 if (typeof mountShell === "function") {
 await mountShell({
-activeNav: "",
+activeNav: "login",
 pageLabel: "Login",
 pageTitle: "Sign In To The MSS Intelligence Layer",
 pageSubtitle: "Account access",
@@ -342,8 +505,15 @@ window.location.reload();
 
 const $ = (id) => document.getElementById(id);
 
+function setMsg(text, tone = "") {
+const el = $("msg");
+if (!el) return;
+el.textContent = text || "";
+el.className = `status${tone ? ` ${tone}` : ""}`;
+}
+
 async function submit() {
-$("msg").textContent = "Signing in…";
+setMsg("Signing in…", "warn");
 try {
 await login({
 email: $("email").value.trim(),
@@ -351,10 +521,10 @@ password: $("password").value.trim(),
 humanCheck: $("humanCheck").checked,
 website: $("website").value.trim(),
 });
-$("msg").textContent = "Success. Redirecting…";
+setMsg("Success. Redirecting…", "good");
 setTimeout(() => { window.location.href = "./token.html"; }, 500);
 } catch (e) {
-$("msg").textContent = String(e?.message || e);
+setMsg(String(e?.message || e), "bad");
 }
 }
 

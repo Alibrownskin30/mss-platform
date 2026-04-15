@@ -649,6 +649,8 @@ justify-content:flex-start;
 </head>
 
 <body data-shell-active="home" data-shell-subtitle="Blockchain Security Intelligence">
+<div id="layoutShellHeader"></div>
+
 <main>
 <section class="hero">
 <div class="wrap">
@@ -873,12 +875,45 @@ market clarity, and operator visibility.
 </section>
 </main>
 
-<script type="module" src="./assets/layout-shell.js"></script>
+<div id="layoutShellFooter"></div>
 
 <script type="module">
 import { apiPost } from "./assets/api.js";
 
 const $ = (id) => document.getElementById(id);
+
+async function mountSharedShell() {
+try {
+const shellModule = await import("./assets/layout-shell.js");
+
+if (
+document.getElementById("mssShellHeader") ||
+document.getElementById("layoutShellHeader")?.children?.length
+) {
+return;
+}
+
+const mountShell =
+shellModule.mountLayoutShell ||
+shellModule.renderLayoutShell ||
+shellModule.initLayoutShell ||
+shellModule.mountShell ||
+shellModule.default;
+
+if (typeof mountShell === "function") {
+await mountShell({
+activeNav: "home",
+pageLabel: "Home",
+pageTitle: "Blockchain Security Intelligence",
+pageSubtitle: "Blockchain Security Intelligence",
+headerTargetId: "layoutShellHeader",
+footerTargetId: "layoutShellFooter",
+});
+}
+} catch (err) {
+console.error("Shared shell mount failed:", err);
+}
+}
 
 function setStatus(id, text, tone = "") {
 const el = $(id);
@@ -956,6 +991,8 @@ window.location.reload();
 setStatus("loginStatus", e?.message || "Login failed.", "bad");
 }
 }
+
+await mountSharedShell();
 
 $("registerBtn")?.addEventListener("click", handleRegister);
 $("loginBtn")?.addEventListener("click", handleLogin);

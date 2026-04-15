@@ -4,40 +4,528 @@
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width,initial-scale=1" />
 <title>MSS Protocol — Launchpad</title>
+<meta
+name="description"
+content="MSS Protocol Launchpad — security-first launch command for commit flow, countdown integrity, public builder identity, and structured live market transition."
+/>
 <link rel="stylesheet" href="./assets/app.css" />
+<style>
+.launchpad-page .wrap{
+max-width:1320px;
+margin:0 auto;
+padding:28px 20px 88px;
+position:relative;
+z-index:1;
+}
+
+.launchpad-page .hero-shell{
+display:grid;
+grid-template-columns:minmax(0,1.12fr) minmax(360px,.88fr);
+gap:18px;
+margin-bottom:18px;
+}
+
+.launchpad-page .hero-command,
+.launchpad-page .ops-board,
+.launchpad-page .command-rail,
+.launchpad-page .featured-launch,
+.launchpad-page .launch-terminal{
+position:relative;
+border:1px solid var(--line);
+border-radius:var(--radius-xl);
+background:linear-gradient(180deg, rgba(255,255,255,.055), rgba(255,255,255,.026));
+box-shadow:var(--shadow-lg);
+overflow:hidden;
+}
+
+.launchpad-page .hero-command::before,
+.launchpad-page .ops-board::before,
+.launchpad-page .command-rail::before,
+.launchpad-page .featured-launch::before,
+.launchpad-page .launch-terminal::before{
+content:"";
+position:absolute;
+inset:0;
+pointer-events:none;
+background:
+linear-gradient(180deg, rgba(255,255,255,.04), transparent 28%),
+radial-gradient(760px 220px at 0% 0%, rgba(243,217,139,.05), transparent 38%);
+}
+
+.launchpad-page .hero-command,
+.launchpad-page .ops-board,
+.launchpad-page .command-rail,
+.launchpad-page .featured-launch,
+.launchpad-page .launch-terminal{
+position:relative;
+}
+
+.launchpad-page .hero-command > *,
+.launchpad-page .ops-board > *,
+.launchpad-page .command-rail > *,
+.launchpad-page .featured-launch > *,
+.launchpad-page .launch-terminal > *{
+position:relative;
+z-index:1;
+}
+
+.launchpad-page .hero-command{
+padding:30px;
+box-shadow:var(--shadow-xl), 0 0 0 1px rgba(243,217,139,.03), 0 0 26px rgba(243,217,139,.05);
+}
+
+.launchpad-page .ops-board{
+padding:20px;
+display:grid;
+gap:14px;
+}
+
+.launchpad-page .eyebrow{
+display:inline-flex;
+align-items:center;
+gap:10px;
+min-height:32px;
+padding:0 12px;
+border-radius:999px;
+border:1px solid rgba(243,217,139,.18);
+background:rgba(214,178,94,.08);
+font-size:11px;
+font-weight:800;
+letter-spacing:.18em;
+text-transform:uppercase;
+color:#fff;
+}
+
+.launchpad-page .eyebrow-dot{
+width:7px;
+height:7px;
+border-radius:999px;
+background:var(--gold-2);
+box-shadow:0 0 12px rgba(243,217,139,.26);
+}
+
+.launchpad-page .hero-title{
+margin:18px 0 12px;
+font-size:44px;
+line-height:.98;
+letter-spacing:-.04em;
+font-weight:900;
+max-width:780px;
+}
+
+.launchpad-page .hero-copy{
+color:var(--muted);
+font-size:15px;
+line-height:1.72;
+max-width:780px;
+}
+
+.launchpad-page .hero-pill-row,
+.launchpad-page .hero-action-row,
+.launchpad-page .hero-rule-row{
+display:flex;
+gap:10px;
+flex-wrap:wrap;
+margin-top:18px;
+}
+
+.launchpad-page .hero-pill,
+.launchpad-page .rule-chip{
+display:inline-flex;
+align-items:center;
+gap:8px;
+min-height:34px;
+padding:0 11px;
+border-radius:999px;
+border:1px solid rgba(255,255,255,.10);
+background:rgba(255,255,255,.04);
+font-size:12px;
+color:rgba(255,255,255,.82);
+max-width:100%;
+white-space:nowrap;
+}
+
+.launchpad-page .hero-cta{
+display:inline-flex;
+align-items:center;
+justify-content:center;
+min-height:46px;
+padding:0 16px;
+border-radius:15px;
+border:1px solid rgba(255,255,255,.12);
+background:rgba(255,255,255,.05);
+color:#fff;
+font-size:12px;
+font-weight:900;
+letter-spacing:.08em;
+text-transform:uppercase;
+cursor:pointer;
+transition:.18s ease;
+box-shadow:inset 0 1px 0 rgba(255,255,255,.04);
+}
+
+.launchpad-page .hero-cta.primary{
+border-color:rgba(255,241,191,.16);
+background:linear-gradient(180deg, rgba(240,210,122,.10), rgba(240,210,122,.04));
+}
+
+.launchpad-page .hero-cta:hover{
+transform:translateY(-1px);
+background:rgba(255,255,255,.08);
+}
+
+.launchpad-page .launch-builder-note{
+margin-top:18px;
+color:var(--muted2);
+font-size:13px;
+line-height:1.7;
+max-width:760px;
+}
+
+.launchpad-page .ops-head{
+display:flex;
+justify-content:space-between;
+gap:12px;
+align-items:flex-start;
+flex-wrap:wrap;
+}
+
+.launchpad-page .ops-kicker{
+font-size:11px;
+letter-spacing:.18em;
+text-transform:uppercase;
+color:var(--muted2);
+font-weight:800;
+}
+
+.launchpad-page .ops-title{
+margin-top:8px;
+font-size:24px;
+font-weight:900;
+letter-spacing:-.03em;
+}
+
+.launchpad-page .ops-state{
+display:inline-flex;
+align-items:center;
+gap:8px;
+min-height:32px;
+padding:0 12px;
+border-radius:999px;
+border:1px solid rgba(255,241,191,.14);
+background:rgba(240,210,122,.06);
+font-size:11px;
+font-weight:900;
+letter-spacing:.14em;
+text-transform:uppercase;
+}
+
+.launchpad-page .ops-state-dot{
+width:8px;
+height:8px;
+border-radius:999px;
+background:var(--gold-2);
+box-shadow:0 0 8px rgba(255,241,191,.16);
+}
+
+.launchpad-page .ops-grid{
+display:grid;
+grid-template-columns:1.08fr .92fr;
+gap:12px;
+}
+
+.launchpad-page .ops-primary,
+.launchpad-page .ops-stack{
+display:grid;
+gap:12px;
+}
+
+.launchpad-page .ops-stack.two{
+display:grid;
+grid-template-columns:1fr 1fr;
+gap:12px;
+}
+
+.launchpad-page .ops-card{
+border:1px solid rgba(255,255,255,.08);
+border-radius:18px;
+background:rgba(255,255,255,.03);
+padding:16px;
+min-width:0;
+box-shadow:inset 0 1px 0 rgba(255,255,255,.03);
+}
+
+.launchpad-page .ops-card .k{
+font-size:10px;
+letter-spacing:.14em;
+text-transform:uppercase;
+color:var(--muted2);
+font-weight:800;
+}
+
+.launchpad-page .ops-card .v{
+margin-top:10px;
+font-size:30px;
+font-weight:900;
+letter-spacing:-.03em;
+word-break:break-word;
+color:#fff;
+}
+
+.launchpad-page .ops-card .s{
+margin-top:8px;
+color:var(--muted);
+font-size:13px;
+line-height:1.55;
+}
+
+.launchpad-page .command-rail{
+display:grid;
+grid-template-columns:minmax(320px,1.2fr) auto auto auto;
+gap:12px;
+align-items:center;
+padding:14px;
+margin-bottom:18px;
+}
+
+.launchpad-page .search-shell{
+display:flex;
+gap:10px;
+align-items:center;
+min-width:0;
+}
+
+.launchpad-page .wallet-access{
+display:flex;
+gap:10px;
+align-items:center;
+flex-wrap:wrap;
+justify-content:flex-end;
+}
+
+.launchpad-page .segment{
+display:flex;
+flex-direction:row !important;
+align-items:center;
+gap:8px;
+flex-wrap:nowrap;
+}
+
+.launchpad-page .segment .view-btn{
+display:inline-flex;
+align-items:center;
+justify-content:center;
+min-height:42px;
+padding:0 15px;
+}
+
+.launchpad-page .view-btn{
+display:inline-flex;
+align-items:center;
+justify-content:center;
+gap:8px;
+border-radius:999px;
+background:rgba(255,255,255,.04);
+border:1px solid rgba(255,255,255,.10);
+font-size:12px;
+font-weight:800;
+letter-spacing:.04em;
+color:rgba(255,255,255,.80);
+cursor:pointer;
+transition:.18s ease;
+white-space:nowrap;
+}
+
+.launchpad-page .view-btn.active{
+color:#fff;
+border-color:rgba(255,241,191,.14);
+background:linear-gradient(180deg, rgba(240,210,122,.08), rgba(240,210,122,.03));
+box-shadow:0 0 10px rgba(255,241,191,.03);
+}
+
+.launchpad-page .status-banner{
+display:none;
+margin-bottom:14px;
+padding:14px 16px;
+border-radius:18px;
+border:1px solid rgba(255,255,255,.10);
+background:rgba(255,255,255,.03);
+white-space:pre-wrap;
+box-shadow:inset 0 1px 0 rgba(255,255,255,.04);
+}
+
+.launchpad-page .status-banner.show{ display:block; }
+.launchpad-page .status-banner.good{
+border-color:rgba(53,245,163,.20);
+background:rgba(53,245,163,.08);
+color:#fff;
+}
+.launchpad-page .status-banner.warn{
+border-color:rgba(255,209,102,.20);
+background:rgba(255,209,102,.08);
+color:#fff;
+}
+.launchpad-page .status-banner.bad{
+border-color:rgba(255,91,107,.20);
+background:rgba(255,91,107,.08);
+color:#fff;
+}
+
+.launchpad-page .featured-launch{
+padding:20px;
+margin-bottom:18px;
+}
+
+.launchpad-page .featured-head,
+.launchpad-page .terminal-head{
+display:flex;
+justify-content:space-between;
+gap:12px;
+align-items:flex-start;
+flex-wrap:wrap;
+margin-bottom:14px;
+}
+
+.launchpad-page .featured-placeholder{
+border:1px dashed rgba(255,255,255,.12);
+border-radius:20px;
+padding:22px;
+color:var(--muted);
+background:rgba(255,255,255,.02);
+text-align:center;
+}
+
+.launchpad-page .launch-terminal{
+padding:18px;
+min-height:420px;
+}
+
+.launchpad-page .terminal-title{
+font-size:12px;
+letter-spacing:.16em;
+text-transform:uppercase;
+color:var(--muted2);
+font-weight:800;
+}
+
+.launchpad-page .terminal-note{
+font-size:12px;
+color:var(--muted2);
+}
+
+.launchpad-page .token-grid{
+display:grid;
+grid-template-columns:repeat(3, minmax(0,1fr));
+gap:16px;
+}
+
+.launchpad-page .launch-list{
+display:grid;
+gap:14px;
+}
+
+.launchpad-page #launchGrid.hidden,
+.launchpad-page #launchList.hidden{
+display:none !important;
+}
+
+.launchpad-page .launch-empty-state{
+padding:30px;
+border:1px dashed rgba(255,255,255,.12);
+border-radius:20px;
+color:var(--muted);
+text-align:center;
+background:rgba(255,255,255,.03);
+}
+
+@media (max-width:1180px){
+.launchpad-page .hero-shell{
+grid-template-columns:1fr;
+}
+
+.launchpad-page .command-rail{
+grid-template-columns:1fr;
+}
+
+.launchpad-page .wallet-access{
+justify-content:flex-start;
+}
+
+.launchpad-page .token-grid{
+grid-template-columns:repeat(2, minmax(0,1fr));
+}
+}
+
+@media (max-width:980px){
+.launchpad-page .ops-grid{
+grid-template-columns:1fr;
+}
+
+.launchpad-page .ops-stack.two{
+grid-template-columns:1fr 1fr;
+}
+}
+
+@media (max-width:760px){
+.launchpad-page .hero-title{
+font-size:34px;
+}
+
+.launchpad-page .token-grid{
+grid-template-columns:1fr;
+}
+
+.launchpad-page .ops-stack.two{
+grid-template-columns:1fr;
+}
+
+.launchpad-page .hero-action-row{
+flex-direction:column;
+align-items:stretch;
+}
+
+.launchpad-page .hero-cta{
+width:100%;
+}
+
+.launchpad-page .wrap{
+padding:22px 14px 80px;
+}
+
+.launchpad-page .hero-command,
+.launchpad-page .ops-board,
+.launchpad-page .command-rail,
+.launchpad-page .featured-launch,
+.launchpad-page .launch-terminal{
+border-radius:22px;
+}
+
+.launchpad-page .hero-command{
+padding:20px 16px;
+}
+
+.launchpad-page .ops-board,
+.launchpad-page .featured-launch,
+.launchpad-page .launch-terminal{
+padding:16px;
+}
+
+.launchpad-page .segment{
+width:100%;
+}
+
+.launchpad-page .segment .view-btn{
+flex:1 1 0;
+}
+
+.launchpad-page .wallet-access{
+width:100%;
+}
+}
+</style>
 </head>
-<body>
-<div class="topbar">
-<div class="topbar-inner">
-<div class="brand">
-<div class="mark" aria-hidden="true"></div>
-<div>
-<div class="brand-title">MSS Protocol</div>
-<div class="brand-sub">Launch Command</div>
-</div>
-</div>
-
-<div class="navwrap">
-<div class="nav" role="navigation" aria-label="Main">
-<a href="./index.html">Home</a>
-<a href="./token.html">Scanner</a>
-<a href="./explore.html">Explore</a>
-<a href="./alerts.html">Alerts</a>
-<a class="active" href="./launchpad.html">Launchpad</a>
-<a href="./methodology.html">Methodology</a>
-<a href="./legal.html">Legal</a>
-</div>
-
-<div class="authbar">
-<button id="sessionPill" class="session-pill" type="button" title="Login">
-<span id="sessionDot" class="dot warn"></span>
-<span id="sessionText">Login</span>
-</button>
-<button id="logoutBtn" class="authbtn danger" type="button" style="display:none;">Logout</button>
-</div>
-</div>
-</div>
-</div>
+<body class="launchpad-page">
+<div id="layoutShellHeader"></div>
 
 <div class="wrap">
 <section class="hero-shell">
@@ -128,7 +616,7 @@ Connected wallets can jump directly into their builder profile, while public use
 
 <section class="command-rail">
 <div class="search-shell">
-<input id="lSearch" type="text" placeholder="Search token name, symbol, or builder" />
+<input id="lSearch" class="input" type="text" placeholder="Search token name, symbol, or builder" />
 </div>
 
 <div class="wallet-access">
@@ -142,14 +630,14 @@ Connected wallets can jump directly into their builder profile, while public use
 <div id="lpWalletPill" class="wallet-pill">No wallet connected</div>
 </div>
 
-<select id="lStatus">
+<select id="lStatus" class="select">
 <option value="all">All Statuses</option>
 <option value="commit">Commit</option>
 <option value="countdown">Countdown</option>
 <option value="live">Live</option>
 </select>
 
-<select id="lSort">
+<select id="lSort" class="select">
 <option value="trending">Trending</option>
 <option value="newest">Newest</option>
 <option value="progress">Highest Progress</option>
@@ -182,6 +670,8 @@ Featured launch coverage will surface the strongest active opportunity here, inc
 </section>
 </div>
 
+<div id="layoutShellFooter"></div>
+
 <script src="https://unpkg.com/@solana/web3.js@latest/lib/index.iife.js"></script>
 
 <script>
@@ -210,6 +700,30 @@ window.solana?.publicKey?.toString?.() ||
 import { bindSessionUi } from "./assets/auth.js";
 import "./assets/pages/launches.js";
 
+async function mountSharedShell() {
+try {
+const shellModule = await import("./assets/layout-shell.js");
+const mountShell =
+shellModule.mountLayoutShell ||
+shellModule.renderLayoutShell ||
+shellModule.initLayoutShell ||
+shellModule.default;
+
+if (typeof mountShell === "function") {
+await mountShell({
+activeNav: "launchpad",
+pageLabel: "Launchpad",
+pageTitle: "Security-First Launch Infrastructure",
+pageSubtitle: "Structured launcher command surface",
+headerTargetId: "layoutShellHeader",
+footerTargetId: "layoutShellFooter",
+});
+}
+} catch (err) {
+console.error("Shared shell mount failed:", err);
+}
+}
+
 function setBuilderButtonState() {
 const btn = document.getElementById("myBuilderProfileBtn");
 const note = document.getElementById("builderNote");
@@ -233,6 +747,8 @@ note.textContent =
 }
 }
 }
+
+await mountSharedShell();
 
 bindSessionUi({
 sessionPillId: "sessionPill",

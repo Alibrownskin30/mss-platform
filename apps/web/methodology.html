@@ -10,7 +10,7 @@ content="MSS Protocol Methodology — blockchain security intelligence focused o
 />
 <link rel="stylesheet" href="./assets/app.css" />
 <style>
-.methodology-page .wrap{
+.methodology-page .methodology-wrap{
 max-width:1320px;
 margin:0 auto;
 padding:28px 20px 88px;
@@ -18,8 +18,8 @@ position:relative;
 z-index:1;
 }
 
-.methodology-page .hero-shell,
-.methodology-page .section-card{
+.methodology-page .methodology-hero,
+.methodology-page .methodology-section{
 position:relative;
 border:1px solid var(--line);
 border-radius:var(--radius-xl);
@@ -28,8 +28,8 @@ box-shadow:var(--shadow-lg);
 overflow:hidden;
 }
 
-.methodology-page .hero-shell::before,
-.methodology-page .section-card::before{
+.methodology-page .methodology-hero::before,
+.methodology-page .methodology-section::before{
 content:"";
 position:absolute;
 inset:0;
@@ -39,19 +39,19 @@ linear-gradient(180deg, rgba(255,255,255,.04), transparent 28%),
 radial-gradient(760px 220px at 0% 0%, rgba(243,217,139,.05), transparent 38%);
 }
 
-.methodology-page .hero-shell{
+.methodology-page .methodology-hero{
 padding:30px;
 margin-bottom:18px;
 box-shadow:var(--shadow-xl), 0 0 0 1px rgba(243,217,139,.03), 0 0 26px rgba(243,217,139,.05);
 }
 
-.methodology-page .hero-shell > *,
-.methodology-page .section-card > *{
+.methodology-page .methodology-hero > *,
+.methodology-page .methodology-section > *{
 position:relative;
 z-index:1;
 }
 
-.methodology-page .eyebrow{
+.methodology-page .methodology-eyebrow{
 display:inline-flex;
 align-items:center;
 gap:10px;
@@ -67,7 +67,7 @@ text-transform:uppercase;
 color:#fff;
 }
 
-.methodology-page .eyebrow-dot{
+.methodology-page .methodology-eyebrow-dot{
 width:7px;
 height:7px;
 border-radius:999px;
@@ -75,31 +75,31 @@ background:var(--gold-2);
 box-shadow:0 0 12px rgba(243,217,139,.26);
 }
 
-.methodology-page .hero-title{
+.methodology-page .methodology-title{
 margin:18px 0 12px;
-font-size:44px;
-line-height:.98;
-letter-spacing:-.04em;
+font-size:clamp(34px, 4.8vw, 58px);
+line-height:.96;
+letter-spacing:-.05em;
 font-weight:900;
 max-width:860px;
 }
 
-.methodology-page .hero-copy{
+.methodology-page .methodology-copy{
 color:var(--muted);
 font-size:15px;
 line-height:1.72;
-max-width:900px;
+max-width:920px;
 }
 
-.methodology-page .summary-grid{
+.methodology-page .methodology-summary-grid{
 display:grid;
 grid-template-columns:repeat(4, minmax(0,1fr));
 gap:12px;
 margin-top:18px;
 }
 
-.methodology-page .summary-card,
-.methodology-page .pill-card{
+.methodology-page .methodology-summary-card,
+.methodology-page .methodology-note-card{
 border:1px solid rgba(255,255,255,.08);
 border-radius:18px;
 background:rgba(255,255,255,.03);
@@ -108,8 +108,8 @@ min-width:0;
 box-shadow:inset 0 1px 0 rgba(255,255,255,.03);
 }
 
-.methodology-page .summary-card .k,
-.methodology-page .pill-card .k{
+.methodology-page .methodology-summary-k,
+.methodology-page .methodology-note-k{
 font-size:10px;
 letter-spacing:.14em;
 text-transform:uppercase;
@@ -117,8 +117,8 @@ color:var(--muted2);
 font-weight:800;
 }
 
-.methodology-page .summary-card .v,
-.methodology-page .pill-card .v{
+.methodology-page .methodology-summary-v,
+.methodology-page .methodology-note-v{
 margin-top:10px;
 font-size:22px;
 font-weight:900;
@@ -127,20 +127,20 @@ color:#fff;
 word-break:break-word;
 }
 
-.methodology-page .summary-card .s,
-.methodology-page .pill-card .s{
+.methodology-page .methodology-summary-s,
+.methodology-page .methodology-note-s{
 margin-top:8px;
 color:var(--muted);
 font-size:13px;
 line-height:1.6;
 }
 
-.methodology-page .section-card{
+.methodology-page .methodology-section{
 padding:20px;
 margin-bottom:18px;
 }
 
-.methodology-page .section-head{
+.methodology-page .methodology-section-head{
 display:flex;
 justify-content:space-between;
 gap:12px;
@@ -149,7 +149,7 @@ flex-wrap:wrap;
 margin-bottom:14px;
 }
 
-.methodology-page .section-title{
+.methodology-page .methodology-section-title{
 font-size:14px;
 letter-spacing:.18em;
 text-transform:uppercase;
@@ -158,38 +158,38 @@ font-weight:800;
 margin:0;
 }
 
-.methodology-page .section-note{
+.methodology-page .methodology-section-note{
 font-size:12px;
 color:var(--muted2);
 }
 
-.methodology-page .prose{
+.methodology-page .methodology-prose{
 display:grid;
 gap:18px;
 }
 
-.methodology-page .prose-block{
+.methodology-page .methodology-block{
 border:1px solid rgba(255,255,255,.08);
 border-radius:18px;
 background:rgba(255,255,255,.025);
 padding:16px;
 }
 
-.methodology-page .prose-block h2{
+.methodology-page .methodology-block h2{
 margin:0 0 10px;
 font-size:18px;
 letter-spacing:-.02em;
 color:#fff;
 }
 
-.methodology-page .prose-block p,
-.methodology-page .prose-block li{
+.methodology-page .methodology-block p,
+.methodology-page .methodology-block li{
 color:var(--muted);
 line-height:1.72;
 font-size:14px;
 }
 
-.methodology-page .prose-block ul{
+.methodology-page .methodology-block ul{
 margin:10px 0 0 18px;
 padding:0;
 }
@@ -201,45 +201,45 @@ border-radius:8px;
 word-break:break-word;
 }
 
-.methodology-page .notes-grid{
+.methodology-page .methodology-notes-grid{
 display:grid;
 grid-template-columns:repeat(3, minmax(0,1fr));
 gap:12px;
 }
 
 @media (max-width:1080px){
-.methodology-page .summary-grid{
+.methodology-page .methodology-summary-grid{
 grid-template-columns:repeat(2, minmax(0,1fr));
 }
 
-.methodology-page .notes-grid{
+.methodology-page .methodology-notes-grid{
 grid-template-columns:1fr;
 }
 }
 
 @media (max-width:760px){
-.methodology-page .hero-title{
+.methodology-page .methodology-title{
 font-size:34px;
 }
 
-.methodology-page .summary-grid{
+.methodology-page .methodology-summary-grid{
 grid-template-columns:1fr;
 }
 
-.methodology-page .hero-shell,
-.methodology-page .section-card{
+.methodology-page .methodology-hero,
+.methodology-page .methodology-section{
 border-radius:22px;
 }
 
-.methodology-page .hero-shell{
+.methodology-page .methodology-hero{
 padding:20px 16px;
 }
 
-.methodology-page .section-card{
+.methodology-page .methodology-section{
 padding:16px;
 }
 
-.methodology-page .wrap{
+.methodology-page .methodology-wrap{
 padding:22px 14px 80px;
 }
 }
@@ -248,57 +248,57 @@ padding:22px 14px 80px;
 <body class="methodology-page">
 <div id="layoutShellHeader"></div>
 
-<div class="wrap">
-<section class="hero-shell">
-<div class="eyebrow">
-<span class="eyebrow-dot"></span>
+<div class="methodology-wrap">
+<section class="methodology-hero">
+<div class="methodology-eyebrow">
+<span class="methodology-eyebrow-dot"></span>
 <span>Methodology</span>
 </div>
 
-<h1 class="hero-title">Blockchain Security Intelligence Methodology</h1>
+<h1 class="methodology-title">Blockchain Security Intelligence Methodology</h1>
 
-<div class="hero-copy">
+<div class="methodology-copy">
 MSS Protocol focuses on structural risk signals that often exist before problems become obvious.
 The methodology is designed to surface contract exposure, concentration, liquidity weakness,
 network control, whale coordination, and emerging pattern risk in a format that serious market
 participants can act on quickly.
 </div>
 
-<div class="summary-grid">
-<div class="summary-card">
-<div class="k">Primary Focus</div>
-<div class="v">Structural Risk</div>
-<div class="s">Signals that matter before headline damage becomes obvious.</div>
+<div class="methodology-summary-grid">
+<div class="methodology-summary-card">
+<div class="methodology-summary-k">Primary Focus</div>
+<div class="methodology-summary-v">Structural Risk</div>
+<div class="methodology-summary-s">Signals that matter before headline damage becomes obvious.</div>
 </div>
 
-<div class="summary-card">
-<div class="k">Core Inputs</div>
-<div class="v">On-Chain + Market</div>
-<div class="s">Authorities, holders, liquidity, wallet patterns, and behavior layers.</div>
+<div class="methodology-summary-card">
+<div class="methodology-summary-k">Core Inputs</div>
+<div class="methodology-summary-v">On-Chain + Market</div>
+<div class="methodology-summary-s">Authorities, holders, liquidity, wallet patterns, and behavior layers.</div>
 </div>
 
-<div class="summary-card">
-<div class="k">Output Style</div>
-<div class="v">Decision Support</div>
-<div class="s">Designed as an intelligence layer, not a guarantee engine.</div>
+<div class="methodology-summary-card">
+<div class="methodology-summary-k">Output Style</div>
+<div class="methodology-summary-v">Decision Support</div>
+<div class="methodology-summary-s">Designed as an intelligence layer, not a guarantee engine.</div>
 </div>
 
-<div class="summary-card">
-<div class="k">System Direction</div>
-<div class="v">Continuous Expansion</div>
-<div class="s">Historical tracking, alerts, Cassie, and deeper heuristics continue to expand.</div>
+<div class="methodology-summary-card">
+<div class="methodology-summary-k">System Direction</div>
+<div class="methodology-summary-v">Continuous Expansion</div>
+<div class="methodology-summary-s">Historical tracking, alerts, Cassie, and deeper heuristics continue to expand.</div>
 </div>
 </div>
 </section>
 
-<section class="section-card">
-<div class="section-head">
-<div class="section-title">Core Methodology Layers</div>
-<div class="section-note">How MSS interprets the most important risk inputs.</div>
+<section class="methodology-section">
+<div class="methodology-section-head">
+<div class="methodology-section-title">Core Methodology Layers</div>
+<div class="methodology-section-note">How MSS interprets the most important risk inputs.</div>
 </div>
 
-<div class="prose">
-<div class="prose-block">
+<div class="methodology-prose">
+<div class="methodology-block">
 <h2>Authorities</h2>
 <ul>
 <li><strong>Mint Authority</strong>: if present, supply can still be changed.</li>
@@ -306,7 +306,7 @@ participants can act on quickly.
 </ul>
 </div>
 
-<div class="prose-block">
+<div class="methodology-block">
 <h2>Concentration</h2>
 <ul>
 <li>Top1 / Top5 / Top10 / Top20 are calculated from the largest token accounts.</li>
@@ -315,7 +315,7 @@ participants can act on quickly.
 </ul>
 </div>
 
-<div class="prose-block">
+<div class="methodology-block">
 <h2>Market Context</h2>
 <ul>
 <li>Price, liquidity, volume, and FDV are pulled from public market sources.</li>
@@ -324,7 +324,7 @@ participants can act on quickly.
 </ul>
 </div>
 
-<div class="prose-block">
+<div class="methodology-block">
 <h2>Hidden Control Risk</h2>
 <p>
 This layer estimates whether linked wallets may collectively control more supply than headline holder counts suggest.
@@ -332,7 +332,7 @@ Shared payer fingerprints, linked wallet structures, synchronized movement, and 
 </p>
 </div>
 
-<div class="prose-block">
+<div class="methodology-block">
 <h2>Developer Activity</h2>
 <p>
 This layer looks for best-effort overlap between likely linked wallet structures and developer-adjacent behavior.
@@ -340,7 +340,7 @@ It is directional intelligence, not definitive attribution.
 </p>
 </div>
 
-<div class="prose-block">
+<div class="methodology-block">
 <h2>Fresh Wallet Risk</h2>
 <p>
 Recently active or low-history wallet clusters can indicate structured distribution, inorganic participation,
@@ -348,7 +348,7 @@ or synthetic flow. MSS treats this as context, not standalone proof.
 </p>
 </div>
 
-<div class="prose-block">
+<div class="methodology-block">
 <h2>Liquidity Stability</h2>
 <p>
 MSS evaluates liquidity depth relative to valuation and classifies removable-liquidity risk as a practical
@@ -356,7 +356,7 @@ stability indicator rather than a cosmetic metric.
 </p>
 </div>
 
-<div class="prose-block">
+<div class="methodology-block">
 <h2>Whale Activity</h2>
 <p>
 Whale pressure, coordination patterns, and burst behavior are used to estimate whether large-holder activity is normal,
@@ -364,7 +364,7 @@ elevated, or concerning.
 </p>
 </div>
 
-<div class="prose-block">
+<div class="methodology-block">
 <h2>Trend & Reputation Layer</h2>
 <p>
 Historical risk snapshots are used to estimate whether risk is stable, escalating, or easing. Reputation is an MSS
@@ -374,29 +374,29 @@ confidence-oriented score built from multiple structural signals rather than soc
 </div>
 </section>
 
-<section class="section-card">
-<div class="section-head">
-<div class="section-title">Interpretation Notes</div>
-<div class="section-note">How MSS outputs should be used in practice.</div>
+<section class="methodology-section">
+<div class="methodology-section-head">
+<div class="methodology-section-title">Interpretation Notes</div>
+<div class="methodology-section-note">How MSS outputs should be used in practice.</div>
 </div>
 
-<div class="notes-grid">
-<div class="pill-card">
-<div class="k">Best Use</div>
-<div class="v">Research Layer</div>
-<div class="s">Use MSS to sharpen judgment, accelerate due diligence, and identify structural issues faster.</div>
+<div class="methodology-notes-grid">
+<div class="methodology-note-card">
+<div class="methodology-note-k">Best Use</div>
+<div class="methodology-note-v">Research Layer</div>
+<div class="methodology-note-s">Use MSS to sharpen judgment, accelerate due diligence, and identify structural issues faster.</div>
 </div>
 
-<div class="pill-card">
-<div class="k">Not A Guarantee</div>
-<div class="v">Probabilistic</div>
-<div class="s">Signals are best-effort intelligence and should not be interpreted as certainty.</div>
+<div class="methodology-note-card">
+<div class="methodology-note-k">Not A Guarantee</div>
+<div class="methodology-note-v">Probabilistic</div>
+<div class="methodology-note-s">Signals are best-effort intelligence and should not be interpreted as certainty.</div>
 </div>
 
-<div class="pill-card">
-<div class="k">System Growth</div>
-<div class="v">Cassie + Memory</div>
-<div class="s">The methodology becomes stronger as historical memory, wallet tracking, and alert coverage deepen.</div>
+<div class="methodology-note-card">
+<div class="methodology-note-k">System Growth</div>
+<div class="methodology-note-v">Cassie + Memory</div>
+<div class="methodology-note-s">The methodology becomes stronger as historical memory, wallet tracking, and alert coverage deepen.</div>
 </div>
 </div>
 </section>
@@ -420,8 +420,6 @@ if (typeof mountShell === "function") {
 await mountShell({
 activeNav: "methodology",
 pageLabel: "Methodology",
-pageTitle: "Blockchain Security Intelligence Methodology",
-pageSubtitle: "Structural risk and signal framework",
 headerTargetId: "layoutShellHeader",
 footerTargetId: "layoutShellFooter",
 });

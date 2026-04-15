@@ -10,7 +10,7 @@ content="MSS Protocol Alerts — account-linked monitoring for structural risk, 
 />
 <link rel="stylesheet" href="./assets/app.css" />
 <style>
-.alerts-page .wrap{
+.alerts-page .alerts-wrap{
 max-width:1320px;
 margin:0 auto;
 padding:28px 20px 88px;
@@ -18,8 +18,8 @@ position:relative;
 z-index:1;
 }
 
-.alerts-page .hero-shell,
-.alerts-page .section-card{
+.alerts-page .alerts-hero,
+.alerts-page .alerts-section{
 position:relative;
 border:1px solid var(--line);
 border-radius:var(--radius-xl);
@@ -28,8 +28,8 @@ box-shadow:var(--shadow-lg);
 overflow:hidden;
 }
 
-.alerts-page .hero-shell::before,
-.alerts-page .section-card::before{
+.alerts-page .alerts-hero::before,
+.alerts-page .alerts-section::before{
 content:"";
 position:absolute;
 inset:0;
@@ -39,19 +39,19 @@ linear-gradient(180deg, rgba(255,255,255,.04), transparent 28%),
 radial-gradient(760px 220px at 0% 0%, rgba(243,217,139,.05), transparent 38%);
 }
 
-.alerts-page .hero-shell{
+.alerts-page .alerts-hero{
 padding:30px;
 margin-bottom:18px;
 box-shadow:var(--shadow-xl), 0 0 0 1px rgba(243,217,139,.03), 0 0 26px rgba(243,217,139,.05);
 }
 
-.alerts-page .hero-shell > *,
-.alerts-page .section-card > *{
+.alerts-page .alerts-hero > *,
+.alerts-page .alerts-section > *{
 position:relative;
 z-index:1;
 }
 
-.alerts-page .eyebrow{
+.alerts-page .alerts-eyebrow{
 display:inline-flex;
 align-items:center;
 gap:10px;
@@ -67,7 +67,7 @@ text-transform:uppercase;
 color:#fff;
 }
 
-.alerts-page .eyebrow-dot{
+.alerts-page .alerts-eyebrow-dot{
 width:7px;
 height:7px;
 border-radius:999px;
@@ -75,73 +75,69 @@ background:var(--gold-2);
 box-shadow:0 0 12px rgba(243,217,139,.26);
 }
 
-.alerts-page .hero-title{
-margin:18px 0 12px;
-font-size:44px;
-line-height:.98;
-letter-spacing:-.04em;
-font-weight:900;
-max-width:860px;
+.alerts-page .alerts-hero-grid{
+display:grid;
+grid-template-columns:minmax(0,1.16fr) minmax(420px,.84fr);
+gap:22px;
+align-items:start;
 }
 
-.alerts-page .hero-copy{
+.alerts-page .alerts-hero-copy-col,
+.alerts-page .alerts-hero-side{
+min-width:0;
+}
+
+.alerts-page .alerts-title{
+margin:18px 0 12px;
+font-size:clamp(34px, 4.8vw, 58px);
+line-height:.96;
+letter-spacing:-.05em;
+font-weight:900;
+max-width:760px;
+}
+
+.alerts-page .alerts-copy{
 color:var(--muted);
 font-size:15px;
 line-height:1.72;
-max-width:860px;
+max-width:760px;
 }
 
-.alerts-page .hero-meta{
-display:grid;
-grid-template-columns:repeat(4, minmax(0,1fr));
-gap:12px;
+.alerts-page .alerts-chip-row{
+display:flex;
+flex-wrap:wrap;
+gap:10px;
 margin-top:18px;
 }
 
-.alerts-page .hero-chip,
-.alerts-page .mini-chip,
-.alerts-page .badge-chip{
+.alerts-page .alerts-chip{
 display:inline-flex;
 align-items:center;
+justify-content:center;
 gap:8px;
-min-height:34px;
-padding:0 11px;
+min-height:38px;
+padding:0 14px;
 border-radius:999px;
 border:1px solid rgba(255,255,255,.10);
 background:rgba(255,255,255,.04);
 font-size:12px;
+font-weight:700;
 color:rgba(255,255,255,.82);
-max-width:100%;
 white-space:nowrap;
+max-width:100%;
 }
 
-.alerts-page .hero-chip strong,
-.alerts-page .badge-chip strong{
-color:#fff;
-}
-
-.alerts-page .hero-grid{
-display:grid;
-grid-template-columns:1.05fr .95fr;
-gap:18px;
-align-items:stretch;
-}
-
-.alerts-page .ops-board{
-display:grid;
-gap:12px;
-}
-
-.alerts-page .ops-grid{
+.alerts-page .alerts-side-grid{
 display:grid;
 grid-template-columns:repeat(2, minmax(0,1fr));
 gap:12px;
 }
 
-.alerts-page .ops-card,
-.alerts-page .hint-card,
-.alerts-page .session-card,
-.alerts-page .alert-shell{
+.alerts-page .alerts-side-card,
+.alerts-page .alerts-hint-card,
+.alerts-page .alerts-info-card,
+.alerts-page .alerts-list-item,
+.alerts-page .alerts-empty{
 border:1px solid rgba(255,255,255,.08);
 border-radius:18px;
 background:rgba(255,255,255,.03);
@@ -150,8 +146,7 @@ min-width:0;
 box-shadow:inset 0 1px 0 rgba(255,255,255,.03);
 }
 
-.alerts-page .ops-card .k,
-.alerts-page .session-card .k{
+.alerts-page .alerts-side-k{
 font-size:10px;
 letter-spacing:.14em;
 text-transform:uppercase;
@@ -159,30 +154,44 @@ color:var(--muted2);
 font-weight:800;
 }
 
-.alerts-page .ops-card .v,
-.alerts-page .session-card .v{
+.alerts-page .alerts-side-v{
 margin-top:10px;
 font-size:24px;
+line-height:1.02;
 font-weight:900;
-letter-spacing:-.02em;
+letter-spacing:-.03em;
 color:#fff;
 word-break:break-word;
 }
 
-.alerts-page .ops-card .s,
-.alerts-page .session-card .s{
+.alerts-page .alerts-side-s{
 margin-top:8px;
 color:var(--muted);
 font-size:13px;
 line-height:1.55;
 }
 
-.alerts-page .section-card{
+.alerts-page .alerts-status-chip{
+display:inline-flex;
+align-items:center;
+gap:8px;
+min-height:32px;
+padding:0 12px;
+border-radius:999px;
+border:1px solid rgba(255,255,255,.10);
+background:rgba(255,255,255,.05);
+color:#fff;
+font-size:11px;
+font-weight:800;
+max-width:100%;
+}
+
+.alerts-page .alerts-section{
 padding:20px;
 margin-bottom:18px;
 }
 
-.alerts-page .section-head{
+.alerts-page .alerts-section-head{
 display:flex;
 justify-content:space-between;
 gap:12px;
@@ -191,7 +200,7 @@ flex-wrap:wrap;
 margin-bottom:14px;
 }
 
-.alerts-page .section-title{
+.alerts-page .alerts-section-title{
 font-size:14px;
 letter-spacing:.18em;
 text-transform:uppercase;
@@ -200,28 +209,28 @@ font-weight:800;
 margin:0;
 }
 
-.alerts-page .section-note{
+.alerts-page .alerts-section-note{
 font-size:12px;
 color:var(--muted2);
 }
 
-.alerts-page .main-grid{
+.alerts-page .alerts-main-grid{
 display:grid;
-grid-template-columns:1fr 1fr;
+grid-template-columns:minmax(0,1fr) minmax(340px,.82fr);
 gap:18px;
 }
 
-.alerts-page .field-grid{
+.alerts-page .alerts-field-grid{
 display:grid;
 gap:12px;
 }
 
-.alerts-page .field{
+.alerts-page .alerts-field{
 display:grid;
 gap:8px;
 }
 
-.alerts-page .label{
+.alerts-page .alerts-label{
 font-size:12px;
 font-weight:700;
 color:rgba(255,255,255,.78);
@@ -229,9 +238,9 @@ letter-spacing:.06em;
 text-transform:uppercase;
 }
 
-.alerts-page .input{
+.alerts-page .alerts-input{
 width:100%;
-min-height:46px;
+min-height:48px;
 padding:0 14px;
 border-radius:14px;
 border:1px solid rgba(255,255,255,.12);
@@ -242,26 +251,26 @@ font:inherit;
 box-shadow:inset 0 1px 0 rgba(255,255,255,.04);
 }
 
-.alerts-page .input:focus{
+.alerts-page .alerts-input:focus{
 border-color:rgba(243,217,139,.24);
 box-shadow:0 0 0 4px rgba(243,217,139,.08);
 background:rgba(255,255,255,.06);
 }
 
-.alerts-page select.input{
+.alerts-page select.alerts-input{
 appearance:none;
 -webkit-appearance:none;
 -moz-appearance:none;
 }
 
-.alerts-page .button-row{
+.alerts-page .alerts-button-row{
 display:flex;
 gap:10px;
 flex-wrap:wrap;
 margin-top:4px;
 }
 
-.alerts-page .status{
+.alerts-page .alerts-status{
 margin-top:10px;
 min-height:18px;
 font-size:12px;
@@ -269,18 +278,18 @@ color:var(--muted);
 line-height:1.5;
 }
 
-.alerts-page .status.good{ color:var(--good); }
-.alerts-page .status.warn{ color:var(--warn); }
-.alerts-page .status.bad{ color:var(--bad); }
+.alerts-page .alerts-status.good{ color:var(--good); }
+.alerts-page .alerts-status.warn{ color:var(--warn); }
+.alerts-page .alerts-status.bad{ color:var(--bad); }
 
-.alerts-page .hint-grid{
+.alerts-page .alerts-hint-grid{
 display:grid;
 grid-template-columns:repeat(2, minmax(0,1fr));
 gap:12px;
 margin-top:16px;
 }
 
-.alerts-page .hint-card-title{
+.alerts-page .alerts-hint-title{
 font-size:11px;
 letter-spacing:.14em;
 text-transform:uppercase;
@@ -288,93 +297,77 @@ color:#fff;
 font-weight:900;
 }
 
-.alerts-page .hint-card-copy{
+.alerts-page .alerts-hint-copy{
 margin-top:8px;
 color:var(--muted);
 font-size:12px;
 line-height:1.6;
 }
 
-.alerts-page .list{
+.alerts-page .alerts-info-stack{
+display:grid;
+gap:12px;
+}
+
+.alerts-page .alerts-info-card .mono{
+word-break:break-word;
+}
+
+.alerts-page .alerts-list{
 display:grid;
 gap:10px;
 }
 
-.alerts-page .alert-item,
-.alerts-page .event-item,
-.alerts-page .empty{
-border:1px solid rgba(255,255,255,.08);
-background:rgba(255,255,255,.03);
-border-radius:16px;
-padding:14px;
-min-width:0;
-}
-
-.alerts-page .empty{
+.alerts-page .alerts-empty{
 color:var(--muted);
 text-align:center;
 padding:26px;
 }
 
-.alerts-page .alert-item,
-.alerts-page .event-item{
-box-shadow:inset 0 1px 0 rgba(255,255,255,.03);
-}
-
-.alerts-page .info-stack{
-display:grid;
-gap:12px;
-}
-
-.alerts-page .session-card .mono{
-word-break:break-all;
-}
-
-@media (max-width:1180px){
-.alerts-page .hero-grid,
-.alerts-page .main-grid{
+@media (max-width:1240px){
+.alerts-page .alerts-hero-grid,
+.alerts-page .alerts-main-grid{
 grid-template-columns:1fr;
 }
 
-.alerts-page .hero-meta{
+.alerts-page .alerts-side-grid{
 grid-template-columns:repeat(2, minmax(0,1fr));
 }
 }
 
 @media (max-width:760px){
-.alerts-page .hero-title{
+.alerts-page .alerts-title{
 font-size:34px;
 }
 
-.alerts-page .hero-meta,
-.alerts-page .ops-grid,
-.alerts-page .hint-grid{
+.alerts-page .alerts-side-grid,
+.alerts-page .alerts-hint-grid{
 grid-template-columns:1fr;
 }
 
-.alerts-page .hero-shell,
-.alerts-page .section-card{
+.alerts-page .alerts-hero,
+.alerts-page .alerts-section{
 border-radius:22px;
 }
 
-.alerts-page .hero-shell{
+.alerts-page .alerts-hero{
 padding:20px 16px;
 }
 
-.alerts-page .section-card{
+.alerts-page .alerts-section{
 padding:16px;
 }
 
-.alerts-page .wrap{
+.alerts-page .alerts-wrap{
 padding:22px 14px 80px;
 }
 
-.alerts-page .button-row{
+.alerts-page .alerts-button-row{
 display:grid;
 grid-template-columns:1fr;
 }
 
-.alerts-page .button-row .btn{
+.alerts-page .alerts-button-row .btn{
 width:100%;
 }
 }
@@ -383,82 +376,82 @@ width:100%;
 <body class="alerts-page">
 <div id="layoutShellHeader"></div>
 
-<div class="wrap">
-<section class="hero-shell">
-<div class="hero-grid">
-<div>
-<div class="eyebrow">
-<span class="eyebrow-dot"></span>
+<div class="alerts-wrap">
+<section class="alerts-hero">
+<div class="alerts-hero-grid">
+<div class="alerts-hero-copy-col">
+<div class="alerts-eyebrow">
+<span class="alerts-eyebrow-dot"></span>
 <span>Alerts Command</span>
 </div>
 
-<h1 class="hero-title">Account-Linked Monitoring For Structural Market Risk</h1>
+<h1 class="alerts-title">Account-Linked Monitoring For Structural Market Risk</h1>
 
-<div class="hero-copy">
+<div class="alerts-copy">
 Create structural alerts, monitor saved triggers, and review recent alert activity linked to your MSS account.
 This layer is designed for persistent monitoring across risk spikes, hidden control, whale behavior,
 liquidity shifts, authority exposure, and broader blockchain security intelligence.
 </div>
 
-<div class="hero-meta">
-<div class="hero-chip">Risk Score Alerts</div>
-<div class="hero-chip">Hidden Control Triggers</div>
-<div class="hero-chip">Liquidity Monitoring</div>
-<div class="hero-chip">Authority Exposure</div>
+<div class="alerts-chip-row">
+<div class="alerts-chip">Risk Score Alerts</div>
+<div class="alerts-chip">Hidden Control Triggers</div>
+<div class="alerts-chip">Liquidity Monitoring</div>
+<div class="alerts-chip">Authority Exposure</div>
 </div>
 </div>
 
-<div class="ops-board">
-<div class="ops-grid">
-<div class="ops-card">
-<div class="k">Session State</div>
-<div class="v" id="loginStateText">Login required</div>
-<div class="s">Alerts are tied directly to your MSS account session.</div>
+<div class="alerts-hero-side">
+<div class="alerts-side-grid">
+<div class="alerts-side-card">
+<div class="alerts-side-k">Session State</div>
+<div class="alerts-side-v" id="loginStateText">Login required</div>
+<div class="alerts-side-s">Alerts are tied directly to your MSS account session.</div>
 </div>
 
-<div class="ops-card">
-<div class="k">Account Status</div>
-<div class="v">
-<span class="badge-chip">
+<div class="alerts-side-card">
+<div class="alerts-side-k">Account Status</div>
+<div class="alerts-side-v" style="font-size:18px;">
+<span class="alerts-status-chip">
 <span class="dot warn" id="loginStateDot"></span>
 <strong>Monitoring Locked</strong>
 </span>
 </div>
-<div class="s">Sign in to create, review, and manage alert infrastructure.</div>
+<div class="alerts-side-s">Sign in to create, review, and manage alert infrastructure.</div>
 </div>
 
-<div class="ops-card">
-<div class="k">Alert Coverage</div>
-<div class="v">Structural + Market</div>
-<div class="s">Supports risk, coordination, liquidity, whale, and authority monitoring.</div>
+<div class="alerts-side-card">
+<div class="alerts-side-k">Alert Coverage</div>
+<div class="alerts-side-v">Structural + Market</div>
+<div class="alerts-side-s">Supports risk, coordination, liquidity, whale, and authority monitoring.</div>
 </div>
 
-<div class="ops-card">
-<div class="k">Intelligence Scope</div>
-<div class="v">Blockchain Security Intelligence</div>
-<div class="s">Built to monitor the signals that matter before they become obvious.</div>
+<div class="alerts-side-card">
+<div class="alerts-side-k">Intelligence Scope</div>
+<div class="alerts-side-v">Blockchain Security Intelligence</div>
+<div class="alerts-side-s">Built to monitor the signals that matter before they become obvious.</div>
 </div>
 </div>
 </div>
 </div>
 </section>
 
-<div class="main-grid">
-<section class="section-card">
-<div class="section-head">
-<div class="section-title">Create Alert</div>
-<div class="section-note">Account-linked trigger creation for token-level monitoring.</div>
+<div class="alerts-main-grid">
+<section class="alerts-section">
+<div class="alerts-section-head">
+<div class="alerts-section-title">Create Alert</div>
+<div class="alerts-section-note">Account-linked trigger creation for token-level monitoring.</div>
 </div>
 
-<div class="field-grid">
-<div class="field">
-<label class="label" for="mintInput">Token Mint</label>
-<input id="mintInput" class="input mono" placeholder="Paste token mint address..." />
+<div class="alerts-field-grid">
+<div class="alerts-field">
+<label class="alerts-label" for="mintInput">Token Mint</label>
+<input id="mintInput" class="alerts-input mono" placeholder="Paste token mint address..." />
 </div>
 
-<div class="field">
-<label class="label" for="typeSelect">Alert Type</label>
-<select id="typeSelect" class="input">
+<div class="alerts-field">
+<label class="alerts-label" for="typeSelect">Alert Type</label>
+<select id="typeSelect" class="alerts-input">
 <option value="risk_spike">Risk Score</option>
 <option value="hidden_control">Hidden Control</option>
 <option value="developer_network">Developer Network</option>
@@ -471,97 +464,97 @@ liquidity shifts, authority exposure, and broader blockchain security intelligen
 </select>
 </div>
 
-<div class="field">
-<label class="label" for="directionSelect">Direction</label>
-<select id="directionSelect" class="input">
+<div class="alerts-field">
+<label class="alerts-label" for="directionSelect">Direction</label>
+<select id="directionSelect" class="alerts-input">
 <option value="above">Above</option>
 <option value="below">Below</option>
 </select>
 </div>
 
-<div class="field">
-<label class="label" for="thresholdInput">Threshold</label>
-<input id="thresholdInput" class="input" placeholder="Threshold (e.g. 70)" />
+<div class="alerts-field">
+<label class="alerts-label" for="thresholdInput">Threshold</label>
+<input id="thresholdInput" class="alerts-input" placeholder="Threshold (e.g. 70)" />
 </div>
 
-<div class="button-row">
+<div class="alerts-button-row">
 <button id="createAlertBtn" class="btn primary" type="button">Create Alert</button>
 <button id="refreshAlertsBtn" class="btn btn-ghost" type="button">Refresh</button>
 </div>
 
-<div id="createStatus" class="status"></div>
+<div id="createStatus" class="alerts-status"></div>
 </div>
 
-<div class="hint-grid">
-<div class="hint-card">
-<div class="hint-card-title">Suggested Structural Triggers</div>
-<div class="hint-card-copy">
+<div class="alerts-hint-grid">
+<div class="alerts-hint-card">
+<div class="alerts-hint-title">Suggested Structural Triggers</div>
+<div class="alerts-hint-copy">
 Hidden Control above 60, Developer Network above 55, Wallet Network above 55, Network Control above 30.
 </div>
 </div>
 
-<div class="hint-card">
-<div class="hint-card-title">Suggested Market Triggers</div>
-<div class="hint-card-copy">
+<div class="alerts-hint-card">
+<div class="alerts-hint-title">Suggested Market Triggers</div>
+<div class="alerts-hint-copy">
 Risk Score above 70, Whale Activity above 65, Top10 above 55, Liquidity below your minimum acceptable depth.
 </div>
 </div>
 </div>
 </section>
 
-<section class="section-card">
-<div class="section-head">
-<div class="section-title">Session & API</div>
-<div class="section-note">Operational context for this alerts page.</div>
+<section class="alerts-section">
+<div class="alerts-section-head">
+<div class="alerts-section-title">Session Layer</div>
+<div class="alerts-section-note">Operational context for alerts on this account.</div>
 </div>
 
-<div class="info-stack">
-<div class="session-card">
-<div class="k">Session Layer</div>
-<div class="v">Account Bound</div>
-<div class="s">
+<div class="alerts-info-stack">
+<div class="alerts-info-card">
+<div class="alerts-side-k">Account Binding</div>
+<div class="alerts-side-v">Session Linked</div>
+<div class="alerts-side-s">
 Create alerts from the scanner or directly here. Alert state is linked to your current MSS login session.
 </div>
 </div>
 
-<div class="session-card">
-<div class="k">API Endpoint</div>
-<div class="v mono" id="apiMeta">API: —</div>
-<div class="s">
-This page uses the shared MSS account and monitoring layer for alert creation, retrieval, and event review.
-</div>
-</div>
-
-<div class="session-card">
-<div class="k">Coverage Note</div>
-<div class="v">Live Monitoring</div>
-<div class="s">
+<div class="alerts-info-card">
+<div class="alerts-side-k">Monitoring Scope</div>
+<div class="alerts-side-v">Live Monitoring</div>
+<div class="alerts-side-s">
 Focused on structural, coordination, liquidity, whale, and authority monitoring rather than generic noise.
 </div>
 </div>
+
+<div class="alerts-info-card">
+<div class="alerts-side-k">Delivery Model</div>
+<div class="alerts-side-v">Persistent Rules</div>
+<div class="alerts-side-s">
+Saved alert rules remain tied to your account and can be expanded into broader intelligence notifications later.
+</div>
+</div>
 </div>
 </section>
 </div>
 
-<section class="section-card">
-<div class="section-head">
-<div class="section-title">Saved Alerts</div>
-<div class="section-note">Your active and paused alerts appear here.</div>
+<section class="alerts-section">
+<div class="alerts-section-head">
+<div class="alerts-section-title">Saved Alerts</div>
+<div class="alerts-section-note">Your active and paused alerts appear here.</div>
 </div>
 
-<div id="alertsList" class="list">
-<div class="empty">No saved alerts yet.</div>
+<div id="alertsList" class="alerts-list">
+<div class="alerts-empty">No saved alerts yet.</div>
 </div>
 </section>
 
-<section class="section-card">
-<div class="section-head">
-<div class="section-title">Recent Alert Events</div>
-<div class="section-note">Recent trigger history based on your saved monitoring rules.</div>
+<section class="alerts-section">
+<div class="alerts-section-head">
+<div class="alerts-section-title">Recent Alert Events</div>
+<div class="alerts-section-note">Recent trigger history based on your saved monitoring rules.</div>
 </div>
 
-<div id="eventsList" class="list">
-<div class="empty">No alert events available yet.</div>
+<div id="eventsList" class="alerts-list">
+<div class="alerts-empty">No alert events available yet.</div>
 </div>
 </section>
 </div>
@@ -584,8 +577,6 @@ if (typeof mountShell === "function") {
 await mountShell({
 activeNav: "alerts",
 pageLabel: "Alerts",
-pageTitle: "Account-Linked Monitoring For Structural Market Risk",
-pageSubtitle: "Security intelligence alerting layer",
 headerTargetId: "layoutShellHeader",
 footerTargetId: "layoutShellFooter",
 });

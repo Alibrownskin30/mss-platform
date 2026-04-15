@@ -10,7 +10,7 @@ content="MSS Protocol Explore - broader discovery across blockchain security int
 />
 <link rel="stylesheet" href="./assets/app.css" />
 <style>
-.explore-page .wrap{
+.explore-page .explore-wrap{
 max-width:1320px;
 margin:0 auto;
 padding:28px 20px 88px;
@@ -18,8 +18,8 @@ position:relative;
 z-index:1;
 }
 
-.explore-page .hero-shell,
-.explore-page .section-card{
+.explore-page .explore-hero,
+.explore-page .explore-section{
 position:relative;
 border:1px solid var(--line);
 border-radius:var(--radius-xl);
@@ -28,8 +28,8 @@ box-shadow:var(--shadow-lg);
 overflow:hidden;
 }
 
-.explore-page .hero-shell::before,
-.explore-page .section-card::before{
+.explore-page .explore-hero::before,
+.explore-page .explore-section::before{
 content:"";
 position:absolute;
 inset:0;
@@ -39,19 +39,19 @@ linear-gradient(180deg, rgba(255,255,255,.04), transparent 28%),
 radial-gradient(760px 220px at 0% 0%, rgba(243,217,139,.05), transparent 38%);
 }
 
-.explore-page .hero-shell{
+.explore-page .explore-hero{
 padding:30px;
 margin-bottom:18px;
 box-shadow:var(--shadow-xl), 0 0 0 1px rgba(243,217,139,.03), 0 0 26px rgba(243,217,139,.05);
 }
 
-.explore-page .hero-shell > *,
-.explore-page .section-card > *{
+.explore-page .explore-hero > *,
+.explore-page .explore-section > *{
 position:relative;
 z-index:1;
 }
 
-.explore-page .eyebrow{
+.explore-page .explore-eyebrow{
 display:inline-flex;
 align-items:center;
 gap:10px;
@@ -67,7 +67,7 @@ text-transform:uppercase;
 color:#fff;
 }
 
-.explore-page .eyebrow-dot{
+.explore-page .explore-eyebrow-dot{
 width:7px;
 height:7px;
 border-radius:999px;
@@ -75,60 +75,62 @@ background:var(--gold-2);
 box-shadow:0 0 12px rgba(243,217,139,.26);
 }
 
-.explore-page .hero-title{
+.explore-page .explore-title{
 margin:18px 0 12px;
-font-size:44px;
+font-size:clamp(34px, 4.8vw, 56px);
 line-height:.98;
 letter-spacing:-.04em;
 font-weight:900;
-max-width:860px;
+max-width:900px;
 }
 
-.explore-page .hero-copy{
+.explore-page .explore-copy{
 color:var(--muted);
 font-size:15px;
 line-height:1.72;
-max-width:860px;
+max-width:900px;
 }
 
-.explore-page .hero-copy + .hero-copy{
+.explore-page .explore-copy + .explore-copy{
 margin-top:10px;
 }
 
-.explore-page .hero-chip-row,
-.explore-page .capability-grid,
-.explore-page .signal-grid{
+.explore-page .explore-chip-row,
+.explore-page .explore-capability-grid,
+.explore-page .explore-signal-grid{
 display:grid;
 gap:12px;
 }
 
-.explore-page .hero-chip-row{
+.explore-page .explore-chip-row{
 grid-template-columns:repeat(4, minmax(0,1fr));
 margin-top:18px;
 }
 
-.explore-page .hero-chip,
-.explore-page .mini-chip{
+.explore-page .explore-chip,
+.explore-page .explore-mini-chip{
 display:inline-flex;
 align-items:center;
+justify-content:center;
 gap:8px;
-min-height:34px;
-padding:0 11px;
+min-height:38px;
+padding:0 14px;
 border-radius:999px;
 border:1px solid rgba(255,255,255,.10);
 background:rgba(255,255,255,.04);
 font-size:12px;
+font-weight:700;
 color:rgba(255,255,255,.82);
 max-width:100%;
 white-space:nowrap;
 }
 
-.explore-page .section-card{
+.explore-page .explore-section{
 padding:20px;
 margin-bottom:18px;
 }
 
-.explore-page .section-head{
+.explore-page .explore-section-head{
 display:flex;
 justify-content:space-between;
 gap:12px;
@@ -137,7 +139,7 @@ flex-wrap:wrap;
 margin-bottom:14px;
 }
 
-.explore-page .section-title{
+.explore-page .explore-section-title{
 font-size:14px;
 letter-spacing:.18em;
 text-transform:uppercase;
@@ -146,22 +148,22 @@ font-weight:800;
 margin:0;
 }
 
-.explore-page .section-note{
+.explore-page .explore-section-note{
 font-size:12px;
 color:var(--muted2);
 }
 
-.explore-page .capability-grid{
+.explore-page .explore-capability-grid{
 grid-template-columns:repeat(2, minmax(0,1fr));
 }
 
-.explore-page .signal-grid{
+.explore-page .explore-signal-grid{
 grid-template-columns:repeat(4, minmax(0,1fr));
 }
 
-.explore-page .cap-card,
-.explore-page .signal-card,
-.explore-page .notice-card{
+.explore-page .explore-cap-card,
+.explore-page .explore-signal-card,
+.explore-page .explore-notice-card{
 border:1px solid rgba(255,255,255,.08);
 border-radius:18px;
 background:rgba(255,255,255,.03);
@@ -170,7 +172,7 @@ min-width:0;
 box-shadow:inset 0 1px 0 rgba(255,255,255,.03);
 }
 
-.explore-page .cap-top{
+.explore-page .explore-cap-top{
 display:flex;
 justify-content:space-between;
 gap:10px;
@@ -178,7 +180,7 @@ align-items:flex-start;
 margin-bottom:10px;
 }
 
-.explore-page .cap-icon{
+.explore-page .explore-cap-icon{
 width:40px;
 height:40px;
 border-radius:14px;
@@ -191,8 +193,8 @@ box-shadow:0 0 16px rgba(243,217,139,.08);
 flex:0 0 auto;
 }
 
-.explore-page .cap-label,
-.explore-page .signal-label{
+.explore-page .explore-cap-label,
+.explore-page .explore-signal-label{
 font-size:10px;
 letter-spacing:.14em;
 text-transform:uppercase;
@@ -200,8 +202,8 @@ color:var(--muted2);
 font-weight:800;
 }
 
-.explore-page .cap-title,
-.explore-page .signal-value{
+.explore-page .explore-cap-title,
+.explore-page .explore-signal-value{
 margin-top:10px;
 font-size:24px;
 font-weight:900;
@@ -210,25 +212,25 @@ word-break:break-word;
 color:#fff;
 }
 
-.explore-page .cap-copy,
-.explore-page .signal-copy,
-.explore-page .notice-copy{
+.explore-page .explore-cap-copy,
+.explore-page .explore-signal-copy,
+.explore-page .explore-notice-copy{
 margin-top:8px;
 color:var(--muted);
 font-size:13px;
 line-height:1.6;
 }
 
-.explore-page .signal-value{
+.explore-page .explore-signal-value{
 font-size:18px;
 }
 
-.explore-page .notice-card{
+.explore-page .explore-notice-card{
 border-color:rgba(243,217,139,.16);
 background:linear-gradient(145deg, rgba(214,178,94,.08), rgba(174,185,200,.04));
 }
 
-.explore-page .notice-title{
+.explore-page .explore-notice-title{
 font-size:12px;
 letter-spacing:.14em;
 text-transform:uppercase;
@@ -236,18 +238,18 @@ color:#fff;
 font-weight:900;
 }
 
-.explore-page .route-grid{
+.explore-page .explore-route-grid{
 display:grid;
 grid-template-columns:1.15fr .85fr;
 gap:12px;
 }
 
-.explore-page .route-list{
+.explore-page .explore-route-list{
 display:grid;
 gap:10px;
 }
 
-.explore-page .route-row{
+.explore-page .explore-route-row{
 display:flex;
 justify-content:space-between;
 gap:12px;
@@ -258,21 +260,21 @@ border:1px solid rgba(255,255,255,.08);
 background:rgba(255,255,255,.03);
 }
 
-.explore-page .route-name{
+.explore-page .explore-route-name{
 font-size:13px;
 font-weight:900;
 color:#fff;
 letter-spacing:.02em;
 }
 
-.explore-page .route-desc{
+.explore-page .explore-route-desc{
 margin-top:6px;
 color:var(--muted);
 font-size:12px;
 line-height:1.5;
 }
 
-.explore-page .route-pill{
+.explore-page .explore-route-pill{
 display:inline-flex;
 align-items:center;
 justify-content:center;
@@ -289,49 +291,56 @@ text-transform:uppercase;
 white-space:nowrap;
 }
 
+.explore-page .explore-mini-chip-row{
+margin-top:14px;
+display:flex;
+gap:8px;
+flex-wrap:wrap;
+}
+
 @media (max-width:1180px){
-.explore-page .hero-chip-row{
+.explore-page .explore-chip-row{
 grid-template-columns:repeat(2, minmax(0,1fr));
 }
 
-.explore-page .signal-grid{
+.explore-page .explore-signal-grid{
 grid-template-columns:repeat(2, minmax(0,1fr));
 }
 
-.explore-page .route-grid{
+.explore-page .explore-route-grid{
 grid-template-columns:1fr;
 }
 }
 
 @media (max-width:760px){
-.explore-page .capability-grid,
-.explore-page .hero-chip-row,
-.explore-page .signal-grid{
+.explore-page .explore-capability-grid,
+.explore-page .explore-chip-row,
+.explore-page .explore-signal-grid{
 grid-template-columns:1fr;
 }
 
-.explore-page .hero-title{
+.explore-page .explore-title{
 font-size:34px;
 }
 
-.explore-page .hero-shell,
-.explore-page .section-card{
+.explore-page .explore-hero,
+.explore-page .explore-section{
 border-radius:22px;
 }
 
-.explore-page .hero-shell{
+.explore-page .explore-hero{
 padding:20px 16px;
 }
 
-.explore-page .section-card{
+.explore-page .explore-section{
 padding:16px;
 }
 
-.explore-page .wrap{
+.explore-page .explore-wrap{
 padding:22px 14px 80px;
 }
 
-.explore-page .route-row{
+.explore-page .explore-route-row{
 flex-direction:column;
 }
 }
@@ -340,190 +349,190 @@ flex-direction:column;
 <body class="explore-page">
 <div id="layoutShellHeader"></div>
 
-<div class="wrap">
-<section class="hero-shell">
-<div class="eyebrow">
-<span class="eyebrow-dot"></span>
+<div class="explore-wrap">
+<section class="explore-hero">
+<div class="explore-eyebrow">
+<span class="explore-eyebrow-dot"></span>
 <span>Explore Layer</span>
 </div>
 
-<h1 class="hero-title">Discovery Across The MSS Intelligence Network</h1>
+<h1 class="explore-title">Discovery Across The MSS Intelligence Network</h1>
 
-<div class="hero-copy">
+<div class="explore-copy">
 Explore is the broader discovery surface for MSS Protocol — designed to combine trending tokens,
 scanner discoveries, wallet activity, high-signal movements, and fresh launch visibility in one command layer.
 </div>
 
-<div class="hero-copy">
+<div class="explore-copy">
 Launch activity lives in Launchpad. Explore will become the wider intelligence feed sitting above
 launches, market movement, scanner discoveries, and behavioral signal tracking.
 </div>
 
-<div class="hero-chip-row">
-<div class="hero-chip">Trending Tokens</div>
-<div class="hero-chip">Scanner Discoveries</div>
-<div class="hero-chip">Wallet Activity</div>
-<div class="hero-chip">High-Signal Intelligence</div>
+<div class="explore-chip-row">
+<div class="explore-chip">Trending Tokens</div>
+<div class="explore-chip">Scanner Discoveries</div>
+<div class="explore-chip">Wallet Activity</div>
+<div class="explore-chip">High-Signal Intelligence</div>
 </div>
 </section>
 
-<section class="section-card">
-<div class="section-head">
-<div class="section-title">Explore Intelligence Surface</div>
-<div class="section-note">What this page becomes as the broader discovery layer expands.</div>
+<section class="explore-section">
+<div class="explore-section-head">
+<div class="explore-section-title">Explore Intelligence Surface</div>
+<div class="explore-section-note">What this page becomes as the broader discovery layer expands.</div>
 </div>
 
-<div class="capability-grid">
-<div class="cap-card">
-<div class="cap-top">
-<div class="cap-icon" aria-hidden="true">
+<div class="explore-capability-grid">
+<div class="explore-cap-card">
+<div class="explore-cap-top">
+<div class="explore-cap-icon" aria-hidden="true">
 <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
 <path d="M4 19V5m0 14h16M8 15l3-3 3 2 4-6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
 </svg>
 </div>
-<div class="cap-label">Trending</div>
+<div class="explore-cap-label">Trending</div>
 </div>
-<div class="cap-title">Momentum Ranking</div>
-<div class="cap-copy">
+<div class="explore-cap-title">Momentum Ranking</div>
+<div class="explore-cap-copy">
 Rank fast-moving tokens, strongest scanner momentum, and the assets pulling the most attention across the MSS intelligence stack.
 </div>
 </div>
 
-<div class="cap-card">
-<div class="cap-top">
-<div class="cap-icon" aria-hidden="true">
+<div class="explore-cap-card">
+<div class="explore-cap-top">
+<div class="explore-cap-icon" aria-hidden="true">
 <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
 <path d="M12 2l8 4v6c0 5-3.5 9.7-8 10-4.5-.3-8-5-8-10V6l8-4z" stroke="currentColor" stroke-width="2"/>
 </svg>
 </div>
-<div class="cap-label">Scanner</div>
+<div class="explore-cap-label">Scanner</div>
 </div>
-<div class="cap-title">Fresh Discoveries</div>
-<div class="cap-copy">
+<div class="explore-cap-title">Fresh Discoveries</div>
+<div class="explore-cap-copy">
 Surface fresh low-risk finds, unusual authority states, concentration anomalies, and noteworthy scan outcomes from the scanner layer.
 </div>
 </div>
 
-<div class="cap-card">
-<div class="cap-top">
-<div class="cap-icon" aria-hidden="true">
+<div class="explore-cap-card">
+<div class="explore-cap-top">
+<div class="explore-cap-icon" aria-hidden="true">
 <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
 <path d="M16 11c1.66 0 3-1.34 3-3S17.66 5 16 5s-3 1.34-3 3 1.34 3 3 3zM8 11c1.66 0 3-1.34 3-3S9.66 5 8 5 5 6.34 5 8s1.34 3 3 3z" fill="currentColor"/>
 <path d="M8 13c-2.67 0-8 1.34-8 4v2h10v-2c0-1.06.42-2.03 1.12-2.8C10.02 13.46 8.96 13 8 13zM16 13c-1 0-2.08.46-3.19 1.21.75.77 1.19 1.76 1.19 2.79v2H24v-2c0-2.66-5.33-4-8-4z" fill="currentColor" opacity=".72"/>
 </svg>
 </div>
-<div class="cap-label">Wallets</div>
+<div class="explore-cap-label">Wallets</div>
 </div>
-<div class="cap-title">Behavior Mapping</div>
-<div class="cap-copy">
+<div class="explore-cap-title">Behavior Mapping</div>
+<div class="explore-cap-copy">
 Track clusters, whale movements, linked wallets, and emerging behavioral shifts that matter before they become obvious to the crowd.
 </div>
 </div>
 
-<div class="cap-card">
-<div class="cap-top">
-<div class="cap-icon" aria-hidden="true">
+<div class="explore-cap-card">
+<div class="explore-cap-top">
+<div class="explore-cap-icon" aria-hidden="true">
 <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
 <path d="M12 3l7 4v5c0 4.2-2.8 8.1-7 9-4.2-.9-7-4.8-7-9V7l7-4z" stroke="currentColor" stroke-width="2"/>
 <path d="M12 8v4l2.5 2.5" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
 </svg>
 </div>
-<div class="cap-label">Launches</div>
+<div class="explore-cap-label">Launches</div>
 </div>
-<div class="cap-title">Signal Visibility</div>
-<div class="cap-copy">
+<div class="explore-cap-title">Signal Visibility</div>
+<div class="explore-cap-copy">
 Bring fresh MSS launches into the wider discovery feed without replacing the dedicated Launchpad terminal itself.
 </div>
 </div>
 </div>
 </section>
 
-<section class="section-card">
-<div class="section-head">
-<div class="section-title">How Explore Fits The Stack</div>
-<div class="section-note">Cleaner navigation between discovery, scanning, alerts, and launch flow.</div>
+<section class="explore-section">
+<div class="explore-section-head">
+<div class="explore-section-title">How Explore Fits The Stack</div>
+<div class="explore-section-note">Cleaner navigation between discovery, scanning, alerts, and launch flow.</div>
 </div>
 
-<div class="route-grid">
-<div class="route-list">
-<div class="route-row">
+<div class="explore-route-grid">
+<div class="explore-route-list">
+<div class="explore-route-row">
 <div>
-<div class="route-name">Scanner</div>
-<div class="route-desc">Deep token intelligence, contract analysis, holder concentration, Cassie output, and threat radar.</div>
+<div class="explore-route-name">Scanner</div>
+<div class="explore-route-desc">Deep token intelligence, contract analysis, holder concentration, Cassie output, and threat radar.</div>
 </div>
-<div class="route-pill">Deep Analysis</div>
+<div class="explore-route-pill">Deep Analysis</div>
 </div>
 
-<div class="route-row">
+<div class="explore-route-row">
 <div>
-<div class="route-name">Explore</div>
-<div class="route-desc">Broader discovery layer for trending activity, scanner discoveries, notable wallet movement, and high-signal flow.</div>
+<div class="explore-route-name">Explore</div>
+<div class="explore-route-desc">Broader discovery layer for trending activity, scanner discoveries, notable wallet movement, and high-signal flow.</div>
 </div>
-<div class="route-pill">Discovery</div>
+<div class="explore-route-pill">Discovery</div>
 </div>
 
-<div class="route-row">
+<div class="explore-route-row">
 <div>
-<div class="route-name">Alerts</div>
-<div class="route-desc">Account-based monitoring and notification management for important market and risk events.</div>
+<div class="explore-route-name">Alerts</div>
+<div class="explore-route-desc">Account-based monitoring and notification management for important market and risk events.</div>
 </div>
-<div class="route-pill">Monitoring</div>
+<div class="explore-route-pill">Monitoring</div>
 </div>
 
-<div class="route-row">
+<div class="explore-route-row">
 <div>
-<div class="route-name">Launchpad</div>
-<div class="route-desc">Dedicated security-first launch command for commit flow, countdown integrity, builder visibility, and live transition.</div>
+<div class="explore-route-name">Launchpad</div>
+<div class="explore-route-desc">Dedicated security-first launch command for commit flow, countdown integrity, builder visibility, and live transition.</div>
 </div>
-<div class="route-pill">Execution</div>
+<div class="explore-route-pill">Execution</div>
 </div>
 </div>
 
-<div class="notice-card">
-<div class="notice-title">Current Live Status</div>
-<div class="notice-copy">
+<div class="explore-notice-card">
+<div class="explore-notice-title">Current Live Status</div>
+<div class="explore-notice-copy">
 Current live launch activity is available in <strong>Launchpad</strong>. Explore remains the broader intelligence and discovery layer, and will expand into a unified feed as more MSS modules come online.
 </div>
 
-<div style="margin-top:14px; display:flex; gap:8px; flex-wrap:wrap;">
-<span class="mini-chip">Launch Visibility</span>
-<span class="mini-chip">Market Discovery</span>
-<span class="mini-chip">Wallet Signals</span>
-<span class="mini-chip">Scanner Finds</span>
+<div class="explore-mini-chip-row">
+<span class="explore-mini-chip">Launch Visibility</span>
+<span class="explore-mini-chip">Market Discovery</span>
+<span class="explore-mini-chip">Wallet Signals</span>
+<span class="explore-mini-chip">Scanner Finds</span>
 </div>
 </div>
 </div>
 </section>
 
-<section class="section-card">
-<div class="section-head">
-<div class="section-title">Planned Signal Layers</div>
-<div class="section-note">The wider discovery surface MSS can grow into.</div>
+<section class="explore-section">
+<div class="explore-section-head">
+<div class="explore-section-title">Planned Signal Layers</div>
+<div class="explore-section-note">The wider discovery surface MSS can grow into.</div>
 </div>
 
-<div class="signal-grid">
-<div class="signal-card">
-<div class="signal-label">Signal Layer</div>
-<div class="signal-value">Trending</div>
-<div class="signal-copy">High-momentum tokens, strongest movement, and sharp attention shifts across the market.</div>
+<div class="explore-signal-grid">
+<div class="explore-signal-card">
+<div class="explore-signal-label">Signal Layer</div>
+<div class="explore-signal-value">Trending</div>
+<div class="explore-signal-copy">High-momentum tokens, strongest movement, and sharp attention shifts across the market.</div>
 </div>
 
-<div class="signal-card">
-<div class="signal-label">Signal Layer</div>
-<div class="signal-value">Fresh Risk Finds</div>
-<div class="signal-copy">Recently scanned contracts with unusual safety changes, concentration spikes, or hidden control signals.</div>
+<div class="explore-signal-card">
+<div class="explore-signal-label">Signal Layer</div>
+<div class="explore-signal-value">Fresh Risk Finds</div>
+<div class="explore-signal-copy">Recently scanned contracts with unusual safety changes, concentration spikes, or hidden control signals.</div>
 </div>
 
-<div class="signal-card">
-<div class="signal-label">Signal Layer</div>
-<div class="signal-value">Wallet Flow</div>
-<div class="signal-copy">Whale movement, linked wallet clusters, and network patterns worth watching before they spread.</div>
+<div class="explore-signal-card">
+<div class="explore-signal-label">Signal Layer</div>
+<div class="explore-signal-value">Wallet Flow</div>
+<div class="explore-signal-copy">Whale movement, linked wallet clusters, and network patterns worth watching before they spread.</div>
 </div>
 
-<div class="signal-card">
-<div class="signal-label">Signal Layer</div>
-<div class="signal-value">Launch Visibility</div>
-<div class="signal-copy">Fresh MSS launches surfaced as one signal stream inside a broader intelligence feed.</div>
+<div class="explore-signal-card">
+<div class="explore-signal-label">Signal Layer</div>
+<div class="explore-signal-value">Launch Visibility</div>
+<div class="explore-signal-copy">Fresh MSS launches surfaced as one signal stream inside a broader intelligence feed.</div>
 </div>
 </div>
 </section>
@@ -547,8 +556,6 @@ if (typeof mountShell === "function") {
 await mountShell({
 activeNav: "explore",
 pageLabel: "Explore",
-pageTitle: "Discovery Across The MSS Intelligence Network",
-pageSubtitle: "Broader intelligence and discovery layer",
 headerTargetId: "layoutShellHeader",
 footerTargetId: "layoutShellFooter",
 });

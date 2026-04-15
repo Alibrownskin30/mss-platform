@@ -427,6 +427,10 @@ return `<button type="button" class="quick-commit-btn" data-launch-id="${launch.
 .join("");
 }
 
+function getLaunchHref(launchId) {
+return `./launch-detail.html?id=${encodeURIComponent(launchId)}`;
+}
+
 function buildCard(launch) {
 const name = escapeHtml(launch.token_name || "Untitled Launch");
 const symbol = escapeHtml(launch.symbol || "N/A");
@@ -539,7 +543,7 @@ ${walletConnected ? "Connected wallet can quick commit from this card." : "Conne
 <span>Momentum ${momentumScore}</span>
 </div>
 
-<a class="btn primary" href="./launch.html?id=${encodeURIComponent(launch.id)}">View</a>
+<a class="btn primary" href="${getLaunchHref(launch.id)}">View</a>
 </div>
 </div>
 `;
@@ -625,7 +629,7 @@ ${buildQuickButtons(launch)}
 <div style="font-size:12px;color:rgba(255,255,255,.62);">
 ${walletConnected ? "Quick commit enabled" : "Connect wallet to commit"}
 </div>
-<a class="btn primary" href="./launch.html?id=${encodeURIComponent(launch.id)}">View</a>
+<a class="btn primary" href="${getLaunchHref(launch.id)}">View</a>
 </div>
 </div>
 
@@ -845,7 +849,7 @@ ${walletConnected ? "Connected wallet can commit directly into the featured laun
 </div>
 </div>
 
-<a class="btn primary" href="./launch.html?id=${encodeURIComponent(featured.id)}" style="width:100%;">Open Launch Terminal</a>
+<a class="btn primary" href="${getLaunchHref(featured.id)}" style="width:100%;">Open Launch Terminal</a>
 </div>
 </div>
 `;
