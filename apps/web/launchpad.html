@@ -129,13 +129,14 @@ Connected wallets can jump directly into their builder profile, while public use
 <section class="command-rail">
 <div class="search-shell">
 <input id="lSearch" type="text" placeholder="Search token name, symbol, or builder" />
-<div class="segment">
-<button id="gridViewBtn" class="view-btn active" type="button">Grid</button>
-<button id="listViewBtn" class="view-btn" type="button">List</button>
-</div>
 </div>
 
 <div class="wallet-access">
+<div class="segment" aria-label="View mode">
+<button id="gridViewBtn" class="view-btn active" type="button">Grid</button>
+<button id="listViewBtn" class="view-btn" type="button">List</button>
+</div>
+
 <button id="lpConnectWalletBtn" class="rail-btn" type="button">Connect Wallet</button>
 <button id="lpDisconnectWalletBtn" class="rail-btn" type="button" style="display:none;">Disconnect</button>
 <div id="lpWalletPill" class="wallet-pill">No wallet connected</div>

@@ -4,312 +4,155 @@
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width,initial-scale=1" />
 <meta name="theme-color" content="#070A10" />
-<title>MSS Protocol — Elite Solana Security</title>
+<title>MSS Protocol — Blockchain Security Intelligence</title>
 <meta
 name="description"
-content="Institutional-grade Solana token scanning: on-chain safety, market KPIs, holder concentration, and actionable risk signals."
+content="MSS Protocol is building blockchain security intelligence for secure launches, transparent crypto markets, and deeper on-chain decision-making."
 />
 
 <meta property="og:type" content="website" />
 <meta property="og:site_name" content="MSS Protocol" />
-<meta property="og:title" content="MSS Protocol — Elite Solana Security" />
+<meta property="og:title" content="MSS Protocol — Blockchain Security Intelligence" />
 <meta
 property="og:description"
-content="Institutional-grade token scanning: authority checks, market KPIs, holder concentration, and risk signals."
+content="Security intelligence for transparent crypto markets — secure launches, scanner intelligence, alerts, and deeper on-chain visibility."
 />
 <meta property="og:image" content="https://mssprotocol.com/images/mss-sharecard.png" />
 <meta property="og:image:width" content="1200" />
 <meta property="og:image:height" content="630" />
 
 <meta name="twitter:card" content="summary_large_image" />
-<meta name="twitter:title" content="MSS Protocol — Elite Solana Security" />
-<meta name="twitter:description" content="Authority • Liquidity • Holders • Risk intelligence." />
+<meta name="twitter:title" content="MSS Protocol — Blockchain Security Intelligence" />
+<meta
+name="twitter:description"
+content="Security intelligence for transparent crypto markets."
+/>
 <meta name="twitter:image" content="https://mssprotocol.com/assets/og/mss-preview.png" />
 
 <style>
 :root{
---bg0:#070A10;
---bg1:#0A0F1A;
---card:rgba(255,255,255,.06);
---card2:rgba(255,255,255,.035);
---stroke:rgba(255,255,255,.10);
---stroke2:rgba(255,255,255,.14);
---text:#EAF0FF;
---muted:rgba(234,240,255,.66);
---muted2:rgba(234,240,255,.44);
---accent:#39D0C8;
---accent2:#7C8CFF;
---good:#2BE38A;
---warn:#FFC857;
---bad:#FF4D6D;
---shadow:0 18px 60px rgba(0,0,0,.55);
---radius:18px;
---radius2:22px;
---max:1120px;
---sans:ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, "Apple Color Emoji","Segoe UI Emoji";
+--bg0:#06080d;
+--bg1:#0a0f16;
+--bg2:#0f151e;
+--text:#eef3fb;
+--muted:rgba(238,243,251,.68);
+--muted2:rgba(238,243,251,.44);
+--line:rgba(255,255,255,.10);
+--gold-1:#dcb96a;
+--gold-2:#f4de9a;
+--gold-3:#b98531;
+--good:#35f5a3;
+--warn:#ffd166;
+--bad:#ff5b6b;
+--shadow-xl:0 28px 90px rgba(0,0,0,.52);
+--shadow-lg:0 18px 58px rgba(0,0,0,.36);
+--shadow-md:0 12px 34px rgba(0,0,0,.24);
+--radius-xl:28px;
+--radius-lg:22px;
+--radius-md:16px;
+--max:1320px;
+--sans:Inter, system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
 }
 
-*{box-sizing:border-box}
-html,body{
-height:100%;
+*,
+*::before,
+*::after{
+box-sizing:border-box;
+}
+
+html,
+body{
+width:100%;
 max-width:100%;
 overflow-x:hidden;
 }
+
 body{
 margin:0;
+font-family:var(--sans);
 color:var(--text);
 background:
-radial-gradient(1100px 650px at 22% -10%, rgba(57,208,200,.18), transparent 60%),
-radial-gradient(900px 550px at 82% 18%, rgba(124,140,255,.16), transparent 55%),
-radial-gradient(800px 560px at 65% 120%, rgba(57,208,200,.10), transparent 60%),
-linear-gradient(180deg, var(--bg0), var(--bg1));
-font-family:var(--sans);
-letter-spacing:.2px;
-overflow-x:hidden;
+radial-gradient(1100px 700px at 14% -10%, rgba(244,222,154,.08), transparent 56%),
+radial-gradient(900px 520px at 100% 0%, rgba(255,255,255,.05), transparent 48%),
+radial-gradient(760px 420px at 50% 100%, rgba(220,185,106,.035), transparent 62%),
+linear-gradient(180deg, var(--bg0) 0%, var(--bg1) 42%, var(--bg2) 100%);
+position:relative;
+padding-bottom:96px;
 }
 
-a{color:inherit;text-decoration:none}
-button{font:inherit}
+body::before{
+content:"";
+position:fixed;
+inset:0;
+pointer-events:none;
+background:
+linear-gradient(rgba(255,255,255,.018) 1px, transparent 1px),
+linear-gradient(90deg, rgba(255,255,255,.014) 1px, transparent 1px);
+background-size:40px 40px;
+mask-image:linear-gradient(180deg, rgba(0,0,0,.30), transparent 82%);
+opacity:.22;
+}
+
+a{ color:inherit; text-decoration:none; }
+button, input{ font:inherit; }
+
 .wrap{
 width:min(var(--max), calc(100% - 32px));
 margin:0 auto;
 max-width:100%;
 }
 
-header{
-position:sticky;
-top:0;
-z-index:50;
-background:rgba(7,10,16,.72);
-backdrop-filter:blur(14px);
-border-bottom:1px solid rgba(255,255,255,.08);
-max-width:100%;
-overflow-x:hidden;
+.hero{
+padding:56px 0 30px;
 }
-
-.topbar{
-display:flex;
-align-items:center;
-justify-content:space-between;
-gap:16px;
-padding:14px 0;
-max-width:100%;
-}
-
-.brand{
-display:flex;
-align-items:center;
-gap:10px;
-min-width:0;
-flex:0 1 auto;
-max-width:100%;
-}
-
-.mark{
-width:12px;
-height:12px;
-border-radius:999px;
-background:radial-gradient(circle at 30% 30%, #9FF3EF, var(--accent));
-box-shadow:0 0 0 6px rgba(57,208,200,.10);
-border:1px solid rgba(255,255,255,.18);
-flex:0 0 auto;
-}
-
-.brand b{
-font-size:12px;
-letter-spacing:.18em;
-text-transform:uppercase;
-display:block;
-line-height:1.15;
-overflow:hidden;
-text-overflow:ellipsis;
-white-space:nowrap;
-}
-
-.brand span{
-display:block;
-font-size:11px;
-color:var(--muted2);
-margin-top:2px;
-letter-spacing:.12em;
-text-transform:uppercase;
-line-height:1.2;
-overflow:hidden;
-text-overflow:ellipsis;
-white-space:nowrap;
-}
-
-.navwrap{
-display:flex;
-align-items:center;
-gap:12px;
-min-width:0;
-margin-left:auto;
-max-width:100%;
-overflow:hidden;
-}
-
-nav{
-display:flex;
-align-items:center;
-justify-content:flex-end;
-gap:10px;
-flex-wrap:wrap;
-max-width:100%;
-min-width:0;
-}
-
-.navlink{
-display:inline-flex;
-align-items:center;
-gap:8px;
-padding:10px 12px;
-border-radius:999px;
-color:var(--muted);
-border:1px solid transparent;
-transition:.18s ease;
-font-size:11px;
-letter-spacing:.16em;
-text-transform:uppercase;
-white-space:nowrap;
-flex:0 0 auto;
-}
-
-.navlink:hover{
-color:var(--text);
-border-color:rgba(255,255,255,.12);
-background:rgba(255,255,255,.04);
-box-shadow:0 0 14px rgba(57,208,200,.12);
-}
-
-.navlink.active{
-color:var(--text);
-border-color:rgba(57,208,200,.24);
-background:rgba(57,208,200,.06);
-}
-
-.authbar{
-display:flex;
-align-items:center;
-gap:10px;
-flex:0 1 auto;
-min-width:0;
-max-width:100%;
-}
-
-.session-pill{
-display:inline-flex;
-align-items:center;
-gap:8px;
-padding:9px 12px;
-border-radius:999px;
-border:1px solid rgba(255,255,255,.10);
-background:rgba(255,255,255,.04);
-font-size:11px;
-letter-spacing:.12em;
-text-transform:uppercase;
-color:var(--muted);
-white-space:nowrap;
-cursor:pointer;
-max-width:100%;
-min-width:0;
-}
-
-.session-pill:hover{
-border-color:rgba(255,255,255,.16);
-background:rgba(255,255,255,.06);
-}
-
-.status-dot{
-width:7px;
-height:7px;
-border-radius:999px;
-background:rgba(255,255,255,.35);
-box-shadow:0 0 0 5px rgba(255,255,255,.05);
-flex:0 0 auto;
-}
-.status-dot.good{background:var(--good);box-shadow:0 0 0 5px rgba(43,227,138,.10)}
-.status-dot.warn{background:var(--warn);box-shadow:0 0 0 5px rgba(255,200,87,.10)}
-
-.authbtn{
-display:inline-flex;
-align-items:center;
-justify-content:center;
-gap:8px;
-padding:10px 12px;
-border-radius:12px;
-border:1px solid rgba(255,255,255,.12);
-background:rgba(255,255,255,.05);
-color:var(--text);
-font-weight:700;
-letter-spacing:.12em;
-text-transform:uppercase;
-font-size:11px;
-transition:.18s ease;
-white-space:nowrap;
-cursor:pointer;
-max-width:100%;
-}
-
-.authbtn:hover{
-transform:translateY(-1px);
-border-color:rgba(255,255,255,.18);
-background:rgba(255,255,255,.08);
-}
-
-.authbtn.danger{
-border-color:rgba(255,77,109,.20);
-background:rgba(255,77,109,.08);
-}
-
-.hero{padding:56px 0 34px}
 
 .hero-grid{
 display:grid;
-grid-template-columns:1.25fr .75fr;
+grid-template-columns:minmax(0,1.15fr) minmax(320px,.85fr);
 gap:16px;
 align-items:stretch;
-max-width:100%;
 }
 
 .panel{
-border-radius:var(--radius2);
-background:
-radial-gradient(900px 420px at 20% 0%, rgba(57,208,200,.12), transparent 55%),
-linear-gradient(180deg, rgba(255,255,255,.06), rgba(255,255,255,.03));
-border:1px solid rgba(255,255,255,.10);
-box-shadow:var(--shadow);
-padding:26px;
-overflow:hidden;
 position:relative;
+overflow:hidden;
+border-radius:var(--radius-xl);
+border:1px solid rgba(255,255,255,.10);
+background:
+radial-gradient(820px 320px at 0% 0%, rgba(244,222,154,.06), transparent 40%),
+linear-gradient(180deg, rgba(255,255,255,.055), rgba(255,255,255,.028));
+box-shadow:var(--shadow-xl);
+padding:28px;
 min-width:0;
 }
 
-.panel:before{
+.panel::before{
 content:"";
 position:absolute;
-inset:-2px;
-background:linear-gradient(120deg, rgba(57,208,200,.24), rgba(124,140,255,.16), rgba(57,208,200,.08));
-filter:blur(26px);
-opacity:.22;
+inset:0;
 pointer-events:none;
+background:linear-gradient(180deg, rgba(255,255,255,.04), transparent 26%);
 }
 
-.panel>*{position:relative}
+.panel > *{
+position:relative;
+z-index:1;
+}
 
 .kicker{
 display:inline-flex;
 align-items:center;
 gap:10px;
-padding:8px 12px;
+min-height:32px;
+padding:0 12px;
 border-radius:999px;
-background:rgba(57,208,200,.08);
-border:1px solid rgba(57,208,200,.18);
-color:rgba(234,240,255,.82);
+background:rgba(220,185,106,.08);
+border:1px solid rgba(244,222,154,.18);
+color:rgba(255,255,255,.86);
 font-size:11px;
+font-weight:800;
 letter-spacing:.16em;
 text-transform:uppercase;
-margin-bottom:14px;
 max-width:100%;
 }
 
@@ -317,24 +160,24 @@ max-width:100%;
 width:7px;
 height:7px;
 border-radius:999px;
-background:var(--accent);
-box-shadow:0 0 0 6px rgba(57,208,200,.10);
+background:var(--gold-2);
+box-shadow:0 0 0 6px rgba(244,222,154,.10);
 flex:0 0 auto;
 }
 
 h1{
-margin:6px 0 12px;
-font-size:clamp(34px, 4.2vw, 54px);
-line-height:1.02;
-letter-spacing:-0.02em;
+margin:18px 0 12px;
+font-size:clamp(34px, 4.6vw, 58px);
+line-height:.98;
+letter-spacing:-.04em;
 }
 
 .sub{
 margin:0 0 18px;
 color:var(--muted);
 font-size:15px;
-line-height:1.6;
-max-width:62ch;
+line-height:1.72;
+max-width:64ch;
 }
 
 .cta-row{
@@ -342,7 +185,7 @@ display:flex;
 gap:12px;
 align-items:center;
 flex-wrap:wrap;
-margin-top:16px;
+margin-top:18px;
 }
 
 .btn{
@@ -350,20 +193,20 @@ display:inline-flex;
 align-items:center;
 justify-content:center;
 gap:10px;
-padding:12px 16px;
-border-radius:12px;
+min-height:46px;
+padding:0 16px;
+border-radius:14px;
 border:1px solid rgba(255,255,255,.12);
-background:rgba(255,255,255,.06);
+background:rgba(255,255,255,.05);
 color:var(--text);
-font-weight:700;
-letter-spacing:.12em;
+font-weight:800;
+letter-spacing:.10em;
 text-transform:uppercase;
 font-size:11px;
 transition:.18s ease;
-user-select:none;
+cursor:pointer;
+box-shadow:inset 0 1px 0 rgba(255,255,255,.04);
 white-space:nowrap;
-min-height:46px;
-max-width:100%;
 }
 
 .btn:hover{
@@ -373,9 +216,9 @@ background:rgba(255,255,255,.08);
 }
 
 .btn.primary{
-border-color:rgba(57,208,200,.30);
-background:linear-gradient(180deg, rgba(57,208,200,.18), rgba(57,208,200,.10));
-box-shadow:0 10px 28px rgba(57,208,200,.10);
+border-color:rgba(244,222,154,.22);
+background:linear-gradient(180deg, rgba(220,185,106,.14), rgba(220,185,106,.07));
+box-shadow:0 10px 24px rgba(244,222,154,.06);
 }
 
 .meta{
@@ -383,19 +226,19 @@ display:flex;
 flex-wrap:wrap;
 gap:10px;
 margin-top:18px;
-color:var(--muted2);
-font-size:12px;
 }
 
 .chip{
 display:inline-flex;
 align-items:center;
 gap:8px;
-padding:8px 10px;
+min-height:34px;
+padding:0 11px;
 border-radius:999px;
 background:rgba(255,255,255,.04);
 border:1px solid rgba(255,255,255,.10);
-min-width:0;
+font-size:12px;
+color:rgba(255,255,255,.82);
 max-width:100%;
 }
 
@@ -403,57 +246,102 @@ max-width:100%;
 width:6px;
 height:6px;
 border-radius:999px;
-background:rgba(57,208,200,.85);
+background:var(--gold-2);
 flex:0 0 auto;
 }
 
-.side h3{
-margin:0 0 10px;
-font-size:12px;
-letter-spacing:.18em;
-text-transform:uppercase;
-color:rgba(234,240,255,.86);
+.hero-side{
+display:grid;
+gap:12px;
 }
 
-.side p{
-margin:0 0 14px;
+.side-head{
+display:flex;
+justify-content:space-between;
+align-items:flex-start;
+gap:12px;
+flex-wrap:wrap;
+}
+
+.side-kicker{
+font-size:11px;
+letter-spacing:.18em;
+text-transform:uppercase;
+color:var(--muted2);
+font-weight:800;
+}
+
+.side-title{
+margin-top:8px;
+font-size:24px;
+font-weight:900;
+letter-spacing:-.03em;
+}
+
+.side-state{
+display:inline-flex;
+align-items:center;
+gap:8px;
+min-height:32px;
+padding:0 12px;
+border-radius:999px;
+border:1px solid rgba(244,222,154,.18);
+background:rgba(220,185,106,.08);
+font-size:11px;
+font-weight:900;
+letter-spacing:.14em;
+text-transform:uppercase;
+color:#fff;
+}
+
+.side-state-dot{
+width:8px;
+height:8px;
+border-radius:999px;
+background:var(--gold-2);
+box-shadow:0 0 12px rgba(244,222,154,.26);
+}
+
+.side-copy{
 color:var(--muted);
 font-size:13px;
-line-height:1.6;
+line-height:1.65;
 }
 
 .statgrid{
 display:grid;
 grid-template-columns:1fr 1fr;
 gap:10px;
-margin-top:10px;
 }
 
 .stat{
-border-radius:14px;
-background:rgba(0,0,0,.18);
-border:1px solid rgba(255,255,255,.10);
-padding:12px;
+border-radius:16px;
+background:rgba(255,255,255,.03);
+border:1px solid rgba(255,255,255,.08);
+padding:14px;
 min-width:0;
+box-shadow:inset 0 1px 0 rgba(255,255,255,.03);
 }
 
 .stat b{
 display:block;
-font-size:11px;
+font-size:10px;
 letter-spacing:.16em;
 text-transform:uppercase;
-color:rgba(234,240,255,.82);
+color:rgba(255,255,255,.80);
 margin-bottom:8px;
 }
 
 .stat span{
 display:block;
-font-size:12px;
+font-size:13px;
 color:var(--muted);
-line-height:1.45;
+line-height:1.5;
 }
 
-.section{padding:10px 0 44px}
+.section{
+padding:10px 0 44px;
+}
 
 .section-head{
 display:flex;
@@ -469,7 +357,7 @@ margin:0;
 font-size:12px;
 letter-spacing:.22em;
 text-transform:uppercase;
-color:rgba(234,240,255,.84);
+color:rgba(255,255,255,.84);
 }
 
 .section-head p{
@@ -480,41 +368,80 @@ font-size:12px;
 
 .cards{
 display:grid;
-grid-template-columns:repeat(3, 1fr);
+grid-template-columns:repeat(3, minmax(0,1fr));
 gap:12px;
 }
 
 .card{
-border-radius:var(--radius);
-background:linear-gradient(180deg, rgba(255,255,255,.05), rgba(255,255,255,.03));
+border-radius:var(--radius-lg);
+background:linear-gradient(180deg, rgba(255,255,255,.05), rgba(255,255,255,.028));
 border:1px solid rgba(255,255,255,.10);
 padding:18px;
-box-shadow:0 10px 30px rgba(0,0,0,.35);
+box-shadow:var(--shadow-lg);
 min-width:0;
 }
 
 .card .icon{
-width:38px;
-height:38px;
+width:40px;
+height:40px;
 border-radius:14px;
-border:1px solid rgba(57,208,200,.22);
-background:rgba(57,208,200,.08);
+border:1px solid rgba(244,222,154,.18);
+background:rgba(220,185,106,.08);
 display:grid;
 place-items:center;
 margin-bottom:12px;
+color:#fff;
 }
 
 .card h4{
 margin:0 0 8px;
-font-size:14px;
-letter-spacing:.02em;
+font-size:15px;
+letter-spacing:.01em;
 }
 
 .card p{
 margin:0;
 color:var(--muted);
 font-size:13px;
-line-height:1.6;
+line-height:1.65;
+}
+
+.module-strip{
+display:grid;
+grid-template-columns:repeat(5, minmax(0,1fr));
+gap:12px;
+}
+
+.module-card{
+border-radius:18px;
+border:1px solid rgba(255,255,255,.10);
+background:linear-gradient(180deg, rgba(255,255,255,.045), rgba(255,255,255,.025));
+padding:16px;
+box-shadow:var(--shadow-md);
+min-width:0;
+}
+
+.module-card .k{
+font-size:10px;
+letter-spacing:.16em;
+text-transform:uppercase;
+color:var(--muted2);
+font-weight:800;
+}
+
+.module-card .v{
+margin-top:10px;
+font-size:18px;
+font-weight:900;
+color:#fff;
+word-break:break-word;
+}
+
+.module-card .s{
+margin-top:8px;
+color:var(--muted);
+font-size:12px;
+line-height:1.55;
 }
 
 .auth-section{
@@ -528,11 +455,11 @@ gap:14px;
 }
 
 .auth-card{
-border-radius:var(--radius);
-background:linear-gradient(180deg, rgba(255,255,255,.05), rgba(255,255,255,.03));
+border-radius:var(--radius-lg);
+background:linear-gradient(180deg, rgba(255,255,255,.05), rgba(255,255,255,.028));
 border:1px solid rgba(255,255,255,.10);
-padding:18px;
-box-shadow:0 10px 30px rgba(0,0,0,.35);
+padding:20px;
+box-shadow:var(--shadow-lg);
 min-width:0;
 }
 
@@ -563,7 +490,7 @@ gap:6px;
 font-size:11px;
 letter-spacing:.14em;
 text-transform:uppercase;
-color:rgba(234,240,255,.74);
+color:rgba(255,255,255,.74);
 }
 
 .input{
@@ -580,8 +507,8 @@ max-width:100%;
 }
 
 .input:focus{
-border-color:rgba(0,255,209,.22);
-box-shadow:0 0 0 4px rgba(0,255,209,.10);
+border-color:rgba(244,222,154,.22);
+box-shadow:0 0 0 4px rgba(244,222,154,.08);
 }
 
 .helper{
@@ -602,7 +529,7 @@ background:rgba(255,255,255,.04);
 
 .human-check input{
 margin-top:2px;
-accent-color:#39D0C8;
+accent-color:#dcb96a;
 }
 
 .form-actions{
@@ -610,6 +537,39 @@ display:flex;
 gap:10px;
 flex-wrap:wrap;
 margin-top:4px;
+}
+
+.auth-action{
+display:inline-flex;
+align-items:center;
+justify-content:center;
+gap:10px;
+min-height:46px;
+padding:0 16px;
+border-radius:14px;
+border:1px solid rgba(255,255,255,.12);
+background:rgba(255,255,255,.05);
+color:var(--text);
+font-weight:800;
+letter-spacing:.10em;
+text-transform:uppercase;
+font-size:11px;
+transition:.18s ease;
+cursor:pointer;
+box-shadow:inset 0 1px 0 rgba(255,255,255,.04);
+white-space:nowrap;
+}
+
+.auth-action:hover{
+transform:translateY(-1px);
+border-color:rgba(255,255,255,.18);
+background:rgba(255,255,255,.08);
+}
+
+.auth-action.primary{
+border-color:rgba(244,222,154,.22);
+background:linear-gradient(180deg, rgba(220,185,106,.14), rgba(220,185,106,.07));
+box-shadow:0 10px 24px rgba(244,222,154,.06);
 }
 
 .status{
@@ -620,189 +580,185 @@ color:var(--muted);
 min-height:18px;
 }
 
-.status.good{color:var(--good)}
-.status.bad{color:var(--bad)}
-.status.warn{color:var(--warn)}
+.status.good{ color:var(--good); }
+.status.bad{ color:var(--bad); }
+.status.warn{ color:var(--warn); }
 
-footer{
-margin-top:22px;
-border-top:1px solid rgba(255,255,255,.08);
-background:rgba(0,0,0,.14);
-max-width:100%;
-}
-
-.footer-main{
-padding:18px 0;
-display:flex;
-align-items:center;
-justify-content:space-between;
-gap:12px;
-flex-wrap:wrap;
-}
-
-.fbrand{
-display:flex;
-align-items:center;
-gap:10px;
-color:rgba(234,240,255,.86);
-font-size:11px;
-letter-spacing:.18em;
-text-transform:uppercase;
-}
-
-.fbrand .mark{
-width:12px;
-height:12px;
-box-shadow:0 0 0 5px rgba(57,208,200,.10);
-}
-
-.fmuted{
-color:var(--muted2);
-font-size:12px;
+@media (max-width: 1100px){
+.module-strip{ grid-template-columns:repeat(2, minmax(0,1fr)); }
 }
 
 @media (max-width: 980px){
-.hero-grid{grid-template-columns:1fr}
-.cards{grid-template-columns:1fr}
-.auth-grid{grid-template-columns:1fr}
+.hero-grid{ grid-template-columns:1fr; }
+.cards{ grid-template-columns:1fr; }
+.auth-grid{ grid-template-columns:1fr; }
 }
 
 @media (max-width: 760px){
-.topbar{
-flex-direction:column;
-align-items:stretch;
-gap:12px;
+.hero{
+padding:34px 0 24px;
 }
 
-.navwrap{
-flex-direction:column;
-align-items:stretch;
-max-width:100%;
+.panel{
+padding:20px;
 }
 
-nav{
-flex-wrap:nowrap;
-justify-content:flex-start;
-overflow-x:auto;
-overflow-y:hidden;
--webkit-overflow-scrolling:touch;
-padding-bottom:4px;
-scrollbar-width:none;
+.sub{
+font-size:14px;
 }
 
-nav::-webkit-scrollbar{display:none}
-
-.authbar{
-justify-content:flex-start;
-flex-wrap:wrap;
-min-width:0;
-max-width:100%;
+.cta-row .btn{
+width:100%;
 }
 
-.session-pill,
-.authbtn{
-max-width:100%;
+.statgrid{
+grid-template-columns:1fr;
 }
 
-.hero{padding:34px 0 24px}
-.panel{padding:20px}
-.sub{font-size:14px}
-.cta-row .btn{width:100%}
-.statgrid{grid-template-columns:1fr}
-.form-actions .authbtn{width:100%}
+.form-actions .auth-action{
+width:100%;
+}
+
+.module-strip{
+grid-template-columns:1fr;
+}
 }
 
 @media (max-width: 520px){
-.wrap{width:min(var(--max), calc(100% - 24px))}
-h1{font-size:clamp(30px, 11vw, 40px)}
+.wrap{
+width:min(var(--max), calc(100% - 24px));
+}
+
+h1{
+font-size:clamp(30px, 11vw, 42px);
+}
+
 .kicker{
 width:100%;
 justify-content:flex-start;
 font-size:10px;
 letter-spacing:.13em;
 }
+
 .meta .chip{
 width:100%;
 justify-content:flex-start;
 }
-.footer-main{align-items:flex-start}
 }
 </style>
 </head>
 
-<body>
-<header>
-<div class="wrap topbar">
-<a class="brand" href="./index.html" aria-label="MSS Protocol Home">
-<span class="mark" aria-hidden="true"></span>
-<div>
-<b>MSS Protocol</b>
-<span>Elite Solana Security</span>
-</div>
-</a>
-
-<div class="navwrap">
-<nav aria-label="Primary">
-<a class="navlink active" href="./index.html">Home</a>
-<a class="navlink" href="./token.html">Scanner</a>
-<a class="navlink" href="./explore.html">Explore</a>
-<a class="navlink" href="./alerts.html">Alerts</a>
-<a class="navlink" href="./launchpad.html">Launchpad</a>
-<a class="navlink" href="./methodology.html">Methodology</a>
-<a class="navlink" href="./legal.html">Legal</a>
-</nav>
-
-<div class="authbar">
-<button id="sessionPill" class="session-pill" type="button" title="Login">
-<span id="sessionDot" class="status-dot warn"></span>
-<span id="sessionText">Login</span>
-</button>
-<button id="logoutBtn" class="authbtn danger" type="button" style="display:none">Logout</button>
-</div>
-</div>
-</div>
-</header>
-
+<body data-shell-active="home" data-shell-subtitle="Blockchain Security Intelligence">
 <main>
 <section class="hero">
 <div class="wrap">
 <div class="hero-grid">
-<div class="panel">
-<div class="kicker"><span class="k-dot" aria-hidden="true"></span> Security Intelligence</div>
-<h1>Elite Solana Security Intelligence</h1>
+<section class="panel">
+<div class="kicker"><span class="k-dot" aria-hidden="true"></span> Blockchain Security Intelligence</div>
+
+<h1>Security Intelligence for Transparent Crypto Markets</h1>
+
 <p class="sub">
-Institutional-grade token scanning built for speed and clarity:
-authority verification, market context, holder concentration, and actionable risk signals.
+MSS Protocol is building a blockchain intelligence network for secure launches, transparent markets,
+and deeper on-chain decision-making. Scanner intelligence, public builder identity, alerts,
+and launch infrastructure are being brought together into one premium command surface.
 </p>
 
 <div class="cta-row">
-<a class="btn primary" href="./token.html">Launch Scanner</a>
-<a class="btn" href="#capabilities">View Capabilities</a>
-<a class="btn" href="#access">Account Access</a>
+<a class="btn primary" href="./token.html">Open Scanner</a>
+<a class="btn" href="./launchpad.html">Open Launchpad</a>
+<a class="btn" href="#capabilities">View Intelligence Layer</a>
 </div>
 
 <div class="meta" aria-label="Highlights">
-<span class="chip"><span class="mini-dot" aria-hidden="true"></span> On-chain Safety</span>
-<span class="chip"><span class="mini-dot" aria-hidden="true"></span> Market KPIs</span>
-<span class="chip"><span class="mini-dot" aria-hidden="true"></span> Holder Concentration</span>
-<span class="chip"><span class="mini-dot" aria-hidden="true"></span> Risk Scoring</span>
+<span class="chip"><span class="mini-dot" aria-hidden="true"></span> Blockchain Security Intelligence</span>
+<span class="chip"><span class="mini-dot" aria-hidden="true"></span> Secure Launch Infrastructure</span>
+<span class="chip"><span class="mini-dot" aria-hidden="true"></span> Public Builder Identity</span>
+<span class="chip"><span class="mini-dot" aria-hidden="true"></span> Transparent Market Signals</span>
+</div>
+</section>
+
+<aside class="panel hero-side" aria-label="Status">
+<div class="side-head">
+<div>
+<div class="side-kicker">Intelligence Board</div>
+<div class="side-title">MSS Network Status</div>
+</div>
+
+<div class="side-state">
+<span class="side-state-dot"></span>
+<span>System Active</span>
 </div>
 </div>
 
-<aside class="panel side" aria-label="Status">
-<h3>Platform Status</h3>
-<p>
-Scanner is live in beta. Alerts are now account-enabled. Explore and Launchpad are staged next.
-This build prioritises accuracy, speed and professional presentation.
-</p>
+<div class="side-copy">
+MSS is moving beyond scanner-only positioning into a broader intelligence layer for launch security,
+market clarity, and operator visibility.
+</div>
 
 <div class="statgrid">
-<div class="stat"><b>Scanner</b><span>Token + market + holders with risk summary.</span></div>
-<div class="stat"><b>Solana First</b><span>Optimised for Solana token analysis.</span></div>
-<div class="stat"><b>Alerts</b><span>Account-based alert creation and history.</span></div>
-<div class="stat"><b>Launchpad</b><span>Coming soon. Security-first launches.</span></div>
+<div class="stat">
+<b>Scanner</b>
+<span>Live beta intelligence layer for token scanning and market visibility.</span>
+</div>
+
+<div class="stat">
+<b>Alerts</b>
+<span>Account-linked monitoring and watchlist flow enabled.</span>
+</div>
+
+<div class="stat">
+<b>Launchpad</b>
+<span>Security-first launch infrastructure and builder identity system in progress.</span>
+</div>
+
+<div class="stat">
+<b>CassIE</b>
+<span>Intelligence layer expanding toward deeper operator, structure, and market analysis.</span>
+</div>
 </div>
 </aside>
+</div>
+</div>
+</section>
+
+<section class="section">
+<div class="wrap">
+<div class="section-head">
+<h2>Platform Modules</h2>
+<p>The MSS intelligence stack in one view.</p>
+</div>
+
+<div class="module-strip">
+<div class="module-card">
+<div class="k">Scanner</div>
+<div class="v">Live</div>
+<div class="s">Authority, market, holders, and risk intelligence.</div>
+</div>
+
+<div class="module-card">
+<div class="k">Launchpad</div>
+<div class="v">Building</div>
+<div class="s">Security-first token launch infrastructure.</div>
+</div>
+
+<div class="module-card">
+<div class="k">CassIE</div>
+<div class="v">Expanding</div>
+<div class="s">Deeper intelligence and signal interpretation layer.</div>
+</div>
+
+<div class="module-card">
+<div class="k">Alerts</div>
+<div class="v">Enabled</div>
+<div class="s">Account-linked tracking and notification flow.</div>
+</div>
+
+<div class="module-card">
+<div class="k">Builder Profiles</div>
+<div class="v">Active</div>
+<div class="s">Public trust, score, launches, and badge visibility.</div>
+</div>
 </div>
 </div>
 </section>
@@ -810,8 +766,8 @@ This build prioritises accuracy, speed and professional presentation.
 <section class="section" id="capabilities">
 <div class="wrap">
 <div class="section-head">
-<h2>Core Capabilities</h2>
-<p>Current focus: the elite scanning layer.</p>
+<h2>Intelligence Layer</h2>
+<p>From scan surface to launch infrastructure.</p>
 </div>
 
 <div class="cards">
@@ -821,8 +777,8 @@ This build prioritises accuracy, speed and professional presentation.
 <path d="M12 2l8 4v6c0 5-3.5 9.7-8 10-4.5-.3-8-5-8-10V6l8-4z" stroke="currentColor" stroke-width="2" opacity=".95"/>
 </svg>
 </div>
-<h4>On-chain Safety</h4>
-<p>Authority state, mint/freeze signals, and safety context presented without noise.</p>
+<h4>Security Intelligence</h4>
+<p>On-chain safety context, authority posture, holder concentration, and cleaner risk visibility without noise.</p>
 </div>
 
 <div class="card">
@@ -831,18 +787,18 @@ This build prioritises accuracy, speed and professional presentation.
 <path d="M4 19V5m0 14h16M8 15l3-3 3 2 4-6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" opacity=".95"/>
 </svg>
 </div>
-<h4>Market KPIs</h4>
-<p>Price, liquidity, volume and FDV surfaced with consistent formatting and fast load.</p>
+<h4>Market Transparency</h4>
+<p>Price, liquidity, volume, participation, and market context surfaced in a clearer, more decision-useful format.</p>
 </div>
 
 <div class="card">
 <div class="icon" aria-hidden="true">
 <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
-<path d="M16 11c1.66 0 3-1.34 3-3S17.66 5 16 5s-3 1.34-3 3 1.34 3 3 3zM8 11c1.66 0 3-1.34 3-3S9.66 5 8 5 5 6.34 5 8s1.34 3 3 3zM8 13c-2.67 0-8 1.34-8 4v2h10v-2c0-1.06.42-2.03 1.12-2.8C10.02 13.46 8.96 13 8 13zm8 0c-.96 0-2.02.46-3.12 1.2.7.77 1.12 1.74 1.12 2.8v2H24v-2c0-2.66-5.33-4-8-4z" fill="currentColor" opacity=".90"/>
+<path d="M6 20V8m6 12V4m6 16v-9" stroke="currentColor" stroke-width="2" stroke-linecap="round" opacity=".95"/>
 </svg>
 </div>
-<h4>Holder Concentration</h4>
-<p>Top holder distribution and dominance scoring to identify concentration risk quickly.</p>
+<h4>Launch Infrastructure</h4>
+<p>Structured commit flow, countdown integrity, public builder profiles, and security-first market activation.</p>
 </div>
 </div>
 </div>
@@ -852,13 +808,13 @@ This build prioritises accuracy, speed and professional presentation.
 <div class="wrap">
 <div class="section-head">
 <h2>Account Access</h2>
-<p>Create an account or sign in to manage alerts.</p>
+<p>Create an account or sign in to manage alerts and account-linked tools.</p>
 </div>
 
 <div class="auth-grid">
 <div class="auth-card">
 <h3>Register</h3>
-<p>Create an MSS Protocol account to enable alert creation and account-based scanner tools.</p>
+<p>Create an MSS Protocol account to enable alert creation and account-linked intelligence features.</p>
 
 <div class="form-grid">
 <div class="field">
@@ -877,7 +833,7 @@ This build prioritises accuracy, speed and professional presentation.
 </label>
 
 <div class="form-actions">
-<button id="registerBtn" class="authbtn primary" type="button">Create Account</button>
+<button id="registerBtn" class="auth-action primary" type="button">Create Account</button>
 </div>
 
 <div id="registerStatus" class="status"></div>
@@ -905,8 +861,8 @@ This build prioritises accuracy, speed and professional presentation.
 </label>
 
 <div class="form-actions">
-<button id="loginBtn" class="authbtn primary" type="button">Login</button>
-<a class="authbtn" href="./alerts.html">Open Alerts</a>
+<button id="loginBtn" class="auth-action primary" type="button">Login</button>
+<a class="auth-action" href="./alerts.html">Open Alerts</a>
 </div>
 
 <div id="loginStatus" class="status"></div>
@@ -917,18 +873,10 @@ This build prioritises accuracy, speed and professional presentation.
 </section>
 </main>
 
-<footer>
-<div class="wrap">
-<div class="footer-main">
-<div class="fbrand"><span class="mark" aria-hidden="true"></span><span>MSS Protocol</span></div>
-<div class="fmuted">Elite Solana security infrastructure.</div>
-</div>
-</div>
-</footer>
+<script type="module" src="./assets/layout-shell.js"></script>
 
 <script type="module">
 import { apiPost } from "./assets/api.js";
-import { bindSessionUi, logout as doLogout } from "./assets/auth.js";
 
 const $ = (id) => document.getElementById(id);
 
@@ -971,7 +919,7 @@ const data = await apiPost("/api/register", { email, password });
 if (data?.token) {
 saveSession(data.token, email);
 setStatus("registerStatus", "Account created. You are now logged in.", "good");
-initSession();
+window.location.reload();
 return;
 }
 
@@ -1003,26 +951,10 @@ return;
 
 saveSession(data.token, email);
 setStatus("loginStatus", "Logged in successfully.", "good");
-initSession();
+window.location.reload();
 } catch (e) {
 setStatus("loginStatus", e?.message || "Login failed.", "bad");
 }
-}
-
-function initSession() {
-bindSessionUi({
-sessionPillId: "sessionPill",
-sessionDotId: "sessionDot",
-sessionTextId: "sessionText",
-logoutBtnId: "logoutBtn",
-loggedOutHref: "./login.html",
-loggedInHref: "./index.html#access",
-onLogout() {
-doLogout();
-setStatus("loginStatus", "Logged out.", "good");
-setStatus("registerStatus", "");
-},
-});
 }
 
 $("registerBtn")?.addEventListener("click", handleRegister);
@@ -1035,8 +967,6 @@ if (e.key === "Enter") handleLogin();
 $("registerPassword")?.addEventListener("keydown", (e) => {
 if (e.key === "Enter") handleRegister();
 });
-
-initSession();
 </script>
 </body>
 </html>

@@ -234,21 +234,13 @@ if (Number.isFinite(num)) return num;
 return null;
 }
 
-function firstPositive(...values) {
-for (const value of values) {
-const num = Number(value);
-if (Number.isFinite(num) && num > 0) return num;
-}
-return null;
-}
-
-function arrayFromCandidate(value) {
-return Array.isArray(value) ? value : [];
-}
-
 function setText(id, value) {
 const el = typeof id === "string" ? $(id) : id;
 if (el) el.textContent = value;
+}
+
+function setTextMany(ids, value) {
+ids.forEach((id) => setText(id, value));
 }
 
 function setHtml(id, value) {
@@ -555,6 +547,13 @@ setText("cassieBuilderSignal", cassieMeta.builderSignal);
 setText("cassieStructureSignal", cassieMeta.structureSignal);
 setText("cassieMarketSignal", cassieMeta.marketSignal);
 setText("cassieNote", cassieMeta.note);
+
+setText("launchCassieVerdictText", cassieMeta.badge);
+setText("launchCassiePrimaryText", cassieMeta.note);
+setText(
+"launchCassiePatternText",
+`${cassieMeta.builderSignal} Builder • ${cassieMeta.structureSignal} • ${cassieMeta.marketSignal}`
+);
 }
 
 async function copyText(text) {
@@ -595,11 +594,13 @@ const marketCard = $("marketCard");
 const launchPhaseBadge = $("launchPhaseBadge");
 const marketStatusPill = $("marketStatusPill");
 const marketStatusDot = $("marketStatusDot");
+const tradePanelPhasePill = $("tradePanelPhasePill");
+const launchTokenHero = $("launchTokenHero");
 
 const visualPhase = getVisualPhase(phase);
 const phaseClasses = ["phase-commit", "phase-countdown", "phase-live"];
 
-for (const el of [marketCard, launchPhaseBadge, marketStatusPill, marketStatusDot]) {
+for (const el of [marketCard, launchPhaseBadge, marketStatusPill, marketStatusDot, tradePanelPhasePill, launchTokenHero]) {
 if (!el) continue;
 el.classList.remove(...phaseClasses);
 el.classList.add(`phase-${visualPhase}`);
@@ -608,13 +609,16 @@ el.classList.add(`phase-${visualPhase}`);
 if (marketCard) {
 marketCard.dataset.phase = phase;
 }
+if (launchTokenHero) {
+launchTokenHero.dataset.phase = phase;
+}
 }
 
 function updatePhaseContent(phase) {
 const meta = getPhaseMeta(phase);
 
 setText("launchPhaseBadgeText", meta.badgeText);
-setText("launchStatusText2", meta.statusText);
+setTextMany(["launchStatusText", "launchStatusText2"], meta.statusText);
 setText("launchMarketModeText", meta.marketModeText);
 setText("marketStatusLabel", phase === PHASES.LIVE ? "Live Trading" : meta.statusText);
 setText("marketOverlayEyebrow", meta.overlayEyebrow);
@@ -659,6 +663,9 @@ phase === PHASES.LIVE
 ? "Countdown Locked"
 : "Pre-Live"
 );
+
+setText("launchTerminalPhaseLabel", `Phase • ${meta.badgeText}`);
+setText("launchTerminalModeLabel", meta.marketModeText);
 }
 
 function updateTokenIdentity(launch, tokenPayload = null) {
@@ -678,21 +685,31 @@ const builderWallet = launch?.builder_wallet || "";
 const builderAlias =
 launch?.builder_alias ||
 tokenPayload?.launch?.builder_alias ||
-"—";
+"Builder";
 const builderScore = toNumber(
-launch?.builder_score ??
-tokenPayload?.launch?.builder_score,
+launch?.builder_score ?? tokenPayload?.launch?.builder_score,
 0
 );
 
-setText("launchTokenName", tokenName);
-setText("launchTokenNameMirror", tokenName);
+setTextMany(["launchTokenName", "launchTokenNameMirror"], tokenName);
 setText("launchTokenSymbol", `$${tokenSymbol}`);
-setText("launchBuilderWalletShort", shortAddress(builderWallet || "") || "Pending");
+setText("launchBuilderLabel", builderAlias);
+setText("launchBuilderWalletShort", builderWallet ? shortAddress(builderWallet) : "Pending");
 setText("launchTokenLogo", (tokenSymbol[0] || "M").toUpperCase());
 
 setText("builderAlias", builderAlias);
 setText("builderScoreStat", builderScore > 0 ? formatNumber(builderScore, { maximumFractionDigits: 0 }) : "—");
+
+const tier =
+builderScore >= 80
+? "Strong"
+: builderScore >= 55
+? "Moderate"
+: builderWallet
+? "Early"
+: "Pending";
+
+setText("launchBuilderTierText", tier);
 
 const nameEl = $("launchTokenName");
 if (nameEl) {
@@ -760,8 +777,14 @@ setText("launchCaState", resolved.state);
 const launchCaCopyBtn = $("launchCaCopyBtn");
 const chartCaCopyBtn = $("chartCaCopyBtn");
 
-if (launchCaCopyBtn) launchCaCopyBtn.dataset.copyValue = ca;
-if (chartCaCopyBtn) chartCaCopyBtn.dataset.copyValue = ca;
+if (launchCaCopyBtn) {
+launchCaCopyBtn.dataset.copyValue = ca;
+launchCaCopyBtn.disabled = !ca;
+}
+if (chartCaCopyBtn) {
+chartCaCopyBtn.dataset.copyValue = ca;
+chartCaCopyBtn.disabled = !ca;
+}
 }
 
 function renderExternalLinks(launch) {
@@ -912,10 +935,7 @@ tokenPayload?.stats?.sol_usd_price,
 0
 );
 
-const priceUsd = toNumber(
-stats?.price_usd,
-0
-);
+const priceUsd = toNumber(stats?.price_usd, 0);
 
 const fallbackPriceSol = toNumber(
 stats?.price_sol ??
@@ -931,10 +951,7 @@ priceUsd > 0
 ? priceUsd
 : (fallbackPriceSol > 0 && solUsdPrice > 0 ? fallbackPriceSol * solUsdPrice : 0);
 
-const marketCapUsd = toNumber(
-stats?.market_cap_usd,
-0
-);
+const marketCapUsd = toNumber(stats?.market_cap_usd, 0);
 
 const fallbackMarketCapSol = toNumber(
 stats?.market_cap_sol ??
@@ -950,10 +967,7 @@ marketCapUsd > 0
 ? marketCapUsd
 : (fallbackMarketCapSol > 0 && solUsdPrice > 0 ? fallbackMarketCapSol * solUsdPrice : 0);
 
-const liquidityUsd = toNumber(
-stats?.liquidity_usd,
-0
-);
+const liquidityUsd = toNumber(stats?.liquidity_usd, 0);
 
 const fallbackLiquiditySol = toNumber(
 stats?.liquidity_sol ??
@@ -971,10 +985,7 @@ liquidityUsd > 0
 ? liquidityUsd
 : (fallbackLiquiditySol > 0 && solUsdPrice > 0 ? fallbackLiquiditySol * solUsdPrice : 0);
 
-const volume24hUsd = toNumber(
-stats?.volume_24h_usd,
-0
-);
+const volume24hUsd = toNumber(stats?.volume_24h_usd, 0);
 
 const fallbackVolume24hSol = toNumber(
 stats?.volume_24h_sol ??
@@ -1125,12 +1136,12 @@ el.dataset.state = type;
 }
 
 function resolveTradesFromPayload(payload = {}) {
-const snapshotTrades = arrayFromCandidate(payload?.tokenTrades);
-const genericTrades = arrayFromCandidate(payload?.trades);
-const tokenPayloadTrades = arrayFromCandidate(payload?.tokenPayload?.recent_trades);
-const tokenPayloadTradesAlt = arrayFromCandidate(payload?.tokenPayload?.trades);
-const tokenStatsTrades = arrayFromCandidate(payload?.tokenPayload?.stats?.recent_trades);
-const chartStatsTrades = arrayFromCandidate(payload?.chartStats?.recent_trades);
+const snapshotTrades = Array.isArray(payload?.tokenTrades) ? payload.tokenTrades : [];
+const genericTrades = Array.isArray(payload?.trades) ? payload.trades : [];
+const tokenPayloadTrades = Array.isArray(payload?.tokenPayload?.recent_trades) ? payload.tokenPayload.recent_trades : [];
+const tokenPayloadTradesAlt = Array.isArray(payload?.tokenPayload?.trades) ? payload.tokenPayload.trades : [];
+const tokenStatsTrades = Array.isArray(payload?.tokenPayload?.stats?.recent_trades) ? payload.tokenPayload.stats.recent_trades : [];
+const chartStatsTrades = Array.isArray(payload?.chartStats?.recent_trades) ? payload.chartStats.recent_trades : [];
 
 return snapshotTrades.length
 ? snapshotTrades
@@ -1558,6 +1569,9 @@ if (!hasWallet) {
 tokenBalanceEl.textContent = "Connect wallet";
 positionValueEl.textContent = "—";
 solBalanceEl.textContent = "—";
+setText("launchWalletSummaryText", "Not Connected");
+setText("launchWalletPositionText", "Connect Wallet");
+setText("launchWalletLimitText", "—");
 return;
 }
 
@@ -1574,6 +1588,18 @@ tokenBalanceEl.textContent = `${formatTokenAmount(summary.tokenBalance, 0)} toke
 
 positionValueEl.textContent = summary.positionValueUsd > 0 ? formatUsd(summary.positionValueUsd, 2) : "$0";
 solBalanceEl.textContent = formatSol(summary.solBalance, 4);
+
+setText("launchWalletSummaryText", shortAddress(connectedWallet));
+setText(
+"launchWalletPositionText",
+summary.positionValueUsd > 0 ? formatUsd(summary.positionValueUsd, 2) : `${formatTokenAmount(summary.sellableBalance || summary.tokenBalance, 0)} tokens`
+);
+setText(
+"launchWalletLimitText",
+summary.isBuilderWallet
+? `${formatTokenAmount(summary.sellableBalance, 0)} unlocked`
+: `${formatTokenAmount(summary.tokenBalance, 0)} tokens`
+);
 }
 
 function updateAccessCard(
@@ -1700,6 +1726,11 @@ schedule.textContent = totalSupply > 0
 } else {
 schedule.textContent = "No wallet concentration limit detected for the current live phase.";
 }
+
+setText(
+"launchAccessModeText",
+walletSummary.isBuilderWallet ? "Builder Vesting" : hasRestriction ? "Controlled Access" : "Open Access"
+);
 }
 
 function clearLiveOnlyUi() {
@@ -1723,6 +1754,10 @@ recentTradesList.innerHTML = `<div class="recent-trades-empty">No trades yet.</d
 
 setTradeMessage("");
 resetTradeQuoteUi();
+
+setText("launchWalletSummaryText", "Not Connected");
+setText("launchWalletPositionText", "Pre-Live");
+setText("launchWalletLimitText", "Rule Based");
 }
 
 function getLifecycleStatusTone(status = "") {
@@ -1899,6 +1934,11 @@ items.push(`
 
 graduationProof.innerHTML = items.join("");
 }
+
+setText("launchGraduationReadinessText", readiness?.ready ? "Ready" : "Monitoring");
+setText("launchLpInternalText", internalSol > 0 ? formatSol(internalSol, 4) : "Pending");
+setText("launchLockedLpText", cleanString(lifecycle?.lockStatus, 80) || "Pending");
+setText("launchMigrationStateText", statusText.replaceAll("_", " "));
 }
 
 async function fetchJson(path, options = {}) {

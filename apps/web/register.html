@@ -4,116 +4,343 @@
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width,initial-scale=1" />
 <title>MSS Protocol — Register</title>
+<meta
+name="description"
+content="MSS Protocol Register — create an account for alerts and future account-linked blockchain security intelligence features."
+/>
+<link rel="stylesheet" href="./assets/app.css" />
 <style>
-:root{
---bg0:#05070c;
---bg1:#070a12;
---text:rgba(255,255,255,.92);
---muted:rgba(255,255,255,.68);
---muted2:rgba(255,255,255,.45);
---a:#00ffd1;
---b:#3aa0ff;
-}
-*{box-sizing:border-box}
-html,body{
-max-width:100%;
-overflow-x:hidden;
-}
-body{
-margin:0;
-font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial;
-color:var(--text);
-background:
-radial-gradient(1200px 700px at 15% -10%, rgba(0,255,209,.18), transparent 55%),
-radial-gradient(900px 600px at 95% 10%, rgba(58,160,255,.16), transparent 50%),
-linear-gradient(180deg, var(--bg0), var(--bg1));
-overflow-x:hidden;
-}
-.wrap{
-max-width:560px;
+.auth-page .wrap{
+max-width:1120px;
 margin:0 auto;
-padding:40px 18px 80px;
-max-width:100%;
+padding:28px 20px 88px;
+position:relative;
+z-index:1;
 }
-.card{
-border:1px solid rgba(255,255,255,.12);
-border-radius:20px;
-padding:22px;
-background:linear-gradient(180deg, rgba(255,255,255,.06), rgba(255,255,255,.035));
-box-shadow:0 18px 60px rgba(0,0,0,.45);
-min-width:0;
+
+.auth-page .auth-grid{
+display:grid;
+grid-template-columns:.92fr 1.08fr;
+gap:18px;
 }
-h1{margin:0 0 10px;word-break:break-word}
-p{color:var(--muted);line-height:1.6}
-.input{
+
+.auth-page .hero-shell,
+.auth-page .auth-card{
+position:relative;
+border:1px solid var(--line);
+border-radius:var(--radius-xl);
+background:linear-gradient(180deg, rgba(255,255,255,.055), rgba(255,255,255,.026));
+box-shadow:var(--shadow-lg);
+overflow:hidden;
+}
+
+.auth-page .hero-shell::before,
+.auth-page .auth-card::before{
+content:"";
+position:absolute;
+inset:0;
+pointer-events:none;
+background:
+linear-gradient(180deg, rgba(255,255,255,.04), transparent 28%),
+radial-gradient(760px 220px at 0% 0%, rgba(243,217,139,.05), transparent 38%);
+}
+
+.auth-page .hero-shell,
+.auth-page .auth-card{
+padding:24px;
+}
+
+.auth-page .hero-shell > *,
+.auth-page .auth-card > *{
+position:relative;
+z-index:1;
+}
+
+.auth-page .eyebrow{
+display:inline-flex;
+align-items:center;
+gap:10px;
+min-height:32px;
+padding:0 12px;
+border-radius:999px;
+border:1px solid rgba(243,217,139,.18);
+background:rgba(214,178,94,.08);
+font-size:11px;
+font-weight:800;
+letter-spacing:.18em;
+text-transform:uppercase;
+color:#fff;
+}
+
+.auth-page .eyebrow-dot{
+width:7px;
+height:7px;
+border-radius:999px;
+background:var(--gold-2);
+box-shadow:0 0 12px rgba(243,217,139,.26);
+}
+
+.auth-page .hero-title{
+margin:18px 0 12px;
+font-size:38px;
+line-height:1.02;
+letter-spacing:-.04em;
+font-weight:900;
+}
+
+.auth-page .hero-copy{
+color:var(--muted);
+font-size:14px;
+line-height:1.72;
+}
+
+.auth-page .hero-pills{
+display:flex;
+flex-wrap:wrap;
+gap:10px;
+margin-top:18px;
+}
+
+.auth-page .hero-pill{
+display:inline-flex;
+align-items:center;
+gap:8px;
+min-height:34px;
+padding:0 11px;
+border-radius:999px;
+border:1px solid rgba(255,255,255,.10);
+background:rgba(255,255,255,.04);
+font-size:12px;
+color:rgba(255,255,255,.82);
+}
+
+.auth-page .section-title{
+font-size:14px;
+letter-spacing:.18em;
+text-transform:uppercase;
+color:rgba(255,255,255,.60);
+font-weight:800;
+margin:0 0 14px;
+}
+
+.auth-page .field-grid{
+display:grid;
+gap:12px;
+}
+
+.auth-page .field{
+display:grid;
+gap:8px;
+}
+
+.auth-page .label{
+font-size:12px;
+font-weight:700;
+color:rgba(255,255,255,.78);
+letter-spacing:.06em;
+text-transform:uppercase;
+}
+
+.auth-page .input{
 width:100%;
+min-height:46px;
+padding:0 14px;
+border-radius:14px;
+border:1px solid rgba(255,255,255,.12);
+background:rgba(255,255,255,.05);
+color:var(--text);
+outline:none;
+font:inherit;
+box-shadow:inset 0 1px 0 rgba(255,255,255,.04);
+}
+
+.auth-page .input:focus{
+border-color:rgba(243,217,139,.24);
+box-shadow:0 0 0 4px rgba(243,217,139,.08);
+background:rgba(255,255,255,.06);
+}
+
+.auth-page .hp{
+display:none !important;
+}
+
+.auth-page .check-row{
+display:flex;
+gap:10px;
+align-items:flex-start;
 padding:12px 14px;
 border-radius:14px;
-border:1px solid rgba(255,255,255,.12);
-background:rgba(0,0,0,.35);
-color:#fff;
-margin-top:10px;
-outline:none;
-max-width:100%;
+border:1px solid rgba(255,255,255,.10);
+background:rgba(255,255,255,.04);
 }
-.input:focus{
-border-color:rgba(0,255,209,.24);
-box-shadow:0 0 0 4px rgba(0,255,209,.10);
-}
-.btn{
-margin-top:12px;
-width:100%;
-padding:12px;
-border-radius:14px;
-border:1px solid rgba(255,255,255,.12);
-background:linear-gradient(135deg, rgba(0,255,209,.18), rgba(58,160,255,.14));
-color:#fff;
-font-weight:800;
-cursor:pointer;
-}
-.btn:hover{filter:brightness(1.06)}
-.row{display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-top:12px}
-.checkbox{
+
+.auth-page .checkbox{
 width:18px;
 height:18px;
+margin-top:2px;
+accent-color:var(--gold-1);
+flex:0 0 auto;
 }
-.muted{opacity:.78;font-size:12px;margin-top:10px;line-height:1.5}
-.status{min-height:20px;margin-top:10px;font-size:13px}
-a{color:#9ef;text-decoration:none}
-.back{display:inline-block;margin-bottom:16px}
-.hp{display:none !important}
-.small-link{margin-top:10px}
+
+.auth-page .helper{
+color:var(--muted);
+font-size:12px;
+line-height:1.6;
+}
+
+.auth-page .btn{
+width:100%;
+min-height:46px;
+}
+
+.auth-page .status{
+min-height:20px;
+margin-top:10px;
+font-size:13px;
+color:var(--muted);
+line-height:1.5;
+}
+
+.auth-page .link-row{
+display:grid;
+gap:8px;
+margin-top:14px;
+}
+
+.auth-page .link-row a{
+color:rgba(255,255,255,.78);
+font-size:12px;
+}
+
+.auth-page .link-row a:hover{
+color:#fff;
+}
+
+@media (max-width:900px){
+.auth-page .auth-grid{
+grid-template-columns:1fr;
+}
+}
+
+@media (max-width:760px){
+.auth-page .hero-title{
+font-size:32px;
+}
+
+.auth-page .hero-shell,
+.auth-page .auth-card{
+border-radius:22px;
+padding:20px 16px;
+}
+
+.auth-page .wrap{
+padding:22px 14px 80px;
+}
+}
 </style>
 </head>
-<body>
-<div class="wrap">
-<a class="back" href="./index.html">← Back</a>
-<div class="card">
-<h1>Create Account</h1>
-<p>Create an MSS account to manage alerts and future account-linked intelligence tools.</p>
+<body class="auth-page">
+<div id="layoutShellHeader"></div>
 
+<div class="wrap">
+<div class="auth-grid">
+<section class="hero-shell">
+<div class="eyebrow">
+<span class="eyebrow-dot"></span>
+<span>Account Creation</span>
+</div>
+
+<h1 class="hero-title">Create Your MSS Account</h1>
+
+<div class="hero-copy">
+Register to access saved alerts and the expanding account-linked intelligence layer across MSS Protocol.
+</div>
+
+<div class="hero-pills">
+<span class="hero-pill">Alerts</span>
+<span class="hero-pill">Future Intelligence Tools</span>
+<span class="hero-pill">Persistent Account Access</span>
+</div>
+</section>
+
+<section class="auth-card">
+<div class="section-title">Register</div>
+
+<div class="field-grid">
+<div class="field">
+<label class="label" for="email">Email</label>
 <input id="email" class="input" placeholder="Email" type="email" autocomplete="email" />
+</div>
+
+<div class="field">
+<label class="label" for="password">Password</label>
 <input id="password" class="input" placeholder="Password" type="password" autocomplete="new-password" />
+</div>
 
 <input id="website" class="input hp" type="text" tabindex="-1" autocomplete="off" aria-hidden="true" />
 
-<div class="row">
+<label class="check-row" for="humanCheck">
 <input id="humanCheck" class="checkbox" type="checkbox" />
-<label for="humanCheck">Verify you’re human</label>
-</div>
+<span class="helper">Verify you’re human before creating an MSS account.</span>
+</label>
 
-<div class="muted">Minimum password length: 8 characters.</div>
+<div class="helper">Minimum password length: 8 characters.</div>
 
-<button id="btn" class="btn" type="button">Create Account</button>
+<button id="btn" class="btn primary" type="button">Create Account</button>
 <div class="status" id="msg"></div>
+</div>
 
-<div class="muted small-link">Already have an account? <a href="./login.html">Login</a></div>
-<div class="muted"><a href="./token.html">Back to Scanner</a></div>
+<div class="link-row">
+<a href="./login.html">Already have an account? Login</a>
+<a href="./token.html">Back to Scanner</a>
+</div>
+</section>
 </div>
 </div>
+
+<div id="layoutShellFooter"></div>
 
 <script type="module">
-import { register } from "./assets/auth.js";
+import { bindSessionUi, register } from "./assets/auth.js";
+
+async function mountSharedShell() {
+try {
+const shellModule = await import("./assets/layout-shell.js");
+const mountShell =
+shellModule.mountLayoutShell ||
+shellModule.renderLayoutShell ||
+shellModule.initLayoutShell ||
+shellModule.default;
+
+if (typeof mountShell === "function") {
+await mountShell({
+activeNav: "",
+pageLabel: "Register",
+pageTitle: "Create Your MSS Account",
+pageSubtitle: "Account creation",
+headerTargetId: "layoutShellHeader",
+footerTargetId: "layoutShellFooter",
+});
+}
+} catch (err) {
+console.error("Shared shell mount failed:", err);
+}
+}
+
+await mountSharedShell();
+
+bindSessionUi({
+sessionPillId: "sessionPill",
+sessionDotId: "sessionDot",
+sessionTextId: "sessionText",
+logoutBtnId: "logoutBtn",
+loggedOutHref: "./login.html",
+loggedInHref: "./index.html#access",
+onLogout() {
+window.location.reload();
+},
+});
+
 const $ = (id) => document.getElementById(id);
 
 async function submit() {

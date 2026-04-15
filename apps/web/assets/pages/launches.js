@@ -53,6 +53,10 @@ function normalizeStatus(status) {
 return String(status || "").trim().toLowerCase();
 }
 
+function normalizeView(view) {
+return view === "list" ? "list" : "grid";
+}
+
 function parseTs(v) {
 if (!v) return null;
 const raw = String(v).trim();
@@ -120,60 +124,9 @@ return "commit";
 
 function getBuilderTrust(score) {
 const n = safeNum(score, 0);
-if (n >= 80) return { label: "Strong", state: "strong" };
-if (n >= 55) return { label: "Moderate", state: "moderate" };
-return { label: "Early", state: "early" };
-}
-
-function getBuilderProfileHref(wallet) {
-const clean = cleanText(wallet, 120);
-if (!clean) return "./builder.html";
-return `./builder.html?wallet=${encodeURIComponent(clean)}`;
-}
-
-function getBuilderDisplayName(launch) {
-return cleanText(launch.builder_alias, 120) || shortenWallet(launch.builder_wallet || "") || "Unknown Builder";
-}
-
-function buildBuilderIdentityHtml(launch, { compact = false } = {}) {
-const builderWallet = cleanText(launch.builder_wallet, 120);
-const builderName = escapeHtml(getBuilderDisplayName(launch));
-const builderScore = safeNum(launch.builder_score, 0);
-const trust = getBuilderTrust(builderScore);
-const href = getBuilderProfileHref(builderWallet);
-
-if (compact) {
-return `
-<a
-href="${href}"
-style="display:inline-flex;align-items:center;gap:8px;color:rgba(255,255,255,.92);text-decoration:none;"
->
-<span>${builderName}</span>
-</a>
-<span style="color:rgba(255,255,255,.68);">•</span>
-<span style="color:rgba(255,255,255,.82);">Score ${builderScore}</span>
-<span style="color:rgba(255,255,255,.68);">•</span>
-<span style="color:rgba(255,255,255,.82);">${escapeHtml(trust.label)}</span>
-`;
-}
-
-return `
-<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
-<a
-href="${href}"
-style="display:inline-flex;align-items:center;gap:8px;color:rgba(255,255,255,.92);text-decoration:none;font-weight:800;"
->
-<span>${builderName}</span>
-</a>
-<span class="small-chip">Score ${builderScore}</span>
-<span class="small-chip">${escapeHtml(trust.label)} Trust</span>
-<a
-href="${href}"
-class="small-chip"
-style="text-decoration:none;"
->View Builder</a>
-</div>
-`;
+if (n >= 80) return { label: "Strong" };
+if (n >= 55) return { label: "Moderate" };
+return { label: "Early" };
 }
 
 function isLiveLikeStatus(status) {
@@ -348,27 +301,15 @@ return "Launch status is being tracked.";
 
 function getBuilderBadges(launch) {
 const out = [];
-const trust = getBuilderTrust(launch.builder_score);
-
-out.push(`<span class="small-chip">${escapeHtml(trust.label)} Builder</span>`);
-
 if (String(launch.template || "") === "builder") {
-out.push(`<span class="small-chip">Builder Launch</span>`);
-
 if (safeNum(launch.team_allocation_pct) > 0) {
 out.push(`<span class="small-chip">Team ${fmtSol(launch.team_allocation_pct)}%</span>`);
 }
-
 if (safeNum(launch.builder_bond_sol) > 0) {
 const refunded = safeNum(launch.builder_bond_refunded, 0) === 1;
 out.push(`<span class="small-chip">Bond ${fmtSol(launch.builder_bond_sol)} SOL${refunded ? " • Refunded" : ""}</span>`);
 }
 }
-
-if (isLiveLikeStatus(launch.status)) {
-out.push(`<span class="small-chip">Live Profile</span>`);
-}
-
 return out.join("");
 }
 
@@ -492,6 +433,8 @@ const symbol = escapeHtml(launch.symbol || "N/A");
 const templateRaw = String(launch.template || "—");
 const template = escapeHtml(templateRaw.replaceAll("_", " "));
 const status = normalizeStatus(launch.status || "commit");
+const builderName = escapeHtml(launch.builder_alias || launch.builder_wallet || "Unknown Builder");
+const builderWallet = String(launch.builder_wallet || "").trim();
 const builderScore = safeNum(launch.builder_score, 0);
 const trust = getBuilderTrust(builderScore);
 
@@ -505,6 +448,10 @@ const timing = getTimingMeta(launch);
 const walletConnected = getConnectedWallet().isConnected;
 const stateNote = getLaunchStateNote(launch);
 const momentumScore = Math.round(trendingScore(launch));
+
+const builderHtml = builderWallet
+? `<a href="./builder.html?wallet=${encodeURIComponent(builderWallet)}" style="color:rgba(255,255,255,.92);text-decoration:none;">${builderName}</a>`
+: builderName;
 
 return `
 <div class="token-card">
@@ -528,10 +475,10 @@ ${getSafeguardsHtml(launch)}
 
 <div class="kv">
 <div>
-<div class="k">Builder Profile</div>
-<div class="v" style="font-size:16px;line-height:1.45;">${buildBuilderIdentityHtml(launch)}</div>
+<div class="k">Builder</div>
+<div class="v" style="font-size:16px;">${builderHtml}</div>
 <div style="margin-top:6px;font-size:12px;color:rgba(255,255,255,.68);">
-Public builder profile, score, trust posture, launches, and achievements.
+Score ${builderScore} • ${trust.label}
 </div>
 </div>
 <div>
@@ -590,14 +537,9 @@ ${walletConnected ? "Connected wallet can quick commit from this card." : "Conne
 <span>Template: ${template}</span>
 <span>•</span>
 <span>Momentum ${momentumScore}</span>
-<span>•</span>
-<span>${escapeHtml(trust.label)} Builder</span>
 </div>
 
-<div style="display:flex;gap:10px;flex-wrap:wrap;">
-<a class="btn" href="${getBuilderProfileHref(launch.builder_wallet)}">Builder</a>
 <a class="btn primary" href="./launch.html?id=${encodeURIComponent(launch.id)}">View</a>
-</div>
 </div>
 </div>
 `;
@@ -609,6 +551,8 @@ const symbol = escapeHtml(launch.symbol || "N/A");
 const templateRaw = String(launch.template || "—");
 const template = escapeHtml(templateRaw.replaceAll("_", " "));
 const status = normalizeStatus(launch.status || "commit");
+const builderName = escapeHtml(launch.builder_alias || launch.builder_wallet || "Unknown Builder");
+const builderWallet = String(launch.builder_wallet || "").trim();
 const builderScore = safeNum(launch.builder_score, 0);
 const trust = getBuilderTrust(builderScore);
 
@@ -621,6 +565,10 @@ const timing = getTimingMeta(launch);
 const momentumScore = Math.round(trendingScore(launch));
 const stateNote = getLaunchStateNote(launch);
 
+const builderHtml = builderWallet
+? `<a href="./builder.html?wallet=${encodeURIComponent(builderWallet)}" style="color:rgba(255,255,255,.92);text-decoration:none;">${builderName}</a>`
+: builderName;
+
 const walletConnected = getConnectedWallet().isConnected;
 
 return `
@@ -631,8 +579,8 @@ ${getLogoHtml(launch)}
 <div style="min-width:0;">
 <div class="token-name">${name}</div>
 <div class="list-sub">${symbol} • ${template}</div>
-<div style="margin-top:8px;font-size:13px;color:rgba(255,255,255,.82);line-height:1.55;">
-${buildBuilderIdentityHtml(launch, { compact: true })}
+<div style="margin-top:8px;font-size:13px;color:rgba(255,255,255,.82);">
+${builderHtml} • Score ${builderScore} • ${trust.label}
 </div>
 <div style="margin-top:8px;font-size:12px;color:rgba(255,255,255,.62);line-height:1.5;">
 ${escapeHtml(stateNote)}
@@ -653,8 +601,6 @@ data-status="${escapeHtml(status)}"
 ${timing.endAt ? `data-end-at="${timing.endAt}"` : ""}
 >${escapeHtml(timing.label)}: ${escapeHtml(timing.value)}</div>
 <div class="small-chip">Momentum ${momentumScore}</div>
-<div class="small-chip">Score ${builderScore}</div>
-<div class="small-chip">${escapeHtml(trust.label)} Trust</div>
 </div>
 
 <div class="progress-wrap">
@@ -679,7 +625,6 @@ ${buildQuickButtons(launch)}
 <div style="font-size:12px;color:rgba(255,255,255,.62);">
 ${walletConnected ? "Quick commit enabled" : "Connect wallet to commit"}
 </div>
-<a class="btn" href="${getBuilderProfileHref(launch.builder_wallet)}">Builder Profile</a>
 <a class="btn primary" href="./launch.html?id=${encodeURIComponent(launch.id)}">View</a>
 </div>
 </div>
@@ -806,6 +751,8 @@ const name = escapeHtml(featured.token_name || "Untitled Launch");
 const symbol = escapeHtml(featured.symbol || "N/A");
 const template = escapeHtml(String(featured.template || "—").replaceAll("_", " "));
 const status = normalizeStatus(featured.status);
+const builderName = escapeHtml(featured.builder_alias || featured.builder_wallet || "Unknown Builder");
+const builderWallet = String(featured.builder_wallet || "").trim();
 const builderScore = safeNum(featured.builder_score, 0);
 const trust = getBuilderTrust(builderScore);
 const committed = safeNum(featured.committed_sol);
@@ -818,6 +765,10 @@ const stateNote = getLaunchStateNote(featured);
 const momentumScore = Math.round(trendingScore(featured));
 const walletConnected = getConnectedWallet().isConnected;
 
+const builderHtml = builderWallet
+? `<a href="./builder.html?wallet=${encodeURIComponent(builderWallet)}" style="color:rgba(255,255,255,.92);text-decoration:none;">${builderName}</a>`
+: builderName;
+
 mount.innerHTML = `
 <div style="display:grid;grid-template-columns:minmax(0,1.2fr) minmax(280px,.8fr);gap:16px;align-items:start;">
 <div style="min-width:0;">
@@ -827,8 +778,8 @@ ${getLogoHtml(featured)}
 <div style="min-width:0;">
 <div class="token-name">${name}</div>
 <div class="token-symbol">${symbol} • ${template}</div>
-<div style="margin-top:8px;font-size:13px;color:rgba(255,255,255,.82);line-height:1.55;">
-${buildBuilderIdentityHtml(featured, { compact: true })}
+<div style="margin-top:8px;font-size:13px;color:rgba(255,255,255,.82);">
+${builderHtml} • Score ${builderScore} • ${trust.label}
 </div>
 </div>
 </div>
@@ -884,20 +835,6 @@ ${timing.endAt ? `data-end-at="${timing.endAt}"` : ""}
 </div>
 </div>
 
-<div class="progress-wrap">
-<div class="kv">
-<div>
-<div class="k">Builder Score</div>
-<div class="v">${builderScore}</div>
-</div>
-<div>
-<div class="k">Trust</div>
-<div class="v">${escapeHtml(trust.label)}</div>
-</div>
-</div>
-<a class="btn" href="${getBuilderProfileHref(featured.builder_wallet)}" style="width:100%;margin-top:10px;">Open Builder Profile</a>
-</div>
-
 <div class="quick-commit">
 <div class="quick-title">Featured Quick Commit</div>
 <div class="quick-row">
@@ -919,7 +856,7 @@ const RECENT_CACHE_TTL_MS = 15000;
 const RECENT_FETCH_LIMIT = 12;
 
 let ALL_LAUNCHES = [];
-let CURRENT_VIEW = localStorage.getItem("mss_launchpad_view") || "grid";
+let CURRENT_VIEW = normalizeView(localStorage.getItem("mss_launchpad_view"));
 const PREV_PROGRESS = new Map();
 let loadLaunchesInFlight = false;
 let quickCommitInFlight = false;
@@ -1067,8 +1004,25 @@ const gridView = CURRENT_VIEW === "grid";
 
 grid.classList.toggle("hidden", !gridView);
 list.classList.toggle("hidden", gridView);
+
+grid.style.display = gridView ? "grid" : "none";
+list.style.display = gridView ? "grid" : "none";
+
+grid.setAttribute("aria-hidden", gridView ? "false" : "true");
+list.setAttribute("aria-hidden", gridView ? "true" : "false");
+
 gridBtn.classList.toggle("active", gridView);
 listBtn.classList.toggle("active", !gridView);
+
+gridBtn.setAttribute("aria-pressed", gridView ? "true" : "false");
+listBtn.setAttribute("aria-pressed", gridView ? "false" : "true");
+}
+
+function setCurrentView(view) {
+CURRENT_VIEW = normalizeView(view);
+localStorage.setItem("mss_launchpad_view", CURRENT_VIEW);
+applyViewState();
+render();
 }
 
 function sortItems(items, sort) {
@@ -1376,15 +1330,11 @@ setActionStatus("warn", "Wallet disconnected.");
 
 function bindViewToggle() {
 $("gridViewBtn")?.addEventListener("click", () => {
-CURRENT_VIEW = "grid";
-localStorage.setItem("mss_launchpad_view", CURRENT_VIEW);
-render();
+setCurrentView("grid");
 });
 
 $("listViewBtn")?.addEventListener("click", () => {
-CURRENT_VIEW = "list";
-localStorage.setItem("mss_launchpad_view", CURRENT_VIEW);
-render();
+setCurrentView("list");
 });
 }
 
