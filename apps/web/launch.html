@@ -4,8 +4,8 @@
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width,initial-scale=1" />
 <title>MSS Protocol — Launch</title>
-<link rel="stylesheet" href="./assets/app.css" />
-<link rel="stylesheet" href="./assets/chart.css" />
+<link rel="stylesheet" href="./assets/app.css?v=3" />
+<link rel="stylesheet" href="./assets/chart.css?v=3" />
 <style>
 :root{
 --bg0:#04060b;
@@ -548,6 +548,7 @@ font-size:12px;
 letter-spacing:.08em;
 text-transform:uppercase;
 min-width:0;
+line-height:1;
 }
 
 .btn.primary{
@@ -712,8 +713,9 @@ max-width:760px;
 }
 
 .launch-command-status{
-display:flex;
+display:inline-flex;
 align-items:center;
+justify-content:center;
 gap:8px;
 min-height:34px;
 padding:0 12px;
@@ -726,6 +728,7 @@ font-weight:800;
 letter-spacing:.12em;
 text-transform:uppercase;
 box-shadow:inset 0 1px 0 rgba(255,255,255,.05);
+line-height:1;
 }
 
 .launch-command-status-dot{
@@ -1034,6 +1037,9 @@ flex-wrap:wrap;
 }
 
 .hero-wallet-btn{
+display:inline-flex;
+align-items:center;
+justify-content:center;
 min-height:36px;
 padding:0 12px;
 border-radius:12px;
@@ -1045,6 +1051,8 @@ font-weight:800;
 letter-spacing:.08em;
 text-transform:uppercase;
 cursor:pointer;
+line-height:1;
+white-space:nowrap;
 }
 
 .hero-wallet-btn.primary{
@@ -1227,6 +1235,21 @@ line-height:1.15;
 word-break:break-word;
 }
 
+.market-meta-grid{
+display:grid;
+grid-template-columns:minmax(0,1.05fr) minmax(320px,.95fr);
+gap:12px;
+padding:0 18px 18px;
+}
+
+.market-meta-grid > *{
+min-width:0;
+}
+
+.market-meta-grid:not(:has(> :not(.hidden))){
+display:none;
+}
+
 @media (max-width:1180px){
 .launch-command-deck{
 grid-template-columns:1fr;
@@ -1283,6 +1306,10 @@ scrollbar-width:none;
 }
 
 .nav::-webkit-scrollbar{ display:none; }
+
+.market-meta-grid{
+grid-template-columns:1fr;
+}
 }
 
 @media (max-width:760px){
@@ -1382,7 +1409,7 @@ justify-content:center;
 <div class="mark" aria-hidden="true"></div>
 <div>
 <div class="brand-title">MSS Protocol</div>
-<div class="brand-sub">Launch Detail</div>
+<div class="brand-sub">Launch Terminal</div>
 </div>
 </div>
 
@@ -1665,29 +1692,66 @@ CassIE is attached to this launch and continuously surfaces builder, structure a
 </div>
 </div>
 
-<div class="market-live-kpis">
-<div class="market-live-kpi">
-<div class="market-stat-topline"></div>
-<div class="market-live-kpi-label" id="stat1Label">Committed</div>
-<div class="market-live-kpi-value" id="stat1Value">0 SOL</div>
+<div class="market-card-body">
+<div id="marketChartShell" class="market-chart-shell">
+<div class="market-chart-bg-orb orb-a"></div>
+<div class="market-chart-bg-orb orb-b"></div>
+<div class="market-chart-grid"></div>
+<div class="market-chart-vignette"></div>
+
+<div id="marketOverlay" class="market-overlay overlay-commit">
+<div class="market-overlay-inner">
+<div id="marketOverlayEyebrow" class="market-overlay-eyebrow">COMMIT PHASE</div>
+<div id="marketOverlayTitle" class="market-overlay-title">Commit Phase In Progress</div>
+<div id="marketOverlayText" class="market-overlay-text">
+Trading is not open yet. Commitments are being collected before market activation.
 </div>
 
-<div class="market-live-kpi">
-<div class="market-stat-topline"></div>
-<div class="market-live-kpi-label" id="stat2Label">Participants</div>
-<div class="market-live-kpi-value" id="stat2Value">0</div>
+<div class="market-overlay-badges">
+<span class="market-overlay-badge">Chart Locked</span>
+<span class="market-overlay-badge">Market Pending</span>
 </div>
 
-<div class="market-live-kpi">
-<div class="market-stat-topline"></div>
-<div class="market-live-kpi-label" id="stat3Label">Hard Cap</div>
-<div class="market-live-kpi-value" id="stat3Value">0 SOL</div>
+<div id="marketCountdownBox" class="market-countdown-box hidden">
+<div class="market-countdown-label">Trading Opens In</div>
+<div id="marketCountdownValue" class="market-countdown-value">05:00</div>
+<div class="market-countdown-subtext">Commit phase closed. Market activation is imminent.</div>
+</div>
+</div>
 </div>
 
-<div class="market-live-kpi">
+<div id="marketLiveLayer" class="market-live-layer hidden">
+<div id="marketChartCanvas" class="market-chart-canvas"></div>
+<div id="marketVolumeCanvas" class="market-volume-canvas"></div>
+</div>
+</div>
+</div>
+
+<div class="market-card-footer">
+<div id="marketStatsGrid" class="market-stats-grid">
+<div class="market-stat">
 <div class="market-stat-topline"></div>
-<div class="market-live-kpi-label" id="stat4Label">Progress</div>
-<div class="market-live-kpi-value" id="stat4Value">0%</div>
+<div class="market-stat-label" id="stat1Label">Committed Capital</div>
+<div class="market-stat-value" id="stat1Value">0 SOL</div>
+</div>
+
+<div class="market-stat">
+<div class="market-stat-topline"></div>
+<div class="market-stat-label" id="stat2Label">Participant Count</div>
+<div class="market-stat-value" id="stat2Value">0</div>
+</div>
+
+<div class="market-stat">
+<div class="market-stat-topline"></div>
+<div class="market-stat-label" id="stat3Label">Minimum Raise</div>
+<div class="market-stat-value" id="stat3Value">0 SOL</div>
+</div>
+
+<div class="market-stat">
+<div class="market-stat-topline"></div>
+<div class="market-stat-label" id="stat4Label">Fill Progress</div>
+<div class="market-stat-value" id="stat4Value">0%</div>
+</div>
 </div>
 </div>
 
@@ -1737,41 +1801,6 @@ CassIE is attached to this launch and continuously surfaces builder, structure a
 
 <div id="marketAccessSchedule" class="market-access-note">Allocation controls active.</div>
 </section>
-</div>
-
-<div class="market-card-body">
-<div id="marketChartShell" class="market-chart-shell">
-<div class="market-chart-bg-orb orb-a"></div>
-<div class="market-chart-bg-orb orb-b"></div>
-<div class="market-chart-grid"></div>
-<div class="market-chart-vignette"></div>
-
-<div id="marketOverlay" class="market-overlay overlay-commit">
-<div class="market-overlay-inner">
-<div id="marketOverlayEyebrow" class="market-overlay-eyebrow">COMMIT PHASE</div>
-<div id="marketOverlayTitle" class="market-overlay-title">Commit Phase In Progress</div>
-<div id="marketOverlayText" class="market-overlay-text">
-Trading is not open yet. Commitments are being collected before market activation.
-</div>
-
-<div class="market-overlay-badges">
-<span class="market-overlay-badge">Chart Locked</span>
-<span class="market-overlay-badge">Market Pending</span>
-</div>
-
-<div id="marketCountdownBox" class="market-countdown-box hidden">
-<div class="market-countdown-label">Trading Opens In</div>
-<div id="marketCountdownValue" class="market-countdown-value">05:00</div>
-<div class="market-countdown-subtext">Commit phase closed. Market activation is imminent.</div>
-</div>
-</div>
-</div>
-
-<div id="marketLiveLayer" class="market-live-layer hidden">
-<div id="marketChartCanvas" class="market-chart-canvas"></div>
-<div id="marketVolumeCanvas" class="market-volume-canvas"></div>
-</div>
-</div>
 </div>
 </section>
 </section>
@@ -2109,6 +2138,9 @@ data-role="wallet-input"
 
 <div class="aside-trade-stack">
 <section id="tradePanelCard" class="trade-panel-card hidden">
+<div class="trade-panel-frame"></div>
+<div class="trade-panel-glow"></div>
+
 <div class="trade-panel-header">
 <div>
 <div class="trade-panel-kicker">Market Actions</div>
@@ -2122,6 +2154,7 @@ data-role="wallet-input"
 <button id="tradeTabSell" class="trade-tab" type="button">Sell</button>
 </div>
 
+<div class="trade-panel-body">
 <div class="trade-panel-field">
 <label id="tradeAmountLabel" for="tradeAmountInput">Amount (SOL)</label>
 <input id="tradeAmountInput" class="trade-panel-input" type="number" step="0.000001" min="0" placeholder="0.00" />
@@ -2141,30 +2174,28 @@ data-role="wallet-input"
 <button class="trade-quick-btn" data-pct="100" type="button">100%</button>
 </div>
 
-<div class="trade-quote-grid">
 <div class="trade-quote-card">
-<div id="tradeQuotePrimaryLabel" class="trade-quote-label">You Receive</div>
-<div id="tradeQuotePrimaryValue" class="trade-quote-value">—</div>
+<div class="trade-quote-row">
+<span id="tradeQuotePrimaryLabel">You Receive</span>
+<span id="tradeQuotePrimaryValue">—</span>
 </div>
-
-<div class="trade-quote-card">
-<div class="trade-quote-label">Price</div>
-<div id="tradeQuotePriceValue" class="trade-quote-value">—</div>
+<div class="trade-quote-row">
+<span id="tradeQuotePriceLabel">Estimated Price</span>
+<span id="tradeQuotePriceValue">—</span>
 </div>
-
-<div class="trade-quote-card">
-<div class="trade-quote-label">Fee</div>
-<div id="tradeQuoteFeeValue" class="trade-quote-value">—</div>
+<div class="trade-quote-row">
+<span id="tradeQuoteFeeLabel">Fee</span>
+<span id="tradeQuoteFeeValue">—</span>
 </div>
-
-<div class="trade-quote-card">
-<div id="tradeQuoteWalletLimitLabel" class="trade-quote-label">Wallet Limit</div>
-<div id="tradeQuoteWalletLimitValue" class="trade-quote-value">—</div>
+<div class="trade-quote-row">
+<span id="tradeQuoteWalletLimitLabel">Wallet Limit</span>
+<span id="tradeQuoteWalletLimitValue">—</span>
 </div>
 </div>
 
-<button id="tradeSubmitBtn" class="trade-submit-btn" type="button" disabled>Preview Buy</button>
 <div id="tradePanelMessage" class="trade-panel-message hidden"></div>
+<button id="tradeSubmitBtn" class="trade-submit-btn" type="button" disabled>Preview Buy</button>
+</div>
 </section>
 
 <section id="recentTradesCard" class="recent-trades-card hidden">

@@ -234,6 +234,140 @@ if (Number.isFinite(num)) return num;
 return null;
 }
 
+function firstPositive(...values) {
+for (const value of values) {
+const num = Number(value);
+if (Number.isFinite(num) && num > 0) return num;
+}
+return null;
+}
+
+function getLaunchDisplayName(launch = {}, tokenPayload = null) {
+return choosePreferredNonEmpty(
+launch?.token_name,
+tokenPayload?.token?.name,
+tokenPayload?.launch?.token_name,
+tokenPayload?.launch?.name,
+"Unnamed Launch"
+);
+}
+
+function getLaunchSymbol(launch = {}, tokenPayload = null) {
+return choosePreferredNonEmpty(
+launch?.symbol,
+tokenPayload?.token?.symbol,
+tokenPayload?.token?.ticker,
+tokenPayload?.launch?.symbol,
+"MSS"
+);
+}
+
+function getInitials(...values) {
+const text = choosePreferredNonEmpty(...values);
+if (!text) return "M";
+const cleaned = text.replace(/[^a-zA-Z0-9 ]/g, " ").trim();
+if (!cleaned) return "M";
+const parts = cleaned.split(/\s+/).filter(Boolean);
+if (parts.length >= 2) return `${parts[0][0]}${parts[1][0]}`.toUpperCase();
+return cleaned.slice(0, 2).toUpperCase();
+}
+
+function buildLaunchPatchFromTokenPayload(tokenPayload = {}) {
+const token = tokenPayload?.token || {};
+const launch = tokenPayload?.launch || {};
+const stats = tokenPayload?.stats || {};
+
+return normalizeLaunchTruth({
+token_name: choosePreferredNonEmpty(
+launch?.token_name,
+launch?.name,
+token?.name
+),
+symbol: choosePreferredNonEmpty(
+launch?.symbol,
+token?.symbol,
+token?.ticker
+),
+builder_wallet: choosePreferredNonEmpty(
+launch?.builder_wallet
+),
+builder_alias: choosePreferredNonEmpty(
+launch?.builder_alias
+),
+builder_score: firstPositive(
+launch?.builder_score,
+stats?.builder_score
+) ?? 0,
+image_url: choosePreferredNonEmpty(
+launch?.image_url,
+token?.image_url,
+token?.logo_uri,
+token?.logo
+),
+description: choosePreferredNonEmpty(
+launch?.description
+),
+website_url: choosePreferredNonEmpty(
+launch?.website_url
+),
+x_url: choosePreferredNonEmpty(
+launch?.x_url
+),
+telegram_url: choosePreferredNonEmpty(
+launch?.telegram_url
+),
+discord_url: choosePreferredNonEmpty(
+launch?.discord_url
+),
+final_supply: choosePreferredNonEmpty(
+token?.supply,
+token?.total_supply,
+stats?.total_supply,
+launch?.final_supply
+),
+supply: choosePreferredNonEmpty(
+token?.supply,
+token?.total_supply,
+stats?.total_supply,
+launch?.supply
+),
+contract_address: choosePreferredNonEmpty(
+launch?.contract_address,
+token?.mint_address,
+token?.mint,
+tokenPayload?.mint_address,
+tokenPayload?.mint
+),
+mint_address: choosePreferredNonEmpty(
+token?.mint_address,
+token?.mint,
+tokenPayload?.mint_address,
+tokenPayload?.mint,
+launch?.mint_address
+),
+price: firstPositive(
+launch?.price,
+stats?.price,
+stats?.price_sol
+) ?? 0,
+market_cap: firstPositive(
+launch?.market_cap,
+stats?.market_cap,
+stats?.market_cap_sol
+) ?? 0,
+liquidity: firstPositive(
+launch?.liquidity,
+stats?.liquidity,
+stats?.liquidity_sol
+) ?? 0,
+volume_24h: firstPositive(
+launch?.volume_24h,
+stats?.volume_24h,
+stats?.volume_24h_sol
+) ?? 0,
+});
+}
+
 function setText(id, value) {
 const el = typeof id === "string" ? $(id) : id;
 if (el) el.textContent = value;
@@ -279,6 +413,8 @@ website_url: cleanString(raw?.website_url, 500),
 x_url: cleanString(raw?.x_url, 500),
 telegram_url: cleanString(raw?.telegram_url, 500),
 discord_url: cleanString(raw?.discord_url, 500),
+description: cleanString(raw?.description, 4000),
+image_url: cleanString(raw?.image_url, 2000),
 committed_sol: toNumber(raw?.committed_sol, 0),
 participants_count: toNumber(raw?.participants_count, 0),
 hard_cap_sol: toNumber(raw?.hard_cap_sol, 0),
@@ -295,17 +431,35 @@ function mergeLaunchTruth(previous = {}, incoming = {}) {
 const prev = normalizeLaunchTruth(previous || {});
 const next = normalizeLaunchTruth(incoming || {});
 
-const merged = {
-...prev,
-...next,
-};
-
 const prevStatus = cleanString(prev.status, 64).toLowerCase();
 const nextStatus = cleanString(next.status, 64).toLowerCase();
 
 const prevContract = choosePreferredNonEmpty(prev.contract_address, prev.mint_address);
 const nextContract = choosePreferredNonEmpty(next.contract_address, next.mint_address);
 const strongestContract = choosePreferredNonEmpty(nextContract, prevContract);
+
+const merged = {
+...prev,
+...next,
+};
+
+merged.token_name = choosePreferredNonEmpty(next.token_name, prev.token_name);
+merged.symbol = choosePreferredNonEmpty(next.symbol, prev.symbol);
+merged.builder_wallet = choosePreferredNonEmpty(next.builder_wallet, prev.builder_wallet);
+merged.builder_alias = choosePreferredNonEmpty(next.builder_alias, prev.builder_alias);
+merged.template = choosePreferredNonEmpty(next.template, prev.template);
+merged.description = choosePreferredNonEmpty(next.description, prev.description);
+merged.image_url = choosePreferredNonEmpty(next.image_url, prev.image_url);
+merged.website_url = choosePreferredNonEmpty(next.website_url, prev.website_url);
+merged.x_url = choosePreferredNonEmpty(next.x_url, prev.x_url);
+merged.telegram_url = choosePreferredNonEmpty(next.telegram_url, prev.telegram_url);
+merged.discord_url = choosePreferredNonEmpty(next.discord_url, prev.discord_url);
+merged.final_supply = choosePreferredNonEmpty(next.final_supply, prev.final_supply, next.supply, prev.supply);
+merged.supply = choosePreferredNonEmpty(next.supply, prev.supply, next.final_supply, prev.final_supply);
+
+merged.builder_score = firstPositive(next.builder_score, prev.builder_score) ?? toNumber(next.builder_score ?? prev.builder_score, 0);
+merged.hard_cap_sol = firstPositive(next.hard_cap_sol, prev.hard_cap_sol) ?? toNumber(next.hard_cap_sol ?? prev.hard_cap_sol, 0);
+merged.min_raise_sol = firstPositive(next.min_raise_sol, prev.min_raise_sol) ?? toNumber(next.min_raise_sol ?? prev.min_raise_sol, 0);
 
 merged.contract_address = strongestContract;
 merged.mint_address = choosePreferredNonEmpty(next.mint_address, prev.mint_address, strongestContract);
@@ -428,6 +582,7 @@ overlayEyebrow: "MARKET BOOTSTRAP",
 overlayTitle: "Building Live Market",
 overlayText: "Countdown has ended. Final mint, liquidity, and market state are being finalized.",
 overlaySubtext: "Contract address and live pricing will appear once bootstrap completes.",
+marketTitle: "Market Bootstrap",
 };
 case PHASES.COUNTDOWN:
 return {
@@ -438,6 +593,7 @@ overlayEyebrow: "TRADING COUNTDOWN",
 overlayTitle: "Trading Opens In",
 overlayText: "",
 overlaySubtext: "Market activation is imminent.",
+marketTitle: "Launch Countdown",
 };
 case PHASES.LIVE:
 return {
@@ -448,6 +604,7 @@ overlayEyebrow: "LIVE MARKET",
 overlayTitle: "Live Trading",
 overlayText: "Market is now open.",
 overlaySubtext: "",
+marketTitle: "Live Market",
 };
 case PHASES.COMMIT:
 default:
@@ -459,6 +616,7 @@ overlayEyebrow: "COMMIT PHASE",
 overlayTitle: "Commit Phase In Progress",
 overlayText: "Trading is not open yet. Commitments are being collected before market activation.",
 overlaySubtext: "",
+marketTitle: "Commit Activity",
 };
 }
 }
@@ -624,6 +782,11 @@ setText("marketStatusLabel", phase === PHASES.LIVE ? "Live Trading" : meta.statu
 setText("marketOverlayEyebrow", meta.overlayEyebrow);
 setText("marketOverlayTitle", meta.overlayTitle);
 
+const marketTitleEl = document.querySelector(".market-card-title");
+if (marketTitleEl) {
+marketTitleEl.textContent = meta.marketTitle;
+}
+
 const marketOverlayText = $("marketOverlayText");
 if (marketOverlayText) {
 marketOverlayText.textContent = meta.overlayText;
@@ -669,33 +832,29 @@ setText("launchTerminalModeLabel", meta.marketModeText);
 }
 
 function updateTokenIdentity(launch, tokenPayload = null) {
-const tokenName =
-launch?.token_name ||
-tokenPayload?.token?.name ||
-"Token Name";
-
-const tokenSymbol = String(
-launch?.symbol ||
-tokenPayload?.token?.symbol ||
-tokenPayload?.token?.ticker ||
-"TOKEN"
-).replace(/^\$/, "");
-
-const builderWallet = launch?.builder_wallet || "";
-const builderAlias =
-launch?.builder_alias ||
-tokenPayload?.launch?.builder_alias ||
-"Builder";
+const tokenName = getLaunchDisplayName(launch, tokenPayload);
+const tokenSymbol = String(getLaunchSymbol(launch, tokenPayload)).replace(/^\$/, "");
+const builderWallet = choosePreferredNonEmpty(
+launch?.builder_wallet,
+tokenPayload?.launch?.builder_wallet
+);
+const builderAlias = choosePreferredNonEmpty(
+launch?.builder_alias,
+tokenPayload?.launch?.builder_alias,
+"Builder"
+);
 const builderScore = toNumber(
 launch?.builder_score ?? tokenPayload?.launch?.builder_score,
 0
 );
 
+const initials = getInitials(tokenSymbol, tokenName);
+
 setTextMany(["launchTokenName", "launchTokenNameMirror"], tokenName);
 setText("launchTokenSymbol", `$${tokenSymbol}`);
 setText("launchBuilderLabel", builderAlias);
 setText("launchBuilderWalletShort", builderWallet ? shortAddress(builderWallet) : "Pending");
-setText("launchTokenLogo", (tokenSymbol[0] || "M").toUpperCase());
+setText("launchTokenLogo", initials);
 
 setText("builderAlias", builderAlias);
 setText("builderScoreStat", builderScore > 0 ? formatNumber(builderScore, { maximumFractionDigits: 0 }) : "—");
@@ -874,44 +1033,44 @@ function updateStatsForCommit(launch, commitStats = {}) {
 const { committedSol, participantCount, hardCapSol, minRaiseSol } = getCommitMetrics(launch, commitStats);
 const progress = hardCapSol > 0 ? Math.min(100, (committedSol / hardCapSol) * 100) : 0;
 
-setText("stat1Label", "Committed");
+setText("stat1Label", "Committed Capital");
 setText("stat1Value", formatSol(committedSol, 2));
 
-setText("stat2Label", "Participants");
+setText("stat2Label", "Participant Count");
 setText("stat2Value", formatNumber(participantCount, { maximumFractionDigits: 0 }));
 
 setText("stat3Label", "Minimum Raise");
 setText("stat3Value", minRaiseSol > 0 ? formatSol(minRaiseSol, 2) : "—");
 
-setText("stat4Label", "Progress");
+setText("stat4Label", "Fill Progress");
 setText("stat4Value", formatPercent(progress, 1));
 }
 
 function updateStatsForCountdown(launch, commitStats = {}) {
 const { committedSol, participantCount, hardCapSol } = getCommitMetrics(launch, commitStats);
 
-setText("stat1Label", "Committed");
+setText("stat1Label", "Committed Capital");
 setText("stat1Value", formatSol(committedSol, 2));
 
-setText("stat2Label", "Participants");
+setText("stat2Label", "Participant Count");
 setText("stat2Value", formatNumber(participantCount, { maximumFractionDigits: 0 }));
 
 setText("stat3Label", "Hard Cap");
 setText("stat3Value", hardCapSol > 0 ? formatSol(hardCapSol, 2) : "—");
 
-setText("stat4Label", "Time Left");
+setText("stat4Label", "Countdown");
 setText("stat4Value", getCountdownText(launch, commitStats));
 }
 
 function updateStatsForBuilding(launch, lifecycle = null) {
-setText("stat1Label", "State");
+setText("stat1Label", "Market State");
 setText("stat1Value", "Building");
 
-setText("stat2Label", "Mint");
+setText("stat2Label", "Mint Status");
 const ca = choosePreferredNonEmpty(launch?.contract_address, launch?.mint_address);
 setText("stat2Value", ca ? shortAddress(ca) : "Pending");
 
-setText("stat3Label", "Liquidity");
+setText("stat3Label", "Bootstrap Liquidity");
 const liq = toNumber(
 lifecycle?.internalSolReserve ??
 launch?.internal_pool_sol ??
@@ -920,7 +1079,7 @@ launch?.liquidity,
 );
 setText("stat3Value", liq > 0 ? formatSol(liq, 4) : "Pending");
 
-setText("stat4Label", "Status");
+setText("stat4Label", "Execution");
 setText("stat4Value", "Bootstrapping");
 }
 
@@ -1017,7 +1176,7 @@ solUsdPrice,
 function updateStatsForLive(tokenPayload = {}, chartStats = {}, launch = {}, lifecycle = null) {
 const liveStats = getLiveStats(tokenPayload, chartStats, launch, lifecycle);
 
-setText("stat1Label", "Price");
+setText("stat1Label", "Spot Price");
 setText(
 "stat1Value",
 liveStats.priceUsd > 0
@@ -2338,9 +2497,13 @@ trades: payload?.trades || [],
 });
 this.pool = payload?.pool || null;
 
+const tokenLaunchPatch = buildLaunchPatchFromTokenPayload(this.tokenPayload);
+
 if (payload?.chartLaunch) {
 this.launch = mergeLaunchTruth(this.launch || {}, payload.chartLaunch);
 }
+
+this.launch = mergeLaunchTruth(this.launch || {}, tokenLaunchPatch);
 
 const liveWalletSummary = getWalletSummaryData(
 this.tokenPayload,
@@ -2422,17 +2585,21 @@ return this._launchRefreshInFlight;
 this._launchRefreshInFlight = (async () => {
 const previousPhase = this.phase;
 
-const [launchPayload, commitStatsPayload, lifecyclePayload] = await Promise.all([
+const [launchPayload, commitStatsPayload, lifecyclePayload, tokenPayload] = await Promise.all([
 this.fetchLaunch(this.launchId),
 this.fetchCommitStats(this.launchId),
 this.fetchLifecycle(this.launchId).catch(() => ({})),
+this.fetchTokenStats(this.launchId, this.connectedWallet || "").catch(() => ({})),
 ]);
 
 if (this._destroyed) return;
 
 const incomingLaunch = normalizeLaunchTruth(launchPayload?.launch || launchPayload || {});
+const tokenLaunchPatch = buildLaunchPatchFromTokenPayload(tokenPayload || {});
 
+this.tokenPayload = tokenPayload || this.tokenPayload || {};
 this.launch = mergeLaunchTruth(this.launch || {}, incomingLaunch);
+this.launch = mergeLaunchTruth(this.launch || {}, tokenLaunchPatch);
 this.commitStats = commitStatsPayload || {};
 this.lifecycle = lifecyclePayload?.lifecycle || null;
 this.graduationPlan = lifecyclePayload?.graduationPlan || null;
@@ -2614,7 +2781,18 @@ void this.refreshLiveMarketOnly({ force: true }).catch((error) => {
 console.error("wallet sync refresh failed:", error);
 });
 }, 250);
+return;
 }
+
+if (this._walletRefreshTimeout) {
+clearTimeout(this._walletRefreshTimeout);
+}
+
+this._walletRefreshTimeout = setTimeout(() => {
+void this.refreshLaunch({ force: true }).catch((error) => {
+console.error("wallet metadata refresh failed:", error);
+});
+}, 250);
 }
 
 async handleManageLinksClick() {
