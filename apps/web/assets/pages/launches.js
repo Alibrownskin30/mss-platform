@@ -428,7 +428,7 @@ return `<button type="button" class="quick-commit-btn" data-launch-id="${launch.
 }
 
 function getLaunchHref(launchId) {
-return `./launch-detail.html?id=${encodeURIComponent(launchId)}`;
+return `./launch.html?id=${encodeURIComponent(launchId)}`;
 }
 
 function buildCard(launch) {

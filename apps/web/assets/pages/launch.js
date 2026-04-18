@@ -1315,8 +1315,8 @@ return `${trust.label} Builder`;
 
 const cassiePrimary = (() => {
 if (status === "commit") return `${builderAlias} is in active commit phase with structural checks still front-running live transition.`;
-if (status === "countdown") return `Countdown integrity is active and the launch is locked ahead of market activation.`;
-if (status === "building") return `Mint and reserve bootstrap are finalizing before live market exposure.`;
+if (status === "countdown") return "Countdown integrity is active and the launch is locked ahead of market activation.";
+if (status === "building") return "Mint and reserve bootstrap are finalizing before live market exposure.";
 if (status === "live") return readiness?.ready
 ? "Launch is live and currently showing graduation-ready posture."
 : "Launch is live and under active structural monitoring.";
@@ -1654,7 +1654,9 @@ const requestSeq = ++loadRequestSeq;
 const [launchRes, commitsRes, reconcileRes] = await Promise.all([
 fetchJson(`/api/launcher/${id}`),
 fetchJson(`/api/launcher/commits/${id}`),
-fetchJson(`/api/launcher/${id}/reconcile`).catch(() => null),
+fetchJson(`/api/launcher/${id}/reconcile`, {
+method: "POST",
+}).catch(() => null),
 ]);
 
 if (requestSeq !== loadRequestSeq) return;

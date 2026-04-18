@@ -9,8 +9,8 @@ name="description"
 content="MSS Protocol Launch Terminal — builder identity, launch intelligence, structured commit flow, countdown integrity, and live market transition."
 />
 
-<link rel="stylesheet" href="./assets/app.css?v=3" />
-<link rel="stylesheet" href="./assets/chart.css?v=3" />
+<link rel="stylesheet" href="./assets/app.css?v=4" />
+<link rel="stylesheet" href="./assets/chart.css?v=4" />
 
 <style>
 .launch-detail-page{
@@ -18,7 +18,7 @@ min-height:100vh;
 }
 
 .launch-detail-page .page-wrap{
-max-width:1440px;
+max-width:1460px;
 margin:0 auto;
 padding:22px 18px 90px;
 position:relative;
@@ -48,13 +48,14 @@ gap:8px;
 min-height:38px;
 padding:0 12px;
 border-radius:999px;
-border:1px solid rgba(255,255,255,.10);
-background:rgba(255,255,255,.04);
-color:rgba(255,255,255,.82);
+border:1px solid rgba(255,241,191,.12);
+background:linear-gradient(180deg, rgba(255,255,255,.04), rgba(255,255,255,.02));
+color:rgba(244,246,250,.84);
 font-size:12px;
 font-weight:800;
 letter-spacing:.04em;
 white-space:nowrap;
+box-shadow:inset 0 1px 0 rgba(255,255,255,.04);
 }
 
 .launch-detail-page .page-pill-dot{
@@ -89,12 +90,12 @@ align-items:stretch;
 .launch-detail-page .launch-command-card{
 position:relative;
 overflow:hidden;
-border:1px solid rgba(255,255,255,.10);
+border:1px solid rgba(255,241,191,.12);
 border-radius:24px;
 background:
-radial-gradient(circle at 10% 0%, rgba(58,160,255,.12), transparent 26%),
-radial-gradient(circle at 90% 10%, rgba(0,255,209,.10), transparent 22%),
-linear-gradient(180deg, rgba(255,255,255,.058), rgba(255,255,255,.022));
+radial-gradient(circle at 10% 0%, rgba(214,178,94,.12), transparent 28%),
+radial-gradient(circle at 90% 10%, rgba(88,111,140,.10), transparent 24%),
+linear-gradient(180deg, rgba(255,255,255,.05), rgba(255,255,255,.02));
 box-shadow:0 30px 100px rgba(0,0,0,.42);
 padding:18px;
 }
@@ -104,7 +105,7 @@ content:"";
 position:absolute;
 inset:0;
 pointer-events:none;
-background:linear-gradient(180deg, rgba(255,255,255,.04), transparent 28%);
+background:linear-gradient(180deg, rgba(255,255,255,.03), transparent 28%);
 }
 
 .launch-detail-page .launch-command-top{
@@ -121,7 +122,7 @@ flex-wrap:wrap;
 font-size:11px;
 letter-spacing:.20em;
 text-transform:uppercase;
-color:rgba(255,255,255,.46);
+color:rgba(255,255,255,.44);
 margin-bottom:10px;
 }
 
@@ -164,8 +165,8 @@ line-height:1;
 width:8px;
 height:8px;
 border-radius:999px;
-background:var(--accent-a, #c8a96b);
-box-shadow:0 0 14px rgba(200,169,107,.55);
+background:var(--accent-a, #d6b25e);
+box-shadow:0 0 14px rgba(214,178,94,.55);
 }
 
 .launch-detail-page .launch-command-grid{
@@ -178,8 +179,8 @@ margin-top:16px;
 }
 
 .launch-detail-page .launch-command-metric{
-border:1px solid rgba(255,255,255,.09);
-background:rgba(255,255,255,.03);
+border:1px solid rgba(255,255,255,.08);
+background:rgba(255,255,255,.025);
 border-radius:16px;
 padding:12px;
 min-width:0;
@@ -204,7 +205,7 @@ word-break:break-word;
 
 .launch-detail-page .launch-command-metric-sub{
 margin-top:6px;
-color:rgba(255,255,255,.70);
+color:rgba(255,255,255,.68);
 font-size:12px;
 line-height:1.4;
 }
@@ -212,11 +213,11 @@ line-height:1.4;
 .launch-detail-page .launch-status-board{
 position:relative;
 overflow:hidden;
-border:1px solid rgba(255,255,255,.10);
+border:1px solid rgba(255,241,191,.12);
 border-radius:24px;
 background:
-radial-gradient(circle at 80% 0%, rgba(139,123,255,.12), transparent 24%),
-linear-gradient(180deg, rgba(255,255,255,.052), rgba(255,255,255,.022));
+radial-gradient(circle at 82% 0%, rgba(88,111,140,.12), transparent 24%),
+linear-gradient(180deg, rgba(255,255,255,.048), rgba(255,255,255,.02));
 box-shadow:0 18px 60px rgba(0,0,0,.32);
 padding:18px;
 display:grid;
@@ -228,7 +229,7 @@ content:"";
 position:absolute;
 inset:0;
 pointer-events:none;
-background:linear-gradient(180deg, rgba(255,255,255,.035), transparent 24%);
+background:linear-gradient(180deg, rgba(255,255,255,.028), transparent 24%);
 }
 
 .launch-detail-page .launch-status-board-top{
@@ -275,7 +276,7 @@ gap:10px;
 
 .launch-detail-page .launch-status-board-cell{
 border:1px solid rgba(255,255,255,.08);
-background:rgba(255,255,255,.03);
+background:rgba(255,255,255,.025);
 border-radius:16px;
 padding:12px;
 min-width:0;
@@ -320,8 +321,8 @@ min-width:0;
 
 .launch-detail-page .panel{
 position:relative;
-border:1px solid rgba(255,255,255,.10);
-background:linear-gradient(180deg, rgba(255,255,255,.062), rgba(255,255,255,.030));
+border:1px solid rgba(255,241,191,.12);
+background:linear-gradient(180deg, rgba(255,255,255,.052), rgba(255,255,255,.024));
 border-radius:24px;
 padding:18px;
 box-shadow:0 18px 60px rgba(0,0,0,.32);
@@ -334,7 +335,7 @@ content:"";
 position:absolute;
 inset:0;
 pointer-events:none;
-background:linear-gradient(180deg, rgba(255,255,255,.035), transparent 26%);
+background:linear-gradient(180deg, rgba(255,255,255,.028), transparent 26%);
 }
 
 .launch-detail-page .section-title{
@@ -376,9 +377,9 @@ line-height:1.45;
 display:grid;
 gap:14px;
 background:
-radial-gradient(circle at 12% 0%, rgba(58,160,255,.07), transparent 24%),
-radial-gradient(circle at 88% 8%, rgba(0,255,209,.06), transparent 20%),
-linear-gradient(180deg, rgba(255,255,255,.062), rgba(255,255,255,.030));
+radial-gradient(circle at 12% 0%, rgba(214,178,94,.07), transparent 24%),
+radial-gradient(circle at 88% 8%, rgba(88,111,140,.06), transparent 20%),
+linear-gradient(180deg, rgba(255,255,255,.055), rgba(255,255,255,.024));
 box-shadow:0 30px 100px rgba(0,0,0,.42);
 }
 
@@ -409,7 +410,7 @@ word-break:break-word;
 }
 
 .launch-detail-page .overview-card-desc{
-color:rgba(255,255,255,.70);
+color:rgba(255,255,255,.72);
 line-height:1.68;
 font-size:14px;
 word-break:break-word;
@@ -428,9 +429,9 @@ gap:8px;
 padding:8px 10px;
 border-radius:999px;
 background:rgba(255,255,255,.04);
-border:1px solid rgba(255,255,255,.10);
+border:1px solid rgba(255,255,255,.09);
 font-size:12px;
-color:rgba(255,255,255,.82);
+color:rgba(255,255,255,.84);
 min-width:0;
 max-width:100%;
 overflow-wrap:anywhere;
@@ -454,8 +455,8 @@ gap:12px;
 }
 
 .launch-detail-page .launch-side-stat{
-border:1px solid rgba(255,255,255,.09);
-background:rgba(255,255,255,.03);
+border:1px solid rgba(255,255,255,.08);
+background:rgba(255,255,255,.025);
 border-radius:16px;
 padding:14px 15px;
 min-width:0;
@@ -480,8 +481,8 @@ word-break:break-word;
 .launch-detail-page .phase-box{
 padding:16px;
 border-radius:18px;
-border:1px solid rgba(255,255,255,.10);
-background:rgba(255,255,255,.03);
+border:1px solid rgba(255,255,255,.09);
+background:rgba(255,255,255,.025);
 min-width:0;
 }
 
@@ -508,7 +509,7 @@ word-break:break-word;
 
 .launch-detail-page .phase-note{
 margin-top:10px;
-color:rgba(255,255,255,.70);
+color:rgba(255,255,255,.72);
 font-size:14px;
 line-height:1.55;
 word-break:break-word;
@@ -530,21 +531,21 @@ background:rgba(255,255,255,.05);
 color:rgba(255,255,255,.90);
 text-transform:uppercase;
 flex:0 0 auto;
-box-shadow:inset 0 1px 0 rgba(255,255,255,.06);
+box-shadow:inset 0 1px 0 rgba(255,255,255,.05);
 }
 
 .launch-detail-page .status-pill.commit{
-border-color:rgba(58,160,255,.22);
-background:rgba(58,160,255,.10);
+border-color:rgba(214,178,94,.20);
+background:rgba(214,178,94,.10);
 }
 
 .launch-detail-page .status-pill.countdown{
-border-color:rgba(255,209,102,.22);
+border-color:rgba(255,209,102,.18);
 background:rgba(255,209,102,.10);
 }
 
 .launch-detail-page .status-pill.live{
-border-color:rgba(53,245,163,.22);
+border-color:rgba(53,245,163,.20);
 background:rgba(53,245,163,.10);
 }
 
@@ -554,14 +555,14 @@ background:rgba(255,91,107,.10);
 }
 
 .launch-detail-page .status-pill.graduated{
-border-color:rgba(255,255,255,.14);
-background:rgba(255,255,255,.06);
+border-color:rgba(255,255,255,.12);
+background:rgba(255,255,255,.05);
 }
 
 .launch-detail-page .progress-card{
 padding:16px;
-border:1px solid rgba(255,255,255,.10);
-background:rgba(255,255,255,.03);
+border:1px solid rgba(255,255,255,.09);
+background:rgba(255,255,255,.025);
 border-radius:22px;
 min-width:0;
 }
@@ -605,7 +606,7 @@ justify-content:space-between;
 gap:8px;
 align-items:center;
 font-size:12px;
-color:rgba(255,255,255,.70);
+color:rgba(255,255,255,.72);
 flex-wrap:wrap;
 }
 
@@ -621,8 +622,8 @@ border:1px solid rgba(255,255,255,.08);
 .launch-detail-page .progress-fill{
 height:100%;
 width:0%;
-background:linear-gradient(90deg, rgba(0,255,209,.95), rgba(58,160,255,.95));
-box-shadow:0 0 20px rgba(0,255,209,.18);
+background:linear-gradient(90deg, rgba(214,178,94,.96), rgba(88,111,140,.96));
+box-shadow:0 0 20px rgba(214,178,94,.18);
 transition:width .25s ease;
 }
 
@@ -637,8 +638,8 @@ min-width:0;
 
 .launch-detail-page .commit-kpi,
 .launch-detail-page .stat{
-border:1px solid rgba(255,255,255,.10);
-background:rgba(255,255,255,.03);
+border:1px solid rgba(255,255,255,.09);
+background:rgba(255,255,255,.025);
 border-radius:16px;
 padding:14px;
 min-width:0;
@@ -663,10 +664,10 @@ word-break:break-word;
 
 .launch-detail-page .compact-note{
 border:1px solid rgba(255,255,255,.08);
-background:rgba(255,255,255,.03);
+background:rgba(255,255,255,.025);
 border-radius:16px;
 padding:14px 16px;
-color:rgba(255,255,255,.70);
+color:rgba(255,255,255,.72);
 font-size:14px;
 line-height:1.55;
 }
@@ -680,8 +681,8 @@ min-width:0;
 }
 
 .launch-detail-page .recent-item{
-border:1px solid rgba(255,255,255,.10);
-background:rgba(255,255,255,.03);
+border:1px solid rgba(255,255,255,.09);
+background:rgba(255,255,255,.025);
 border-radius:14px;
 padding:12px 14px;
 display:flex;
@@ -700,7 +701,7 @@ word-break:break-word;
 }
 
 .launch-detail-page .recent-meta{
-color:rgba(255,255,255,.70);
+color:rgba(255,255,255,.68);
 font-size:12px;
 overflow-wrap:anywhere;
 }
@@ -734,8 +735,8 @@ white-space:nowrap;
 }
 
 .launch-detail-page .hero-wallet-btn.primary{
-border-color:rgba(0,255,209,.22);
-background:rgba(0,255,209,.08);
+border-color:rgba(214,178,94,.20);
+background:rgba(214,178,94,.10);
 }
 
 .launch-detail-page .hero-wallet-pill{
@@ -786,7 +787,7 @@ margin:0;
 
 .launch-detail-page .action-panel-topline{
 margin:-2px 0 12px;
-color:rgba(255,255,255,.70);
+color:rgba(255,255,255,.72);
 font-size:13px;
 line-height:1.6;
 }
@@ -811,7 +812,7 @@ display:grid;
 gap:10px;
 padding:12px;
 border:1px solid rgba(255,255,255,.08);
-background:rgba(255,255,255,.03);
+background:rgba(255,255,255,.025);
 border-radius:16px;
 }
 
@@ -915,8 +916,8 @@ line-height:1;
 }
 
 .launch-detail-page .btn.primary{
-border-color:rgba(0,255,209,.22);
-background:rgba(0,255,209,.08);
+border-color:rgba(214,178,94,.20);
+background:rgba(214,178,94,.10);
 }
 
 .launch-detail-page .btn:disabled{
@@ -926,7 +927,7 @@ cursor:not-allowed;
 
 .launch-detail-page .desc{
 margin-top:14px;
-color:rgba(255,255,255,.70);
+color:rgba(255,255,255,.72);
 line-height:1.65;
 font-size:15px;
 word-break:break-word;
@@ -1003,7 +1004,7 @@ padding:14px 16px;
 border-radius:16px;
 border:1px solid rgba(255,255,255,.10);
 background:rgba(255,255,255,.03);
-color:rgba(255,255,255,.70);
+color:rgba(255,255,255,.72);
 display:none;
 white-space:pre-wrap;
 word-break:break-word;
@@ -1013,21 +1014,21 @@ word-break:break-word;
 display:block;
 border-color:rgba(53,245,163,.18);
 background:rgba(53,245,163,.08);
-color:rgba(255,255,255,.90);
+color:rgba(255,255,255,.92);
 }
 
 .launch-detail-page .status.bad{
 display:block;
 border-color:rgba(255,91,107,.20);
 background:rgba(255,91,107,.08);
-color:rgba(255,255,255,.90);
+color:rgba(255,255,255,.92);
 }
 
 .launch-detail-page .status.warn{
 display:block;
 border-color:rgba(255,209,102,.20);
 background:rgba(255,209,102,.08);
-color:rgba(255,255,255,.92);
+color:rgba(255,255,255,.94);
 }
 
 .launch-detail-page .terminal-status-inline{
@@ -1057,6 +1058,10 @@ min-width:0;
 
 .launch-detail-page .market-meta-grid:not(:has(> :not(.hidden))){
 display:none;
+}
+
+.launch-detail-page .hook-mirrors{
+display:none !important;
 }
 
 @media (max-width:1180px){
@@ -1368,16 +1373,18 @@ Wallet:
 </button>
 </div>
 
-<div class="launch-builder-intel-card cassie-card">
-<div class="launch-builder-intel-top">
-<div class="launch-builder-intel-kicker">Builder Intelligence</div>
-<div id="launchBuilderTrustPill" class="launch-builder-tier">Pending</div>
+<div id="builderProfileWrap">
+<div id="builderCard">
+<div id="builderInfoSection" class="launch-builder-intel-card cassie-card">
+<div class="launch-builder-intel-top cassie-card-top">
+<div class="launch-builder-intel-kicker cassie-title">Builder Intelligence</div>
+<div id="launchBuilderTrustPill" class="cassie-state">Pending</div>
 </div>
 
 <div class="launch-builder-intel-main">
 <div class="launch-builder-alias-wrap">
 <div id="launchBuilderAliasText" class="launch-builder-alias">Builder Profile</div>
-<div id="launchBuilderIntelSub" class="launch-builder-sub">
+<div id="launchBuilderIntelSub" class="launch-builder-sub cassie-note">
 Public builder identity, trust posture, badges, and launch history.
 </div>
 </div>
@@ -1405,9 +1412,14 @@ Public builder identity, trust posture, badges, and launch history.
 </div>
 </div>
 
-<div class="launch-builder-intel-actions">
-<a id="launchBuilderProfileBtn2" class="launch-builder-intel-btn primary" href="./builder.html">Open Builder Profile</a>
-<button id="launchBuilderCopyWalletBtn" class="launch-builder-intel-btn" type="button">Copy Builder Wallet</button>
+<div class="launch-builder-intel-actions" style="display:flex;gap:8px;flex-wrap:wrap;margin-top:12px;">
+<a id="launchBuilderProfileBtn2" class="hero-wallet-btn primary" href="./builder.html">Open Builder Profile</a>
+<button id="launchBuilderCopyWalletBtn" class="hero-wallet-btn" type="button">Copy Builder Wallet</button>
+</div>
+
+<div id="builderIdentityCard" class="hook-mirrors"></div>
+<div id="builderProfileCard" class="hook-mirrors"></div>
+</div>
 </div>
 </div>
 
@@ -1607,6 +1619,15 @@ Commit phase closed. Market activation is imminent.
 <span class="chip">Builder: <strong id="builderAlias" style="margin-left:6px;">—</strong></span>
 <span class="chip">Status: <strong id="launchStatusText" style="margin-left:6px;">—</strong></span>
 <span class="chip">Builder Score: <strong id="builderScoreStat" style="margin-left:6px;">—</strong></span>
+<span class="chip">Template: <strong id="launchOverviewTemplateText" style="margin-left:6px;">—</strong></span>
+</div>
+
+<div class="compact-note" style="margin-top:12px;">
+<div style="font-weight:800; margin-bottom:8px;">Lifecycle Summary</div>
+<div id="launchLifecycleSummaryText">Commit → Countdown → Live</div>
+<div id="launchOverviewCopy" style="margin-top:8px; font-size:12px; color:rgba(255,255,255,.68); line-height:1.55;">
+Awaiting launch overview state.
+</div>
 </div>
 </div>
 
@@ -1635,6 +1656,21 @@ Commit phase closed. Market activation is imminent.
 <div class="launch-side-stat-label">Countdown / Live</div>
 <div id="countdownEndsAtStat" class="launch-side-stat-value">—</div>
 </div>
+
+<div class="launch-side-stat">
+<div class="launch-side-stat-label">Raise Structure</div>
+<div id="launchRaiseStructureText" class="launch-side-stat-value">—</div>
+</div>
+
+<div class="launch-side-stat">
+<div class="launch-side-stat-label">Builder Controls</div>
+<div id="launchBuilderControlsText" class="launch-side-stat-value">—</div>
+</div>
+
+<div class="launch-side-stat">
+<div class="launch-side-stat-label">Wallet Access</div>
+<div id="launchWalletAccessText" class="launch-side-stat-value">Not Connected</div>
+</div>
 </div>
 </div>
 
@@ -1658,7 +1694,9 @@ Commit phase closed. Market activation is imminent.
 <div class="progress-card-top">
 <div style="min-width:0;">
 <div class="progress-card-title"><span id="totalCommittedStat">0 SOL</span> committed</div>
-<div class="progress-card-sub"><span id="progressCountdownLabel">Commit ends in</span>: <span id="progressCountdownValue">—</span></div>
+<div class="progress-card-sub">
+<span id="progressCountdownLabel">Commit ends in</span>: <span id="progressCountdownValue">—</span>
+</div>
 </div>
 <div id="phaseBadge" class="status-pill commit">Commit</div>
 </div>
@@ -1754,7 +1792,7 @@ Commit phase closed. Market activation is imminent.
 <div class="terminal-section-title">LP Lifecycle</div>
 <div class="terminal-section-sub">Internal pool truth, graduation posture, migration split, and lock proof.</div>
 </div>
-<div class="lifecycle-action-row">
+<div class="lifecycle-action-row" style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
 <div id="lifecycleStatusPill" class="status-pill commit">pending</div>
 <button id="graduateDevnetBtn" class="btn primary hidden" type="button">Graduate Devnet</button>
 </div>
@@ -1795,6 +1833,25 @@ Graduation conditions are still being evaluated.
 </div>
 </div>
 
+<div class="allocation-grid">
+<div class="stat">
+<div class="k">Internal LP</div>
+<div class="v" id="launchLpInternalText">—</div>
+</div>
+<div class="stat">
+<div class="k">Graduation Readiness</div>
+<div class="v" id="launchGraduationReadinessText">Pending</div>
+</div>
+<div class="stat">
+<div class="k">Locked LP</div>
+<div class="v" id="launchLockedLpText">Pending</div>
+</div>
+<div class="stat">
+<div class="k">Migration State</div>
+<div class="v" id="launchMigrationStateText">Not Started</div>
+</div>
+</div>
+
 <div>
 <div class="section-title">Proof / Status Feed</div>
 <div id="graduationProofList" class="recent"></div>
@@ -1823,6 +1880,33 @@ Graduation conditions are still being evaluated.
 MSS launches enforce structured commit logic, capped wallet participation, minimum raise checks,
 countdown-based go-live transitions, automatic lifecycle transitions, internal pool reserve truth,
 builder vesting tracking, and refund protection that disables the moment countdown begins.
+</div>
+
+<div class="allocation-grid">
+<div class="stat">
+<div class="k">CassIE Verdict</div>
+<div class="v" id="launchCassieVerdictText">Pending</div>
+</div>
+<div class="stat">
+<div class="k">Wallet Position</div>
+<div class="v" id="launchWalletPositionText">Pending</div>
+</div>
+<div class="stat">
+<div class="k">Wallet Limit</div>
+<div class="v" id="launchWalletLimitText">Pending</div>
+</div>
+<div class="stat">
+<div class="k">Overview Access</div>
+<div class="v" id="launchOverviewAccessText">Pre-Live</div>
+</div>
+</div>
+
+<div class="compact-note">
+<div style="font-weight:800; margin-bottom:8px;">CassIE Primary</div>
+<div id="launchCassiePrimaryText">Awaiting intelligence.</div>
+<div id="launchCassiePatternText" style="margin-top:8px;font-size:12px;color:rgba(255,255,255,.68);line-height:1.55;">
+Pattern monitoring inactive.
+</div>
 </div>
 </section>
 </div>
@@ -1997,6 +2081,69 @@ data-role="wallet-input"
 </div>
 </div>
 
+<div class="hook-mirrors" aria-hidden="true">
+<div id="marketHeroTokenName"></div>
+
+<div id="builderAliasStat"></div>
+<div id="builderNameStat"></div>
+<div id="builderIdentityName"></div>
+<div id="builderWalletStat"></div>
+<div id="builderWallet"></div>
+<div id="builderAddress"></div>
+<div id="builderIdentityWallet"></div>
+<input id="builderWalletFull" value="" />
+<input id="builderAddressFull" value="" />
+<div id="builderWalletFullText"></div>
+<div id="builderAddressFullText"></div>
+<div id="builderTrustStat"></div>
+<div id="builderTrustLabel"></div>
+<div id="builderTrustPill"></div>
+<div id="builderTrustNote"></div>
+<div id="builderTrustSummary"></div>
+<div id="builderTrustScore"></div>
+
+<div id="committedStat"></div>
+<div id="currentCommittedStat"></div>
+<div id="fillPctStat"></div>
+<div id="commitFillStat"></div>
+<div id="remainingToMinStat"></div>
+<div id="remainingToCapStat"></div>
+<div id="participantsCountStat"></div>
+<div id="participantsTotalStat"></div>
+<div id="phaseTimerLabel"></div>
+<div id="phaseTimerValue"></div>
+<div id="phaseMetaLabel"></div>
+<div id="phaseMetaValue"></div>
+<div id="commitProgressFill"></div>
+<div id="heroProgressFill"></div>
+<div id="minRaiseStateStat"></div>
+<div id="hardCapStateStat"></div>
+<div id="launchOverviewMinRaiseText"></div>
+<div id="launchOverviewParticipantsText"></div>
+
+<div id="participantsAllocationPctStat"></div>
+<div id="liquiditySplitPctStat"></div>
+<div id="reserveSplitPctStat"></div>
+<div id="builderSplitPctStat"></div>
+<div id="teamReservePctStat"></div>
+<div id="builderAllocationCard"></div>
+<div id="builderAllocationRow"></div>
+
+<div id="phaseTitle"></div>
+<div id="phaseDescription"></div>
+<div id="launchPhaseTitle"></div>
+<div id="launchPhaseSummary"></div>
+<div id="contractAddressText"></div>
+<div id="contractAddressValue"></div>
+<div id="launchContractAddress"></div>
+<div id="commitEndsValue"></div>
+<div id="countdownEndsValue"></div>
+<div id="caRow"></div>
+<div id="launchCaRow"></div>
+
+<div id="launchBuilderProfileBtnText"></div>
+</div>
+
 <div id="layoutShellFooter"></div>
 
 <div id="launchLinksModal" class="launch-links-modal hidden">
@@ -2071,6 +2218,6 @@ console.error("Shared shell mount failed:", err);
 await mountSharedShell();
 </script>
 
-<script type="module" src="./assets/pages/launch.js"></script>
+<script type="module" src="./assets/pages/launch.js?v=4"></script>
 </body>
 </html>
