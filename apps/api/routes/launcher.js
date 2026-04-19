@@ -93,6 +93,10 @@ function normalizeWallet(value) {
 return cleanText(value, 120);
 }
 
+function normalizeWalletKey(value) {
+return normalizeWallet(value).toLowerCase();
+}
+
 function dedupeWalletEntries(wallets = []) {
 const seen = new Set();
 const out = [];
@@ -197,7 +201,7 @@ degen: {
 launch_type: "degen",
 supply: "1000000000",
 min_raise_sol: 1,
-hard_cap_sol: 1,
+hard_cap_sol: 1.1,
 liquidity_pct: 20,
 participants_pct: 45,
 reserve_pct: 30,
@@ -441,6 +445,23 @@ throw new Error(`builder bond must be at least ${MIN_BUILDER_BOND_SOL} SOL`);
 }
 }
 
+function parseDbTime(value) {
+if (!value) return null;
+const raw = String(value).trim();
+if (!raw) return null;
+
+const hasExplicitTimezone =
+/z$/i.test(raw) || /[+-]\d{2}:\d{2}$/.test(raw);
+
+if (!hasExplicitTimezone && /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/.test(raw)) {
+const sqliteUtc = Date.parse(raw.replace(" ", "T") + "Z");
+return Number.isFinite(sqliteUtc) ? sqliteUtc : null;
+}
+
+const direct = Date.parse(raw);
+return Number.isFinite(direct) ? direct : null;
+}
+
 function parseLaunchJsonFields(row) {
 const parsedTeamWallets = Array.isArray(row?.team_wallets)
 ? row.team_wallets
@@ -476,18 +497,98 @@ builder_score: Number(row?.builder_score || 0),
 };
 }
 
+function getRestrictedCommitWalletSet(row) {
+const launch = parseLaunchJsonFields(row);
+const out = new Set();
+
+const builderWallet = normalizeWalletKey(launch.builder_wallet);
+if (builderWallet) {
+out.add(builderWallet);
+}
+
+for (const wallet of Array.isArray(launch.team_wallets) ? launch.team_wallets : []) {
+const normalized = normalizeWalletKey(wallet);
+if (normalized) {
+out.add(normalized);
+}
+}
+
+for (const entry of Array.isArray(launch.team_wallet_breakdown) ? launch.team_wallet_breakdown : []) {
+const normalized = normalizeWalletKey(entry?.wallet);
+if (normalized) {
+out.add(normalized);
+}
+}
+
+return out;
+}
+
+function isRestrictedCommitWallet(launch, wallet) {
+const normalizedWallet = normalizeWalletKey(wallet);
+if (!normalizedWallet) return false;
+return getRestrictedCommitWalletSet(launch).has(normalizedWallet);
+}
+
+function getRestrictedCommitWalletError() {
+return "builder and declared team wallets cannot participate in the commit phase";
+}
+
+function computeCanonicalLaunchStatus(row) {
+const launch = parseLaunchJsonFields(row);
+const rawStatus = cleanText(launch.status, 40).toLowerCase();
+const countdownStartedMs = parseDbTime(launch.countdown_started_at);
+const countdownEndsMs = parseDbTime(launch.countdown_ends_at || launch.live_at);
+const hasCountdownWindow =
+Number.isFinite(countdownStartedMs) && Number.isFinite(countdownEndsMs);
+
+if (rawStatus === "failed" || rawStatus === "failed_refunded") {
+return rawStatus;
+}
+
+if (rawStatus === "graduated") {
+return "graduated";
+}
+
+if (rawStatus === "live") {
+return "live";
+}
+
+if (rawStatus === "building") {
+return "building";
+}
+
+if (hasCountdownWindow) {
+if (Date.now() >= countdownEndsMs) {
+return "building";
+}
+return "countdown";
+}
+
+return rawStatus || "commit";
+}
+
+function applyCanonicalLaunchTruth(row) {
+if (!row) return null;
+const parsed = parseLaunchJsonFields(row);
+
+return {
+...parsed,
+status: computeCanonicalLaunchStatus(parsed),
+};
+}
+
 function shouldRevealContractAddress(status) {
 const normalized = cleanText(status, 40).toLowerCase();
 return normalized === "live" || normalized === "graduated";
 }
 
 function sanitizeLaunchForPublic(row, { includeMintMeta = false } = {}) {
-const parsed = parseLaunchJsonFields(row);
-const revealCa = shouldRevealContractAddress(parsed.status);
+const parsed = applyCanonicalLaunchTruth(row);
+const revealCa = shouldRevealContractAddress(parsed?.status);
 
 const sanitized = {
 ...parsed,
-contract_address: revealCa ? cleanText(parsed.contract_address, 120) || null : null,
+contract_address: revealCa ? cleanText(parsed?.contract_address, 120) || null : null,
 reserved_mint_address: null,
 };
 
@@ -697,23 +798,6 @@ function buildBuilderBondReference(wallet) {
 return `mss-builder-bond-${cleanText(wallet, 80)}`;
 }
 
-function parseDbTime(value) {
-if (!value) return null;
-const raw = String(value).trim();
-if (!raw) return null;
-
-const hasExplicitTimezone =
-/z$/i.test(raw) || /[+-]\d{2}:\d{2}$/.test(raw);
-
-if (!hasExplicitTimezone && /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/.test(raw)) {
-const sqliteUtc = Date.parse(raw.replace(" ", "T") + "Z");
-return Number.isFinite(sqliteUtc) ? sqliteUtc : null;
-}
-
-const direct = Date.parse(raw);
-return Number.isFinite(direct) ? direct : null;
-}
-
 function isDevnetEnvironment() {
 const rpc = getRpcUrl().toLowerCase();
 return rpc.includes("devnet");
@@ -838,6 +922,49 @@ signature,
 refundedSol: solAmount,
 refundedLamports: lamports,
 };
+}
+
+async function refundRejectedCommit({
+wallet,
+solAmount,
+txSignature,
+reason,
+status = "",
+logLabel = "Late confirm refund failed",
+}) {
+try {
+const refundTransfer = await sendRefundTransfer({
+destinationWallet: wallet,
+solAmount,
+});
+
+return {
+httpStatus: 409,
+body: {
+ok: false,
+error: reason || "commit could not be accepted and was refunded",
+status: status || null,
+txSignature: txSignature || null,
+refundedSol: refundTransfer?.refundedSol || solAmount,
+refundTxSignature: refundTransfer?.signature || null,
+},
+};
+} catch (refundErr) {
+console.error(`${logLabel}:`, refundErr);
+
+return {
+httpStatus: 409,
+body: {
+ok: false,
+error: reason || "commit could not be accepted after transfer verification",
+status: status || null,
+txSignature: txSignature || null,
+refundedSol: 0,
+refundTxSignature: null,
+refundError: refundErr?.message || "refund transfer failed",
+},
+};
+}
 }
 
 async function getLaunchById(launchId) {
@@ -966,28 +1093,18 @@ async function normalizeLifecycleState(launchId) {
 let launch = await getLaunchById(launchId);
 if (!launch) return null;
 
-const status = String(launch.status || "").toLowerCase();
-const countdownStartedMs = parseDbTime(launch.countdown_started_at);
-const countdownEndsMs = parseDbTime(launch.countdown_ends_at || launch.live_at);
-const hasCountdownWindow =
-Number.isFinite(countdownStartedMs) && Number.isFinite(countdownEndsMs);
-const now = Date.now();
+const storedStatus = cleanText(launch.status, 40).toLowerCase();
+const canonicalStatus = computeCanonicalLaunchStatus(launch);
 
-if (status === "commit" && hasCountdownWindow) {
-if (now < countdownEndsMs) {
-launch = await forceLaunchStatus(launchId, "countdown");
-return launch;
+if (
+canonicalStatus &&
+canonicalStatus !== storedStatus &&
+["commit", "countdown", "building", "live", "graduated", "failed", "failed_refunded"].includes(canonicalStatus)
+) {
+launch = await forceLaunchStatus(launchId, canonicalStatus);
 }
 
-launch = await forceLaunchStatus(launchId, "countdown");
-return launch;
-}
-
-if (status === "countdown" && hasCountdownWindow && now >= countdownEndsMs) {
-return launch;
-}
-
-return launch;
+return applyCanonicalLaunchTruth(launch);
 }
 
 async function beginCountdown(launchId) {
@@ -999,11 +1116,15 @@ throw new Error("builder bond not satisfied");
 }
 
 if (launch.status === "countdown") {
-return launch;
+return applyCanonicalLaunchTruth(launch);
+}
+
+if (launch.status === "building") {
+return applyCanonicalLaunchTruth(launch);
 }
 
 if (launch.status === "live" || launch.status === "graduated") {
-return launch;
+return applyCanonicalLaunchTruth(launch);
 }
 
 await db.run(
@@ -1019,7 +1140,7 @@ WHERE id = ?
 [launchId]
 );
 
-return getLaunchById(launchId);
+return applyCanonicalLaunchTruth(await getLaunchById(launchId));
 }
 
 async function markLaunchFailed(launchId) {
@@ -1034,7 +1155,7 @@ WHERE id = ?
 [launchId]
 );
 
-return getLaunchById(launchId);
+return applyCanonicalLaunchTruth(await getLaunchById(launchId));
 }
 
 async function autoRefundFailedLaunch(launchId) {
@@ -1140,7 +1261,7 @@ WHERE id = ?
 launch = await getLaunchById(launchId);
 
 return {
-launch,
+launch: applyCanonicalLaunchTruth(launch),
 refunds,
 };
 }
@@ -1151,19 +1272,19 @@ return finalizeLocks.get(launchId);
 }
 
 const promise = (async () => {
-let launch = await getLaunchById(launchId);
+const launch = await getLaunchById(launchId);
 if (!launch) {
 return { ok: false, reason: "launch not found" };
 }
 
-if (launch.status === "live" || launch.status === "graduated") {
+const status = cleanText(launch.status, 40).toLowerCase();
+if (status === "live" || status === "graduated") {
 return { ok: true, skipped: true, reason: "already live" };
 }
 
-let result = null;
-
 try {
-result = await finalizeLaunch(launchId);
+const result = await finalizeLaunch(launchId);
+return result || { ok: false, reason: "unknown finalize result" };
 } catch (err) {
 if (isTransientFinalizeError(err)) {
 console.warn(`Finalize retry deferred for launch ${launchId}:`, err?.message || err);
@@ -1171,8 +1292,6 @@ return { ok: false, reason: "transient finalize error", transient: true };
 }
 throw err;
 }
-
-return result || { ok: false, reason: "unknown finalize result" };
 })();
 
 finalizeLocks.set(launchId, promise);
@@ -1186,10 +1305,14 @@ finalizeLocks.delete(launchId);
 
 async function finalizeLaunchIfReady(launchId) {
 let launch = await getLaunchById(launchId);
-if (!launch || launch.status !== "countdown") {
-return launch;
+if (!launch) return null;
+
+const canonicalStatus = computeCanonicalLaunchStatus(launch);
+if (!["countdown", "building"].includes(canonicalStatus)) {
+return applyCanonicalLaunchTruth(launch);
 }
 
+if (canonicalStatus === "countdown") {
 const countdownCheck = await db.get(
 `
 SELECT CASE
@@ -1203,7 +1326,8 @@ WHERE id = ?
 );
 
 if (!countdownCheck || Number(countdownCheck.ready) !== 1) {
-return launch;
+return applyCanonicalLaunchTruth(launch);
+}
 }
 
 const latestBeforeFinalize = await getLaunchById(launchId);
@@ -1214,7 +1338,7 @@ latestBeforeFinalize.status === "live" ||
 latestBeforeFinalize.status === "graduated"
 ) {
 await safeSyncLifecycle(launchId);
-return latestBeforeFinalize;
+return applyCanonicalLaunchTruth(latestBeforeFinalize);
 }
 
 const result = await runFinalizeLaunchOnce(launchId);
@@ -1222,37 +1346,49 @@ const latest = await getLaunchById(launchId);
 
 if (!latest) return null;
 
-if (latest.status === "live" || latest.status === "graduated") {
+const latestCanonical = computeCanonicalLaunchStatus(latest);
+
+if (latestCanonical === "live" || latestCanonical === "graduated") {
 await safeSyncLifecycle(launchId);
-return latest;
+return applyCanonicalLaunchTruth(latest);
+}
+
+if (result?.ok && (result?.stage === "building" || latestCanonical === "building")) {
+await safeSyncLifecycle(launchId);
+return applyCanonicalLaunchTruth(latest);
 }
 
 if (result?.ok) {
 await safeSyncLifecycle(launchId);
-return latest;
+return applyCanonicalLaunchTruth(latest);
 }
 
 if (result?.reason === "countdown not finished" || result?.transient) {
-return latest;
+return applyCanonicalLaunchTruth(latest);
 }
 
 if (result?.reason === "minimum raise not met") {
 await markLaunchFailed(launchId);
 const refunded = await autoRefundFailedLaunch(launchId);
-return refunded?.launch || getLaunchById(launchId);
+return refunded?.launch || applyCanonicalLaunchTruth(await getLaunchById(launchId));
 }
 
 if (result?.reason === "builder bond not paid") {
 await markLaunchFailed(launchId);
 const refunded = await autoRefundFailedLaunch(launchId);
-return refunded?.launch || getLaunchById(launchId);
+return refunded?.launch || applyCanonicalLaunchTruth(await getLaunchById(launchId));
+}
+
+if (result?.stage === "building" || latestCanonical === "building") {
+await safeSyncLifecycle(launchId);
+return applyCanonicalLaunchTruth(latest);
 }
 
 if (result?.reason) {
 console.warn(`Launch ${launchId} finalize returned: ${result.reason}`);
 }
 
-return latest;
+return applyCanonicalLaunchTruth(latest);
 }
 
 async function reconcileLaunchStateInternal(launchId) {
@@ -1264,18 +1400,18 @@ if (!launch) return null;
 
 if (
 isBuilderTemplate(launch) &&
-["commit", "countdown"].includes(String(launch.status || "")) &&
+["commit", "countdown", "building"].includes(String(launch.status || "")) &&
 requiresBuilderBond(launch) &&
 !isBuilderBondSatisfied(launch)
 ) {
 await markLaunchFailed(launchId);
 const refunded = await autoRefundFailedLaunch(launchId);
-return refunded?.launch || getLaunchById(launchId);
+return refunded?.launch || applyCanonicalLaunchTruth(await getLaunchById(launchId));
 }
 
 if (launch.status === "commit") {
 const stats = await syncLaunchStats(launchId);
-launch = await getLaunchById(launchId);
+launch = applyCanonicalLaunchTruth(await getLaunchById(launchId));
 
 const minRaise = Number(launch.min_raise_sol || 0);
 const hardCap = Number(launch.hard_cap_sol || 0);
@@ -1305,26 +1441,26 @@ return beginCountdown(launchId);
 
 await markLaunchFailed(launchId);
 const refunded = await autoRefundFailedLaunch(launchId);
-return refunded?.launch || getLaunchById(launchId);
+return refunded?.launch || applyCanonicalLaunchTruth(await getLaunchById(launchId));
 }
 
 return launch;
 }
 
-if (launch.status === "countdown") {
+if (launch.status === "countdown" || launch.status === "building") {
 return finalizeLaunchIfReady(launchId);
 }
 
 if (launch.status === "live" || launch.status === "graduated") {
 await safeSyncLifecycle(launchId);
-return launch;
+return applyCanonicalLaunchTruth(launch);
 }
 
 if (launch.status === "failed") {
-return launch;
+return applyCanonicalLaunchTruth(launch);
 }
 
-return launch;
+return applyCanonicalLaunchTruth(launch);
 }
 
 export async function reconcileLaunchState(launchId) {
@@ -1351,7 +1487,7 @@ const rows = await db.all(
 `
 SELECT id
 FROM launches
-WHERE status IN ('commit', 'countdown', 'live', 'graduated')
+WHERE status IN ('commit', 'countdown', 'building', 'live', 'graduated')
 ORDER BY id ASC
 `
 );
@@ -1756,6 +1892,13 @@ if (!isBuilderBondSatisfied(launch)) {
 return res.status(400).json({ ok: false, error: "builder bond not satisfied" });
 }
 
+if (isRestrictedCommitWallet(launch, wallet)) {
+return res.status(400).json({
+ok: false,
+error: getRestrictedCommitWalletError(),
+});
+}
+
 const existing = await db.get(
 `
 SELECT COALESCE(SUM(sol_amount), 0) AS total
@@ -1846,6 +1989,13 @@ return res.status(400).json({ ok: false, error: "commit phase closed" });
 
 if (launch && !isBuilderBondSatisfied(launch) && !txWasAlreadySentByWallet) {
 return res.status(400).json({ ok: false, error: "builder bond not satisfied" });
+}
+
+if (launch && isRestrictedCommitWallet(launch, wallet) && !txWasAlreadySentByWallet) {
+return res.status(400).json({
+ok: false,
+error: getRestrictedCommitWalletError(),
+});
 }
 
 let txSignature = txSignatureInput;
@@ -1960,6 +2110,18 @@ txSignature,
 reason: "builder bond no longer satisfied",
 status: launch.status,
 logLabel: "Late confirm refund failed after builder bond check",
+});
+return res.status(refunded.httpStatus).json(refunded.body);
+}
+
+if (isRestrictedCommitWallet(launch, wallet)) {
+const refunded = await refundRejectedCommit({
+wallet,
+solAmount,
+txSignature,
+reason: getRestrictedCommitWalletError(),
+status: launch.status,
+logLabel: "Late confirm refund failed after restricted wallet commit check",
 });
 return res.status(refunded.httpStatus).json(refunded.body);
 }
@@ -2143,7 +2305,7 @@ WHERE launch_id = ? AND wallet = ?
 );
 
 const stats = await syncLaunchStats(launchId);
-launch = await getLaunchById(launchId);
+launch = applyCanonicalLaunchTruth(await getLaunchById(launchId));
 
 return res.json({
 ok: true,
@@ -2239,7 +2401,7 @@ if (!launch) {
 return res.status(404).json({ ok: false, error: "launch not found" });
 }
 
-if (launch.status !== "countdown") {
+if (computeCanonicalLaunchStatus(launch) !== "countdown") {
 return res.status(400).json({ ok: false, error: "launch is not in countdown" });
 }
 
@@ -2275,7 +2437,7 @@ WHERE id = ?
 [launchId]
 );
 
-const updatedLaunch = await getLaunchById(launchId);
+const updatedLaunch = applyCanonicalLaunchTruth(await getLaunchById(launchId));
 
 return res.json({
 ok: true,
@@ -2297,20 +2459,26 @@ if (!launchId) {
 return res.status(400).json({ ok: false, error: "invalid launch id" });
 }
 
-const launch = await reconcileLaunchState(launchId);
+let launch = await reconcileLaunchState(launchId);
 
 if (!launch) {
 return res.status(404).json({ ok: false, error: "launch not found" });
 }
 
-if (launch.status !== "live" && launch.status !== "graduated" && launch.status !== "countdown") {
+if (!["countdown", "building", "live", "graduated"].includes(launch.status)) {
 return res.status(400).json({
 ok: false,
 error: "launch is not ready to finalize",
 });
 }
 
-const finalLaunch = await getLaunchById(launchId);
+let finalizeResult = null;
+if (launch.status === "countdown" || launch.status === "building") {
+finalizeResult = await runFinalizeLaunchOnce(launchId);
+launch = await reconcileLaunchState(launchId);
+}
+
+const finalLaunch = applyCanonicalLaunchTruth(await getLaunchById(launchId));
 const stats = await syncLaunchStats(launchId);
 const lifecycle = await safeSyncLifecycle(launchId);
 const graduationPlan = await safeGetGraduationPlan(launchId);
@@ -2333,12 +2501,21 @@ finalLaunch?.hard_cap_sol
 feeBreakdown,
 lifecycle,
 graduationPlan,
-finalizeResult: {
+finalizeResult:
+finalizeResult || {
 ok: finalLaunch?.status === "live" || finalLaunch?.status === "graduated",
 reason:
 finalLaunch?.status === "live" || finalLaunch?.status === "graduated"
 ? "reconciled finalize state"
+: finalLaunch?.status === "building"
+? "building"
 : "countdown not finished",
+stage:
+finalLaunch?.status === "live" || finalLaunch?.status === "graduated"
+? "live"
+: finalLaunch?.status === "building"
+? "building"
+: "countdown",
 },
 });
 } catch (err) {
@@ -2372,7 +2549,7 @@ const graduationPlan = await safeGetGraduationPlan(launchId);
 return res.json({
 ok: true,
 launch: sanitizeLaunchForPublic(hydratedLaunch || launch),
-status: launch.status,
+status: computeCanonicalLaunchStatus(hydratedLaunch || launch),
 totalCommitted: stats.totalCommitted,
 participants: stats.participants,
 commitPercent: buildCommitPercent(
@@ -2399,7 +2576,7 @@ if (!launchId) {
 return res.status(400).json({ ok: false, error: "invalid launch id" });
 }
 
-const launch = await getLaunchById(launchId);
+const launch = await reconcileLaunchState(launchId);
 if (!launch) {
 return res.status(404).json({ ok: false, error: "launch not found" });
 }
@@ -2583,6 +2760,23 @@ error: err.message || "market bootstrap failed",
 
 router.get("/list", async (_req, res) => {
 try {
+const activeRows = await db.all(
+`
+SELECT id
+FROM launches
+WHERE status IN ('commit', 'countdown', 'building', 'live', 'graduated')
+ORDER BY id ASC
+`
+);
+
+for (const row of activeRows) {
+try {
+await reconcileLaunchState(Number(row.id));
+} catch (err) {
+console.error(`Launch list reconcile failed for launch ${row.id}:`, err);
+}
+}
+
 const rows = await db.all(
 `
 SELECT
@@ -2605,6 +2799,7 @@ const visible = shaped.filter((x) => x.status !== "failed_refunded");
 const grouped = {
 commit: visible.filter((x) => x.status === "commit"),
 countdown: visible.filter((x) => x.status === "countdown"),
+building: visible.filter((x) => x.status === "building"),
 live: visible.filter((x) => x.status === "live"),
 graduated: visible.filter((x) => x.status === "graduated"),
 failed: visible.filter((x) => x.status === "failed"),

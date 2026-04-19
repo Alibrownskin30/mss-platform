@@ -91,6 +91,32 @@ const row = await db.get(`SELECT * FROM launches WHERE id = ?`, [launchId]);
 return normalizeLaunch(row);
 }
 
+async function getTokenByLaunchId(launchId) {
+return db.get(
+`
+SELECT *
+FROM tokens
+WHERE launch_id = ?
+ORDER BY id DESC
+LIMIT 1
+`,
+[launchId]
+);
+}
+
+async function getPoolByLaunchId(launchId) {
+return db.get(
+`
+SELECT *
+FROM pools
+WHERE launch_id = ?
+ORDER BY id DESC
+LIMIT 1
+`,
+[launchId]
+);
+}
+
 function isBuilderLaunchPaid(launch) {
 if (!launch) return false;
 if (String(launch.template || "") !== "builder") return true;
@@ -111,18 +137,21 @@ launch.launch_result_json
 );
 }
 
-function hasCompletedLiveBootstrap(launch) {
+async function hasCompletedLiveBootstrap(launchId, launch) {
 if (!launch) return false;
+if (!cleanText(launch.contract_address, 120)) return false;
+if (!hasPersistedAllocationResult(launch)) return false;
 
-return Boolean(
-cleanText(launch.contract_address, 120) &&
-safeNum(launch.liquidity, 0) > 0 &&
-safeNum(launch.price, 0) > 0 &&
-(cleanText(launch.final_supply, 120) || launch.launch_result_json)
-);
+const [tokenRow, poolRow] = await Promise.all([
+getTokenByLaunchId(launchId),
+getPoolByLaunchId(launchId),
+]);
+
+return Boolean(tokenRow?.id && poolRow?.id);
 }
 
-function buildFinalizeSuccessResponse({
+function buildFinalizeResponse({
+ok,
 launchId,
 launch,
 totalCommitted = null,
@@ -137,6 +166,8 @@ allocationResult = null,
 alreadyFinalized = false,
 stage = "live",
 stageLabel = "",
+reason = "",
+retryable = false,
 }) {
 const resolvedFeePlan =
 feePlan ||
@@ -146,8 +177,10 @@ safeNum(launch?.launch_fee_pct, DEFAULT_LAUNCH_FEE_PCT)
 );
 
 return {
-ok: true,
-alreadyFinalized,
+ok: Boolean(ok),
+alreadyFinalized: Boolean(alreadyFinalized),
+retryable: Boolean(retryable),
+reason: reason || "",
 launchId,
 stage,
 stageLabel:
@@ -156,6 +189,8 @@ stageLabel ||
 ? "Building market"
 : stage === "live"
 ? "Live"
+: stage === "countdown"
+? "Countdown"
 : "Ready"),
 totalCommitted: safeNum(totalCommitted, safeNum(launch?.committed_sol, 0)),
 participants: safeNum(participants, safeNum(launch?.participants_count, 0)),
@@ -168,7 +203,7 @@ netRaise: resolvedFeePlan.netRaiseAfterFee,
 feeDistribution: launch?.fee_distribution_json || feeDistribution || null,
 feeDistributionPending: Boolean(feeDistributionPending),
 feeDistributionError: feeDistributionError || "",
-allocationsBuilt,
+allocationsBuilt: Boolean(allocationsBuilt),
 marketBootstrap,
 mintAddress:
 marketBootstrap?.mintAddress ||
@@ -298,7 +333,6 @@ await db.run(
 `
 UPDATE launches
 SET status = 'building',
-live_at = COALESCE(live_at, countdown_ends_at, CURRENT_TIMESTAMP),
 updated_at = CURRENT_TIMESTAMP
 WHERE id = ?
 AND status IN ('countdown', 'building', 'live')
@@ -315,12 +349,32 @@ throw new Error("launch not found after building promotion");
 return launch;
 }
 
+async function revertLaunchToCountdownAfterBootstrapFailure(launchId) {
+await db.run(
+`
+UPDATE launches
+SET status = 'countdown',
+updated_at = CURRENT_TIMESTAMP
+WHERE id = ?
+AND status = 'building'
+`,
+[launchId]
+);
+
+return getLaunchById(launchId);
+}
+
 async function forcePromoteLaunchToLive(launchId) {
 await db.run(
 `
 UPDATE launches
 SET status = 'live',
-live_at = COALESCE(live_at, countdown_ends_at, CURRENT_TIMESTAMP),
+live_at = CASE
+WHEN status != 'live' THEN CURRENT_TIMESTAMP
+WHEN live_at IS NULL THEN CURRENT_TIMESTAMP
+WHEN countdown_ends_at IS NOT NULL AND datetime(live_at) = datetime(countdown_ends_at) THEN CURRENT_TIMESTAMP
+ELSE live_at
+END,
 updated_at = CURRENT_TIMESTAMP
 WHERE id = ?
 AND status IN ('building', 'countdown', 'live')
@@ -577,7 +631,7 @@ reason: "builder bond not paid",
 };
 }
 
-if ((status === "live" || status === "building") && hasCompletedLiveBootstrap(launch)) {
+if ((status === "live" || status === "building") && await hasCompletedLiveBootstrap(launchId, launch)) {
 if (status !== "live") {
 launch = await forcePromoteLaunchToLive(launchId);
 }
@@ -586,7 +640,8 @@ const stats = await getCommitStats(launchId);
 
 console.log(`Launch ${launchId} already finalized/live, skipping re-finalize`);
 
-return buildFinalizeSuccessResponse({
+return buildFinalizeResponse({
+ok: true,
 launchId,
 launch,
 totalCommitted: stats.totalCommitted,
@@ -639,7 +694,7 @@ reason: "builder bond not paid",
 if (
 (String(launch.status || "").toLowerCase() === "live" ||
 String(launch.status || "").toLowerCase() === "building") &&
-hasCompletedLiveBootstrap(launch)
+await hasCompletedLiveBootstrap(launchId, launch)
 ) {
 if (String(launch.status || "").toLowerCase() !== "live") {
 launch = await forcePromoteLaunchToLive(launchId);
@@ -647,7 +702,8 @@ launch = await forcePromoteLaunchToLive(launchId);
 
 console.log(`Launch ${launchId} finalized during sync window, skipping duplicate finalize`);
 
-return buildFinalizeSuccessResponse({
+return buildFinalizeResponse({
+ok: true,
 launchId,
 launch,
 totalCommitted: stats.totalCommitted,
@@ -693,12 +749,13 @@ totalCommitted
 
 launch = await forcePromoteLaunchToBuilding(launchId);
 
-if (hasCompletedLiveBootstrap(launch)) {
+if (await hasCompletedLiveBootstrap(launchId, launch)) {
 launch = await forcePromoteLaunchToLive(launchId);
 
-console.log(`Launch ${launchId} already live before bootstrap step, returning persisted state`);
+console.log(`Launch ${launchId} already had persisted bootstrap artifacts, promoting to live`);
 
-return buildFinalizeSuccessResponse({
+return buildFinalizeResponse({
+ok: true,
 launchId,
 launch,
 totalCommitted,
@@ -729,23 +786,51 @@ console.log("Market bootstrap complete:", marketBootstrap);
 } catch (err) {
 console.error(`Market bootstrap failed for launch ${launchId}:`, err);
 
-const partialLaunch = await getLaunchById(launchId);
+const revertedLaunch = await revertLaunchToCountdownAfterBootstrapFailure(launchId);
 
-return buildFinalizeSuccessResponse({
+return buildFinalizeResponse({
+ok: false,
 launchId,
-launch: partialLaunch || launch,
+launch: revertedLaunch || launch,
 totalCommitted,
 participants: stats.participants,
 feePlan,
-feeDistribution: (partialLaunch?.fee_distribution_json || feeDistribution),
-feeDistributionPending: true,
-feeDistributionError: err?.message || "market bootstrap failed",
+feeDistribution: (revertedLaunch?.fee_distribution_json || feeDistribution),
+feeDistributionPending,
+feeDistributionError: feeDistributionError || err?.message || "market bootstrap failed",
 allocationsBuilt,
 marketBootstrap: null,
 allocationResult,
 alreadyFinalized: false,
 stage: "building",
-stageLabel: "Building market",
+stageLabel: "Bootstrap retry pending",
+reason: err?.message || "market bootstrap failed",
+retryable: true,
+});
+}
+
+const bootstrapReadyLaunch = await getLaunchById(launchId);
+if (!await hasCompletedLiveBootstrap(launchId, bootstrapReadyLaunch || launch)) {
+const revertedLaunch = await revertLaunchToCountdownAfterBootstrapFailure(launchId);
+
+return buildFinalizeResponse({
+ok: false,
+launchId,
+launch: revertedLaunch || bootstrapReadyLaunch || launch,
+totalCommitted,
+participants: stats.participants,
+feePlan,
+feeDistribution: (bootstrapReadyLaunch?.fee_distribution_json || feeDistribution),
+feeDistributionPending,
+feeDistributionError: feeDistributionError || "market bootstrap incomplete",
+allocationsBuilt,
+marketBootstrap,
+allocationResult,
+alreadyFinalized: false,
+stage: "building",
+stageLabel: "Bootstrap retry pending",
+reason: "market bootstrap incomplete",
+retryable: true,
 });
 }
 
@@ -756,27 +841,33 @@ throw new Error("Launch not found after market bootstrap");
 }
 
 if (!cleanText(finalLaunch.contract_address, 120)) {
-return buildFinalizeSuccessResponse({
+const revertedLaunch = await revertLaunchToCountdownAfterBootstrapFailure(launchId);
+
+return buildFinalizeResponse({
+ok: false,
 launchId,
-launch: finalLaunch,
+launch: revertedLaunch || finalLaunch,
 totalCommitted,
 participants: stats.participants,
 feePlan,
 feeDistribution: finalLaunch.fee_distribution_json || feeDistribution,
-feeDistributionPending: true,
-feeDistributionError: "launch contract address missing after market bootstrap",
+feeDistributionPending,
+feeDistributionError: feeDistributionError || "launch contract address missing after market bootstrap",
 allocationsBuilt,
 marketBootstrap,
 allocationResult,
 alreadyFinalized: false,
 stage: "building",
-stageLabel: "Building market",
+stageLabel: "Bootstrap retry pending",
+reason: "launch contract address missing after market bootstrap",
+retryable: true,
 });
 }
 
 console.log("Launch moved to LIVE:", launchId);
 
-return buildFinalizeSuccessResponse({
+return buildFinalizeResponse({
+ok: true,
 launchId,
 launch: finalLaunch,
 totalCommitted,

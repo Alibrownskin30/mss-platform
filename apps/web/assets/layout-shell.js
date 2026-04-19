@@ -21,11 +21,37 @@ style.textContent = `
 position:sticky;
 top:0;
 z-index:1000;
-backdrop-filter:blur(16px);
--webkit-backdrop-filter:blur(16px);
-background:linear-gradient(180deg, rgba(6,8,13,.92), rgba(6,8,13,.74));
+backdrop-filter:blur(18px);
+-webkit-backdrop-filter:blur(18px);
+background:
+radial-gradient(900px 160px at 0% 0%, rgba(244,222,154,.06), transparent 40%),
+radial-gradient(720px 140px at 100% 0%, rgba(182,190,203,.05), transparent 42%),
+linear-gradient(180deg, rgba(7,8,12,.94), rgba(7,8,12,.78));
 border-bottom:1px solid rgba(255,255,255,.06);
-box-shadow:0 10px 34px rgba(0,0,0,.22);
+box-shadow:
+0 16px 40px rgba(0,0,0,.24),
+inset 0 -1px 0 rgba(255,255,255,.02);
+overflow:hidden;
+}
+
+.mss-shell-header::before{
+content:"";
+position:absolute;
+inset:0 0 auto 0;
+height:1px;
+background:linear-gradient(90deg, rgba(255,255,255,0), rgba(244,222,154,.30), rgba(182,190,203,.18), rgba(255,255,255,0));
+opacity:.95;
+pointer-events:none;
+}
+
+.mss-shell-header::after{
+content:"";
+position:absolute;
+inset:0;
+pointer-events:none;
+background:
+linear-gradient(180deg, rgba(255,255,255,.03), transparent 28%);
+opacity:.9;
 }
 
 .mss-shell-wrap{
@@ -33,12 +59,14 @@ width:min(var(--max, 1320px), calc(100% - 32px));
 margin:0 auto;
 max-width:100%;
 min-width:0;
+position:relative;
+z-index:1;
 }
 
 .mss-shell-topbar{
-display:flex;
+display:grid;
+grid-template-columns:minmax(210px, 280px) minmax(0,1fr) auto;
 align-items:center;
-justify-content:space-between;
 gap:16px;
 padding:14px 0;
 max-width:100%;
@@ -50,7 +78,7 @@ display:flex;
 align-items:center;
 gap:12px;
 min-width:0;
-flex:0 1 auto;
+max-width:100%;
 color:inherit;
 text-decoration:none;
 }
@@ -93,6 +121,7 @@ filter:drop-shadow(0 0 12px rgba(244,222,154,.16));
 
 .mss-shell-brand-copy{
 min-width:0;
+max-width:100%;
 }
 
 .mss-shell-brand-title{
@@ -119,14 +148,11 @@ line-height:1.2;
 white-space:nowrap;
 overflow:hidden;
 text-overflow:ellipsis;
+max-width:100%;
 }
 
 .mss-shell-navwrap{
-display:flex;
-align-items:center;
-gap:12px;
 min-width:0;
-margin-left:auto;
 max-width:100%;
 overflow:hidden;
 }
@@ -134,11 +160,20 @@ overflow:hidden;
 .mss-shell-nav{
 display:flex;
 align-items:center;
-justify-content:flex-end;
+justify-content:center;
 gap:8px;
-flex-wrap:wrap;
+flex-wrap:nowrap;
 min-width:0;
 max-width:100%;
+overflow-x:auto;
+overflow-y:hidden;
+padding-bottom:2px;
+scrollbar-width:none;
+-webkit-overflow-scrolling:touch;
+}
+
+.mss-shell-nav::-webkit-scrollbar{
+display:none;
 }
 
 .mss-shell-navlink{
@@ -147,17 +182,18 @@ align-items:center;
 justify-content:center;
 gap:8px;
 min-height:40px;
-padding:0 12px;
+padding:0 11px;
 border-radius:12px;
 color:rgba(255,255,255,.76);
 border:1px solid transparent;
-font-size:12px;
+font-size:11px;
 font-weight:800;
-letter-spacing:.10em;
+letter-spacing:.11em;
 text-transform:uppercase;
 white-space:nowrap;
 transition:.18s ease;
 text-decoration:none;
+flex:0 0 auto;
 }
 
 .mss-shell-navlink:hover{
@@ -176,8 +212,9 @@ box-shadow:0 0 16px rgba(244,222,154,.06);
 .mss-shell-auth{
 display:flex;
 align-items:center;
+justify-content:flex-end;
 gap:10px;
-flex-wrap:wrap;
+flex-wrap:nowrap;
 min-width:0;
 }
 
@@ -185,7 +222,8 @@ min-width:0;
 display:flex;
 align-items:center;
 gap:10px;
-flex-wrap:wrap;
+flex-wrap:nowrap;
+flex:0 0 auto;
 }
 
 .mss-shell-icon{
@@ -232,6 +270,7 @@ cursor:pointer;
 transition:.18s ease;
 white-space:nowrap;
 box-shadow:inset 0 1px 0 rgba(255,255,255,.04);
+flex:0 0 auto;
 }
 
 .mss-shell-session:hover,
@@ -250,8 +289,8 @@ background:rgba(255,91,107,.08);
 width:7px;
 height:7px;
 border-radius:999px;
-background:rgba(255,255,255,.35);
-box-shadow:0 0 0 5px rgba(255,255,255,.05);
+background:rgba(244,222,154,.92);
+box-shadow:0 0 0 5px rgba(244,222,154,.08);
 flex:0 0 auto;
 }
 
@@ -417,42 +456,55 @@ box-shadow:0 0 12px rgba(244,222,154,.30);
 flex:0 0 auto;
 }
 
+@media (max-width: 1240px){
+.mss-shell-topbar{
+grid-template-columns:minmax(180px, 250px) minmax(0,1fr) auto;
+gap:12px;
+}
+
+.mss-shell-navlink{
+padding:0 10px;
+font-size:10px;
+}
+
+.mss-shell-session,
+.mss-shell-logout{
+padding:0 11px;
+font-size:10px;
+}
+}
+
 @media (max-width: 1080px){
 .mss-shell-footer-main{
 grid-template-columns:repeat(2, minmax(0,1fr));
 }
 }
 
-@media (max-width: 860px){
+@media (max-width: 980px){
 .mss-shell-topbar{
-flex-direction:column;
+grid-template-columns:1fr;
 align-items:stretch;
-gap:12px;
+}
+
+.mss-shell-brand{
+width:100%;
 }
 
 .mss-shell-navwrap{
-flex-direction:column;
-align-items:stretch;
+width:100%;
 }
 
 .mss-shell-nav{
-flex-wrap:nowrap;
 justify-content:flex-start;
-overflow-x:auto;
-overflow-y:hidden;
--webkit-overflow-scrolling:touch;
-padding-bottom:4px;
-scrollbar-width:none;
-}
-
-.mss-shell-nav::-webkit-scrollbar{
-display:none;
 }
 
 .mss-shell-auth{
 justify-content:flex-start;
+flex-wrap:wrap;
+}
 }
 
+@media (max-width: 860px){
 .mss-shell-footer-main{
 grid-template-columns:1fr;
 }
@@ -466,6 +518,10 @@ flex-direction:column;
 @media (max-width: 520px){
 .mss-shell-wrap{
 width:min(var(--max, 1320px), calc(100% - 24px));
+}
+
+.mss-shell-brand-sub{
+display:none;
 }
 }
 `;
@@ -544,6 +600,7 @@ return `
 <nav class="mss-shell-nav" aria-label="Primary">
 ${navHtml}
 </nav>
+</div>
 
 <div class="mss-shell-auth">
 <div class="mss-shell-social" aria-label="Social links">
@@ -580,7 +637,6 @@ title="Telegram"
 </button>
 
 <button id="logoutBtn" class="mss-shell-logout" type="button" style="display:none;">Logout</button>
-</div>
 </div>
 </div>
 </header>

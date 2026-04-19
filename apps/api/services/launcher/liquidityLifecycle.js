@@ -109,13 +109,12 @@ vestedDays: 0,
 
 const startMs = parseDbTime(vestingStartAt);
 if (!startMs) {
-const unlockedAmount = Math.min(totalAllocation, dailyUnlock);
 return {
 totalAllocation,
 dailyUnlock,
-unlockedAmount,
-lockedAmount: Math.max(0, totalAllocation - unlockedAmount),
-vestedDays: 1,
+unlockedAmount: 0,
+lockedAmount: totalAllocation,
+vestedDays: 0,
 };
 }
 
@@ -131,6 +130,96 @@ unlockedAmount,
 lockedAmount: Math.max(0, totalAllocation - unlockedAmount),
 vestedDays,
 };
+}
+
+function resolveTotalSupply(launch, token) {
+return floorToken(
+token?.supply ||
+launch?.final_supply ||
+launch?.supply ||
+0
+);
+}
+
+function resolveInternalSolReserve(launch, pool, lifecycle) {
+return roundSol(
+pool?.sol_reserve ||
+lifecycle?.internal_sol_reserve ||
+launch?.internal_pool_sol ||
+launch?.liquidity ||
+0
+);
+}
+
+function resolveInternalTokenReserve(launch, pool, lifecycle) {
+return floorToken(
+pool?.token_reserve ||
+lifecycle?.internal_token_reserve ||
+launch?.internal_pool_tokens ||
+0
+);
+}
+
+function resolveGraduationStatus(launch, lifecycle) {
+const raw = clean(lifecycle?.graduation_status, 64);
+if (raw) return raw;
+
+const status = clean(launch?.status, 64).toLowerCase();
+if (status === "graduated") return "graduated";
+if (status === "live") return "internal_live";
+if (status === "building") return "building";
+if (status === "countdown") return "countdown";
+if (status === "commit") return "pending";
+return status || "pending";
+}
+
+function resolveLockStatus(launch, lifecycle, hasReserves) {
+const persisted = clean(lifecycle?.lock_status, 64);
+if (persisted) return persisted;
+
+const status = clean(launch?.status, 64).toLowerCase();
+if (status === "graduated") return "locked_pending_proof";
+if ((status === "live" || status === "building") && hasReserves) return "mss_held_internal";
+if (status === "countdown") return "pending_live";
+return "pending";
+}
+
+function getGraduationThresholds() {
+return {
+marketcapSol: safeNum(
+process.env.MSS_GRADUATION_MARKETCAP_SOL,
+DEFAULT_GRADUATION_MARKETCAP_SOL
+),
+volume24hSol: safeNum(
+process.env.MSS_GRADUATION_VOLUME_24H_SOL,
+DEFAULT_GRADUATION_VOLUME_24H_SOL
+),
+minHolders: Math.max(
+1,
+Math.floor(
+safeNum(process.env.MSS_GRADUATION_MIN_HOLDERS, DEFAULT_GRADUATION_MIN_HOLDERS)
+)
+),
+minLiveMinutes: Math.max(
+0,
+Math.floor(
+safeNum(
+process.env.MSS_GRADUATION_MIN_LIVE_MINUTES,
+DEFAULT_GRADUATION_MIN_LIVE_MINUTES
+)
+)
+),
+lockDays: Math.max(
+1,
+Math.floor(safeNum(process.env.MSS_LP_LOCK_DAYS, DEFAULT_MSS_LOCK_DAYS))
+),
+};
+}
+
+function getLiveMinutes(launch) {
+const liveMs = parseDbTime(launch?.live_at || launch?.updated_at || launch?.created_at);
+if (!liveMs) return 0;
+return Math.max(0, Math.floor((Date.now() - liveMs) / 60000));
 }
 
 async function getLaunchRow(launchId) {
@@ -229,57 +318,13 @@ AND COALESCE(token_amount, 0) > 0
 return safeNum(row?.total, 0);
 }
 
-function getGraduationThresholds() {
-return {
-marketcapSol: safeNum(
-process.env.MSS_GRADUATION_MARKETCAP_SOL,
-DEFAULT_GRADUATION_MARKETCAP_SOL
-),
-volume24hSol: safeNum(
-process.env.MSS_GRADUATION_VOLUME_24H_SOL,
-DEFAULT_GRADUATION_VOLUME_24H_SOL
-),
-minHolders: Math.max(
-1,
-Math.floor(
-safeNum(process.env.MSS_GRADUATION_MIN_HOLDERS, DEFAULT_GRADUATION_MIN_HOLDERS)
-)
-),
-minLiveMinutes: Math.max(
-0,
-Math.floor(
-safeNum(
-process.env.MSS_GRADUATION_MIN_LIVE_MINUTES,
-DEFAULT_GRADUATION_MIN_LIVE_MINUTES
-)
-)
-),
-lockDays: Math.max(
-1,
-Math.floor(safeNum(process.env.MSS_LP_LOCK_DAYS, DEFAULT_MSS_LOCK_DAYS))
-),
-};
-}
-
-function getLiveMinutes(launch) {
-const liveMs = parseDbTime(launch?.live_at || launch?.updated_at || launch?.created_at);
-if (!liveMs) return 0;
-return Math.max(0, Math.floor((Date.now() - liveMs) / 60000));
-}
-
 async function ensureBuilderVestingRecord(launchId, launch, token) {
 if (!(await tableExists("builder_vesting"))) return null;
 
 const columns = await getTableColumns("builder_vesting");
 const has = (name) => columns.has(name);
 
-const totalSupply = floorToken(
-token?.supply ||
-launch?.final_supply ||
-launch?.supply ||
-0
-);
-
+const totalSupply = resolveTotalSupply(launch, token);
 const builderWallet = clean(launch?.builder_wallet, 120);
 const vestingStartAt = clean(launch?.live_at, 120) || nowIso();
 
@@ -395,15 +440,9 @@ if (!(await tableExists("launch_liquidity_lifecycle"))) return null;
 const columns = await getTableColumns("launch_liquidity_lifecycle");
 const has = (name) => columns.has(name);
 
-const totalSupply = floorToken(
-token?.supply ||
-launch?.final_supply ||
-launch?.supply ||
-0
-);
-
-const solReserve = roundSol(pool?.sol_reserve || 0);
-const tokenReserve = floorToken(pool?.token_reserve || 0);
+const totalSupply = resolveTotalSupply(launch, token);
+const solReserve = resolveInternalSolReserve(launch, pool, null);
+const tokenReserve = resolveInternalTokenReserve(launch, pool, null);
 const impliedMarketcapSol = roundSol(
 computeSpotPriceSolPerToken(solReserve, tokenReserve) * totalSupply
 );
@@ -497,7 +536,7 @@ values.push(MSS_LOCK_SPLIT_PCT);
 if (has("lock_status")) {
 insertColumns.push("lock_status");
 placeholders.push("?");
-values.push("not_locked");
+values.push("mss_held_internal");
 }
 if (has("created_at")) {
 insertColumns.push("created_at");
@@ -544,15 +583,9 @@ mssLockedSplitPct: MSS_LOCK_SPLIT_PCT,
 async function buildGraduationReadiness(launchId, launch, token, pool, lifecycle) {
 const thresholds = getGraduationThresholds();
 
-const totalSupply = floorToken(
-token?.supply ||
-launch?.final_supply ||
-launch?.supply ||
-0
-);
-
-const solReserve = roundSol(pool?.sol_reserve || lifecycle?.internal_sol_reserve || 0);
-const tokenReserve = floorToken(pool?.token_reserve || lifecycle?.internal_token_reserve || 0);
+const totalSupply = resolveTotalSupply(launch, token);
+const solReserve = resolveInternalSolReserve(launch, pool, lifecycle);
+const tokenReserve = resolveInternalTokenReserve(launch, pool, lifecycle);
 const priceSol = computeSpotPriceSolPerToken(solReserve, tokenReserve);
 const marketcapSol = roundSol(priceSol * totalSupply);
 const volume24hSol = await getTrades24hVolume(launchId);
@@ -614,6 +647,98 @@ checks,
 };
 }
 
+function buildPendingGraduationReadiness({
+launch,
+totalSupply,
+solReserve,
+tokenReserve,
+volume24h,
+reason,
+lifecycle = null,
+}) {
+const thresholds = getGraduationThresholds();
+const status = clean(launch?.status, 64).toLowerCase();
+const liveMinutes = getLiveMinutes(launch);
+const priceSol = computeSpotPriceSolPerToken(solReserve, tokenReserve);
+const marketcapSol = roundSol(priceSol * totalSupply);
+const alreadyGraduated =
+safeNum(lifecycle?.graduated, 0) === 1 || status === "graduated";
+
+return {
+ready: false,
+reason:
+reason ||
+(status === "commit"
+? "Launch is still in commit phase."
+: status === "countdown"
+? "Countdown is active. Live market has not opened yet."
+: status === "building"
+? "Market bootstrap is still being completed."
+: "Graduation conditions are still being monitored."),
+thresholds,
+metrics: {
+marketcapSol,
+volume24hSol: roundSol(volume24h),
+holderCount: 0,
+liveMinutes,
+solReserve,
+tokenReserve,
+priceSol,
+totalSupply,
+},
+checks: {
+liveStatus: status === "building" || status === "live" || status === "graduated",
+marketcapReached: false,
+volumeReached: false,
+holdersReached: false,
+minimumLiveWindowReached: false,
+hasReserves: solReserve > 0 && tokenReserve > 0,
+alreadyGraduated,
+},
+};
+}
+
+function buildBuilderVestingSummary({ launch, token, vesting }) {
+const totalSupply = resolveTotalSupply(launch, token);
+const launchStatus = clean(launch?.status, 64).toLowerCase();
+const canVest =
+launchStatus === "building" ||
+launchStatus === "live" ||
+launchStatus === "graduated";
+
+if (!canVest) {
+const totalAllocation = floorToken(
+vesting?.total_allocation || computeBuilderTotalAllocation(totalSupply)
+);
+const dailyUnlock = floorToken(
+vesting?.daily_unlock || computeBuilderDailyUnlock(totalSupply)
+);
+
+return {
+totalAllocation,
+dailyUnlock,
+unlockedAmount: 0,
+lockedAmount: totalAllocation,
+vestingStartAt: vesting?.vesting_start_at || launch?.live_at || null,
+vestedDays: 0,
+};
+}
+
+const vestComputed = computeBuilderUnlockedAmount({
+totalSupply,
+vestingStartAt: vesting?.vesting_start_at || launch?.live_at,
+});
+
+return {
+totalAllocation: floorToken(vesting?.total_allocation || vestComputed.totalAllocation),
+dailyUnlock: floorToken(vesting?.daily_unlock || vestComputed.dailyUnlock),
+unlockedAmount: floorToken(vesting?.unlocked_amount || vestComputed.unlockedAmount),
+lockedAmount: floorToken(vesting?.locked_amount || vestComputed.lockedAmount),
+vestingStartAt: vesting?.vesting_start_at || launch?.live_at || null,
+vestedDays: vestComputed.vestedDays,
+};
+}
+
 function buildLifecycleSummary({
 launch,
 token,
@@ -623,22 +748,18 @@ vesting,
 volume24h,
 readiness = null,
 }) {
-const totalSupply = floorToken(
-token?.supply ||
-launch?.final_supply ||
-launch?.supply ||
-0
-);
-
-const solReserve = roundSol(pool?.sol_reserve || lifecycle?.internal_sol_reserve || 0);
-const tokenReserve = floorToken(pool?.token_reserve || lifecycle?.internal_token_reserve || 0);
+const totalSupply = resolveTotalSupply(launch, token);
+const solReserve = resolveInternalSolReserve(launch, pool, lifecycle);
+const tokenReserve = resolveInternalTokenReserve(launch, pool, lifecycle);
 const price = computeSpotPriceSolPerToken(solReserve, tokenReserve);
 const marketcapSol = roundSol(price * totalSupply);
-
-const vestComputed = computeBuilderUnlockedAmount({
-totalSupply,
-vestingStartAt: vesting?.vesting_start_at || launch?.live_at,
-});
+const graduationStatus = resolveGraduationStatus(launch, lifecycle);
+const graduated =
+safeNum(lifecycle?.graduated, 0) === 1 ||
+clean(launch?.status, 64).toLowerCase() === "graduated";
+const hasReserves = solReserve > 0 && tokenReserve > 0;
+const builderVesting = buildBuilderVestingSummary({ launch, token, vesting });
+const lockStatus = resolveLockStatus(launch, lifecycle, hasReserves);
 
 return {
 launchId: launch?.id || null,
@@ -654,12 +775,14 @@ volume24hSol: roundSol(volume24h),
 internalSolReserve: solReserve,
 internalTokenReserve: tokenReserve,
 
-graduationStatus:
-clean(lifecycle?.graduation_status, 64) ||
-(clean(launch?.status, 64).toLowerCase() === "graduated" ? "graduated" : "internal_live"),
-graduated: safeNum(lifecycle?.graduated, 0) === 1,
+graduationStatus,
+graduated,
 graduationReason: clean(lifecycle?.graduation_reason, 64) || null,
 graduatedAt: lifecycle?.graduated_at || null,
+
+surgeStatus: graduationStatus === "graduated" ? "surged" : graduationStatus,
+surged: graduated,
+surgeReason: clean(lifecycle?.graduation_reason, 64) || null,
 
 raydiumTargetPct: safeNum(lifecycle?.raydium_target_pct, RAYDIUM_SPLIT_PCT),
 mssLockedTargetPct: safeNum(lifecycle?.mss_locked_target_pct, MSS_LOCK_SPLIT_PCT),
@@ -672,110 +795,38 @@ raydiumMigrationTx: clean(lifecycle?.raydium_migration_tx, 500) || null,
 mssLockedSol: roundSol(lifecycle?.mss_locked_sol || 0),
 mssLockedToken: floorToken(lifecycle?.mss_locked_token || 0),
 mssLockedLpAmount: clean(lifecycle?.mss_locked_lp_amount, 500) || null,
-lockStatus: clean(lifecycle?.lock_status, 64) || "not_locked",
+lockStatus,
 lockTx: clean(lifecycle?.lock_tx, 500) || null,
 lockExpiresAt: lifecycle?.lock_expires_at || null,
 
-builderVesting: {
-totalAllocation: floorToken(vesting?.total_allocation || vestComputed.totalAllocation),
-dailyUnlock: floorToken(vesting?.daily_unlock || vestComputed.dailyUnlock),
-unlockedAmount: floorToken(vesting?.unlocked_amount || vestComputed.unlockedAmount),
-lockedAmount: floorToken(vesting?.locked_amount || vestComputed.lockedAmount),
-vestingStartAt: vesting?.vesting_start_at || launch?.live_at || null,
-vestedDays: vestComputed.vestedDays,
-},
+builderVesting,
 
 graduationReadiness: readiness || null,
+surgeReadiness: readiness || null,
 };
 }
 
-export async function syncLiquidityLifecycle(launchId) {
+async function buildLifecycleState(launchId, { persist = false } = {}) {
 const launch = await getLaunchRow(launchId);
 if (!launch) {
 throw new Error("launch not found");
 }
 
 const status = clean(launch?.status, 64).toLowerCase();
-if (!["building", "live", "graduated"].includes(status)) {
-throw new Error("token not found for launch");
-}
-
-const token = await getTokenRow(launchId);
-const pool = await getPoolRow(launchId);
-
-if (!token || !pool) {
-return {
-launchId: launch?.id || null,
-launchStatus: status || null,
-contractAddress: clean(launch?.contract_address, 120) || null,
-builderWallet: clean(launch?.builder_wallet, 120) || null,
-totalSupply: floorToken(launch?.final_supply || launch?.supply || 0),
-priceSol: safeNum(launch?.price, 0),
-marketcapSol: safeNum(launch?.market_cap, 0),
-volume24hSol: safeNum(launch?.volume_24h, 0),
-internalSolReserve: safeNum(launch?.internal_pool_sol || launch?.liquidity || 0, 0),
-internalTokenReserve: floorToken(launch?.internal_pool_tokens || 0),
-graduationStatus: status === "graduated" ? "graduated" : "building",
-graduated: status === "graduated",
-graduationReason: null,
-graduatedAt: null,
-raydiumTargetPct: RAYDIUM_SPLIT_PCT,
-mssLockedTargetPct: MSS_LOCK_SPLIT_PCT,
-raydiumPoolId: null,
-raydiumSolMigrated: 0,
-raydiumTokenMigrated: 0,
-raydiumLpTokens: null,
-raydiumMigrationTx: null,
-mssLockedSol: 0,
-mssLockedToken: 0,
-mssLockedLpAmount: null,
-lockStatus: "not_locked",
-lockTx: null,
-lockExpiresAt: null,
-builderVesting: {
-totalAllocation: computeBuilderTotalAllocation(
-floorToken(launch?.final_supply || launch?.supply || 0)
-),
-dailyUnlock: computeBuilderDailyUnlock(
-floorToken(launch?.final_supply || launch?.supply || 0)
-),
-unlockedAmount: 0,
-lockedAmount: computeBuilderTotalAllocation(
-floorToken(launch?.final_supply || launch?.supply || 0)
-),
-vestingStartAt: launch?.live_at || null,
-vestedDays: 0,
-},
-graduationReadiness: {
-ready: false,
-reason: "Market bootstrap is still being completed.",
-thresholds: getGraduationThresholds(),
-metrics: {
-marketcapSol: safeNum(launch?.market_cap, 0),
-volume24hSol: safeNum(launch?.volume_24h, 0),
-holderCount: 0,
-liveMinutes: getLiveMinutes(launch),
-solReserve: safeNum(launch?.internal_pool_sol || launch?.liquidity || 0, 0),
-tokenReserve: floorToken(launch?.internal_pool_tokens || 0),
-priceSol: safeNum(launch?.price, 0),
-totalSupply: floorToken(launch?.final_supply || launch?.supply || 0),
-},
-checks: {
-liveStatus: status === "building" || status === "live" || status === "graduated",
-marketcapReached: false,
-volumeReached: false,
-holdersReached: false,
-minimumLiveWindowReached: false,
-hasReserves: false,
-alreadyGraduated: status === "graduated",
-},
-},
-};
-}
-
-const vesting = await ensureBuilderVestingRecord(launchId, launch, token);
-const lifecycle = await ensureLifecycleRecord(launchId, launch, token, pool);
+let token = await getTokenRow(launchId);
+let pool = await getPoolRow(launchId);
+let lifecycle = await getLifecycleRow(launchId);
+let vesting = await getBuilderVestingRow(launchId);
 const volume24h = await getTrades24hVolume(launchId);
+
+const hasBootstrapArtifacts = Boolean(token && pool);
+const totalSupply = resolveTotalSupply(launch, token);
+const solReserve = resolveInternalSolReserve(launch, pool, lifecycle);
+const tokenReserve = resolveInternalTokenReserve(launch, pool, lifecycle);
+
+if (persist && hasBootstrapArtifacts && ["building", "live", "graduated"].includes(status)) {
+vesting = await ensureBuilderVestingRecord(launchId, launch, token);
+lifecycle = await ensureLifecycleRecord(launchId, launch, token, pool);
 const readiness = await buildGraduationReadiness(
 launchId,
 launch,
@@ -795,101 +846,14 @@ readiness,
 });
 }
 
-export async function getLiquidityLifecycle(launchId) {
-const launch = await getLaunchRow(launchId);
-if (!launch) {
-throw new Error("launch not found");
-}
-
-const status = clean(launch?.status, 64).toLowerCase();
-const token = await getTokenRow(launchId);
-const pool = await getPoolRow(launchId);
-const lifecycle = await getLifecycleRow(launchId);
-const vesting = await getBuilderVestingRow(launchId);
-const volume24h = await getTrades24hVolume(launchId);
-
-if (!token || !pool) {
-return {
-launchId: launch?.id || null,
-launchStatus: status || null,
-contractAddress: clean(launch?.contract_address, 120) || null,
-builderWallet: clean(launch?.builder_wallet, 120) || null,
-totalSupply: floorToken(launch?.final_supply || launch?.supply || 0),
-priceSol: safeNum(launch?.price, 0),
-marketcapSol: safeNum(launch?.market_cap, 0),
-volume24hSol: safeNum(launch?.volume_24h, 0),
-internalSolReserve: safeNum(launch?.internal_pool_sol || launch?.liquidity || 0, 0),
-internalTokenReserve: floorToken(launch?.internal_pool_tokens || 0),
-graduationStatus:
-clean(lifecycle?.graduation_status, 64) ||
-(status === "graduated" ? "graduated" : "building"),
-graduated: safeNum(lifecycle?.graduated, 0) === 1 || status === "graduated",
-graduationReason: clean(lifecycle?.graduation_reason, 64) || null,
-graduatedAt: lifecycle?.graduated_at || null,
-raydiumTargetPct: safeNum(lifecycle?.raydium_target_pct, RAYDIUM_SPLIT_PCT),
-mssLockedTargetPct: safeNum(lifecycle?.mss_locked_target_pct, MSS_LOCK_SPLIT_PCT),
-raydiumPoolId: clean(lifecycle?.raydium_pool_id, 200) || null,
-raydiumSolMigrated: roundSol(lifecycle?.raydium_sol_migrated || 0),
-raydiumTokenMigrated: floorToken(lifecycle?.raydium_token_migrated || 0),
-raydiumLpTokens: clean(lifecycle?.raydium_lp_tokens, 500) || null,
-raydiumMigrationTx: clean(lifecycle?.raydium_migration_tx, 500) || null,
-mssLockedSol: roundSol(lifecycle?.mss_locked_sol || 0),
-mssLockedToken: floorToken(lifecycle?.mss_locked_token || 0),
-mssLockedLpAmount: clean(lifecycle?.mss_locked_lp_amount, 500) || null,
-lockStatus: clean(lifecycle?.lock_status, 64) || "not_locked",
-lockTx: clean(lifecycle?.lock_tx, 500) || null,
-lockExpiresAt: lifecycle?.lock_expires_at || null,
-builderVesting: {
-totalAllocation: floorToken(
-vesting?.total_allocation ||
-computeBuilderTotalAllocation(
-floorToken(launch?.final_supply || launch?.supply || 0)
-)
-),
-dailyUnlock: floorToken(
-vesting?.daily_unlock ||
-computeBuilderDailyUnlock(
-floorToken(launch?.final_supply || launch?.supply || 0)
-)
-),
-unlockedAmount: floorToken(vesting?.unlocked_amount || 0),
-lockedAmount: floorToken(
-vesting?.locked_amount ||
-computeBuilderTotalAllocation(
-floorToken(launch?.final_supply || launch?.supply || 0)
-)
-),
-vestingStartAt: vesting?.vesting_start_at || launch?.live_at || null,
-vestedDays: 0,
-},
-graduationReadiness: {
-ready: false,
-reason: "Market bootstrap is still being completed.",
-thresholds: getGraduationThresholds(),
-metrics: {
-marketcapSol: safeNum(launch?.market_cap, 0),
-volume24hSol: volume24h,
-holderCount: 0,
-liveMinutes: getLiveMinutes(launch),
-solReserve: safeNum(launch?.internal_pool_sol || launch?.liquidity || 0, 0),
-tokenReserve: floorToken(launch?.internal_pool_tokens || 0),
-priceSol: safeNum(launch?.price, 0),
-totalSupply: floorToken(launch?.final_supply || launch?.supply || 0),
-},
-checks: {
-liveStatus: status === "building" || status === "live" || status === "graduated",
-marketcapReached: false,
-volumeReached: false,
-holdersReached: false,
-minimumLiveWindowReached: false,
-hasReserves: false,
-alreadyGraduated: status === "graduated",
-},
-},
-};
-}
-
-const readiness = await buildGraduationReadiness(launchId, launch, token, pool, lifecycle);
+if (hasBootstrapArtifacts) {
+const readiness = await buildGraduationReadiness(
+launchId,
+launch,
+token,
+pool,
+lifecycle
+);
 
 return buildLifecycleSummary({
 launch,
@@ -900,6 +864,42 @@ vesting,
 volume24h,
 readiness,
 });
+}
+
+const readiness = buildPendingGraduationReadiness({
+launch,
+totalSupply,
+solReserve,
+tokenReserve,
+volume24h,
+lifecycle,
+reason:
+status === "commit"
+? "Launch is still in commit phase."
+: status === "countdown"
+? "Countdown is active. Live market has not opened yet."
+: status === "building"
+? "Market bootstrap is still being completed."
+: "Graduation conditions are still being monitored.",
+});
+
+return buildLifecycleSummary({
+launch,
+token,
+pool,
+lifecycle,
+vesting,
+volume24h,
+readiness,
+});
+}
+
+export async function syncLiquidityLifecycle(launchId) {
+return buildLifecycleState(launchId, { persist: true });
+}
+
+export async function getLiquidityLifecycle(launchId) {
+return buildLifecycleState(launchId, { persist: false });
 }
 
 export async function buildGraduationPlanForLaunch(launchId) {

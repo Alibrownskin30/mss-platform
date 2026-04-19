@@ -41,50 +41,24 @@ function cleanText(value, max = 200) {
 return String(value ?? "").trim().slice(0, max);
 }
 
-function parseDbTime(value) {
-if (!value) return null;
-const raw = String(value).trim();
-if (!raw) return null;
-
-const hasExplicitTimezone =
-/z$/i.test(raw) || /[+-]\d{2}:\d{2}$/.test(raw);
-
-if (!hasExplicitTimezone && /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/.test(raw)) {
-const sqliteUtc = Date.parse(raw.replace(" ", "T") + "Z");
-return Number.isFinite(sqliteUtc) ? sqliteUtc : null;
-}
-
-const direct = Date.parse(raw);
-return Number.isFinite(direct) ? direct : null;
-}
-
-function inferRevealStatus(launch = null) {
+function normalizeLaunchStatus(launch = null) {
 if (!launch) return "";
 
 const rawStatus = cleanText(launch.status, 64).toLowerCase();
-if (rawStatus === "graduated") return "graduated";
-if (rawStatus === "live") return "live";
-
-const contractAddress = cleanText(
-launch.contract_address || launch.mint_address,
-200
-);
-const reservationStatus = cleanText(launch.mint_reservation_status, 64).toLowerCase();
-const liveAtMs = parseDbTime(launch.live_at || launch.countdown_ends_at);
 
 if (
-contractAddress &&
-reservationStatus === "finalized" &&
-(!liveAtMs || Date.now() >= liveAtMs)
+rawStatus === "commit" ||
+rawStatus === "countdown" ||
+rawStatus === "building" ||
+rawStatus === "live" ||
+rawStatus === "graduated" ||
+rawStatus === "failed" ||
+rawStatus === "failed_refunded"
 ) {
-return "live";
-}
-
-if (contractAddress && liveAtMs && Date.now() >= liveAtMs) {
-return "live";
-}
-
 return rawStatus;
+}
+
+return rawStatus || "commit";
 }
 
 function shouldRevealContractAddress(status) {
@@ -95,14 +69,18 @@ return normalized === "live" || normalized === "graduated";
 function sanitizeLaunchForResponse(launch = null) {
 if (!launch) return null;
 
-const inferredStatus = inferRevealStatus(launch);
-const revealContract = shouldRevealContractAddress(inferredStatus);
+const normalizedStatus = normalizeLaunchStatus(launch);
+const revealContract = shouldRevealContractAddress(normalizedStatus);
 
 return {
 ...launch,
-status: inferredStatus || launch.status || null,
-contract_address: revealContract ? launch.contract_address || null : null,
-mint_address: revealContract ? launch.mint_address || null : null,
+status: normalizedStatus || launch.status || null,
+contract_address: revealContract
+? cleanText(launch.contract_address, 120) || null
+: null,
+mint_address: revealContract
+? cleanText(launch.mint_address, 120) || null
+: null,
 reserved_mint_address: null,
 reserved_mint_secret: null,
 mint_reservation_status: revealContract
@@ -114,12 +92,14 @@ mint_reservation_status: revealContract
 function sanitizeTokenForResponse(token = null, launch = null) {
 if (!token) return null;
 
-const inferredStatus = inferRevealStatus(launch);
-const revealContract = shouldRevealContractAddress(inferredStatus);
+const normalizedStatus = normalizeLaunchStatus(launch);
+const revealContract = shouldRevealContractAddress(normalizedStatus);
 
 return {
 ...token,
-mint_address: revealContract ? token.mint_address || null : null,
+mint_address: revealContract
+? cleanText(token.mint_address, 120) || null
+: null,
 mint: revealContract
 ? cleanText(token.mint || token.mint_address, 120) || null
 : null,

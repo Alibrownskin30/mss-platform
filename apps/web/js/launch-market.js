@@ -365,6 +365,101 @@ launch?.volume_24h,
 stats?.volume_24h,
 stats?.volume_24h_sol
 ) ?? 0,
+status: choosePreferredNonEmpty(
+launch?.status
+),
+live_at: choosePreferredNonEmpty(
+launch?.live_at
+),
+countdown_started_at: choosePreferredNonEmpty(
+launch?.countdown_started_at
+),
+countdown_ends_at: choosePreferredNonEmpty(
+launch?.countdown_ends_at
+),
+commit_started_at: choosePreferredNonEmpty(
+launch?.commit_started_at
+),
+commit_ends_at: choosePreferredNonEmpty(
+launch?.commit_ends_at
+),
+template: cleanString(launch?.template, 80),
+});
+}
+
+function buildLaunchPatchFromCommitStats(commitStats = {}) {
+return normalizeLaunchTruth({
+status: choosePreferredNonEmpty(
+commitStats?.status
+),
+committed_sol: firstFinite(
+commitStats?.totalCommitted,
+commitStats?.committed_sol
+) ?? 0,
+participants_count: firstFinite(
+commitStats?.participants,
+commitStats?.participants_count
+) ?? 0,
+hard_cap_sol: firstFinite(
+commitStats?.hardCap,
+commitStats?.hard_cap_sol,
+commitStats?.hard_cap
+) ?? 0,
+min_raise_sol: firstFinite(
+commitStats?.minRaise,
+commitStats?.min_raise_sol,
+commitStats?.min_raise
+) ?? 0,
+commit_started_at: choosePreferredNonEmpty(
+commitStats?.commitStartedAt,
+commitStats?.commit_started_at
+),
+commit_ends_at: choosePreferredNonEmpty(
+commitStats?.commitEndsAt,
+commitStats?.commit_ends_at
+),
+countdown_started_at: choosePreferredNonEmpty(
+commitStats?.countdownStartedAt,
+commitStats?.countdown_started_at
+),
+countdown_ends_at: choosePreferredNonEmpty(
+commitStats?.countdownEndsAt,
+commitStats?.countdown_ends_at
+),
+live_at: choosePreferredNonEmpty(
+commitStats?.liveAt,
+commitStats?.live_at,
+commitStats?.countdownEndsAt,
+commitStats?.countdown_ends_at
+),
+builder_wallet: choosePreferredNonEmpty(
+commitStats?.builderWallet,
+commitStats?.builder_wallet
+),
+builder_alias: choosePreferredNonEmpty(
+commitStats?.builderAlias,
+commitStats?.builder_alias
+),
+builder_score: firstFinite(
+commitStats?.builderScore,
+commitStats?.builder_score
+) ?? 0,
+website_url: choosePreferredNonEmpty(
+commitStats?.websiteUrl,
+commitStats?.website_url
+),
+x_url: choosePreferredNonEmpty(
+commitStats?.xUrl,
+commitStats?.x_url
+),
+telegram_url: choosePreferredNonEmpty(
+commitStats?.telegramUrl,
+commitStats?.telegram_url
+),
+discord_url: choosePreferredNonEmpty(
+commitStats?.discordUrl,
+commitStats?.discord_url
+),
 });
 }
 
@@ -431,9 +526,6 @@ function mergeLaunchTruth(previous = {}, incoming = {}) {
 const prev = normalizeLaunchTruth(previous || {});
 const next = normalizeLaunchTruth(incoming || {});
 
-const prevStatus = cleanString(prev.status, 64).toLowerCase();
-const nextStatus = cleanString(next.status, 64).toLowerCase();
-
 const prevContract = choosePreferredNonEmpty(prev.contract_address, prev.mint_address);
 const nextContract = choosePreferredNonEmpty(next.contract_address, next.mint_address);
 const strongestContract = choosePreferredNonEmpty(nextContract, prevContract);
@@ -443,6 +535,7 @@ const merged = {
 ...next,
 };
 
+merged.status = choosePreferredNonEmpty(next.status, prev.status);
 merged.token_name = choosePreferredNonEmpty(next.token_name, prev.token_name);
 merged.symbol = choosePreferredNonEmpty(next.symbol, prev.symbol);
 merged.builder_wallet = choosePreferredNonEmpty(next.builder_wallet, prev.builder_wallet);
@@ -457,9 +550,49 @@ merged.discord_url = choosePreferredNonEmpty(next.discord_url, prev.discord_url)
 merged.final_supply = choosePreferredNonEmpty(next.final_supply, prev.final_supply, next.supply, prev.supply);
 merged.supply = choosePreferredNonEmpty(next.supply, prev.supply, next.final_supply, prev.final_supply);
 
-merged.builder_score = firstPositive(next.builder_score, prev.builder_score) ?? toNumber(next.builder_score ?? prev.builder_score, 0);
-merged.hard_cap_sol = firstPositive(next.hard_cap_sol, prev.hard_cap_sol) ?? toNumber(next.hard_cap_sol ?? prev.hard_cap_sol, 0);
-merged.min_raise_sol = firstPositive(next.min_raise_sol, prev.min_raise_sol) ?? toNumber(next.min_raise_sol ?? prev.min_raise_sol, 0);
+merged.commit_started_at = choosePreferredNonEmpty(next.commit_started_at, prev.commit_started_at) || null;
+merged.commit_ends_at = choosePreferredNonEmpty(next.commit_ends_at, prev.commit_ends_at) || null;
+merged.countdown_started_at = choosePreferredNonEmpty(next.countdown_started_at, prev.countdown_started_at) || null;
+merged.countdown_ends_at = choosePreferredNonEmpty(next.countdown_ends_at, prev.countdown_ends_at) || null;
+merged.live_at = choosePreferredNonEmpty(next.live_at, prev.live_at, merged.countdown_ends_at) || null;
+merged.created_at = choosePreferredNonEmpty(next.created_at, prev.created_at) || null;
+merged.updated_at = choosePreferredNonEmpty(next.updated_at, prev.updated_at) || null;
+
+merged.builder_score =
+firstFinite(next.builder_score, prev.builder_score) ??
+toNumber(next.builder_score ?? prev.builder_score, 0);
+
+merged.hard_cap_sol =
+firstFinite(next.hard_cap_sol, prev.hard_cap_sol) ??
+toNumber(next.hard_cap_sol ?? prev.hard_cap_sol, 0);
+
+merged.min_raise_sol =
+firstFinite(next.min_raise_sol, prev.min_raise_sol) ??
+toNumber(next.min_raise_sol ?? prev.min_raise_sol, 0);
+
+merged.committed_sol =
+firstFinite(next.committed_sol, prev.committed_sol) ??
+toNumber(next.committed_sol ?? prev.committed_sol, 0);
+
+merged.participants_count =
+firstFinite(next.participants_count, prev.participants_count) ??
+toNumber(next.participants_count ?? prev.participants_count, 0);
+
+merged.price =
+firstFinite(next.price, prev.price) ??
+toNumber(next.price ?? prev.price, 0);
+
+merged.market_cap =
+firstFinite(next.market_cap, prev.market_cap) ??
+toNumber(next.market_cap ?? prev.market_cap, 0);
+
+merged.liquidity =
+firstFinite(next.liquidity, prev.liquidity) ??
+toNumber(next.liquidity ?? prev.liquidity, 0);
+
+merged.volume_24h =
+firstFinite(next.volume_24h, prev.volume_24h) ??
+toNumber(next.volume_24h ?? prev.volume_24h, 0);
 
 merged.contract_address = strongestContract;
 merged.mint_address = choosePreferredNonEmpty(next.mint_address, prev.mint_address, strongestContract);
@@ -469,58 +602,103 @@ next.mint_reservation_status,
 prev.mint_reservation_status
 );
 
-const hasFinalizedSignal =
-merged.mint_reservation_status === "finalized" ||
-Boolean(strongestContract);
+return normalizeLaunchTruth(merged);
+}
 
-if (hasFinalizedSignal) {
-if (prevStatus === "graduated" || nextStatus === "graduated") {
+function resolveCanonicalPhase(launch = {}) {
+const truth = normalizeLaunchTruth(launch || {});
+const explicit = cleanString(truth?.status, 64).toLowerCase();
+const now = getNowMs();
+
+const countdownStartMs = parseDateMs(truth?.countdown_started_at);
+const countdownEndMs = parseDateMs(truth?.countdown_ends_at || truth?.live_at);
+const commitEndMs = parseDateMs(truth?.commit_ends_at);
+
+const contractAddress = choosePreferredNonEmpty(
+truth?.contract_address,
+truth?.mint_address
+);
+const reservationStatus = cleanString(truth?.mint_reservation_status, 64).toLowerCase();
+
+const hasLiveSignal = Boolean(
+contractAddress ||
+reservationStatus === "finalized"
+);
+
+if (explicit === "graduated") return PHASES.LIVE;
+if (explicit === "live") return PHASES.LIVE;
+
+if (explicit === "building") {
+return hasLiveSignal ? PHASES.LIVE : PHASES.BUILDING;
+}
+
+if (explicit === "countdown") {
+if (hasLiveSignal) return PHASES.LIVE;
+if (countdownEndMs && now >= countdownEndMs) return PHASES.BUILDING;
+return PHASES.COUNTDOWN;
+}
+
+if (explicit === "failed" || explicit === "failed_refunded") {
+return PHASES.COMMIT;
+}
+
+if ((countdownStartMs || countdownEndMs) && !hasLiveSignal) {
+if (countdownEndMs && now >= countdownEndMs) return PHASES.BUILDING;
+return PHASES.COUNTDOWN;
+}
+
+if (hasLiveSignal) {
+if (countdownEndMs && now < countdownEndMs) {
+return PHASES.COUNTDOWN;
+}
+return PHASES.LIVE;
+}
+
+if (commitEndMs && now >= commitEndMs && countdownEndMs && now < countdownEndMs) {
+return PHASES.COUNTDOWN;
+}
+
+return PHASES.COMMIT;
+}
+
+function canonicalizeLaunchTruth(launch = {}, commitStats = {}) {
+const merged = mergeLaunchTruth(
+normalizeLaunchTruth(launch || {}),
+buildLaunchPatchFromCommitStats(commitStats || {})
+);
+
+const explicit = cleanString(merged.status, 64).toLowerCase();
+const phase = resolveCanonicalPhase(merged);
+
+if (explicit === "graduated") {
 merged.status = "graduated";
-} else if (prevStatus === "live" || nextStatus === "live") {
-merged.status = "live";
-} else {
-const liveAtMs = parseDateMs(next.live_at || prev.live_at);
-const countdownEndsMs = parseDateMs(next.countdown_ends_at || prev.countdown_ends_at);
-const now = Date.now();
-
-if ((liveAtMs && now >= liveAtMs) || (countdownEndsMs && now >= countdownEndsMs)) {
-merged.status = "live";
-}
-}
-}
-
 return merged;
 }
 
-function isLaunchLiveLike(launch = {}) {
-const status = cleanString(launch?.status, 64).toLowerCase();
-if (status === "live" || status === "graduated") return true;
-
-const contractAddress = choosePreferredNonEmpty(
-launch?.contract_address,
-launch?.mint_address
-);
-const reservationStatus = cleanString(launch?.mint_reservation_status, 64).toLowerCase();
-const liveAtMs = parseDateMs(launch?.live_at || launch?.countdown_ends_at);
-
-if (contractAddress && reservationStatus === "finalized") return true;
-if (contractAddress && liveAtMs && Date.now() >= liveAtMs) return true;
-
-return false;
+if (explicit === "failed" || explicit === "failed_refunded") {
+merged.status = explicit;
+return merged;
 }
 
-function isLaunchBuilding(launch = {}) {
-if (isLaunchLiveLike(launch)) return false;
+if (phase === PHASES.LIVE) {
+merged.status = "live";
+} else if (phase === PHASES.BUILDING) {
+merged.status = "building";
+} else if (phase === PHASES.COUNTDOWN) {
+merged.status = "countdown";
+} else {
+merged.status = "commit";
+}
 
-const status = cleanString(launch?.status, 64).toLowerCase();
-const liveAtMs = parseDateMs(launch?.live_at || launch?.countdown_ends_at);
+return normalizeLaunchTruth(merged);
+}
 
-if (!liveAtMs) return false;
+function isLaunchLiveLike(launch = {}, commitStats = {}) {
+return resolveCanonicalPhase(canonicalizeLaunchTruth(launch, commitStats)) === PHASES.LIVE;
+}
 
-return (
-(status === "countdown" || status === "live" || !status) &&
-Date.now() >= liveAtMs
-);
+function isLaunchBuilding(launch = {}, commitStats = {}) {
+return resolveCanonicalPhase(canonicalizeLaunchTruth(launch, commitStats)) === PHASES.BUILDING;
 }
 
 function getDaysSinceLive(launch = {}) {
@@ -540,31 +718,8 @@ const days = getDaysSinceLive(launch);
 return BASE_MAX_WALLET_PERCENT + (days * DAILY_INCREASE_PERCENT);
 }
 
-function inferPhase(launch) {
-const explicit = String(launch?.status || "").toLowerCase();
-
-if (explicit === "graduated") return PHASES.LIVE;
-if (explicit === "live" && isLaunchLiveLike(launch)) return PHASES.LIVE;
-if (isLaunchBuilding(launch)) return PHASES.BUILDING;
-
-if (explicit === PHASES.COUNTDOWN) {
-if (isLaunchLiveLike(launch)) return PHASES.LIVE;
-return PHASES.COUNTDOWN;
-}
-if (explicit === PHASES.COMMIT) return PHASES.COMMIT;
-
-if (isLaunchLiveLike(launch)) return PHASES.LIVE;
-
-const now = getNowMs();
-const countdownStart = parseDateMs(launch?.countdown_started_at);
-const tradingOpen = parseDateMs(launch?.live_at || launch?.countdown_ends_at);
-
-if (tradingOpen && now >= tradingOpen) return PHASES.BUILDING;
-if (countdownStart && tradingOpen && now >= countdownStart && now < tradingOpen) {
-return PHASES.COUNTDOWN;
-}
-
-return PHASES.COMMIT;
+function inferPhase(launch, commitStats = {}) {
+return resolveCanonicalPhase(canonicalizeLaunchTruth(launch, commitStats));
 }
 
 function getVisualPhase(phase) {
@@ -636,7 +791,7 @@ let builderSignal = builderWallet ? "Linked" : "Pending";
 let structureSignal = "Reviewing";
 let marketSignal = "Standby";
 let note =
-"CassIE is attached to this launch and continuously surfaces builder, structure, and live market intelligence as the lifecycle progresses.";
+"CassIE is attached to this launch and continuously surfaces builder, structure and live market intelligence as the lifecycle progresses.";
 
 if (builderScore >= 80) {
 builderSignal = "Strong";
@@ -876,8 +1031,8 @@ nameEl.title = tokenName;
 }
 }
 
-function resolveContractAddress(launch = {}, tokenPayload = {}) {
-const phase = inferPhase(launch);
+function resolveContractAddress(launch = {}, tokenPayload = {}, commitStats = {}) {
+const phase = inferPhase(launch, commitStats);
 const contractAddress = choosePreferredNonEmpty(
 launch?.contract_address,
 launch?.mint_address,
@@ -924,8 +1079,8 @@ state: "Pending",
 };
 }
 
-function updateContractAddress(launch, tokenPayload = null) {
-const resolved = resolveContractAddress(launch || {}, tokenPayload || {});
+function updateContractAddress(launch, tokenPayload = null, commitStats = {}) {
+const resolved = resolveContractAddress(launch || {}, tokenPayload || {}, commitStats || {});
 const ca = resolved.value || "";
 const buttonText = ca ? shortAddress(ca) : (resolved.state === "Hidden" ? "Hidden until live" : resolved.state);
 
@@ -1218,10 +1373,11 @@ liveStats.volume24hUsd > 0
 }
 
 function getCountdownParts(launch, commitStats = {}) {
+const merged = canonicalizeLaunchTruth(launch, commitStats);
 const target =
 commitStats?.countdownEndsAt ||
-launch?.live_at ||
-launch?.countdown_ends_at;
+merged?.live_at ||
+merged?.countdown_ends_at;
 
 const tradingOpenMs = parseDateMs(target);
 if (!tradingOpenMs) return { totalMs: 0, minutes: 0, seconds: 0 };
@@ -1242,19 +1398,19 @@ return `${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`
 function updateCountdownUi(launch, commitStats = {}) {
 setText("marketCountdownValue", getCountdownText(launch, commitStats));
 
-if ($("stat4Value") && inferPhase(launch) === PHASES.COUNTDOWN) {
+if ($("stat4Value") && inferPhase(launch, commitStats) === PHASES.COUNTDOWN) {
 setText("stat4Value", getCountdownText(launch, commitStats));
 }
 }
 
-function setManageLinksVisibility(launch, connectedWallet) {
+function setManageLinksVisibility(launch, connectedWallet, commitStats = {}) {
 const button = $("manageLaunchLinksBtn");
 if (!button) return;
 
 const builderWallet = String(launch?.builder_wallet || "").trim().toLowerCase();
 const wallet = String(connectedWallet || "").trim().toLowerCase();
 const canManage = Boolean(
-inferPhase(launch) === PHASES.LIVE &&
+inferPhase(launch, commitStats) === PHASES.LIVE &&
 builderWallet &&
 wallet &&
 builderWallet === wallet
@@ -2246,7 +2402,7 @@ this.executeSell = options.executeSell || defaultExecuteSell;
 this.graduateDevnet = options.graduateDevnet || defaultGraduateDevnet;
 this.onPhaseChange = typeof options.onPhaseChange === "function" ? options.onPhaseChange : null;
 
-this.launch = options.launch ? normalizeLaunchTruth(options.launch) : null;
+this.launch = options.launch ? canonicalizeLaunchTruth(options.launch, options.commitStats || {}) : null;
 this.commitStats = options.commitStats || {};
 this.lifecycle = null;
 this.graduationPlan = null;
@@ -2303,6 +2459,7 @@ resetTradeQuoteUi();
 if (!this.launch && this.launchId) {
 await this.refreshLaunch({ force: true });
 } else {
+this.launch = canonicalizeLaunchTruth(this.launch || {}, this.commitStats || {});
 this.applyAll();
 }
 
@@ -2461,9 +2618,10 @@ if (this.countdownTimer) clearInterval(this.countdownTimer);
 updateCountdownUi(this.launch, this.commitStats);
 
 this.countdownTimer = setInterval(() => {
+this.launch = canonicalizeLaunchTruth(this.launch || {}, this.commitStats || {});
 updateCountdownUi(this.launch, this.commitStats);
 
-const nextPhase = inferPhase(this.launch);
+const nextPhase = inferPhase(this.launch, this.commitStats);
 if (nextPhase !== this.phase) {
 const previousPhase = this.phase;
 this.phase = nextPhase;
@@ -2504,6 +2662,7 @@ this.launch = mergeLaunchTruth(this.launch || {}, payload.chartLaunch);
 }
 
 this.launch = mergeLaunchTruth(this.launch || {}, tokenLaunchPatch);
+this.launch = canonicalizeLaunchTruth(this.launch || {}, this.commitStats || {});
 
 const liveWalletSummary = getWalletSummaryData(
 this.tokenPayload,
@@ -2595,16 +2754,21 @@ this.fetchTokenStats(this.launchId, this.connectedWallet || "").catch(() => ({})
 if (this._destroyed) return;
 
 const incomingLaunch = normalizeLaunchTruth(launchPayload?.launch || launchPayload || {});
+const commitStatsPatch = buildLaunchPatchFromCommitStats(commitStatsPayload || {});
 const tokenLaunchPatch = buildLaunchPatchFromTokenPayload(tokenPayload || {});
 
 this.tokenPayload = tokenPayload || this.tokenPayload || {};
-this.launch = mergeLaunchTruth(this.launch || {}, incomingLaunch);
-this.launch = mergeLaunchTruth(this.launch || {}, tokenLaunchPatch);
 this.commitStats = commitStatsPayload || {};
+
+this.launch = mergeLaunchTruth(this.launch || {}, incomingLaunch);
+this.launch = mergeLaunchTruth(this.launch || {}, commitStatsPatch);
+this.launch = mergeLaunchTruth(this.launch || {}, tokenLaunchPatch);
+this.launch = canonicalizeLaunchTruth(this.launch || {}, this.commitStats || {});
+
 this.lifecycle = lifecyclePayload?.lifecycle || null;
 this.graduationPlan = lifecyclePayload?.graduationPlan || null;
 
-const nextPhase = inferPhase(this.launch);
+const nextPhase = inferPhase(this.launch, this.commitStats);
 this.phase = nextPhase;
 
 if (nextPhase === PHASES.LIVE) {
@@ -2628,13 +2792,14 @@ this._launchRefreshInFlight = null;
 applyAll(previousPhaseOverride = null) {
 if (!this.launch) return;
 
+this.launch = canonicalizeLaunchTruth(this.launch || {}, this.commitStats || {});
 const previousPhase = previousPhaseOverride ?? this.phase;
-this.phase = inferPhase(this.launch);
+this.phase = inferPhase(this.launch, this.commitStats);
 
 updateTokenIdentity(this.launch, this.tokenPayload);
-updateContractAddress(this.launch, this.tokenPayload);
+updateContractAddress(this.launch, this.tokenPayload, this.commitStats);
 renderExternalLinks(this.launch);
-setManageLinksVisibility(this.launch, this.connectedWallet);
+setManageLinksVisibility(this.launch, this.connectedWallet, this.commitStats);
 updatePhaseClasses(this.phase);
 updatePhaseContent(this.phase);
 setTradePanelVisibility(this.phase);
@@ -2750,7 +2915,7 @@ this.lastQuote = null;
 resetTradeQuoteUi();
 setTradeMessage("");
 
-if (this.launch) setManageLinksVisibility(this.launch, this.connectedWallet);
+if (this.launch) setManageLinksVisibility(this.launch, this.connectedWallet, this.commitStats);
 
 if (this.phase === PHASES.LIVE) {
 updateWalletSummary(
@@ -2832,8 +2997,9 @@ wallet: this.connectedWallet || "",
 };
 const result = await this.saveLinks(this.launchId, payload);
 this.launch = mergeLaunchTruth(this.launch || {}, result?.launch || payload);
+this.launch = canonicalizeLaunchTruth(this.launch || {}, this.commitStats || {});
 renderExternalLinks(this.launch);
-setManageLinksVisibility(this.launch, this.connectedWallet);
+setManageLinksVisibility(this.launch, this.connectedWallet, this.commitStats);
 closeLinksModal();
 } catch (error) {
 console.error("save links failed:", error);
@@ -3123,6 +3289,7 @@ reason: "devnet_manual_override",
 this.lifecycle = result?.lifecycle || this.lifecycle;
 if (result?.launch) {
 this.launch = mergeLaunchTruth(this.launch || {}, result.launch);
+this.launch = canonicalizeLaunchTruth(this.launch || {}, this.commitStats || {});
 }
 
 setTradeMessage("Launch marked as graduated on devnet.", "success");
@@ -3140,8 +3307,11 @@ this.applyAll();
 
 setBaseState(launch, commitStats = {}, options = {}) {
 const previousPhase = this.phase;
-this.launch = mergeLaunchTruth(this.launch || {}, launch || {});
 this.commitStats = commitStats || this.commitStats || {};
+this.launch = canonicalizeLaunchTruth(
+mergeLaunchTruth(this.launch || {}, launch || {}),
+this.commitStats || {}
+);
 this.applyAll(previousPhase);
 
 if (options.restartPolling) {

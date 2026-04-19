@@ -258,12 +258,23 @@ const normalized = cleanString(status, 64).toLowerCase();
 return normalized === "live" || normalized === "graduated";
 }
 
-function inferEffectiveLaunchStatus(launchLike = {}, statsLike = {}, lifecycleLike = null) {
-const rawStatus = cleanString(launchLike?.status, 64).toLowerCase();
-const lifecycleStatus = cleanString(
-lifecycleLike?.launchStatus || lifecycleLike?.status || lifecycleLike?.graduationStatus,
-64
-).toLowerCase();
+function normalizePhaseStatus(value) {
+const normalized = cleanString(value, 64).toLowerCase();
+
+if (normalized === "graduated") return "graduated";
+if (normalized === "live") return "live";
+if (normalized === "building" || normalized === "bootstrap" || normalized === "bootstrapping") return "building";
+if (normalized === "countdown") return "countdown";
+if (normalized === "failed_refunded") return "failed_refunded";
+if (normalized === "failed") return "failed";
+return "commit";
+}
+
+function resolveCanonicalLaunchStatus(launchLike = {}, statsLike = {}, lifecycleLike = null) {
+const rawStatus = normalizePhaseStatus(launchLike?.status);
+const lifecycleStatus = normalizePhaseStatus(
+lifecycleLike?.launchStatus || lifecycleLike?.status || ""
+);
 
 const contractAddress = choosePreferredString(
 launchLike?.contract_address,
@@ -273,52 +284,58 @@ lifecycleLike?.contract_address
 );
 
 const mintStatus = cleanString(launchLike?.mint_reservation_status, 64).toLowerCase();
+const countdownStartedMs = parseTs(
+statsLike?.countdownStartedAt || launchLike?.countdown_started_at
+);
 const countdownEndsMs = parseTs(
 statsLike?.countdownEndsAt || launchLike?.countdown_ends_at || launchLike?.live_at
 );
+const hasCountdownWindow =
+Number.isFinite(countdownStartedMs) || Number.isFinite(countdownEndsMs);
+const hasLiveSignal = Boolean(contractAddress || mintStatus === "finalized");
 const now = Date.now();
 
-if (rawStatus === "graduated" || lifecycleStatus === "graduated" || lifecycleLike?.graduated) {
+if (rawStatus === "graduated" || lifecycleStatus === "graduated") {
 return "graduated";
+}
+
+if (rawStatus === "failed_refunded") {
+return "failed_refunded";
+}
+
+if (rawStatus === "failed") {
+return "failed";
 }
 
 if (rawStatus === "live" || lifecycleStatus === "live") {
 return "live";
 }
 
-if (
-contractAddress &&
-(
-mintStatus === "finalized" ||
-rawStatus === "building" ||
-lifecycleStatus === "building" ||
-(Number.isFinite(countdownEndsMs) && now >= countdownEndsMs)
-)
-) {
+if (rawStatus === "building" || lifecycleStatus === "building") {
+return hasLiveSignal ? "live" : "building";
+}
+
+if (rawStatus === "countdown" || lifecycleStatus === "countdown") {
+if (hasLiveSignal && (!Number.isFinite(countdownEndsMs) || now >= countdownEndsMs)) {
 return "live";
 }
-
-if (rawStatus === "building" || lifecycleStatus === "building") {
+if (Number.isFinite(countdownEndsMs) && now >= countdownEndsMs) {
 return "building";
 }
-
-if (rawStatus === "countdown") {
 return "countdown";
 }
 
-if (rawStatus === "failed" || rawStatus === "failed_refunded") {
-return rawStatus;
+if (hasCountdownWindow) {
+if (hasLiveSignal && (!Number.isFinite(countdownEndsMs) || now >= countdownEndsMs)) {
+return "live";
 }
-
-if (rawStatus === "commit") {
-return "commit";
+if (Number.isFinite(countdownEndsMs) && now >= countdownEndsMs) {
+return "building";
 }
-
-if (Number.isFinite(countdownEndsMs) && now < countdownEndsMs) {
 return "countdown";
 }
 
-if (contractAddress) {
+if (hasLiveSignal) {
 return "live";
 }
 
@@ -326,8 +343,9 @@ return rawStatus || "commit";
 }
 
 function sanitizePublicLaunchFields(launchLike = {}, statsLike = {}, lifecycleLike = null) {
-const effectiveStatus = inferEffectiveLaunchStatus(launchLike, statsLike, lifecycleLike);
+const effectiveStatus = resolveCanonicalLaunchStatus(launchLike, statsLike, lifecycleLike);
 const exposeCa = shouldExposePublicCa(effectiveStatus);
+
 const contractAddress = exposeCa
 ? choosePreferredString(
 launchLike?.contract_address,
@@ -336,7 +354,10 @@ lifecycleLike?.contractAddress,
 lifecycleLike?.contract_address
 )
 : "";
-const mintStatus = exposeCa ? cleanString(launchLike?.mint_reservation_status, 64).toLowerCase() : "";
+
+const mintStatus = exposeCa
+? cleanString(launchLike?.mint_reservation_status, 64).toLowerCase()
+: "";
 
 return {
 ...launchLike,
@@ -350,14 +371,9 @@ mint_finalized_at: exposeCa ? cleanString(launchLike?.mint_finalized_at, 200) : 
 }
 
 function mergeLaunchTruth(previous = {}, next = {}, statsLike = {}, lifecycleLike = null) {
-const prevSanitized = sanitizePublicLaunchFields(previous || {}, statsLike, lifecycleLike);
-const nextSanitized = sanitizePublicLaunchFields(next || {}, statsLike, lifecycleLike);
+const prevSanitized = normalizeLaunchData(previous || {});
+const nextSanitized = normalizeLaunchData(next || {});
 
-const prevStatus = cleanString(prevSanitized?.mint_reservation_status).toLowerCase();
-const nextStatus = cleanString(nextSanitized?.mint_reservation_status).toLowerCase();
-
-const prevContract = cleanString(prevSanitized?.contract_address, 200);
-const nextContract = cleanString(nextSanitized?.contract_address, 200);
 const lifecycleContract = cleanString(
 lifecycleLike?.contractAddress || lifecycleLike?.contract_address,
 200
@@ -386,40 +402,32 @@ nextSanitized?.team_wallet_breakdown,
 prevSanitized?.team_wallet_breakdown
 );
 
-const strongestContract = choosePreferredString(nextContract, prevContract, lifecycleContract);
-const effectiveStatus = inferEffectiveLaunchStatus(merged, statsLike, lifecycleLike);
-const exposeCa = shouldExposePublicCa(effectiveStatus);
+merged.commit_started_at = choosePreferredString(nextSanitized?.commit_started_at, prevSanitized?.commit_started_at);
+merged.commit_ends_at = choosePreferredString(nextSanitized?.commit_ends_at, prevSanitized?.commit_ends_at);
+merged.countdown_started_at = choosePreferredString(nextSanitized?.countdown_started_at, prevSanitized?.countdown_started_at);
+merged.countdown_ends_at = choosePreferredString(nextSanitized?.countdown_ends_at, prevSanitized?.countdown_ends_at);
+merged.live_at = choosePreferredString(nextSanitized?.live_at, prevSanitized?.live_at, merged.countdown_ends_at);
+merged.created_at = choosePreferredString(nextSanitized?.created_at, prevSanitized?.created_at);
+merged.updated_at = choosePreferredString(nextSanitized?.updated_at, prevSanitized?.updated_at);
+merged.failed_at = choosePreferredString(nextSanitized?.failed_at, prevSanitized?.failed_at);
+merged.mint_finalized_at = choosePreferredString(nextSanitized?.mint_finalized_at, prevSanitized?.mint_finalized_at);
 
-merged.status = effectiveStatus;
-merged.reserved_mint_address = "";
-merged.reserved_mint_secret = "";
-
-if (exposeCa) {
-merged.contract_address = strongestContract;
-const finalizedWins =
-nextStatus === "finalized" ||
-prevStatus === "finalized" ||
-Boolean(strongestContract);
-
-merged.mint_reservation_status = finalizedWins
-? "finalized"
-: choosePreferredString(nextStatus, prevStatus);
-
-if (!merged.mint_finalized_at && finalizedWins) {
-merged.mint_finalized_at = choosePreferredString(
-nextSanitized?.mint_finalized_at,
-prevSanitized?.mint_finalized_at,
-nextSanitized?.updated_at,
-prevSanitized?.updated_at
+merged.contract_address = choosePreferredString(
+nextSanitized?.contract_address,
+nextSanitized?.mint_address,
+prevSanitized?.contract_address,
+prevSanitized?.mint_address,
+lifecycleContract
 );
-}
-} else {
-merged.contract_address = "";
-merged.mint_reservation_status = "";
-merged.mint_finalized_at = "";
-}
 
-return merged;
+merged.mint_reservation_status = choosePreferredString(
+nextSanitized?.mint_reservation_status,
+prevSanitized?.mint_reservation_status
+);
+
+merged.status = resolveCanonicalLaunchStatus(merged, statsLike, lifecycleLike);
+
+return sanitizePublicLaunchFields(merged, statsLike, lifecycleLike);
 }
 
 function normalizeLaunchData(raw = {}) {
@@ -435,10 +443,19 @@ builder_alias: cleanString(raw?.builder_alias, 200),
 image_url: cleanString(raw?.image_url, 4000),
 description: cleanString(raw?.description, 10000),
 contract_address: cleanString(raw?.contract_address, 200),
+mint_address: cleanString(raw?.mint_address, 200),
 reserved_mint_address: cleanString(raw?.reserved_mint_address, 200),
 reserved_mint_secret: cleanString(raw?.reserved_mint_secret, 20000),
 mint_reservation_status: cleanString(raw?.mint_reservation_status, 64).toLowerCase(),
 mint_finalized_at: cleanString(raw?.mint_finalized_at, 200),
+commit_started_at: cleanString(raw?.commit_started_at, 200),
+commit_ends_at: cleanString(raw?.commit_ends_at, 200),
+countdown_started_at: cleanString(raw?.countdown_started_at, 200),
+countdown_ends_at: cleanString(raw?.countdown_ends_at, 200),
+live_at: cleanString(raw?.live_at, 200),
+failed_at: cleanString(raw?.failed_at, 200),
+created_at: cleanString(raw?.created_at, 200),
+updated_at: cleanString(raw?.updated_at, 200),
 };
 }
 
@@ -447,13 +464,17 @@ if (!raw || typeof raw !== "object") return null;
 
 return {
 ...raw,
+status: cleanString(raw.status, 64).toLowerCase(),
 launchStatus: cleanString(raw.launchStatus, 64).toLowerCase(),
 contractAddress: cleanString(raw.contractAddress, 200),
+contract_address: cleanString(raw.contract_address, 200),
 builderWallet: cleanString(raw.builderWallet, 200),
+builder_wallet: cleanString(raw.builder_wallet, 200),
 graduationStatus: cleanString(raw.graduationStatus, 120),
 graduationReason: cleanString(raw.graduationReason, 200),
 raydiumPoolId: cleanString(raw.raydiumPoolId, 300),
 lockStatus: cleanString(raw.lockStatus, 120),
+updated_at: cleanString(raw.updated_at, 200),
 graduationReadiness:
 raw.graduationReadiness && typeof raw.graduationReadiness === "object"
 ? {
@@ -552,7 +573,7 @@ return parseTs(stats?.commitEndsAt || launch?.commit_ends_at);
 }
 
 function getDisplayPhaseStatus(launch, stats, lifecycle = currentLifecycle) {
-return inferEffectiveLaunchStatus(launch, stats, lifecycle);
+return resolveCanonicalLaunchStatus(launch, stats, lifecycle);
 }
 
 function getLaunchStateMessage(launch, stats, lifecycle = null) {
@@ -1662,13 +1683,6 @@ method: "POST",
 if (requestSeq !== loadRequestSeq) return;
 
 const commitsStats = commitsRes || {};
-const baseLaunchRaw = normalizeLaunchData(launchRes?.launch || {});
-const reconcileLaunchRaw = normalizeLaunchData(reconcileRes?.launch || {});
-
-const strongestLaunch = mergeLaunchTruth(baseLaunchRaw, reconcileLaunchRaw, commitsStats, currentLifecycle);
-
-currentLaunch = mergeLaunchTruth(currentLaunch || {}, strongestLaunch, commitsStats, currentLifecycle);
-
 currentCommitStats = {
 ...(currentCommitStats || {}),
 ...(commitsRes || {}),
@@ -1681,6 +1695,23 @@ participants: reconcileRes.participants ?? commitsRes?.participants,
 : {}),
 };
 
+const baseLaunchRaw = normalizeLaunchData(launchRes?.launch || {});
+const reconcileLaunchRaw = normalizeLaunchData(reconcileRes?.launch || {});
+
+const strongestLaunch = mergeLaunchTruth(
+baseLaunchRaw,
+reconcileLaunchRaw,
+currentCommitStats || {},
+currentLifecycle
+);
+
+currentLaunch = mergeLaunchTruth(
+currentLaunch || {},
+strongestLaunch,
+currentCommitStats || {},
+currentLifecycle
+);
+
 currentLifecycle = mergeLifecycleTruth(
 currentLifecycle,
 launchRes?.lifecycle || commitsRes?.lifecycle || reconcileRes?.lifecycle || null
@@ -1692,6 +1723,7 @@ currentLaunch || {},
 currentCommitStats || {},
 currentLifecycle
 );
+
 currentGraduationPlan =
 launchRes?.graduationPlan ||
 commitsRes?.graduationPlan ||
@@ -1727,8 +1759,12 @@ currentGraduationPlan = lifecycleRes.graduationPlan || currentGraduationPlan || 
 currentLaunch = mergeLaunchTruth(
 currentLaunch || {},
 {
-status: currentLifecycle?.launchStatus || currentLaunch?.status || "",
-contract_address: currentLifecycle?.contractAddress || currentLifecycle?.contract_address || currentLaunch?.contract_address || "",
+status: lifecycleRes.status || currentLaunch?.status || "",
+contract_address:
+currentLifecycle?.contractAddress ||
+currentLifecycle?.contract_address ||
+currentLaunch?.contract_address ||
+"",
 },
 currentCommitStats || {},
 currentLifecycle
@@ -1984,7 +2020,11 @@ currentLaunch = mergeLaunchTruth(
 currentLaunch || {},
 {
 status: currentLifecycle?.launchStatus || currentLaunch?.status || "",
-contract_address: currentLifecycle?.contractAddress || currentLifecycle?.contract_address || currentLaunch?.contract_address || "",
+contract_address:
+currentLifecycle?.contractAddress ||
+currentLifecycle?.contract_address ||
+currentLaunch?.contract_address ||
+"",
 },
 currentCommitStats || {},
 currentLifecycle
@@ -2446,7 +2486,19 @@ const badgeEls = $all('[data-role="wallet-badge"]');
 for (const badge of badgeEls) {
 badge.classList.remove("is-connected", "is-disconnected");
 badge.classList.add(walletState.isConnected ? "is-connected" : "is-disconnected");
-badge.textContent = walletState.isConnected ? "Wallet Connected" : "Wallet Disconnected";
+
+let dotEl = badge.querySelector(".terminal-wallet-badge-dot");
+let labelEl = badge.querySelector(".terminal-wallet-badge-label");
+
+if (!dotEl || !labelEl) {
+badge.innerHTML = `<span class="terminal-wallet-badge-dot"></span><span class="terminal-wallet-badge-label"></span>`;
+dotEl = badge.querySelector(".terminal-wallet-badge-dot");
+labelEl = badge.querySelector(".terminal-wallet-badge-label");
+}
+
+if (labelEl) {
+labelEl.textContent = walletState.isConnected ? "Wallet Connected" : "Wallet Disconnected";
+}
 }
 
 setTextByIds(

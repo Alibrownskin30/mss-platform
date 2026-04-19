@@ -17,6 +17,7 @@ const RAYDIUM_LIQUIDITY_SPLIT_PCT = 50;
 let launchesColumnsCache = null;
 let mintReservationsColumnsCache = null;
 let builderVestingColumnsCache = null;
+const tableExistsCache = new Map();
 
 function safeNum(value, fallback = 0) {
 const n = Number(value);
@@ -46,12 +47,36 @@ return fallback;
 }
 }
 
+function parseDbTime(value) {
+if (!value) return null;
+const raw = String(value).trim();
+if (!raw) return null;
+
+const hasExplicitTimezone =
+/z$/i.test(raw) || /[+-]\d{2}:\d{2}$/.test(raw);
+
+if (!hasExplicitTimezone && /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/.test(raw)) {
+const sqliteUtc = Date.parse(raw.replace(" ", "T") + "Z");
+return Number.isFinite(sqliteUtc) ? sqliteUtc : null;
+}
+
+const direct = Date.parse(raw);
+return Number.isFinite(direct) ? direct : null;
+}
+
 async function getTableColumns(tableName) {
 const rows = await db.all(`PRAGMA table_info(${tableName})`);
 return new Set(rows.map((row) => String(row.name || "").trim()));
 }
 
 async function tableExists(tableName) {
+const key = String(tableName || "").trim();
+if (!key) return false;
+
+if (tableExistsCache.has(key)) {
+return tableExistsCache.get(key);
+}
+
 const row = await db.get(
 `
 SELECT name
@@ -59,9 +84,12 @@ FROM sqlite_master
 WHERE type = 'table' AND name = ?
 LIMIT 1
 `,
-[tableName]
+[key]
 );
-return Boolean(row?.name);
+
+const exists = Boolean(row?.name);
+tableExistsCache.set(key, exists);
+return exists;
 }
 
 async function getLaunchesColumns() {
@@ -155,10 +183,12 @@ token_name: clean(row.token_name, 120),
 symbol: clean(row.symbol, 40),
 supply: String(row.supply || "0"),
 live_at: row.live_at || null,
+created_at: row.created_at || null,
+updated_at: row.updated_at || null,
 };
 }
 
-function normalizePoolRow(row) {
+function normalizePoolReservationRow(row) {
 if (!row) return null;
 
 return {
@@ -301,6 +331,103 @@ return floorToken(
 );
 }
 
+function resolveBootstrapVestingStartAt(launch, existingVestingRow = null) {
+const status = clean(launch?.status, 40).toLowerCase();
+const liveAt = clean(launch?.live_at, 120);
+const existingStart = clean(existingVestingRow?.vesting_start_at, 120);
+
+if (status === "live" || status === "graduated") {
+return liveAt || existingStart || new Date().toISOString();
+}
+
+if (existingStart && liveAt && existingStart !== liveAt) {
+return existingStart;
+}
+
+return new Date().toISOString();
+}
+
+function isBootstrapCompleteForLaunch(launch, token, pool) {
+return Boolean(
+clean(launch?.contract_address, 120) &&
+clean(token?.mint_address, 120) &&
+token?.id &&
+pool?.id &&
+safeNum(pool?.sol_reserve, 0) > 0 &&
+safeNum(pool?.token_reserve, 0) > 0 &&
+safeNum(launch?.liquidity, 0) > 0 &&
+safeNum(launch?.price, 0) > 0
+);
+}
+
+function validateLaunchSeedState(launch) {
+const launchResult = launch?.launch_result_json || {};
+const internalPoolSol = safeNum(
+launch?.internal_pool_sol,
+safeNum(launchResult.internalPoolSol, 0)
+);
+const internalPoolTokens = floorToken(
+launch?.internal_pool_tokens || launchResult.internalPoolTokens || 0
+);
+
+if (internalPoolSol <= 0) {
+throw new Error("launch internal pool SOL is missing before bootstrap");
+}
+
+if (internalPoolTokens <= 0) {
+throw new Error("launch internal pool token allocation is missing before bootstrap");
+}
+
+return {
+launchResult,
+internalPoolSol,
+internalPoolTokens,
+};
+}
+
+function validateTokenRow(token, expectedMintAddress = "") {
+if (!token?.id) {
+throw new Error("token row missing after bootstrap");
+}
+
+const actualMint = clean(token?.mint_address, 120);
+if (!actualMint) {
+throw new Error("token mint address missing after bootstrap");
+}
+
+if (expectedMintAddress && actualMint !== clean(expectedMintAddress, 120)) {
+throw new Error("token mint address does not match expected mint");
+}
+}
+
+function validatePoolRow(pool) {
+if (!pool?.id) {
+throw new Error("pool row missing after bootstrap");
+}
+
+if (safeNum(pool.sol_reserve, 0) <= 0 || safeNum(pool.token_reserve, 0) <= 0) {
+throw new Error("pool reserves missing after bootstrap");
+}
+}
+
+function validateLaunchMarketFields(launch) {
+if (!launch) {
+throw new Error("launch missing after market field update");
+}
+
+if (!clean(launch.contract_address, 120)) {
+throw new Error("launch contract address not written during bootstrap");
+}
+
+if (safeNum(launch.liquidity, 0) <= 0) {
+throw new Error("launch liquidity not written during bootstrap");
+}
+
+if (safeNum(launch.price, 0) <= 0) {
+throw new Error("launch implied price not written during bootstrap");
+}
+}
+
 export function prepareReservedMintReservation({
 requiredTag = DEFAULT_REQUIRED_MINT_TAG,
 maxAttempts = DEFAULT_MINT_RESERVATION_ATTEMPTS,
@@ -398,7 +525,7 @@ LIMIT 1
 [tag, launchId, tag, tag, tag]
 );
 
-return normalizePoolRow(row);
+return normalizePoolReservationRow(row);
 }
 
 async function getAvailablePoolReservation(requiredTag = DEFAULT_REQUIRED_MINT_TAG) {
@@ -417,7 +544,7 @@ LIMIT 1
 [tag, tag, tag, tag]
 );
 
-return normalizePoolRow(row);
+return normalizePoolReservationRow(row);
 }
 
 async function countAvailablePoolReservations(requiredTag = DEFAULT_REQUIRED_MINT_TAG) {
@@ -918,21 +1045,7 @@ LIMIT 1
 );
 }
 
-async function upsertWalletBalance(launchId, wallet, tokenAmount) {
-const existing = await getExistingWalletBalance(launchId, wallet);
-
-if (existing) {
-await db.run(
-`
-UPDATE wallet_balances
-SET token_amount = ?
-WHERE id = ?
-`,
-[tokenAmount, existing.id]
-);
-return;
-}
-
+async function insertWalletBalance(launchId, wallet, tokenAmount) {
 await db.run(
 `
 INSERT INTO wallet_balances (
@@ -945,10 +1058,34 @@ token_amount
 );
 }
 
+async function seedWalletBalanceIfMissing(launchId, wallet, tokenAmount) {
+const existing = await getExistingWalletBalance(launchId, wallet);
+if (existing) {
+return {
+inserted: false,
+existingTokenAmount: floorToken(existing.token_amount),
+};
+}
+
+await insertWalletBalance(launchId, wallet, tokenAmount);
+
+return {
+inserted: true,
+existingTokenAmount: null,
+};
+}
+
 async function ensureWalletBalancesFromAllocations(launchId, launch) {
+if (!(await tableExists("wallet_balances"))) {
+return {
+seeded: 0,
+skippedExisting: 0,
+};
+}
+
 const allocations = await getAllocationsForLaunch(launchId);
 const totalSupply = floorToken(launch.final_supply || launch.supply || 0);
-const builderWallet = clean(launch.builder_wallet, 120);
+const builderWallet = clean(launch.builder_wallet, 120).toLowerCase();
 const builderTotalAllocation = computeBuilderTotalAllocation(totalSupply);
 const builderInitialUnlocked = Math.min(
 builderTotalAllocation,
@@ -959,6 +1096,9 @@ const creditable = allocations.filter((row) =>
 ["participant", "builder", "team"].includes(String(row.allocation_type || ""))
 );
 
+let seeded = 0;
+let skippedExisting = 0;
+
 for (const row of creditable) {
 const wallet = clean(row.wallet, 120);
 let tokenAmount = floorToken(row.token_amount);
@@ -968,13 +1108,23 @@ if (!wallet || tokenAmount <= 0) continue;
 if (
 String(row.allocation_type || "") === "builder" &&
 builderWallet &&
-wallet.toLowerCase() === builderWallet.toLowerCase()
+wallet.toLowerCase() === builderWallet
 ) {
 tokenAmount = Math.min(tokenAmount, builderInitialUnlocked);
 }
 
-await upsertWalletBalance(launchId, wallet, tokenAmount);
+const result = await seedWalletBalanceIfMissing(launchId, wallet, tokenAmount);
+if (result.inserted) {
+seeded += 1;
+} else {
+skippedExisting += 1;
 }
+}
+
+return {
+seeded,
+skippedExisting,
+};
 }
 
 async function ensurePoolRow(launchId, tokenId, launch) {
@@ -984,9 +1134,7 @@ launch?.internal_pool_sol,
 safeNum(launch?.launch_result_json?.internalPoolSol, 0)
 );
 const internalPoolTokens = floorToken(
-launch?.internal_pool_tokens ||
-launch?.launch_result_json?.internalPoolTokens ||
-0
+launch?.internal_pool_tokens || launch?.launch_result_json?.internalPoolTokens || 0
 );
 
 if (internalPoolSol <= 0 || internalPoolTokens <= 0) {
@@ -1058,7 +1206,7 @@ total_allocation: totalAllocation,
 daily_unlock: dailyUnlock,
 unlocked_amount: initialUnlocked,
 locked_amount: lockedRemaining,
-vesting_start_at: launch.live_at || new Date().toISOString(),
+vesting_start_at: resolveBootstrapVestingStartAt(launch),
 };
 }
 
@@ -1072,6 +1220,8 @@ LIMIT 1
 [launchId]
 );
 
+const bootstrapVestingStartAt = resolveBootstrapVestingStartAt(launch, existing);
+const launchStatus = clean(launch?.status, 40).toLowerCase();
 const hasBuilderWallet = await builderVestingHasColumn("builder_wallet");
 const hasTotalAllocation = await builderVestingHasColumn("total_allocation");
 const hasDailyUnlock = await builderVestingHasColumn("daily_unlock");
@@ -1106,8 +1256,16 @@ sets.push("locked_amount = COALESCE(locked_amount, ?)");
 values.push(lockedRemaining);
 }
 if (hasVestingStartAt) {
+const existingStart = clean(existing.vesting_start_at, 120);
+const launchLiveAt = clean(launch.live_at, 120);
+
+if (launchStatus === "live" || launchStatus === "graduated") {
 sets.push("vesting_start_at = COALESCE(vesting_start_at, ?)");
-values.push(launch.live_at || new Date().toISOString());
+values.push(bootstrapVestingStartAt);
+} else if (!existingStart || (launchLiveAt && existingStart === launchLiveAt)) {
+sets.push("vesting_start_at = ?");
+values.push(bootstrapVestingStartAt);
+}
 }
 if (hasUpdatedAt) {
 sets.push("updated_at = CURRENT_TIMESTAMP");
@@ -1157,7 +1315,7 @@ values.push(lockedRemaining);
 if (hasVestingStartAt) {
 columns.push("vesting_start_at");
 placeholders.push("?");
-values.push(launch.live_at || new Date().toISOString());
+values.push(bootstrapVestingStartAt);
 }
 if (hasCreatedAt) {
 columns.push("created_at");
@@ -1184,11 +1342,12 @@ total_allocation: totalAllocation,
 daily_unlock: dailyUnlock,
 unlocked_amount: initialUnlocked,
 locked_amount: lockedRemaining,
-vesting_start_at: launch.live_at || new Date().toISOString(),
+vesting_start_at: bootstrapVestingStartAt,
 };
 }
 
 async function getDistributedCirculatingSupply(launchId, launch) {
+if (await tableExists("wallet_balances")) {
 const row = await db.get(
 `
 SELECT COALESCE(SUM(token_amount), 0) AS total
@@ -1202,6 +1361,7 @@ const fromWalletBalances = floorToken(row?.total);
 
 if (fromWalletBalances > 0) {
 return fromWalletBalances;
+}
 }
 
 const fallbackRow = await db.get(
@@ -1297,6 +1457,9 @@ if (has("mss_locked_target_pct")) {
 sets.push("mss_locked_target_pct = COALESCE(mss_locked_target_pct, ?)");
 values.push(RAYDIUM_LIQUIDITY_SPLIT_PCT);
 }
+if (has("lock_status")) {
+sets.push("lock_status = COALESCE(lock_status, 'mss_held_internal')");
+}
 if (has("updated_at")) {
 sets.push("updated_at = CURRENT_TIMESTAMP");
 }
@@ -1342,6 +1505,11 @@ insertColumns.push("mss_locked_target_pct");
 placeholders.push("?");
 values.push(RAYDIUM_LIQUIDITY_SPLIT_PCT);
 }
+if (has("lock_status")) {
+insertColumns.push("lock_status");
+placeholders.push("?");
+values.push("mss_held_internal");
+}
 if (has("created_at")) {
 insertColumns.push("created_at");
 placeholders.push("CURRENT_TIMESTAMP");
@@ -1370,6 +1538,33 @@ mss_locked_target_pct: RAYDIUM_LIQUIDITY_SPLIT_PCT,
 };
 }
 
+async function finalizeBootstrapState({
+launchId,
+launch,
+token,
+pool,
+}) {
+validateTokenRow(token, clean(launch.contract_address, 120));
+validatePoolRow(pool);
+
+await updateLaunchMarketFields(launchId, launch, pool);
+
+let refreshedLaunch = await getLaunchById(launchId);
+validateLaunchMarketFields(refreshedLaunch);
+
+await ensureBuilderVestingState(launchId, refreshedLaunch);
+await ensureWalletBalancesFromAllocations(launchId, refreshedLaunch);
+
+await updateLaunchMarketFields(launchId, refreshedLaunch, pool);
+
+refreshedLaunch = await getLaunchById(launchId);
+validateLaunchMarketFields(refreshedLaunch);
+
+await ensureLaunchLiquidityLifecycle(launchId, refreshedLaunch, pool);
+
+return refreshedLaunch;
+}
+
 export async function bootstrapLiveMarket(launchId) {
 await assertMintReservationSchema();
 
@@ -1384,6 +1579,50 @@ if (status !== "countdown" && status !== "building" && status !== "live") {
 throw new Error("launch must be countdown, building, or live before market bootstrap");
 }
 
+let existingToken = await getTokenByLaunchId(launchId);
+let existingPool = await getPoolByLaunchId(launchId);
+
+if (isBootstrapCompleteForLaunch(launch, existingToken, existingPool)) {
+const healedLaunch = await finalizeBootstrapState({
+launchId,
+launch,
+token: existingToken,
+pool: existingPool,
+});
+
+const totalSupply = floorToken(healedLaunch.final_supply || healedLaunch.supply || 0);
+const liquidityTokenAllocation = computeLiquidityTokenAllocation(totalSupply);
+const builderTotalAllocation = computeBuilderTotalAllocation(totalSupply);
+const builderDailyUnlock = computeBuilderDailyUnlock(totalSupply);
+const raydiumReservedTokens = computeRaydiumReservedTokens(liquidityTokenAllocation);
+
+return {
+ok: true,
+launchId,
+mintAddress:
+clean(existingToken?.mint_address, 120) || clean(healedLaunch.contract_address, 120),
+mintSource: "existing_bootstrap",
+tokenId: existingToken?.id || null,
+poolId: existingPool?.id || null,
+poolStatus: existingPool?.status || "active",
+tokenReserve: Number(existingPool?.token_reserve || 0),
+solReserve: Number(existingPool?.sol_reserve || 0),
+liquidity: safeNum(healedLaunch?.liquidity, safeNum(existingPool?.sol_reserve, 0)),
+circulatingSupply: safeNum(healedLaunch?.circulating_supply, 0),
+price: safeNum(healedLaunch?.price, 0),
+marketCap: safeNum(healedLaunch?.market_cap, 0),
+volume24h: safeNum(healedLaunch?.volume_24h, 0),
+mintRequiredTag: healedLaunch.mint_required_tag || DEFAULT_REQUIRED_MINT_TAG,
+internalPoolSol: safeNum(healedLaunch.internal_pool_sol, 0),
+internalPoolTokens: floorToken(healedLaunch.internal_pool_tokens || 0),
+liquidityTokenAllocation,
+raydiumReservedTokens,
+builderTotalAllocation,
+builderDailyUnlock,
+launchStatus: healedLaunch.status,
+};
+}
+
 if (!clean(launch.reserved_mint_address, 120) || !clean(launch.reserved_mint_secret, 20000)) {
 await claimReservedMintForLaunch(
 launchId,
@@ -1392,75 +1631,29 @@ launch.mint_required_tag || DEFAULT_REQUIRED_MINT_TAG
 launch = await getLaunchById(launchId);
 }
 
-const launchResult = launch.launch_result_json || {};
+const { internalPoolSol, internalPoolTokens } = validateLaunchSeedState(launch);
+
 const totalSupply = floorToken(launch.final_supply || launch.supply || 0);
 const liquidityTokenAllocation = computeLiquidityTokenAllocation(totalSupply);
 const builderTotalAllocation = computeBuilderTotalAllocation(totalSupply);
 const builderDailyUnlock = computeBuilderDailyUnlock(totalSupply);
 const raydiumReservedTokens = computeRaydiumReservedTokens(liquidityTokenAllocation);
 
-const internalPoolSol = safeNum(
-launch.internal_pool_sol,
-safeNum(launchResult.internalPoolSol, 0)
-);
-const internalPoolTokens = floorToken(
-launch.internal_pool_tokens || launchResult.internalPoolTokens || 0
-);
-
-if (internalPoolSol <= 0) {
-throw new Error("launch internal pool SOL is missing before bootstrap");
-}
-
-if (internalPoolTokens <= 0) {
-throw new Error("launch internal pool token allocation is missing before bootstrap");
-}
-
 const mintResult = await ensureMintAddress(launch);
 launch = await getLaunchById(launchId);
 
 const token = await ensureTokenRow(launchId, launch, mintResult.mintAddress);
-await ensureBuilderVestingState(launchId, launch);
-await ensureWalletBalancesFromAllocations(launchId, launch);
+validateTokenRow(token, mintResult.mintAddress);
 
 const pool = await ensurePoolRow(launchId, token.id, launch);
-if (!pool) {
-throw new Error("pool row missing after bootstrap");
-}
+validatePoolRow(pool);
 
-if (safeNum(pool.sol_reserve, 0) <= 0 || safeNum(pool.token_reserve, 0) <= 0) {
-throw new Error("pool reserves missing after bootstrap");
-}
-
-await ensureLaunchLiquidityLifecycle(launchId, launch, pool);
-await updateLaunchMarketFields(launchId, launch, pool);
-
-await db.run(
-`
-UPDATE launches
-SET status = 'live',
-live_at = COALESCE(live_at, CURRENT_TIMESTAMP),
-updated_at = CURRENT_TIMESTAMP
-WHERE id = ?
-`,
-[launchId]
-);
-
-const refreshedLaunch = await getLaunchById(launchId);
-if (!refreshedLaunch) {
-throw new Error("launch missing after market field update");
-}
-
-if (safeNum(refreshedLaunch.liquidity, 0) <= 0) {
-throw new Error("launch liquidity not written during bootstrap");
-}
-
-if (safeNum(refreshedLaunch.price, 0) <= 0) {
-throw new Error("launch implied price not written during bootstrap");
-}
-
-if (!clean(refreshedLaunch.contract_address, 120)) {
-throw new Error("launch contract address not written during bootstrap");
-}
+const refreshedLaunch = await finalizeBootstrapState({
+launchId,
+launch,
+token,
+pool,
+});
 
 void topUpMintReservationPool({
 requiredTag: launch.mint_required_tag || DEFAULT_REQUIRED_MINT_TAG,
@@ -1490,5 +1683,6 @@ liquidityTokenAllocation,
 raydiumReservedTokens,
 builderTotalAllocation,
 builderDailyUnlock,
+launchStatus: refreshedLaunch.status,
 };
 }

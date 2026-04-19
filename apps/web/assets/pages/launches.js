@@ -129,14 +129,22 @@ if (n >= 55) return { label: "Moderate" };
 return { label: "Early" };
 }
 
-function isLiveLikeStatus(status) {
+function isLiveStatus(status) {
+return normalizeStatus(status) === "live";
+}
+
+function isCurrentFieldStatus(status) {
 const s = normalizeStatus(status);
-return s === "live" || s === "graduated";
+return s === "commit" || s === "countdown" || s === "building" || s === "live";
+}
+
+function isHistoricalStatus(status) {
+const s = normalizeStatus(status);
+return s === "graduated" || s === "failed" || s === "failed_refunded";
 }
 
 function isActiveStatus(status) {
-const s = normalizeStatus(status);
-return s === "commit" || s === "countdown" || s === "live" || s === "graduated";
+return isCurrentFieldStatus(status);
 }
 
 function matchesStatusFilter(launch, statusFilter) {
@@ -145,7 +153,15 @@ if (statusFilter === "all") return true;
 const status = normalizeStatus(launch?.status);
 
 if (statusFilter === "live") {
-return isLiveLikeStatus(status);
+return status === "live";
+}
+
+if (statusFilter === "failed") {
+return status === "failed" || status === "failed_refunded";
+}
+
+if (statusFilter === "history") {
+return isHistoricalStatus(status);
 }
 
 return status === statusFilter;
@@ -178,11 +194,12 @@ return clamp((committed / minRaise) * 100, 0, 999);
 
 function getPhasePriority(status) {
 const s = normalizeStatus(status);
+if (s === "building") return 6;
 if (s === "countdown") return 5;
 if (s === "commit") return 4;
 if (s === "live") return 3;
 if (s === "graduated") return 2;
-if (s === "failed") return 1;
+if (s === "failed" || s === "failed_refunded") return 1;
 return 0;
 }
 
@@ -202,6 +219,13 @@ if (status === "countdown") {
 return {
 label: "Countdown",
 value: fmtTime((countdownEndsAt ?? 0) - Date.now()),
+};
+}
+
+if (status === "building") {
+return {
+label: "Status",
+value: "BUILDING",
 };
 }
 
@@ -261,6 +285,10 @@ const minRaise = safeNum(launch.min_raise_sol, 0);
 const hardCap = safeNum(launch.hard_cap_sol, 0);
 const softCapPct = getSoftCapPercent(launch);
 const progressPct = getCommitPercent(launch);
+
+if (status === "building") {
+return "Countdown is complete. MSS is finalizing mint, liquidity bootstrap, and live transition.";
+}
 
 if (status === "countdown") {
 return "Commit closed. Launch is arming for market activation.";
@@ -363,18 +391,32 @@ hardCap > 0
 let urgencyBoost = 0;
 if (status === "countdown" && countdownEndsAt) {
 const remaining = Math.max(0, countdownEndsAt - now);
-urgencyBoost = remaining <= 30 * 60 * 1000 ? 18 : remaining <= 2 * 60 * 60 * 1000 ? 12 : 8;
+urgencyBoost =
+remaining <= 30 * 60 * 1000
+? 18
+: remaining <= 2 * 60 * 60 * 1000
+? 12
+: 8;
+} else if (status === "building") {
+urgencyBoost = 20;
 } else if (status === "commit" && commitEndsAt) {
 const remaining = Math.max(0, commitEndsAt - now);
-urgencyBoost = remaining <= 2 * 60 * 60 * 1000 ? 9 : remaining <= 12 * 60 * 60 * 1000 ? 5 : 0;
+urgencyBoost =
+remaining <= 2 * 60 * 60 * 1000
+? 9
+: remaining <= 12 * 60 * 60 * 1000
+? 5
+: 0;
 }
 
 const statusBoost =
-status === "commit"
-? 18
+status === "building"
+? 32
 : status === "countdown"
 ? 30
-: isLiveLikeStatus(status)
+: status === "commit"
+? 18
+: status === "live"
 ? 12
 : 0;
 
@@ -665,35 +707,43 @@ ${walletConnected ? "Quick commit enabled" : "Connect wallet to commit"}
 `;
 }
 
-function buildGridSections(items) {
+function buildGridSections(activeItems, historyItems = []) {
 const sections = [
 {
 key: "countdown",
 title: "Launching Soon",
-matcher: (x) => normalizeStatus(x.status) === "countdown",
+items: activeItems.filter((x) => normalizeStatus(x.status) === "countdown"),
+},
+{
+key: "building",
+title: "Building Market",
+items: activeItems.filter((x) => normalizeStatus(x.status) === "building"),
 },
 {
 key: "commit",
 title: "Commit Live Now",
-matcher: (x) => normalizeStatus(x.status) === "commit",
+items: activeItems.filter((x) => normalizeStatus(x.status) === "commit"),
 },
 {
 key: "live",
 title: "Live Tokens",
-matcher: (x) => isLiveLikeStatus(x.status),
+items: activeItems.filter((x) => normalizeStatus(x.status) === "live"),
+},
+{
+key: "history",
+title: "Historical Archive",
+items: historyItems.filter((x) => isHistoricalStatus(x.status)),
 },
 ];
 
 const html = sections
 .map((section) => {
-const rows = items.filter(section.matcher);
-if (!rows.length) return "";
-
+if (!section.items.length) return "";
 return `
 <div class="list-section-title" style="grid-column:1/-1; margin:4px 2px 2px;">
 ${section.title}
 </div>
-${rows.map(buildCard).join("")}
+${section.items.map(buildCard).join("")}
 `;
 })
 .join("");
@@ -701,33 +751,42 @@ ${rows.map(buildCard).join("")}
 return html || `<div class="empty" style="grid-column:1/-1;">No launches found.</div>`;
 }
 
-function renderListSections(items) {
+function renderListSections(activeItems, historyItems = []) {
 const sections = [
 {
 key: "countdown",
 title: "Launching Soon",
-matcher: (x) => normalizeStatus(x.status) === "countdown",
+items: activeItems.filter((x) => normalizeStatus(x.status) === "countdown"),
+},
+{
+key: "building",
+title: "Building Market",
+items: activeItems.filter((x) => normalizeStatus(x.status) === "building"),
 },
 {
 key: "commit",
 title: "Commit Live Now",
-matcher: (x) => normalizeStatus(x.status) === "commit",
+items: activeItems.filter((x) => normalizeStatus(x.status) === "commit"),
 },
 {
 key: "live",
 title: "Live Tokens",
-matcher: (x) => isLiveLikeStatus(x.status),
+items: activeItems.filter((x) => normalizeStatus(x.status) === "live"),
+},
+{
+key: "history",
+title: "Historical Archive",
+items: historyItems.filter((x) => isHistoricalStatus(x.status)),
 },
 ];
 
 const html = sections
 .map((section) => {
-const rows = items.filter(section.matcher);
-if (!rows.length) return "";
+if (!section.items.length) return "";
 return `
 <div class="list-section">
 <div class="list-section-title">${section.title}</div>
-${rows.map(buildListRow).join("")}
+${section.items.map(buildListRow).join("")}
 </div>
 `;
 })
@@ -860,6 +919,7 @@ const RECENT_CACHE_TTL_MS = 15000;
 const RECENT_FETCH_LIMIT = 12;
 
 let ALL_LAUNCHES = [];
+let HISTORY_LAUNCHES = [];
 let CURRENT_VIEW = normalizeView(localStorage.getItem("mss_launchpad_view"));
 const PREV_PROGRESS = new Map();
 let loadLaunchesInFlight = false;
@@ -891,6 +951,21 @@ throw new Error(data?.error || `HTTP ${res.status}`);
 }
 
 return data;
+}
+
+function uniqueById(items) {
+const seen = new Set();
+const out = [];
+
+for (const item of items) {
+const id = Number(item?.id);
+if (!Number.isFinite(id)) continue;
+if (seen.has(id)) continue;
+seen.add(id);
+out.push(item);
+}
+
+return out;
 }
 
 async function enrichRecent(allLaunches) {
@@ -946,31 +1021,44 @@ loadLaunchesInFlight = true;
 const meta = $("listMeta");
 
 try {
-if (meta) meta.textContent = "Loading launch data…";
+if (meta) meta.textContent = "Loading launch field and archive…";
 
 const data = await fetchJson(`/api/launcher/list`);
-let launches = Array.isArray(data?.all) ? data.all : [];
 
-launches = launches.filter((x) => normalizeStatus(x.status) !== "failed_refunded");
-launches = await enrichRecent(launches);
+let fieldLaunches = Array.isArray(data?.all) ? data.all : [];
+let historyLaunches = Array.isArray(data?.history) ? data.history : fieldLaunches;
 
-for (const launch of launches) {
+fieldLaunches = uniqueById(fieldLaunches).filter((x) => {
+const status = normalizeStatus(x.status);
+return isCurrentFieldStatus(status);
+});
+
+historyLaunches = uniqueById(historyLaunches).filter((x) => {
+const status = normalizeStatus(x.status);
+return isHistoricalStatus(status);
+});
+
+fieldLaunches = await enrichRecent(fieldLaunches);
+
+for (const launch of fieldLaunches) {
 const prev = PREV_PROGRESS.get(launch.id);
 const next = getCommitPercent(launch);
 launch.bumped = prev != null && next > prev;
 PREV_PROGRESS.set(launch.id, next);
 }
 
-ALL_LAUNCHES = launches;
+ALL_LAUNCHES = fieldLaunches;
+HISTORY_LAUNCHES = historyLaunches;
 
 if (meta) {
-meta.textContent = `${ALL_LAUNCHES.length} launch${ALL_LAUNCHES.length === 1 ? "" : "es"} loaded`;
+meta.textContent = `${ALL_LAUNCHES.length} active • ${HISTORY_LAUNCHES.length} history`;
 }
 } catch (err) {
 console.error("Failed to load launches:", err);
 ALL_LAUNCHES = [];
+HISTORY_LAUNCHES = [];
 if (meta) {
-meta.textContent = "Unable to load launch data";
+meta.textContent = "Unable to load launch field";
 }
 } finally {
 loadLaunchesInFlight = false;
@@ -981,15 +1069,17 @@ render();
 
 function renderStats(items) {
 const commitCount = items.filter((x) => normalizeStatus(x.status) === "commit").length;
-const countdownCount = items.filter((x) => normalizeStatus(x.status) === "countdown").length;
-const liveCount = items.filter((x) => isLiveLikeStatus(x.status)).length;
+const queueCount = items.filter((x) => {
+const s = normalizeStatus(x.status);
+return s === "countdown" || s === "building";
+}).length;
+const liveCount = items.filter((x) => normalizeStatus(x.status) === "live").length;
 
 if ($("statCommit")) $("statCommit").textContent = String(commitCount);
-if ($("statCountdown")) $("statCountdown").textContent = String(countdownCount);
+if ($("statCountdown")) $("statCountdown").textContent = String(queueCount);
 if ($("statLive")) $("statLive").textContent = String(liveCount);
 
-const activeItems = items.filter((x) => isActiveStatus(x.status));
-const trending = activeItems.slice().sort(compareTrending)[0] || items[0];
+const trending = items.slice().sort(compareTrending)[0];
 
 if ($("statTrending")) {
 $("statTrending").textContent = trending?.symbol || trending?.token_name || "—";
@@ -1092,10 +1182,11 @@ const q = cleanText($("lSearch")?.value || "", 120).toLowerCase();
 const statusFilter = $("lStatus")?.value || "all";
 const sort = $("lSort")?.value || "trending";
 
-let items = ALL_LAUNCHES.slice();
+let activeItems = ALL_LAUNCHES.slice();
+let historyItems = HISTORY_LAUNCHES.slice();
 
 if (q) {
-items = items.filter((x) => {
+const matchesQuery = (x) => {
 const hay = [
 x.token_name,
 x.symbol,
@@ -1109,15 +1200,42 @@ x.description,
 .toLowerCase();
 
 return hay.includes(q);
-});
+};
+
+activeItems = activeItems.filter(matchesQuery);
+historyItems = historyItems.filter(matchesQuery);
 }
 
-items = items.filter((x) => matchesStatusFilter(x, statusFilter));
-items = sortItems(items, sort);
+activeItems = sortItems(activeItems, sort);
+historyItems = sortItems(historyItems, sort);
 
 renderStats(ALL_LAUNCHES);
-renderFeaturedLaunch(items);
+renderFeaturedLaunch(activeItems);
 applyViewState();
+
+if (statusFilter === "all") {
+if (!activeItems.length && !historyItems.length) {
+grid.innerHTML = `<div class="empty" style="grid-column:1/-1;">No launches found.</div>`;
+list.innerHTML = `<div class="empty">No launches found.</div>`;
+bindQuickCommitButtons();
+return;
+}
+
+grid.innerHTML = buildGridSections(activeItems, historyItems);
+list.innerHTML = renderListSections(activeItems, historyItems);
+bindQuickCommitButtons();
+updateLiveTimers();
+return;
+}
+
+const source =
+statusFilter === "history" ||
+statusFilter === "graduated" ||
+statusFilter === "failed"
+? historyItems
+: activeItems;
+
+const items = source.filter((x) => matchesStatusFilter(x, statusFilter));
 
 if (!items.length) {
 grid.innerHTML = `<div class="empty" style="grid-column:1/-1;">No launches found.</div>`;
@@ -1126,13 +1244,8 @@ bindQuickCommitButtons();
 return;
 }
 
-if (statusFilter === "all") {
-grid.innerHTML = buildGridSections(items);
-list.innerHTML = renderListSections(items);
-} else {
 grid.innerHTML = items.map(buildCard).join("");
 list.innerHTML = items.map(buildListRow).join("");
-}
 
 bindQuickCommitButtons();
 updateLiveTimers();
