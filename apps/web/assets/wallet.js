@@ -1,11 +1,18 @@
 const STORAGE_KEY = "mss_wallet_choice";
 const listeners = new Set();
+const boundProviders = new WeakMap();
 
 let state = {
 walletName: null,
 publicKey: null,
 provider: null,
 };
+
+let sendTransferInFlight = false;
+let connectInFlightPromise = null;
+let disconnectInFlightPromise = null;
+let restoreInFlightPromise = null;
+let walletModalPromise = null;
 
 function emitChange() {
 const snapshot = getConnectedWallet();
@@ -29,6 +36,10 @@ return window.location.href;
 
 function encodeUrl(url) {
 return encodeURIComponent(url);
+}
+
+function normalizeWalletName(name) {
+return String(name || "").trim().toLowerCase();
 }
 
 function getPhantomProvider() {
@@ -139,7 +150,8 @@ return wallets;
 }
 
 function getWalletByName(name) {
-return detectWallets().find((w) => w.name === name) || null;
+const normalized = normalizeWalletName(name);
+return detectWallets().find((w) => normalizeWalletName(w.name) === normalized) || null;
 }
 
 function shortenWallet(wallet) {
@@ -151,13 +163,13 @@ return `${w.slice(0, 4)}...${w.slice(-4)}`;
 
 function setConnected(provider, walletName, publicKey) {
 state = {
-walletName,
+walletName: walletName ? normalizeWalletName(walletName) : null,
 provider,
 publicKey: publicKey ? String(publicKey) : null,
 };
 
-if (walletName) {
-localStorage.setItem(STORAGE_KEY, walletName);
+if (state.walletName) {
+localStorage.setItem(STORAGE_KEY, state.walletName);
 } else {
 localStorage.removeItem(STORAGE_KEY);
 }
@@ -178,28 +190,23 @@ emitChange();
 function bindProviderEvents(provider, walletName) {
 if (!provider?.on) return;
 
-try {
-provider.on("accountChanged", (publicKey) => {
+const alreadyBound = boundProviders.get(provider);
+if (alreadyBound) return;
+
+const normalizedWalletName = normalizeWalletName(walletName);
+
+const handlers = {
+accountChanged(publicKey) {
 if (!publicKey) {
 clearConnected();
 return;
 }
-setConnected(provider, walletName, publicKey.toString());
-});
-} catch {
-// ignore
-}
-
-try {
-provider.on("disconnect", () => {
+setConnected(provider, normalizedWalletName, publicKey.toString());
+},
+disconnect() {
 clearConnected();
-});
-} catch {
-// ignore
-}
-
-try {
-provider.on("connect", (...args) => {
+},
+connect(...args) {
 const pk =
 args?.[0]?.publicKey?.toString?.() ||
 args?.[0]?.toString?.() ||
@@ -207,12 +214,30 @@ provider.publicKey?.toString?.() ||
 state.publicKey;
 
 if (pk) {
-setConnected(provider, walletName, pk);
+setConnected(provider, normalizedWalletName, pk);
 }
-});
+},
+};
+
+try {
+provider.on("accountChanged", handlers.accountChanged);
 } catch {
 // ignore
 }
+
+try {
+provider.on("disconnect", handlers.disconnect);
+} catch {
+// ignore
+}
+
+try {
+provider.on("connect", handlers.connect);
+} catch {
+// ignore
+}
+
+boundProviders.set(provider, handlers);
 }
 
 function openWalletApp(wallet) {
@@ -224,13 +249,24 @@ window.location.href = wallet.mobileOpenUrl;
 }
 
 function buildWalletModal() {
+if (walletModalPromise) {
+return walletModalPromise;
+}
+
 const wallets = detectWallets();
 
-return new Promise((resolve) => {
+walletModalPromise = new Promise((resolve) => {
 const existing = document.getElementById("mssWalletModal");
 if (existing) existing.remove();
 
 const mobile = isMobileBrowser();
+
+const cleanup = (value) => {
+const modal = document.getElementById("mssWalletModal");
+if (modal) modal.remove();
+walletModalPromise = null;
+resolve(value);
+};
 
 const overlay = document.createElement("div");
 overlay.id = "mssWalletModal";
@@ -305,32 +341,37 @@ btn.innerHTML = `
 ${subLabel}
 </div>
 </div>
-<div style="font-size:11px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;color:${wallet.installed ? "rgba(53,245,163,.95)" : mobile ? "rgba(58,160,255,.95)" : "rgba(255,209,102,.95)"};">
+<div style="font-size:11px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;color:${
+wallet.installed
+? "rgba(53,245,163,.95)"
+: mobile
+? "rgba(58,160,255,.95)"
+: "rgba(255,209,102,.95)"
+};">
 ${actionLabel}
 </div>
 </div>
 `;
 
 btn.addEventListener("click", () => {
-overlay.remove();
-resolve(wallet.name);
+cleanup(wallet.name);
 });
 
 list.appendChild(btn);
 });
 
 card.querySelector("#mssWalletModalCancel")?.addEventListener("click", () => {
-overlay.remove();
-resolve(null);
+cleanup(null);
 });
 
 overlay.addEventListener("click", (e) => {
 if (e.target === overlay) {
-overlay.remove();
-resolve(null);
+cleanup(null);
 }
 });
 });
+
+return walletModalPromise;
 }
 
 function getActiveProvider() {
@@ -371,41 +412,52 @@ confirmTransactionInitialTimeout: 60000,
 });
 }
 
-async function sendWithFallback(provider, transaction, connection) {
-let lastError = null;
+function getPreferredSendMethod(provider, walletName) {
+const normalized = normalizeWalletName(walletName);
+
+if (normalized === "backpack" && typeof provider.signAndSendTransaction === "function") {
+return "signAndSendTransaction";
+}
 
 if (typeof provider.signTransaction === "function") {
-try {
+return "signTransaction";
+}
+
+if (typeof provider.signAndSendTransaction === "function") {
+return "signAndSendTransaction";
+}
+
+throw new Error("Connected wallet does not support transaction signing.");
+}
+
+async function sendWithPreferredMethod({
+provider,
+transaction,
+connection,
+walletName,
+}) {
+const method = getPreferredSendMethod(provider, walletName);
+
+if (method === "signTransaction") {
 const signed = await provider.signTransaction(transaction);
-const signature = await connection.sendRawTransaction(signed.serialize(), {
+return await connection.sendRawTransaction(signed.serialize(), {
 skipPreflight: false,
 preflightCommitment: "confirmed",
 maxRetries: 3,
 });
-return signature;
-} catch (err) {
-lastError = err;
-}
 }
 
-if (typeof provider.signAndSendTransaction === "function") {
-try {
 const result = await provider.signAndSendTransaction(transaction, {
 skipPreflight: false,
 preflightCommitment: "confirmed",
 maxRetries: 3,
 });
+
+if (typeof result === "string") {
+return result;
+}
+
 return result?.signature || null;
-} catch (err) {
-lastError = err;
-}
-}
-
-if (lastError) {
-throw lastError;
-}
-
-throw new Error("Connected wallet does not support transaction signing.");
 }
 
 export function getAvailableWallets() {
@@ -443,8 +495,21 @@ return "No supported wallet detected in this browser. On mobile, choose a wallet
 }
 
 export async function connectWallet(walletName = null) {
-const selectedName = walletName || (await buildWalletModal());
+if (connectInFlightPromise) {
+return connectInFlightPromise;
+}
+
+connectInFlightPromise = (async () => {
+const selectedName = normalizeWalletName(walletName || (await buildWalletModal()));
 if (!selectedName) return getConnectedWallet();
+
+if (
+state.provider &&
+state.publicKey &&
+normalizeWalletName(state.walletName) === selectedName
+) {
+return getConnectedWallet();
+}
 
 const wallet = getWalletByName(selectedName);
 if (!wallet) {
@@ -473,9 +538,21 @@ bindProviderEvents(wallet.provider, wallet.name);
 setConnected(wallet.provider, wallet.name, publicKey);
 
 return getConnectedWallet();
+})();
+
+try {
+return await connectInFlightPromise;
+} finally {
+connectInFlightPromise = null;
+}
 }
 
 export async function disconnectWallet() {
+if (disconnectInFlightPromise) {
+return disconnectInFlightPromise;
+}
+
+disconnectInFlightPromise = (async () => {
 try {
 if (state.provider?.disconnect) {
 await state.provider.disconnect();
@@ -486,11 +563,27 @@ await state.provider.disconnect();
 
 clearConnected();
 return getConnectedWallet();
+})();
+
+try {
+return await disconnectInFlightPromise;
+} finally {
+disconnectInFlightPromise = null;
+}
 }
 
 export async function restoreWalletIfTrusted() {
+if (restoreInFlightPromise) {
+return restoreInFlightPromise;
+}
+
+restoreInFlightPromise = (async () => {
 const preferred = localStorage.getItem(STORAGE_KEY);
 if (!preferred) return getConnectedWallet();
+
+if (state.provider && state.publicKey && normalizeWalletName(state.walletName) === normalizeWalletName(preferred)) {
+return getConnectedWallet();
+}
 
 const wallet = getWalletByName(preferred);
 if (!wallet?.installed || !wallet.provider?.connect) {
@@ -513,12 +606,26 @@ setConnected(wallet.provider, wallet.name, publicKey);
 }
 
 return getConnectedWallet();
+})();
+
+try {
+return await restoreInFlightPromise;
+} finally {
+restoreInFlightPromise = null;
+}
 }
 
 export async function sendSolTransfer({
 destination,
 lamports,
 }) {
+if (sendTransferInFlight) {
+throw new Error("A wallet transfer is already awaiting approval.");
+}
+
+sendTransferInFlight = true;
+
+try {
 const { provider, publicKey, web3 } = assertConnectedProvider();
 
 const cleanDestination = String(destination || "").trim();
@@ -547,7 +654,12 @@ lamports: amountLamports,
 })
 );
 
-const signature = await sendWithFallback(provider, transaction, connection);
+const signature = await sendWithPreferredMethod({
+provider,
+transaction,
+connection,
+walletName: state.walletName,
+});
 
 if (!signature) {
 throw new Error("Wallet did not return a transaction signature.");
@@ -571,4 +683,7 @@ signature,
 lamports: amountLamports,
 destination: cleanDestination,
 };
+} finally {
+sendTransferInFlight = false;
+}
 }

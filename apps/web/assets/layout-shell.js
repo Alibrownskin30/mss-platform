@@ -17,6 +17,11 @@ if (document.getElementById("mss-shell-styles")) return;
 const style = document.createElement("style");
 style.id = "mss-shell-styles";
 style.textContent = `
+body.mss-shell-lock{
+overflow:hidden;
+touch-action:none;
+}
+
 .mss-shell-header{
 position:sticky;
 top:0;
@@ -31,7 +36,7 @@ border-bottom:1px solid rgba(255,255,255,.06);
 box-shadow:
 0 16px 40px rgba(0,0,0,.24),
 inset 0 -1px 0 rgba(255,255,255,.02);
-overflow:hidden;
+overflow:visible;
 }
 
 .mss-shell-header::before{
@@ -49,8 +54,7 @@ content:"";
 position:absolute;
 inset:0;
 pointer-events:none;
-background:
-linear-gradient(180deg, rgba(255,255,255,.03), transparent 28%);
+background:linear-gradient(180deg, rgba(255,255,255,.03), transparent 28%);
 opacity:.9;
 }
 
@@ -65,9 +69,9 @@ z-index:1;
 
 .mss-shell-topbar{
 display:grid;
-grid-template-columns:minmax(210px, 280px) minmax(0,1fr) auto;
+grid-template-columns:minmax(0,1fr) auto auto;
 align-items:center;
-gap:16px;
+gap:14px;
 padding:14px 0;
 max-width:100%;
 min-width:0;
@@ -151,103 +155,341 @@ text-overflow:ellipsis;
 max-width:100%;
 }
 
-.mss-shell-navwrap{
-min-width:0;
-max-width:100%;
-overflow:hidden;
-}
-
-.mss-shell-nav{
-display:flex;
-align-items:center;
-justify-content:center;
-gap:8px;
-flex-wrap:nowrap;
-min-width:0;
-max-width:100%;
-overflow-x:auto;
-overflow-y:hidden;
-padding-bottom:2px;
-scrollbar-width:none;
--webkit-overflow-scrolling:touch;
-}
-
-.mss-shell-nav::-webkit-scrollbar{
-display:none;
-}
-
-.mss-shell-navlink{
+.mss-shell-page-pill{
 display:inline-flex;
 align-items:center;
 justify-content:center;
 gap:8px;
 min-height:40px;
-padding:0 11px;
-border-radius:12px;
-color:rgba(255,255,255,.76);
-border:1px solid transparent;
+padding:0 14px;
+border-radius:999px;
+border:1px solid rgba(255,255,255,.10);
+background:rgba(255,255,255,.04);
+color:rgba(255,255,255,.84);
 font-size:11px;
 font-weight:800;
-letter-spacing:.11em;
+letter-spacing:.12em;
 text-transform:uppercase;
 white-space:nowrap;
-transition:.18s ease;
-text-decoration:none;
+box-shadow:inset 0 1px 0 rgba(255,255,255,.04);
+}
+
+.mss-shell-page-pill-dot{
+width:7px;
+height:7px;
+border-radius:999px;
+background:rgba(244,222,154,.92);
+box-shadow:0 0 0 5px rgba(244,222,154,.08);
 flex:0 0 auto;
 }
 
-.mss-shell-navlink:hover{
-color:#fff;
-border-color:rgba(255,255,255,.10);
+.mss-shell-menu-toggle{
+display:inline-flex;
+align-items:center;
+justify-content:center;
+gap:10px;
+min-height:42px;
+padding:0 14px;
+border-radius:14px;
+border:1px solid rgba(255,255,255,.10);
 background:rgba(255,255,255,.04);
+color:#eef3fb;
+font-size:11px;
+font-weight:900;
+letter-spacing:.14em;
+text-transform:uppercase;
+cursor:pointer;
+transition:.18s ease;
+box-shadow:inset 0 1px 0 rgba(255,255,255,.04);
+white-space:nowrap;
 }
 
-.mss-shell-navlink.active{
+.mss-shell-menu-toggle:hover{
+transform:translateY(-1px);
+border-color:rgba(244,222,154,.18);
+background:rgba(220,185,106,.08);
+box-shadow:0 0 18px rgba(244,222,154,.08);
+}
+
+.mss-shell-menu-toggle-bars{
+display:grid;
+gap:4px;
+width:14px;
+flex:0 0 auto;
+}
+
+.mss-shell-menu-toggle-bars span{
+display:block;
+width:14px;
+height:2px;
+border-radius:999px;
+background:currentColor;
+opacity:.92;
+}
+
+.mss-shell-drawer{
+position:fixed;
+inset:0;
+z-index:1200;
+pointer-events:none;
+}
+
+.mss-shell-drawer.is-open{
+pointer-events:auto;
+}
+
+.mss-shell-drawer-backdrop{
+position:absolute;
+inset:0;
+background:rgba(4,6,10,.62);
+backdrop-filter:blur(14px);
+-webkit-backdrop-filter:blur(14px);
+opacity:0;
+transition:opacity .24s ease;
+}
+
+.mss-shell-drawer.is-open .mss-shell-drawer-backdrop{
+opacity:1;
+}
+
+.mss-shell-drawer-panel{
+position:absolute;
+top:0;
+right:0;
+height:100dvh;
+width:min(430px, calc(100vw - 22px));
+max-width:100%;
+display:flex;
+flex-direction:column;
+background:
+radial-gradient(720px 220px at 0% 0%, rgba(244,222,154,.08), transparent 42%),
+radial-gradient(560px 180px at 100% 0%, rgba(182,190,203,.06), transparent 38%),
+linear-gradient(180deg, rgba(10,12,18,.98), rgba(7,8,12,.98));
+border-left:1px solid rgba(255,255,255,.08);
+box-shadow:
+-24px 0 60px rgba(0,0,0,.34),
+inset 1px 0 0 rgba(255,255,255,.03);
+transform:translateX(108%);
+transition:transform .28s cubic-bezier(.22,.8,.22,1);
+overflow:hidden;
+}
+
+.mss-shell-drawer.is-open .mss-shell-drawer-panel{
+transform:translateX(0);
+}
+
+.mss-shell-drawer-panel::before{
+content:"";
+position:absolute;
+inset:0 0 auto 0;
+height:1px;
+background:linear-gradient(90deg, rgba(255,255,255,0), rgba(244,222,154,.24), rgba(255,255,255,0));
+opacity:.9;
+pointer-events:none;
+}
+
+.mss-shell-drawer-head{
+display:flex;
+align-items:flex-start;
+justify-content:space-between;
+gap:14px;
+padding:18px 18px 16px;
+border-bottom:1px solid rgba(255,255,255,.06);
+}
+
+.mss-shell-drawer-brand{
+display:flex;
+align-items:flex-start;
+gap:12px;
+min-width:0;
+flex:1 1 auto;
+}
+
+.mss-shell-drawer-title{
+display:block;
+color:#eef3fb;
+font-size:13px;
+font-weight:900;
+letter-spacing:.16em;
+text-transform:uppercase;
+line-height:1.2;
+}
+
+.mss-shell-drawer-sub{
+display:block;
+margin-top:5px;
+color:rgba(238,243,251,.46);
+font-size:11px;
+letter-spacing:.12em;
+text-transform:uppercase;
+line-height:1.35;
+word-break:break-word;
+}
+
+.mss-shell-drawer-close{
+display:inline-flex;
+align-items:center;
+justify-content:center;
+width:42px;
+height:42px;
+border-radius:12px;
+border:1px solid rgba(255,255,255,.10);
+background:rgba(255,255,255,.04);
+color:#eef3fb;
+cursor:pointer;
+transition:.18s ease;
+flex:0 0 auto;
+}
+
+.mss-shell-drawer-close:hover{
+transform:translateY(-1px);
+border-color:rgba(244,222,154,.18);
+background:rgba(220,185,106,.08);
+}
+
+.mss-shell-drawer-scroll{
+flex:1 1 auto;
+min-height:0;
+overflow:auto;
+padding:18px;
+scrollbar-width:thin;
+scrollbar-color:rgba(255,255,255,.18) transparent;
+}
+
+.mss-shell-drawer-block + .mss-shell-drawer-block{
+margin-top:18px;
+}
+
+.mss-shell-drawer-label{
+display:flex;
+align-items:center;
+gap:8px;
+margin-bottom:10px;
+color:rgba(238,243,251,.46);
+font-size:10px;
+font-weight:900;
+letter-spacing:.16em;
+text-transform:uppercase;
+}
+
+.mss-shell-drawer-label::before{
+content:"";
+width:7px;
+height:7px;
+border-radius:999px;
+background:rgba(244,222,154,.9);
+box-shadow:0 0 0 5px rgba(244,222,154,.08);
+flex:0 0 auto;
+}
+
+.mss-shell-drawer-nav{
+display:grid;
+gap:10px;
+}
+
+.mss-shell-drawer-link{
+display:flex;
+align-items:center;
+justify-content:space-between;
+gap:14px;
+min-height:54px;
+padding:0 16px;
+border-radius:16px;
+border:1px solid rgba(255,255,255,.08);
+background:rgba(255,255,255,.03);
+color:rgba(255,255,255,.82);
+text-decoration:none;
+transition:.18s ease;
+box-shadow:inset 0 1px 0 rgba(255,255,255,.03);
+}
+
+.mss-shell-drawer-link:hover{
+transform:translateX(-2px);
+color:#fff;
+border-color:rgba(255,255,255,.14);
+background:rgba(255,255,255,.05);
+}
+
+.mss-shell-drawer-link.active{
 color:#fff;
 border-color:rgba(244,222,154,.20);
 background:linear-gradient(180deg, rgba(220,185,106,.10), rgba(220,185,106,.04));
 box-shadow:0 0 16px rgba(244,222,154,.06);
 }
 
-.mss-shell-auth{
+.mss-shell-drawer-link-main{
 display:flex;
 align-items:center;
-justify-content:flex-end;
-gap:10px;
-flex-wrap:nowrap;
+gap:12px;
 min-width:0;
 }
 
-.mss-shell-social{
-display:flex;
-align-items:center;
-gap:10px;
-flex-wrap:nowrap;
-flex:0 0 auto;
-}
-
-.mss-shell-icon{
-width:40px;
-height:40px;
-border-radius:12px;
+.mss-shell-drawer-link-index{
+width:26px;
+height:26px;
+border-radius:999px;
 display:inline-flex;
 align-items:center;
 justify-content:center;
 border:1px solid rgba(255,255,255,.10);
 background:rgba(255,255,255,.04);
-color:rgba(255,255,255,.82);
-transition:.18s ease;
-box-shadow:inset 0 1px 0 rgba(255,255,255,.04);
+color:rgba(255,255,255,.56);
+font-size:10px;
+font-weight:900;
+letter-spacing:.08em;
 flex:0 0 auto;
-text-decoration:none;
 }
 
-.mss-shell-icon:hover{
-transform:translateY(-1px);
-color:#fff;
-border-color:rgba(244,222,154,.18);
-background:rgba(220,185,106,.08);
-box-shadow:0 0 18px rgba(244,222,154,.08);
+.mss-shell-drawer-link.active .mss-shell-drawer-link-index{
+color:#11151c;
+background:linear-gradient(135deg, rgba(244,222,154,.98), rgba(220,185,106,.94));
+border-color:rgba(244,222,154,.22);
+}
+
+.mss-shell-drawer-link-text{
+min-width:0;
+}
+
+.mss-shell-drawer-link-title{
+display:block;
+font-size:13px;
+font-weight:800;
+letter-spacing:.06em;
+text-transform:uppercase;
+line-height:1.2;
+color:inherit;
+}
+
+.mss-shell-drawer-link-sub{
+display:block;
+margin-top:4px;
+color:rgba(255,255,255,.48);
+font-size:11px;
+letter-spacing:.08em;
+text-transform:uppercase;
+line-height:1.2;
+}
+
+.mss-shell-drawer-link-arrow{
+color:rgba(255,255,255,.34);
+font-size:16px;
+flex:0 0 auto;
+}
+
+.mss-shell-account-card{
+display:grid;
+gap:10px;
+padding:14px;
+border-radius:18px;
+border:1px solid rgba(255,255,255,.08);
+background:rgba(255,255,255,.03);
+box-shadow:inset 0 1px 0 rgba(255,255,255,.03);
+}
+
+.mss-shell-account-copy{
+color:rgba(238,243,251,.58);
+font-size:12px;
+line-height:1.6;
 }
 
 .mss-shell-session,
@@ -256,9 +498,9 @@ display:inline-flex;
 align-items:center;
 justify-content:center;
 gap:8px;
-min-height:40px;
-padding:0 12px;
-border-radius:12px;
+min-height:44px;
+padding:0 14px;
+border-radius:14px;
 border:1px solid rgba(255,255,255,.10);
 background:rgba(255,255,255,.04);
 color:#eef3fb;
@@ -270,7 +512,7 @@ cursor:pointer;
 transition:.18s ease;
 white-space:nowrap;
 box-shadow:inset 0 1px 0 rgba(255,255,255,.04);
-flex:0 0 auto;
+width:100%;
 }
 
 .mss-shell-session:hover,
@@ -292,6 +534,85 @@ border-radius:999px;
 background:rgba(244,222,154,.92);
 box-shadow:0 0 0 5px rgba(244,222,154,.08);
 flex:0 0 auto;
+}
+
+.mss-shell-social-grid{
+display:grid;
+grid-template-columns:repeat(2, minmax(0,1fr));
+gap:10px;
+}
+
+.mss-shell-social-card{
+display:flex;
+align-items:center;
+gap:12px;
+min-height:54px;
+padding:0 14px;
+border-radius:16px;
+border:1px solid rgba(255,255,255,.08);
+background:rgba(255,255,255,.03);
+color:rgba(255,255,255,.84);
+text-decoration:none;
+transition:.18s ease;
+box-shadow:inset 0 1px 0 rgba(255,255,255,.03);
+}
+
+.mss-shell-social-card:hover{
+transform:translateY(-1px);
+color:#fff;
+border-color:rgba(244,222,154,.18);
+background:rgba(220,185,106,.08);
+box-shadow:0 0 18px rgba(244,222,154,.08);
+}
+
+.mss-shell-social-card-icon{
+width:38px;
+height:38px;
+border-radius:12px;
+display:inline-flex;
+align-items:center;
+justify-content:center;
+border:1px solid rgba(255,255,255,.10);
+background:rgba(255,255,255,.04);
+color:inherit;
+flex:0 0 auto;
+}
+
+.mss-shell-social-card-text{
+min-width:0;
+}
+
+.mss-shell-social-card-title{
+display:block;
+font-size:12px;
+font-weight:800;
+letter-spacing:.10em;
+text-transform:uppercase;
+color:inherit;
+line-height:1.2;
+}
+
+.mss-shell-social-card-sub{
+display:block;
+margin-top:4px;
+color:rgba(255,255,255,.46);
+font-size:11px;
+letter-spacing:.06em;
+text-transform:uppercase;
+line-height:1.2;
+}
+
+.mss-shell-drawer-foot{
+padding:16px 18px 18px;
+border-top:1px solid rgba(255,255,255,.06);
+background:linear-gradient(180deg, rgba(255,255,255,.01), rgba(255,255,255,.02));
+}
+
+.mss-shell-drawer-foot-badges{
+display:flex;
+align-items:center;
+gap:8px;
+flex-wrap:wrap;
 }
 
 .mss-shell-footer{
@@ -407,6 +728,30 @@ flex-wrap:wrap;
 margin-top:12px;
 }
 
+.mss-shell-icon{
+width:40px;
+height:40px;
+border-radius:12px;
+display:inline-flex;
+align-items:center;
+justify-content:center;
+border:1px solid rgba(255,255,255,.10);
+background:rgba(255,255,255,.04);
+color:rgba(255,255,255,.82);
+transition:.18s ease;
+box-shadow:inset 0 1px 0 rgba(255,255,255,.04);
+flex:0 0 auto;
+text-decoration:none;
+}
+
+.mss-shell-icon:hover{
+transform:translateY(-1px);
+color:#fff;
+border-color:rgba(244,222,154,.18);
+background:rgba(220,185,106,.08);
+box-shadow:0 0 18px rgba(244,222,154,.08);
+}
+
 .mss-shell-footer-bottom{
 display:flex;
 align-items:center;
@@ -423,7 +768,8 @@ font-size:12px;
 line-height:1.5;
 }
 
-.mss-shell-footer-badges{
+.mss-shell-footer-badges,
+.mss-shell-drawer-foot-badges{
 display:flex;
 align-items:center;
 gap:8px;
@@ -456,51 +802,9 @@ box-shadow:0 0 12px rgba(244,222,154,.30);
 flex:0 0 auto;
 }
 
-@media (max-width: 1240px){
-.mss-shell-topbar{
-grid-template-columns:minmax(180px, 250px) minmax(0,1fr) auto;
-gap:12px;
-}
-
-.mss-shell-navlink{
-padding:0 10px;
-font-size:10px;
-}
-
-.mss-shell-session,
-.mss-shell-logout{
-padding:0 11px;
-font-size:10px;
-}
-}
-
 @media (max-width: 1080px){
 .mss-shell-footer-main{
 grid-template-columns:repeat(2, minmax(0,1fr));
-}
-}
-
-@media (max-width: 980px){
-.mss-shell-topbar{
-grid-template-columns:1fr;
-align-items:stretch;
-}
-
-.mss-shell-brand{
-width:100%;
-}
-
-.mss-shell-navwrap{
-width:100%;
-}
-
-.mss-shell-nav{
-justify-content:flex-start;
-}
-
-.mss-shell-auth{
-justify-content:flex-start;
-flex-wrap:wrap;
 }
 }
 
@@ -513,14 +817,39 @@ grid-template-columns:1fr;
 align-items:flex-start;
 flex-direction:column;
 }
+
+.mss-shell-topbar{
+grid-template-columns:minmax(0,1fr) auto;
 }
 
-@media (max-width: 520px){
+.mss-shell-page-pill{
+display:none;
+}
+}
+
+@media (max-width: 640px){
 .mss-shell-wrap{
 width:min(var(--max, 1320px), calc(100% - 24px));
 }
 
 .mss-shell-brand-sub{
+display:none;
+}
+
+.mss-shell-drawer-panel{
+width:min(100vw, 100%);
+}
+
+.mss-shell-social-grid{
+grid-template-columns:1fr;
+}
+
+.mss-shell-menu-toggle{
+min-width:42px;
+padding:0 12px;
+}
+
+.mss-shell-menu-toggle-label{
 display:none;
 }
 }
@@ -572,18 +901,54 @@ document.body?.dataset?.shellSubtitle ||
 ).trim();
 }
 
+function getPageTitle(options = {}) {
+return String(
+options.pageTitle ||
+options.pageLabel ||
+"MSS Protocol"
+).trim();
+}
+
 function getFooterYear() {
 return new Date().getFullYear();
+}
+
+function getNavMeta(key) {
+const meta = {
+home: "Protocol overview",
+scanner: "Token intelligence",
+launchpad: "Launch command",
+explore: "Market discovery",
+alerts: "Monitoring layer",
+methodology: "Scoring framework",
+legal: "Policy and terms",
+};
+return meta[key] || "MSS navigation";
+}
+
+function renderDrawerNav(activeKey) {
+return NAV_ITEMS.map((item, index) => {
+const activeClass = item.key === activeKey ? " active" : "";
+return `
+<a class="mss-shell-drawer-link${activeClass}" href="${item.href}" data-shell-close="true">
+<span class="mss-shell-drawer-link-main">
+<span class="mss-shell-drawer-link-index">${String(index + 1).padStart(2, "0")}</span>
+<span class="mss-shell-drawer-link-text">
+<span class="mss-shell-drawer-link-title">${item.label}</span>
+<span class="mss-shell-drawer-link-sub">${getNavMeta(item.key)}</span>
+</span>
+</span>
+<span class="mss-shell-drawer-link-arrow">→</span>
+</a>
+`;
+}).join("");
 }
 
 function renderHeader(options = {}) {
 const activeKey = getActiveKey(options);
 const subtitle = getSubtitle(options);
-
-const navHtml = NAV_ITEMS.map((item) => {
-const activeClass = item.key === activeKey ? " active" : "";
-return `<a class="mss-shell-navlink${activeClass}" href="${item.href}">${item.label}</a>`;
-}).join("");
+const pageTitle = getPageTitle(options);
+const activeLabel = NAV_ITEMS.find((item) => item.key === activeKey)?.label || "Menu";
 
 return `
 <header class="mss-shell-header" id="mssShellHeader">
@@ -596,48 +961,127 @@ return `
 </div>
 </a>
 
-<div class="mss-shell-navwrap">
-<nav class="mss-shell-nav" aria-label="Primary">
-${navHtml}
+<div class="mss-shell-page-pill" aria-label="Current section">
+<span class="mss-shell-page-pill-dot"></span>
+<span>${activeLabel}</span>
+</div>
+
+<button
+id="mssShellMenuToggle"
+class="mss-shell-menu-toggle"
+type="button"
+aria-expanded="false"
+aria-controls="mssShellDrawer"
+aria-label="Open navigation menu"
+>
+<span class="mss-shell-menu-toggle-bars" aria-hidden="true">
+<span></span>
+<span></span>
+<span></span>
+</span>
+<span class="mss-shell-menu-toggle-label">Menu</span>
+</button>
+</div>
+
+<div class="mss-shell-drawer" id="mssShellDrawer" aria-hidden="true">
+<div class="mss-shell-drawer-backdrop" data-shell-close="true"></div>
+
+<aside class="mss-shell-drawer-panel" role="dialog" aria-modal="true" aria-label="Site navigation">
+<div class="mss-shell-drawer-head">
+<div class="mss-shell-drawer-brand">
+<span class="mss-shell-mark" aria-hidden="true">${getShieldSvg()}</span>
+<div>
+<span class="mss-shell-drawer-title">MSS Protocol</span>
+<span class="mss-shell-drawer-sub">${pageTitle}</span>
+</div>
+</div>
+
+<button
+id="mssShellDrawerClose"
+class="mss-shell-drawer-close"
+type="button"
+aria-label="Close navigation menu"
+>
+<svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+<path d="M6 6L18 18M18 6L6 18" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/>
+</svg>
+</button>
+</div>
+
+<div class="mss-shell-drawer-scroll">
+<div class="mss-shell-drawer-block">
+<div class="mss-shell-drawer-label">Navigate</div>
+<nav class="mss-shell-drawer-nav" aria-label="Primary">
+${renderDrawerNav(activeKey)}
 </nav>
 </div>
 
-<div class="mss-shell-auth">
-<div class="mss-shell-social" aria-label="Social links">
-<a
-class="mss-shell-icon"
-href="${X_URL}"
-target="_blank"
-rel="noopener noreferrer"
-aria-label="MSS Protocol on X"
-title="X"
->
-<svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
-<path d="M18.9 2H22l-6.77 7.73L23.2 22h-6.25l-4.9-7.41L5.56 22H2.44l7.24-8.27L1.2 2h6.4l4.42 6.73L18.9 2zM17.8 20h1.73L6.27 3.9H4.41L17.8 20z"/>
-</svg>
-</a>
-
-<a
-class="mss-shell-icon"
-href="${TG_URL}"
-target="_blank"
-rel="noopener noreferrer"
-aria-label="MSS Protocol Telegram community"
-title="Telegram"
->
-<svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
-<path d="M21.5 4.5 3.9 11.3c-1.2.5-1.2 1.2-.2 1.5l4.5 1.4 1.7 5.3c.2.7.1 1 .9 1 .6 0 .8-.3 1.1-.6l2.2-2.1 4.6 3.4c.8.5 1.4.2 1.6-.8l3-14c.3-1.2-.5-1.8-1.6-1.3zm-10.8 9.2 8.8-5.6c.4-.3.8-.1.5.2l-7.3 6.6-.3 3.1-1.7-4.3z"/>
-</svg>
-</a>
+<div class="mss-shell-drawer-block">
+<div class="mss-shell-drawer-label">Account Access</div>
+<div class="mss-shell-account-card">
+<div class="mss-shell-account-copy">
+Open account access, session controls, and wallet-linked product entry from one command surface.
 </div>
-
 <button id="sessionPill" class="mss-shell-session" type="button" title="Login">
 <span id="sessionDot" class="mss-shell-status-dot"></span>
 <span id="sessionText">Login</span>
 </button>
-
 <button id="logoutBtn" class="mss-shell-logout" type="button" style="display:none;">Logout</button>
 </div>
+</div>
+
+<div class="mss-shell-drawer-block">
+<div class="mss-shell-drawer-label">Official Channels</div>
+<div class="mss-shell-social-grid" aria-label="Social links">
+<a
+class="mss-shell-social-card"
+href="${X_URL}"
+target="_blank"
+rel="noopener noreferrer"
+aria-label="MSS Protocol on X"
+>
+<span class="mss-shell-social-card-icon">
+<svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+<path d="M18.9 2H22l-6.77 7.73L23.2 22h-6.25l-4.9-7.41L5.56 22H2.44l7.24-8.27L1.2 2h6.4l4.42 6.73L18.9 2zM17.8 20h1.73L6.27 3.9H4.41L17.8 20z"/>
+</svg>
+</span>
+<span class="mss-shell-social-card-text">
+<span class="mss-shell-social-card-title">X</span>
+<span class="mss-shell-social-card-sub">Official feed</span>
+</span>
+</a>
+
+<a
+class="mss-shell-social-card"
+href="${TG_URL}"
+target="_blank"
+rel="noopener noreferrer"
+aria-label="MSS Protocol Telegram community"
+>
+<span class="mss-shell-social-card-icon">
+<svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+<path d="M21.5 4.5 3.9 11.3c-1.2.5-1.2 1.2-.2 1.5l4.5 1.4 1.7 5.3c.2.7.1 1 .9 1 .6 0 .8-.3 1.1-.6l2.2-2.1 4.6 3.4c.8.5 1.4.2 1.6-.8l3-14c.3-1.2-.5-1.8-1.6-1.3zm-10.8 9.2 8.8-5.6c.4-.3.8-.1.5.2l-7.3 6.6-.3 3.1-1.7-4.3z"/>
+</svg>
+</span>
+<span class="mss-shell-social-card-text">
+<span class="mss-shell-social-card-title">Telegram</span>
+<span class="mss-shell-social-card-sub">Official community</span>
+</span>
+</a>
+</div>
+</div>
+</div>
+
+<div class="mss-shell-drawer-foot">
+<div class="mss-shell-drawer-foot-badges">
+<span class="mss-shell-footer-badge">
+<span class="mss-shell-footer-badge-dot"></span>
+Blockchain Security Intelligence
+</span>
+<span class="mss-shell-footer-badge">Institutional Signal Layer</span>
+</div>
+</div>
+</aside>
 </div>
 </header>
 `;
@@ -758,6 +1202,52 @@ document.body.insertAdjacentHTML("beforeend", markup);
 }
 }
 
+function bindShellInteractions(header) {
+if (!header || header.dataset.shellBound === "1") return;
+header.dataset.shellBound = "1";
+
+const drawer = header.querySelector("#mssShellDrawer");
+const toggle = header.querySelector("#mssShellMenuToggle");
+const closeBtn = header.querySelector("#mssShellDrawerClose");
+const closeTargets = Array.from(header.querySelectorAll("[data-shell-close='true']"));
+
+if (!drawer || !toggle) return;
+
+const setOpen = (open) => {
+drawer.classList.toggle("is-open", open);
+drawer.setAttribute("aria-hidden", open ? "false" : "true");
+toggle.setAttribute("aria-expanded", open ? "true" : "false");
+document.body.classList.toggle("mss-shell-lock", open);
+
+if (open) {
+closeBtn?.focus?.();
+} else {
+toggle.focus?.();
+}
+};
+
+toggle.addEventListener("click", () => {
+const willOpen = !drawer.classList.contains("is-open");
+setOpen(willOpen);
+});
+
+closeBtn?.addEventListener("click", () => {
+setOpen(false);
+});
+
+closeTargets.forEach((node) => {
+node.addEventListener("click", () => {
+setOpen(false);
+});
+});
+
+document.addEventListener("keydown", (event) => {
+if (event.key === "Escape" && drawer.classList.contains("is-open")) {
+setOpen(false);
+}
+});
+}
+
 export async function mountLayoutShell(options = {}) {
 ensureStyles();
 
@@ -780,10 +1270,12 @@ injectMarkup(footerTarget, renderFooter());
 injectMarkup(footerTarget, renderFooter());
 }
 
-return {
-header: document.getElementById("mssShellHeader"),
-footer: document.getElementById("mssShellFooter"),
-};
+const header = document.getElementById("mssShellHeader");
+const footer = document.getElementById("mssShellFooter");
+
+bindShellInteractions(header);
+
+return { header, footer };
 }
 
 export const renderLayoutShell = mountLayoutShell;

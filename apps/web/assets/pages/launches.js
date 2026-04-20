@@ -129,10 +129,6 @@ if (n >= 55) return { label: "Moderate" };
 return { label: "Early" };
 }
 
-function isLiveStatus(status) {
-return normalizeStatus(status) === "live";
-}
-
 function isCurrentFieldStatus(status) {
 const s = normalizeStatus(status);
 return s === "commit" || s === "countdown" || s === "building" || s === "live";
@@ -621,6 +617,7 @@ return `
 <div class="list-row">
 <div class="list-row-top">
 <div class="list-title-wrap">
+<div style="display:flex;gap:12px;align-items:flex-start;min-width:0;">
 ${getLogoHtml(launch)}
 <div style="min-width:0;">
 <div class="token-name">${name}</div>
@@ -633,6 +630,7 @@ ${escapeHtml(stateNote)}
 </div>
 <div class="builder-badges" style="margin-top:10px;">${getBuilderBadges(launch)}</div>
 <div style="margin-top:10px;">${getSafeguardsHtml(launch)}</div>
+</div>
 </div>
 </div>
 
@@ -806,9 +804,12 @@ if (!mount) return;
 
 const featured = getFeaturedCandidate(items);
 if (!featured) {
+mount.className = "featured-placeholder";
 mount.innerHTML = `No featured launch available right now.`;
 return;
 }
+
+mount.className = "featured-placeholder featured-live";
 
 const name = escapeHtml(featured.token_name || "Untitled Launch");
 const symbol = escapeHtml(featured.symbol || "N/A");
@@ -833,10 +834,10 @@ const builderHtml = builderWallet
 : builderName;
 
 mount.innerHTML = `
-<div style="display:grid;grid-template-columns:minmax(0,1.2fr) minmax(280px,.8fr);gap:16px;align-items:start;">
-<div style="min-width:0;">
-<div style="display:flex;justify-content:space-between;gap:12px;align-items:flex-start;flex-wrap:wrap;">
-<div style="display:flex;gap:14px;align-items:flex-start;min-width:0;">
+<div class="featured-shell">
+<div class="featured-main">
+<div class="featured-main-top">
+<div class="featured-main-meta">
 ${getLogoHtml(featured)}
 <div style="min-width:0;">
 <div class="token-name">${name}</div>
@@ -849,14 +850,14 @@ ${builderHtml} • Score ${builderScore} • ${trust.label}
 <div class="badge ${badgeClass(status)}">${stageLabel(status)}</div>
 </div>
 
-<div style="margin-top:12px;font-size:13px;color:rgba(255,255,255,.68);line-height:1.6;">
+<div class="featured-main-copy">
 ${escapeHtml(stateNote)}
 </div>
 
-<div class="builder-badges" style="margin-top:12px;">${getBuilderBadges(featured)}</div>
-<div style="margin-top:12px;">${getSafeguardsHtml(featured)}</div>
+<div class="builder-badges">${getBuilderBadges(featured)}</div>
+${getSafeguardsHtml(featured)}
 
-<div class="progress-wrap" style="margin-top:14px;">
+<div class="progress-wrap">
 <div class="progress-top">
 <span>${fmtSol(committed)} / ${fmtSol(hardCap)} SOL committed</span>
 <strong>${percent}%</strong>
@@ -866,15 +867,14 @@ ${escapeHtml(stateNote)}
 </div>
 </div>
 
-<div class="live-feed" style="margin-top:14px;">
+<div class="live-feed">
 ${getFeedLines(featured)}
 </div>
 </div>
 
-<div style="display:grid;gap:12px;min-width:0;">
-<div class="progress-wrap">
-<div class="kv">
-<div>
+<div class="featured-side">
+<div class="featured-side-grid">
+<div class="featured-stat-card">
 <div class="k">Timing</div>
 <div
 class="v"
@@ -883,32 +883,34 @@ data-status="${escapeHtml(status)}"
 ${timing.endAt ? `data-end-at="${timing.endAt}"` : ""}
 >${escapeHtml(timing.value)}</div>
 </div>
-<div>
+
+<div class="featured-stat-card">
 <div class="k">Momentum</div>
 <div class="v">${momentumScore}</div>
 </div>
-<div>
+
+<div class="featured-stat-card">
 <div class="k">Participants</div>
 <div class="v">${participants}</div>
 </div>
-<div>
+
+<div class="featured-stat-card">
 <div class="k">Min Raise</div>
 <div class="v">${fmtSol(minRaise)} SOL</div>
 </div>
 </div>
-</div>
 
-<div class="quick-commit">
+<div class="featured-quick-shell">
 <div class="quick-title">Featured Quick Commit</div>
-<div class="quick-row">
+<div class="quick-row" style="margin-top:10px;">
 ${buildQuickButtons(featured)}
 </div>
-<div style="margin-top:8px;font-size:12px;color:rgba(255,255,255,.62);">
+<div style="margin-top:10px;font-size:12px;color:rgba(255,255,255,.62);">
 ${walletConnected ? "Connected wallet can commit directly into the featured launch." : "Connect wallet to enable featured quick commit."}
 </div>
 </div>
 
-<a class="btn primary" href="${getLaunchHref(featured.id)}" style="width:100%;">Open Launch Terminal</a>
+<a class="btn primary featured-open-btn" href="${getLaunchHref(featured.id)}">Open Launch Terminal</a>
 </div>
 </div>
 `;
@@ -957,7 +959,7 @@ function uniqueById(items) {
 const seen = new Set();
 const out = [];
 
-for (const item of items) {
+for (const item of Array.isArray(items) ? items : []) {
 const id = Number(item?.id);
 if (!Number.isFinite(id)) continue;
 if (seen.has(id)) continue;
@@ -966,6 +968,13 @@ out.push(item);
 }
 
 return out;
+}
+
+function mergeLaunchSources(primary, secondary) {
+return uniqueById([
+...(Array.isArray(primary) ? primary : []),
+...(Array.isArray(secondary) ? secondary : []),
+]);
 }
 
 async function enrichRecent(allLaunches) {
@@ -1025,18 +1034,12 @@ if (meta) meta.textContent = "Loading launch field and archive…";
 
 const data = await fetchJson(`/api/launcher/list`);
 
-let fieldLaunches = Array.isArray(data?.all) ? data.all : [];
-let historyLaunches = Array.isArray(data?.history) ? data.history : fieldLaunches;
+const rawAll = Array.isArray(data?.all) ? data.all : [];
+const rawHistory = Array.isArray(data?.history) ? data.history : [];
+const combined = mergeLaunchSources(rawAll, rawHistory);
 
-fieldLaunches = uniqueById(fieldLaunches).filter((x) => {
-const status = normalizeStatus(x.status);
-return isCurrentFieldStatus(status);
-});
-
-historyLaunches = uniqueById(historyLaunches).filter((x) => {
-const status = normalizeStatus(x.status);
-return isHistoricalStatus(status);
-});
+let fieldLaunches = combined.filter((x) => isCurrentFieldStatus(x.status));
+let historyLaunches = combined.filter((x) => isHistoricalStatus(x.status));
 
 fieldLaunches = await enrichRecent(fieldLaunches);
 
@@ -1047,8 +1050,8 @@ launch.bumped = prev != null && next > prev;
 PREV_PROGRESS.set(launch.id, next);
 }
 
-ALL_LAUNCHES = fieldLaunches;
-HISTORY_LAUNCHES = historyLaunches;
+ALL_LAUNCHES = uniqueById(fieldLaunches);
+HISTORY_LAUNCHES = uniqueById(historyLaunches);
 
 if (meta) {
 meta.textContent = `${ALL_LAUNCHES.length} active • ${HISTORY_LAUNCHES.length} history`;
@@ -1173,6 +1176,16 @@ el.textContent = nextValue;
 });
 }
 
+function renderEmptyState() {
+const grid = $("launchGrid");
+const list = $("launchList");
+if (!grid || !list) return;
+
+grid.innerHTML = `<div class="empty" style="grid-column:1/-1;">No launches found.</div>`;
+list.innerHTML = `<div class="empty">No launches found.</div>`;
+bindQuickCommitButtons();
+}
+
 function render() {
 const grid = $("launchGrid");
 const list = $("launchList");
@@ -1210,14 +1223,12 @@ activeItems = sortItems(activeItems, sort);
 historyItems = sortItems(historyItems, sort);
 
 renderStats(ALL_LAUNCHES);
-renderFeaturedLaunch(activeItems);
+renderFeaturedLaunch(activeItems.length ? activeItems : historyItems);
 applyViewState();
 
 if (statusFilter === "all") {
 if (!activeItems.length && !historyItems.length) {
-grid.innerHTML = `<div class="empty" style="grid-column:1/-1;">No launches found.</div>`;
-list.innerHTML = `<div class="empty">No launches found.</div>`;
-bindQuickCommitButtons();
+renderEmptyState();
 return;
 }
 
@@ -1228,19 +1239,11 @@ updateLiveTimers();
 return;
 }
 
-const source =
-statusFilter === "history" ||
-statusFilter === "graduated" ||
-statusFilter === "failed"
-? historyItems
-: activeItems;
-
-const items = source.filter((x) => matchesStatusFilter(x, statusFilter));
+const combined = [...activeItems, ...historyItems];
+const items = combined.filter((x) => matchesStatusFilter(x, statusFilter));
 
 if (!items.length) {
-grid.innerHTML = `<div class="empty" style="grid-column:1/-1;">No launches found.</div>`;
-list.innerHTML = `<div class="empty">No launches found.</div>`;
-bindQuickCommitButtons();
+renderEmptyState();
 return;
 }
 

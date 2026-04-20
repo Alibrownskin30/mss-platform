@@ -753,6 +753,16 @@ commitPercent: buildCommitPercent(totalCommitted, hardCap),
 };
 }
 
+function isCurrentListStatus(status) {
+const s = cleanText(status, 40).toLowerCase();
+return s === "commit" || s === "countdown" || s === "building" || s === "live";
+}
+
+function isHistoricalListStatus(status) {
+const s = cleanText(status, 40).toLowerCase();
+return s === "graduated" || s === "failed" || s === "failed_refunded";
+}
+
 function getEscrowWallet() {
 const wallet = cleanText(process.env.ESCROW_WALLET, 120);
 if (!wallet) {
@@ -2785,7 +2795,7 @@ b.wallet AS builder_wallet,
 b.alias AS builder_alias,
 b.builder_score
 FROM launches l
-JOIN builders b ON b.id = l.builder_id
+LEFT JOIN builders b ON b.id = l.builder_id
 ORDER BY l.id DESC
 `
 );
@@ -2794,22 +2804,23 @@ const shaped = rows
 .filter((row) => isBuilderBondSatisfied(row) || !isBuilderTemplate(row))
 .map(shapeLaunchForList);
 
-const visible = shaped.filter((x) => x.status !== "failed_refunded");
+const current = shaped.filter((x) => isCurrentListStatus(x.status));
+const history = shaped.filter((x) => isHistoricalListStatus(x.status));
 
 const grouped = {
-commit: visible.filter((x) => x.status === "commit"),
-countdown: visible.filter((x) => x.status === "countdown"),
-building: visible.filter((x) => x.status === "building"),
-live: visible.filter((x) => x.status === "live"),
-graduated: visible.filter((x) => x.status === "graduated"),
-failed: visible.filter((x) => x.status === "failed"),
+commit: current.filter((x) => x.status === "commit"),
+countdown: current.filter((x) => x.status === "countdown"),
+building: current.filter((x) => x.status === "building"),
+live: current.filter((x) => x.status === "live"),
+graduated: history.filter((x) => x.status === "graduated"),
+failed: history.filter((x) => x.status === "failed" || x.status === "failed_refunded"),
 };
 
 return res.json({
 ok: true,
 launches: grouped,
-all: visible,
-history: shaped,
+all: current,
+history,
 });
 } catch (err) {
 console.error("GET /api/launcher/list failed:", err);

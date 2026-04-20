@@ -17,6 +17,8 @@ const BUILDING_PHASE_REFRESH_INTERVAL_MS = 1800;
 const RENDER_TICK_MS = 1000;
 const FORCE_FINALIZE_COOLDOWN_MS = 8000;
 const LIVE_LIFECYCLE_REFRESH_INTERVAL_MS = 20000;
+const LAUNCH_PAGE_INIT_KEY = "__mssLaunchPageInit_v2";
+const COMMIT_DEDUP_WINDOW_MS = 2000;
 
 function $(id) {
 return document.getElementById(id);
@@ -596,7 +598,7 @@ const timePart = Number.isFinite(ends)
 
 return {
 kind: "warn",
-message: `Launch moved to countdown. Commits and refunds are closed.${timePart}`,
+message: `Launch is in countdown lock. Commits and refunds are closed.${timePart}`,
 };
 }
 
@@ -1268,7 +1270,7 @@ setTextByIds(["launchOverviewAccessText"], getAccessModeLabel(status));
 
 const lifecycleSummary = (() => {
 if (status === "commit") return "Commit → Countdown → Live";
-if (status === "countdown") return "Countdown Armed";
+if (status === "countdown") return "Countdown Locked";
 if (status === "building") return "Bootstrapping";
 if (status === "live") return "Live Market";
 if (status === "graduated") return "Graduated";
@@ -1285,7 +1287,7 @@ if (status === "commit") {
 return `${base} ${fmtSol(Math.max(0, minRaise - totalCommitted))} remains to minimum raise and ${fmtSol(Math.max(0, hardCap - totalCommitted))} remains to hard cap.`;
 }
 if (status === "countdown") {
-return `${base} Commit phase is closed and countdown integrity is now controlling the transition into market activation.`;
+return `${base} Commit phase is closed and countdown lock is now controlling the transition into market activation.`;
 }
 if (status === "building") {
 return `${base} MSS is finalizing mint assignment, internal liquidity bootstrap, and live market state.`;
@@ -1330,13 +1332,13 @@ if (status === "failed" || status === "failed_refunded") return "Closed";
 if (status === "graduated") return "Graduated";
 if (status === "live") return "Monitoring";
 if (status === "building") return "Finalizing";
-if (status === "countdown") return "Countdown Watch";
+if (status === "countdown") return "Countdown Locked";
 return `${trust.label} Builder`;
 })();
 
 const cassiePrimary = (() => {
 if (status === "commit") return `${builderAlias} is in active commit phase with structural checks still front-running live transition.`;
-if (status === "countdown") return "Countdown integrity is active and the launch is locked ahead of market activation.";
+if (status === "countdown") return "Countdown lock is active and the launch is locked ahead of market activation.";
 if (status === "building") return "Mint and reserve bootstrap are finalizing before live market exposure.";
 if (status === "live") return readiness?.ready
 ? "Launch is live and currently showing graduation-ready posture."
@@ -1503,7 +1505,7 @@ phaseDisplayText(status)
 
 const phaseHeadline = (() => {
 if (status === "commit") return "Commit window is open";
-if (status === "countdown") return "Launch has entered countdown";
+if (status === "countdown") return "Launch has entered countdown lock";
 if (status === "building") return "MSS is finalizing launch infrastructure";
 if (status === "live") return "Launch is now live";
 if (status === "graduated") return "Launch has graduated";
@@ -1522,8 +1524,8 @@ return minLeft > 0
 
 if (status === "countdown") {
 return Number.isFinite(countdownEndsAt)
-? `Countdown ends in ${fmtCountdown(countdownEndsAt - Date.now())}.`
-: "Countdown is active.";
+? `Countdown lock ends in ${fmtCountdown(countdownEndsAt - Date.now())}.`
+: "Countdown lock is active.";
 }
 
 if (status === "building") {
@@ -1555,10 +1557,8 @@ return `Current status: ${phaseDisplayText(status)}.`;
 setTextByIds(["phaseHeadline", "phaseTitle", "launchPhaseTitle"], phaseHeadline);
 setTextByIds(["phaseSummary", "phaseDescription", "launchPhaseSummary"], phaseSummary);
 setTextByIds(["launchStatusText"], phaseDisplayText(status));
-setTextByIds(["launchMarketModeText", "launchOverviewAccessText"], getAccessModeLabel(status));
+setTextByIds(["launchOverviewAccessText"], getAccessModeLabel(status));
 setTextByIds(["contractAddressText", "contractAddressValue", "launchContractAddress", "contractAddressStat"], contractDisplay);
-setTextByIds(["launchCaText", "chartCaChipText"], contractDisplay);
-setTextByIds(["launchCaState"], caVisible ? (contractDisplay === "Pending" ? "Pending" : "Live") : "Hidden");
 setTextByIds(["commitEndsValue", "commitEndsAtStat"], Number.isFinite(commitEndsAt) ? new Date(commitEndsAt).toLocaleString() : "—");
 setTextByIds(
 ["countdownEndsValue", "countdownEndsAtStat"],
@@ -1629,6 +1629,8 @@ let countdownRefreshRequested = false;
 let countdownFinalizeInFlight = false;
 let lastForcedFinalizeAt = 0;
 let walletChangeBound = false;
+let lastCommitIntentKey = "";
+let lastCommitIntentAt = 0;
 
 async function fetchJson(path, options = {}) {
 const apiBase = getApiBase();
@@ -1682,7 +1684,6 @@ method: "POST",
 
 if (requestSeq !== loadRequestSeq) return;
 
-const commitsStats = commitsRes || {};
 currentCommitStats = {
 ...(currentCommitStats || {}),
 ...(commitsRes || {}),
@@ -2127,6 +2128,14 @@ setStatus("Enter a valid SOL amount.", "bad");
 return;
 }
 
+const intentKey = `${id}:${wallet}:${solAmount}`;
+const now = Date.now();
+if (lastCommitIntentKey === intentKey && now - lastCommitIntentAt < COMMIT_DEDUP_WINDOW_MS) {
+return;
+}
+lastCommitIntentKey = intentKey;
+lastCommitIntentAt = now;
+
 commitActionInFlight = true;
 render();
 
@@ -2314,6 +2323,8 @@ render();
 
 function bindQuickAmounts() {
 document.querySelectorAll(".quick button[data-amount]").forEach((btn) => {
+if (btn.dataset.quickBound === "1") return;
+btn.dataset.quickBound = "1";
 btn.addEventListener("click", () => {
 if (btn.disabled || commitActionInFlight) return;
 const amount = btn.getAttribute("data-amount") || "";
@@ -2508,13 +2519,26 @@ walletState.isConnected ? walletState.shortPublicKey : "Not Connected"
 }
 
 async function init() {
+if (window[LAUNCH_PAGE_INIT_KEY]) return;
+window[LAUNCH_PAGE_INIT_KEY] = true;
+
 window.API_BASE = getApiBase();
 
 hideLaunchEconomicsBlock();
 bindQuickAmounts();
 bindWalletEvents();
-$("commitForm")?.addEventListener("submit", onCommitSubmit);
-$("refundBtn")?.addEventListener("click", refundCommit);
+
+const commitForm = $("commitForm");
+if (commitForm && commitForm.dataset.bound !== "1") {
+commitForm.dataset.bound = "1";
+commitForm.addEventListener("submit", onCommitSubmit);
+}
+
+const refundBtn = $("refundBtn");
+if (refundBtn && refundBtn.dataset.bound !== "1") {
+refundBtn.dataset.bound = "1";
+refundBtn.addEventListener("click", refundCommit);
+}
 
 await restoreWalletIfTrusted();
 updateWalletUi();
