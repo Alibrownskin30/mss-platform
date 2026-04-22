@@ -37,6 +37,9 @@ const RECONCILE_INTERVAL_MS = 15000;
 const REQUIRED_MINT_TAG = "MSS";
 const RESERVED_MINT_MAX_ATTEMPTS = 1000000;
 
+const BUILDER_ALLOWED_HARD_CAPS = [250, 500, 750, 1000];
+const BUILDER_MIN_SOFT_CAP_SOL = 200;
+
 const LAUNCH_FEE_SPLIT = {
 founder: 0.5,
 buyback: 0.3,
@@ -195,7 +198,52 @@ typeof value === "string"
 return template === "builder";
 }
 
-function getTemplateConfig(template) {
+function chooseFirstProvided(...values) {
+for (const value of values) {
+if (value !== undefined && value !== null && String(value).trim() !== "") {
+return value;
+}
+}
+return null;
+}
+
+function parseOptionalFiniteNumber(value) {
+if (value === undefined || value === null || String(value).trim() === "") {
+return null;
+}
+
+const num = Number(value);
+if (!Number.isFinite(num)) return Number.NaN;
+return num;
+}
+
+function getBuilderHardCapInput(reqBody = {}) {
+return chooseFirstProvided(
+reqBody.hard_cap_sol,
+reqBody.hardCapSol,
+reqBody.hard_cap,
+reqBody.hardCap,
+reqBody.builder_hard_cap_sol,
+reqBody.builderHardCapSol,
+reqBody.cap_sol,
+reqBody.capSol
+);
+}
+
+function getBuilderMinRaiseInput(reqBody = {}) {
+return chooseFirstProvided(
+reqBody.min_raise_sol,
+reqBody.minRaiseSol,
+reqBody.min_raise,
+reqBody.minRaise,
+reqBody.soft_cap_sol,
+reqBody.softCapSol,
+reqBody.soft_cap,
+reqBody.softCap
+);
+}
+
+function getTemplateConfig(template, reqBody = {}) {
 const configs = {
 degen: {
 launch_type: "degen",
@@ -240,7 +288,7 @@ builder_pct: 5,
 builder: {
 launch_type: "main",
 supply: "1000000000",
-min_raise_sol: 50,
+min_raise_sol: BUILDER_MIN_SOFT_CAP_SOL,
 hard_cap_sol: 250,
 liquidity_pct: 20,
 participants_pct: 45,
@@ -259,7 +307,41 @@ builder_pct: 5,
 },
 };
 
-return configs[template] || null;
+const base = configs[template] || null;
+if (!base) return null;
+
+if (!isBuilderTemplate(template)) {
+return base;
+}
+
+const hardCapInput = getBuilderHardCapInput(reqBody);
+const minRaiseInput = getBuilderMinRaiseInput(reqBody);
+
+const parsedHardCap = parseOptionalFiniteNumber(hardCapInput);
+const parsedMinRaise = parseOptionalFiniteNumber(minRaiseInput);
+
+if (Number.isNaN(parsedHardCap)) {
+throw new Error("builder hard cap must be a valid number");
+}
+
+if (Number.isNaN(parsedMinRaise)) {
+throw new Error("builder minimum raise must be a valid number");
+}
+
+if (parsedHardCap != null && !BUILDER_ALLOWED_HARD_CAPS.includes(parsedHardCap)) {
+throw new Error(
+`builder hard cap must be one of ${BUILDER_ALLOWED_HARD_CAPS.join(", ")} SOL`
+);
+}
+
+const hardCap = parsedHardCap != null ? parsedHardCap : base.hard_cap_sol;
+const minRaise = parsedMinRaise != null ? parsedMinRaise : base.min_raise_sol;
+
+return {
+...base,
+min_raise_sol: minRaise,
+hard_cap_sol: hardCap,
+};
 }
 
 function buildCommitPercent(totalCommitted, hardCap) {
@@ -349,6 +431,18 @@ throw new Error("hard cap must be greater than minimum raise");
 
 if (!isBuilderTemplate(template)) {
 return;
+}
+
+if (!BUILDER_ALLOWED_HARD_CAPS.includes(Number(cfg.hard_cap_sol))) {
+throw new Error(
+`builder hard cap must be one of ${BUILDER_ALLOWED_HARD_CAPS.join(", ")} SOL`
+);
+}
+
+if (Number(cfg.min_raise_sol) < BUILDER_MIN_SOFT_CAP_SOL) {
+throw new Error(
+`builder minimum raise must be at least ${BUILDER_MIN_SOFT_CAP_SOL} SOL`
+);
 }
 
 if (
@@ -539,7 +633,21 @@ const rawStatus = cleanText(launch.status, 40).toLowerCase();
 const countdownStartedMs = parseDbTime(launch.countdown_started_at);
 const countdownEndsMs = parseDbTime(launch.countdown_ends_at || launch.live_at);
 const hasCountdownWindow =
-Number.isFinite(countdownStartedMs) && Number.isFinite(countdownEndsMs);
+Number.isFinite(countdownStartedMs) || Number.isFinite(countdownEndsMs);
+
+const contractAddress = cleanText(
+launch.contract_address || launch.reserved_mint_address,
+120
+);
+const mintReservationStatus = cleanText(
+launch.mint_reservation_status,
+40
+).toLowerCase();
+
+const hasLiveSignal = Boolean(
+contractAddress ||
+mintReservationStatus === "finalized"
+);
 
 if (rawStatus === "failed" || rawStatus === "failed_refunded") {
 return rawStatus;
@@ -554,14 +662,25 @@ return "live";
 }
 
 if (rawStatus === "building") {
-return "building";
+return hasLiveSignal ? "live" : "building";
+}
+
+if (rawStatus === "countdown") {
+if (Number.isFinite(countdownEndsMs) && Date.now() >= countdownEndsMs) {
+return hasLiveSignal ? "live" : "building";
+}
+return "countdown";
 }
 
 if (hasCountdownWindow) {
-if (Date.now() >= countdownEndsMs) {
-return "building";
+if (Number.isFinite(countdownEndsMs) && Date.now() >= countdownEndsMs) {
+return hasLiveSignal ? "live" : "building";
 }
 return "countdown";
+}
+
+if (hasLiveSignal) {
+return "live";
 }
 
 return rawStatus || "commit";
@@ -1710,7 +1829,16 @@ error: "builder profile not found",
 });
 }
 
-const cfg = getTemplateConfig(template);
+let cfg;
+try {
+cfg = getTemplateConfig(template, req.body);
+} catch (configErr) {
+return res.status(400).json({
+ok: false,
+error: configErr.message || "invalid builder config",
+});
+}
+
 const builderCfg = shapeBuilderConfig(template, req.body);
 
 try {
@@ -1866,6 +1994,14 @@ return res.json({
 ok: true,
 launch: sanitizeLaunchForPublic(launch),
 builderConfig: builderCfg,
+templateConfig: {
+min_raise_sol: Number(cfg.min_raise_sol || 0),
+hard_cap_sol: Number(cfg.hard_cap_sol || 0),
+liquidity_pct: Number(cfg.liquidity_pct || 0),
+participants_pct: Number(cfg.participants_pct || 0),
+reserve_pct: Number(cfg.reserve_pct || 0),
+builder_pct: Number(cfg.builder_pct || 0),
+},
 mintReservation: reservation,
 });
 } catch (err) {

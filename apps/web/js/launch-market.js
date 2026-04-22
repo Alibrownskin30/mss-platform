@@ -253,13 +253,14 @@ tokenPayload?.launch?.name,
 }
 
 function getLaunchSymbol(launch = {}, tokenPayload = null) {
-return choosePreferredNonEmpty(
+const raw = choosePreferredNonEmpty(
 launch?.symbol,
 tokenPayload?.token?.symbol,
 tokenPayload?.token?.ticker,
 tokenPayload?.launch?.symbol,
 "MSS"
 );
+return raw.replace(/^\$+/, "") || "MSS";
 }
 
 function getInitials(...values) {
@@ -270,6 +271,25 @@ if (!cleaned) return "M";
 const parts = cleaned.split(/\s+/).filter(Boolean);
 if (parts.length >= 2) return `${parts[0][0]}${parts[1][0]}`.toUpperCase();
 return cleaned.slice(0, 2).toUpperCase();
+}
+
+function formatUsdThenSol(usdValue, solValue, { compactUsd = false, solDecimals = 4 } = {}) {
+const usd = toNumber(usdValue, 0);
+const sol = toNumber(solValue, 0);
+
+if (usd > 0 && sol > 0) {
+return `${compactUsd ? formatUsdCompact(usd, 2) : formatUsd(usd, 4)} • ${formatSol(sol, solDecimals)}`;
+}
+
+if (usd > 0) {
+return compactUsd ? formatUsdCompact(usd, 2) : formatUsd(usd, 4);
+}
+
+if (sol > 0) {
+return formatSol(sol, solDecimals);
+}
+
+return "—";
 }
 
 function buildLaunchPatchFromTokenPayload(tokenPayload = {}) {
@@ -480,6 +500,19 @@ if (el) el.innerHTML = value;
 function toggleHidden(id, hidden) {
 const el = typeof id === "string" ? $(id) : id;
 if (el) el.classList.toggle("hidden", Boolean(hidden));
+}
+
+function setTitleMany(ids, value) {
+ids.forEach((id) => {
+const el = $(id);
+if (el) {
+if (value) {
+el.setAttribute("title", value);
+} else {
+el.removeAttribute("title");
+}
+}
+});
 }
 
 function normalizeLaunchTruth(raw = {}) {
@@ -726,12 +759,59 @@ function getVisualPhase(phase) {
 return phase === PHASES.BUILDING ? PHASES.COUNTDOWN : phase;
 }
 
+function getPhaseLabel(phase) {
+switch (phase) {
+case PHASES.COUNTDOWN:
+return "Countdown";
+case PHASES.BUILDING:
+return "Building";
+case PHASES.LIVE:
+return "Live";
+case PHASES.COMMIT:
+default:
+return "Commit";
+}
+}
+
+function getPhaseAccessLabel(phase) {
+switch (phase) {
+case PHASES.COUNTDOWN:
+return "Countdown Locked";
+case PHASES.BUILDING:
+return "Bootstrapping";
+case PHASES.LIVE:
+return "Live Access";
+case PHASES.COMMIT:
+default:
+return "Pre-Live";
+}
+}
+
+function getPhaseNote(phase, launch = {}, commitStats = {}) {
+if (phase === PHASES.COUNTDOWN) {
+const countdownText = getCountdownText(launch, commitStats);
+return countdownText !== "00:00"
+? `Commit closed. Live transition opens in ${countdownText}.`
+: "Commit closed. Launch is transitioning to live.";
+}
+
+if (phase === PHASES.BUILDING) {
+return "Countdown reached zero. MSS is finalizing mint, liquidity, and live market state.";
+}
+
+if (phase === PHASES.LIVE) {
+return "Live market access is active.";
+}
+
+return "Commit phase is active and accepting structured commitments.";
+}
+
 function getPhaseMeta(phase) {
 switch (phase) {
 case PHASES.BUILDING:
 return {
 badgeText: "BUILDING",
-statusText: "Finalizing Market",
+statusText: "Building",
 marketModeText: "Bootstrapping",
 overlayEyebrow: "MARKET BOOTSTRAP",
 overlayTitle: "Building Live Market",
@@ -743,7 +823,7 @@ case PHASES.COUNTDOWN:
 return {
 badgeText: "COUNTDOWN",
 statusText: "Countdown",
-marketModeText: "Arming",
+marketModeText: "Countdown Locked",
 overlayEyebrow: "TRADING COUNTDOWN",
 overlayTitle: "Trading Opens In",
 overlayText: "",
@@ -753,8 +833,8 @@ marketTitle: "Launch Countdown",
 case PHASES.LIVE:
 return {
 badgeText: "LIVE",
-statusText: "Live Trading",
-marketModeText: "Active",
+statusText: "Live",
+marketModeText: "Live Access",
 overlayEyebrow: "LIVE MARKET",
 overlayTitle: "Live Trading",
 overlayText: "Market is now open.",
@@ -765,7 +845,7 @@ case PHASES.COMMIT:
 default:
 return {
 badgeText: "COMMIT",
-statusText: "Commit Phase",
+statusText: "Commit",
 marketModeText: "Pre-Live",
 overlayEyebrow: "COMMIT PHASE",
 overlayTitle: "Commit Phase In Progress",
@@ -927,8 +1007,11 @@ launchTokenHero.dataset.phase = phase;
 }
 }
 
-function updatePhaseContent(phase) {
+function updatePhaseContent(phase, launch = {}, commitStats = {}, lifecycle = null) {
 const meta = getPhaseMeta(phase);
+const phaseLabel = getPhaseLabel(phase);
+const accessLabel = getPhaseAccessLabel(phase);
+const phaseNote = getPhaseNote(phase, launch, commitStats);
 
 setText("launchPhaseBadgeText", meta.badgeText);
 setTextMany(["launchStatusText", "launchStatusText2"], meta.statusText);
@@ -936,6 +1019,20 @@ setText("launchMarketModeText", meta.marketModeText);
 setText("marketStatusLabel", phase === PHASES.LIVE ? "Live Trading" : meta.statusText);
 setText("marketOverlayEyebrow", meta.overlayEyebrow);
 setText("marketOverlayTitle", meta.overlayTitle);
+
+setTextMany(
+["phaseValueMirror", "launchStatusBoardValue", "launchCommandPhase", "launchCommandStatus", "launchStatusBoardStatus"],
+phaseLabel
+);
+setTextMany(
+["phaseNoteMirror", "launchStatusBoardNote", "launchCommandText"],
+phaseNote
+);
+setTextMany(
+["launchStatusBoardAccess", "launchCommandMarket", "launchTerminalModeLabel"],
+accessLabel
+);
+setText("launchTerminalPhaseLabel", `Phase • ${meta.badgeText}`);
 
 const marketTitleEl = document.querySelector(".market-card-title");
 if (marketTitleEl) {
@@ -970,25 +1067,11 @@ marketOverlay.classList.remove("overlay-commit", "overlay-countdown", "overlay-l
 marketOverlay.classList.add(`overlay-${getVisualPhase(phase)}`);
 marketOverlay.classList.toggle("hidden", phase === PHASES.LIVE);
 }
-
-setText(
-"launchAccessModeText",
-phase === PHASES.LIVE
-? "Live Access"
-: phase === PHASES.BUILDING
-? "Bootstrap Locked"
-: phase === PHASES.COUNTDOWN
-? "Countdown Locked"
-: "Pre-Live"
-);
-
-setText("launchTerminalPhaseLabel", `Phase • ${meta.badgeText}`);
-setText("launchTerminalModeLabel", meta.marketModeText);
 }
 
 function updateTokenIdentity(launch, tokenPayload = null) {
 const tokenName = getLaunchDisplayName(launch, tokenPayload);
-const tokenSymbol = String(getLaunchSymbol(launch, tokenPayload)).replace(/^\$/, "");
+const tokenSymbol = getLaunchSymbol(launch, tokenPayload);
 const builderWallet = choosePreferredNonEmpty(
 launch?.builder_wallet,
 tokenPayload?.launch?.builder_wallet
@@ -1006,7 +1089,7 @@ launch?.builder_score ?? tokenPayload?.launch?.builder_score,
 const initials = getInitials(tokenSymbol, tokenName);
 
 setTextMany(["launchTokenName", "launchTokenNameMirror"], tokenName);
-setText("launchTokenSymbol", `$${tokenSymbol}`);
+setText("launchTokenSymbol", tokenSymbol);
 setText("launchBuilderLabel", builderAlias);
 setText("launchBuilderWalletShort", builderWallet ? shortAddress(builderWallet) : "Pending");
 setText("launchTokenLogo", initials);
@@ -1042,33 +1125,16 @@ tokenPayload?.mint_address,
 tokenPayload?.mint
 );
 
-const reservedMintAddress = cleanString(launch?.reserved_mint_address, 200);
-const reservationStatus = cleanString(launch?.mint_reservation_status, 64).toLowerCase();
-
-if (phase === PHASES.COMMIT || phase === PHASES.COUNTDOWN) {
+if (phase !== PHASES.LIVE) {
 return {
 value: "",
 state: "Hidden",
 };
 }
 
-if (phase === PHASES.BUILDING) {
-return {
-value: "",
-state: "Building",
-};
-}
-
 if (contractAddress) {
 return {
 value: contractAddress,
-state: "Ready",
-};
-}
-
-if (reservationStatus === "finalized" && reservedMintAddress) {
-return {
-value: reservedMintAddress,
 state: "Ready",
 };
 }
@@ -1081,23 +1147,47 @@ state: "Pending",
 
 function updateContractAddress(launch, tokenPayload = null, commitStats = {}) {
 const resolved = resolveContractAddress(launch || {}, tokenPayload || {}, commitStats || {});
-const ca = resolved.value || "";
-const buttonText = ca ? shortAddress(ca) : (resolved.state === "Hidden" ? "Hidden until live" : resolved.state);
+const fullValue = resolved.value || "";
+const shortValue = fullValue ? shortAddress(fullValue) : (resolved.state === "Hidden" ? "Hidden until live" : resolved.state);
 
-setText("launchCaText", buttonText);
-setText("chartCaChipText", buttonText);
+setTextMany(
+[
+"launchCaText",
+"chartCaChipText",
+"contractAddressText",
+"contractAddressValue",
+"launchContractAddress",
+"contractAddressStat",
+"launchStatusBoardCa",
+],
+shortValue
+);
+
 setText("launchCaState", resolved.state);
+
+setTitleMany(
+[
+"launchCaText",
+"chartCaChipText",
+"contractAddressText",
+"contractAddressValue",
+"launchContractAddress",
+"contractAddressStat",
+"launchStatusBoardCa",
+],
+fullValue || ""
+);
 
 const launchCaCopyBtn = $("launchCaCopyBtn");
 const chartCaCopyBtn = $("chartCaCopyBtn");
 
 if (launchCaCopyBtn) {
-launchCaCopyBtn.dataset.copyValue = ca;
-launchCaCopyBtn.disabled = !ca;
+launchCaCopyBtn.dataset.copyValue = fullValue;
+launchCaCopyBtn.disabled = !fullValue;
 }
 if (chartCaCopyBtn) {
-chartCaCopyBtn.dataset.copyValue = ca;
-chartCaCopyBtn.disabled = !ca;
+chartCaCopyBtn.dataset.copyValue = fullValue;
+chartCaCopyBtn.disabled = !fullValue;
 }
 }
 
@@ -1334,41 +1424,36 @@ const liveStats = getLiveStats(tokenPayload, chartStats, launch, lifecycle);
 setText("stat1Label", "Spot Price");
 setText(
 "stat1Value",
-liveStats.priceUsd > 0
-? formatPriceUsd(liveStats.priceUsd)
-: liveStats.priceSol > 0
-? `${formatPriceSol(liveStats.priceSol)} SOL`
+liveStats.priceUsd > 0 || liveStats.priceSol > 0
+? `${liveStats.priceUsd > 0 ? formatPriceUsd(liveStats.priceUsd) : "—"}${liveStats.priceSol > 0 ? ` • ${formatPriceSol(liveStats.priceSol)} SOL` : ""}`
 : "—"
 );
 
 setText("stat2Label", "Market Cap");
 setText(
 "stat2Value",
-liveStats.marketCapUsd > 0
-? formatUsdCompact(liveStats.marketCapUsd, 2)
-: liveStats.marketCapSol > 0
-? `${formatNumber(liveStats.marketCapSol, { maximumFractionDigits: 4 })} SOL`
-: "—"
+formatUsdThenSol(liveStats.marketCapUsd, liveStats.marketCapSol, {
+compactUsd: true,
+solDecimals: 4,
+})
 );
 
 setText("stat3Label", "Liquidity");
 setText(
 "stat3Value",
-liveStats.liquidityUsd > 0
-? formatUsdCompact(liveStats.liquidityUsd, 2)
-: liveStats.liquiditySol > 0
-? formatSol(liveStats.liquiditySol, 4)
-: "—"
+formatUsdThenSol(liveStats.liquidityUsd, liveStats.liquiditySol, {
+compactUsd: true,
+solDecimals: 4,
+})
 );
 
 setText("stat4Label", "24H Volume");
 setText(
 "stat4Value",
-liveStats.volume24hUsd > 0
-? formatUsdCompact(liveStats.volume24hUsd, 2)
-: liveStats.volume24hSol > 0
-? formatSol(liveStats.volume24hSol, 4)
-: "—"
+formatUsdThenSol(liveStats.volume24hUsd, liveStats.volume24hSol, {
+compactUsd: true,
+solDecimals: 4,
+})
 );
 }
 
@@ -1980,10 +2065,10 @@ const remaining = maxWalletTokens > 0
 : 0;
 
 statePill.classList.remove("is-open", "is-restricted");
+statePill.classList.add("is-open");
 
 const hasRestriction = localMaxWalletPct > 0 || maxWalletTokens > 0 || walletSummary.isBuilderWallet;
 
-statePill.classList.add("is-open");
 if (walletSummary.isBuilderWallet) {
 statePill.textContent = "Vesting";
 } else if (hasRestriction) {
@@ -2801,11 +2886,17 @@ updateContractAddress(this.launch, this.tokenPayload, this.commitStats);
 renderExternalLinks(this.launch);
 setManageLinksVisibility(this.launch, this.connectedWallet, this.commitStats);
 updatePhaseClasses(this.phase);
-updatePhaseContent(this.phase);
+updatePhaseContent(this.phase, this.launch, this.commitStats, this.lifecycle);
 setTradePanelVisibility(this.phase);
 syncMarketShellLayout();
 syncChartSizing(this.phase);
 syncTerminalPresentation(this.phase, this.launch, this.chartStats, this.tokenPayload);
+
+const builderWallet = choosePreferredNonEmpty(
+this.launch?.builder_wallet,
+this.tokenPayload?.launch?.builder_wallet
+);
+setText("launchStatusBoardBuilderWallet", builderWallet ? shortAddress(builderWallet) : "Pending");
 
 if (this.phase === PHASES.COMMIT) {
 clearLiveOnlyUi();

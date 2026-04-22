@@ -733,7 +733,7 @@ width:100%;
 <h1>Create a Security-First MSS Launch</h1>
 
 <div class="hero-copy">
-Template economics are fixed by MSS by default. The Builder template unlocks more structured project controls, including supply presets, labeled team wallets, capped team allocation, and a builder bond.
+Template economics are fixed by MSS by default. The Builder template unlocks more structured project controls, including approved hard-cap tiers up to 1000 SOL, builder minimum raise controls from 200 SOL upward, labeled team wallets, capped team allocation, and a builder bond.
 </div>
 
 <div class="pill-row">
@@ -746,7 +746,7 @@ Template economics are fixed by MSS by default. The Builder template unlocks mor
 <div id="builderModeHighlight" class="builder-highlight">
 <div class="builder-highlight-title">Builder Template Active</div>
 <div class="builder-highlight-copy">
-Builder launches use MSS-approved supply presets, visible team wallet breakdowns, capped team allocation, and a minimum builder bond. Reserve adjusts automatically against team allocation.
+Builder launches use MSS-approved supply presets, visible team wallet breakdowns, capped team allocation, selectable hard-cap tiers of 250 / 500 / 750 / 1000 SOL, builder minimum raise controls starting from 200 SOL, and a minimum builder bond. Reserve adjusts automatically against team allocation.
 </div>
 <div class="builder-bond-note">
 Builder bond is required for builder launches and is collected during launch creation. Bond state is tracked across the launch lifecycle.
@@ -762,7 +762,7 @@ Builder bond is required for builder launches and is collected during launch cre
 
 <div class="hero-stat">
 <div class="k">Builder Template</div>
-<div class="v">Preset supply, labeled wallets, capped allocation, and tracked builder bond state.</div>
+<div class="v">Preset supply, selectable cap tiers, configurable minimum raise floor, labeled wallets, capped allocation, and tracked builder bond state.</div>
 </div>
 
 <div class="hero-stat">
@@ -850,13 +850,30 @@ Builder bond is required for builder launches and is collected during launch cre
 <div class="field">
 <label for="minRaiseSol">Minimum Raise (SOL)</label>
 <input id="minRaiseSol" name="minRaiseSol" type="number" readonly />
-<div class="hint">Locked by selected template.</div>
+<div class="hint">Synced from selected template or builder controls.</div>
 </div>
 
 <div class="field">
 <label for="hardCapSol">Hard Cap (SOL)</label>
 <input id="hardCapSol" name="hardCapSol" type="number" readonly />
-<div class="hint">Locked by selected template.</div>
+<div class="hint">Synced from selected template or builder controls.</div>
+</div>
+
+<div class="field template-builder-only" id="builderHardCapField">
+<label for="builderHardCapSol">Builder Hard Cap Tier (SOL)</label>
+<select id="builderHardCapSol" name="builderHardCapSol">
+<option value="250" selected>250 SOL</option>
+<option value="500">500 SOL</option>
+<option value="750">750 SOL</option>
+<option value="1000">1000 SOL</option>
+</select>
+<div class="hint">Builder hard cap must be one of 250, 500, 750, or 1000 SOL.</div>
+</div>
+
+<div class="field template-builder-only" id="builderMinRaiseField">
+<label for="builderMinRaiseSol">Builder Minimum Raise (SOL)</label>
+<input id="builderMinRaiseSol" name="builderMinRaiseSol" type="number" min="200" step="1" value="200" placeholder="200" />
+<div class="hint">Minimum 200 SOL and must remain below the selected builder hard cap.</div>
 </div>
 
 <div class="field full template-builder-only" id="builderExtras">
@@ -896,7 +913,6 @@ Builder bond is required for builder launches and is collected during launch cre
 <strong id="teamAllocationTotal" class="team-total good">0.00%</strong>
 </div>
 <div class="hint">Example labels: Marketing, Team, Treasury, Advisors.</div>
-</div>
 </div>
 </div>
 </div>
@@ -986,11 +1002,11 @@ Builder bond is required for builder launches and is collected during launch cre
 </div>
 <div class="mini-item">
 <div class="title">Economics</div>
-<div class="copy">Template defines launch supply and cap settings. Builder template unlocks structured flexibility.</div>
+<div class="copy">Template defines launch supply and cap settings. Builder template unlocks structured flexibility, approved cap tiers, and minimum raise control.</div>
 </div>
 <div class="mini-item">
 <div class="title">Builder Controls</div>
-<div class="copy">Builder template supports supply presets, labeled team wallets, capped wallet allocation, and tracked builder bond state.</div>
+<div class="copy">Builder template supports supply presets, hard-cap tiers up to 1000 SOL, minimum raise floor from 200 SOL, labeled team wallets, capped wallet allocation, and tracked builder bond state.</div>
 </div>
 <div class="mini-item">
 <div class="title">Builder Bond State</div>

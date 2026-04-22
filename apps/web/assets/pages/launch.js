@@ -20,12 +20,42 @@ const LIVE_LIFECYCLE_REFRESH_INTERVAL_MS = 20000;
 const LAUNCH_PAGE_INIT_KEY = "__mssLaunchPageInit_v2";
 const COMMIT_DEDUP_WINDOW_MS = 2000;
 
+const MARKET_OWNED_TEXT_IDS = new Set([
+"marketHeroTokenName",
+"launchTokenNameMirror",
+"launchCommandTitle",
+"phaseValueMirror",
+"launchStatusBoardValue",
+"launchCommandPhase",
+"launchCommandStatus",
+"phaseNoteMirror",
+"launchStatusBoardNote",
+"launchCommandText",
+"launchStatusBoardStatus",
+"launchStatusBoardAccess",
+"launchCommandMarket",
+"launchStatusBoardBuilderWallet",
+"launchStatusBoardCa",
+"launchOverviewAccessText",
+"launchMarketModeText",
+"launchContractAddress",
+"contractAddressStat",
+"contractAddressText",
+"contractAddressValue",
+"launchCaText",
+"chartCaChipText",
+]);
+
 function $(id) {
 return document.getElementById(id);
 }
 
 function $all(selector) {
 return Array.from(document.querySelectorAll(selector));
+}
+
+function isMarketControllerMounted() {
+return Boolean(launchMarketController);
 }
 
 function getApiBase() {
@@ -229,9 +259,7 @@ return [];
 function humanizeTemplate(value) {
 const raw = cleanString(value, 120);
 if (!raw) return "Standard";
-return raw
-.replaceAll("_", " ")
-.replace(/\b\w/g, (m) => m.toUpperCase());
+return raw.replaceAll("_", " ").replace(/\b\w/g, (m) => m.toUpperCase());
 }
 
 function getInitials(...values) {
@@ -255,6 +283,12 @@ launchLike?.symbol,
 );
 }
 
+function getDisplaySymbol(value, fallback = "—") {
+const raw = choosePreferredString(value);
+if (!raw) return fallback;
+return raw.replace(/^\$+/, "") || fallback;
+}
+
 function shouldExposePublicCa(status) {
 const normalized = cleanString(status, 64).toLowerCase();
 return normalized === "live" || normalized === "graduated";
@@ -274,9 +308,7 @@ return "commit";
 
 function resolveCanonicalLaunchStatus(launchLike = {}, statsLike = {}, lifecycleLike = null) {
 const rawStatus = normalizePhaseStatus(launchLike?.status);
-const lifecycleStatus = normalizePhaseStatus(
-lifecycleLike?.launchStatus || lifecycleLike?.status || ""
-);
+const lifecycleStatus = normalizePhaseStatus(lifecycleLike?.launchStatus || lifecycleLike?.status || "");
 
 const contractAddress = choosePreferredString(
 launchLike?.contract_address,
@@ -286,14 +318,9 @@ lifecycleLike?.contract_address
 );
 
 const mintStatus = cleanString(launchLike?.mint_reservation_status, 64).toLowerCase();
-const countdownStartedMs = parseTs(
-statsLike?.countdownStartedAt || launchLike?.countdown_started_at
-);
-const countdownEndsMs = parseTs(
-statsLike?.countdownEndsAt || launchLike?.countdown_ends_at || launchLike?.live_at
-);
-const hasCountdownWindow =
-Number.isFinite(countdownStartedMs) || Number.isFinite(countdownEndsMs);
+const countdownStartedMs = parseTs(statsLike?.countdownStartedAt || launchLike?.countdown_started_at);
+const countdownEndsMs = parseTs(statsLike?.countdownEndsAt || launchLike?.countdown_ends_at || launchLike?.live_at);
+const hasCountdownWindow = Number.isFinite(countdownStartedMs) || Number.isFinite(countdownEndsMs);
 const hasLiveSignal = Boolean(contractAddress || mintStatus === "finalized");
 const now = Date.now();
 
@@ -744,8 +771,18 @@ if (el) return el;
 return null;
 }
 
-function setTextByIds(ids, value) {
+function setTextByIds(ids, value, options = {}) {
+const { skipWhenMarketControlled = false } = options;
+
 for (const id of ids) {
+if (
+skipWhenMarketControlled &&
+isMarketControllerMounted() &&
+MARKET_OWNED_TEXT_IDS.has(id)
+) {
+continue;
+}
+
 const el = $(id);
 if (el) el.textContent = value;
 }
@@ -794,7 +831,14 @@ el.classList.add(pillClass(status));
 
 function setLaunchPhaseBadgeClass(el, status) {
 if (!el) return;
-el.classList.remove("phase-commit", "phase-countdown", "phase-building", "phase-live", "phase-graduated", "phase-failed");
+el.classList.remove(
+"phase-commit",
+"phase-countdown",
+"phase-building",
+"phase-live",
+"phase-graduated",
+"phase-failed"
+);
 
 if (status === "commit") el.classList.add("phase-commit");
 else if (status === "countdown") el.classList.add("phase-countdown");
@@ -837,11 +881,13 @@ if (!shouldExposePublicCa(status)) {
 return "Hidden until live";
 }
 
-return choosePreferredString(
+return (
+choosePreferredString(
 launch?.contract_address,
 lifecycle?.contractAddress,
 lifecycle?.contract_address
-) || "Pending";
+) || "Pending"
+);
 }
 
 function getAccessModeLabel(status) {
@@ -881,7 +927,7 @@ heroBox.innerHTML = `<img src="${escapeHtml(clean)}" alt="Launch logo" style="wi
 function renderHeroIdentity(launch, stats, lifecycle) {
 const status = getDisplayPhaseStatus(launch, stats, lifecycle);
 const tokenName = getLaunchDisplayName(launch);
-const symbol = choosePreferredString(launch.symbol, "—");
+const symbol = getDisplaySymbol(launch.symbol);
 const builderAlias = choosePreferredString(launch.builder_alias, launch.builder_name, "MSS Builder");
 const builderWallet = choosePreferredString(
 launch.builder_wallet,
@@ -898,7 +944,11 @@ const builderHref = builderWallet
 ? `./builder.html?wallet=${encodeURIComponent(builderWallet)}`
 : "./builder.html";
 
-setTextByIds(["launchTokenName", "launchCommandTitle", "launchTokenNameMirror"], tokenName);
+setTextByIds(
+["launchTokenName", "launchCommandTitle", "launchTokenNameMirror"],
+tokenName,
+{ skipWhenMarketControlled: true }
+);
 setTextByIds(["launchTokenSymbol"], symbol);
 setTextByIds(["launchBuilderLabel"], builderAlias);
 setTextByIds(["launchBuilderWalletShort"], builderWallet ? shortenWallet(builderWallet) : "—");
@@ -1046,7 +1096,8 @@ launch.builder_launch_count
 
 setTextByIds(
 ["launchTokenNameMirror", "launchCommandTitle", "marketHeroTokenName"],
-tokenName
+tokenName,
+{ skipWhenMarketControlled: true }
 );
 setTextByIds(
 ["builderAlias", "builderAliasStat", "builderNameStat", "builderIdentityName", "launchCommandBuilder"],
@@ -1059,7 +1110,10 @@ wallet ? shortenWallet(wallet) : "—"
 setValueByIds(["builderWalletFull", "builderAddressFull"], wallet);
 setTextByIds(["builderTrustStat", "builderTrustLabel", "builderTrustPill"], trust.label);
 setTextByIds(["builderTrustNote", "builderTrustSummary"], trust.note);
-setTextByIds(["builderTrustScore", "builderScoreStat", "launchCommandScore"], trustScore > 0 ? String(Math.round(trustScore)) : "—");
+setTextByIds(
+["builderTrustScore", "builderScoreStat", "launchCommandScore"],
+trustScore > 0 ? String(Math.round(trustScore)) : "—"
+);
 
 const builderWalletFullEl = findFirstElementByIds(["builderWalletFullText", "builderAddressFullText"]);
 if (builderWalletFullEl) {
@@ -1266,7 +1320,9 @@ launch?.wallet_limit_pct
 );
 
 setTextByIds(["launchOverviewTemplateText"], templateText);
-setTextByIds(["launchOverviewAccessText"], getAccessModeLabel(status));
+setTextByIds(["launchOverviewAccessText"], getAccessModeLabel(status), {
+skipWhenMarketControlled: true,
+});
 
 const lifecycleSummary = (() => {
 if (status === "commit") return "Commit → Countdown → Live";
@@ -1340,9 +1396,11 @@ const cassiePrimary = (() => {
 if (status === "commit") return `${builderAlias} is in active commit phase with structural checks still front-running live transition.`;
 if (status === "countdown") return "Countdown lock is active and the launch is locked ahead of market activation.";
 if (status === "building") return "Mint and reserve bootstrap are finalizing before live market exposure.";
-if (status === "live") return readiness?.ready
+if (status === "live") {
+return readiness?.ready
 ? "Launch is live and currently showing graduation-ready posture."
 : "Launch is live and under active structural monitoring.";
+}
 if (status === "graduated") return "Launch has completed the initial graduation cycle.";
 if (status === "failed_refunded") return "Launch is closed after failed lifecycle and refund completion.";
 if (status === "failed") return "Launch failed threshold requirements and refund handling remains the active path.";
@@ -1489,19 +1547,13 @@ const caVisible = shouldExposePublicCa(status);
 const contractDisplay = getContractDisplay(status, launch, lifecycle);
 
 setTextByIds(
-[
-"launchStatusBadge",
-"launchStatusPill",
-"phaseBadge",
-],
+["launchStatusBadge", "launchStatusPill", "phaseBadge"],
 phaseDisplayText(status)
 );
 
-[
-"launchStatusBadge",
-"launchStatusPill",
-"phaseBadge",
-].forEach((id) => setStatusPillClasses($(id), status));
+["launchStatusBadge", "launchStatusPill", "phaseBadge"].forEach((id) =>
+setStatusPillClasses($(id), status)
+);
 
 const phaseHeadline = (() => {
 if (status === "commit") return "Commit window is open";
@@ -1557,8 +1609,17 @@ return `Current status: ${phaseDisplayText(status)}.`;
 setTextByIds(["phaseHeadline", "phaseTitle", "launchPhaseTitle"], phaseHeadline);
 setTextByIds(["phaseSummary", "phaseDescription", "launchPhaseSummary"], phaseSummary);
 setTextByIds(["launchStatusText"], phaseDisplayText(status));
-setTextByIds(["launchOverviewAccessText"], getAccessModeLabel(status));
-setTextByIds(["contractAddressText", "contractAddressValue", "launchContractAddress", "contractAddressStat"], contractDisplay);
+setTextByIds(["launchOverviewAccessText"], getAccessModeLabel(status), {
+skipWhenMarketControlled: true,
+});
+setTextByIds(
+["contractAddressText", "contractAddressValue", "launchContractAddress", "contractAddressStat"],
+contractDisplay,
+{ skipWhenMarketControlled: true }
+);
+setTextByIds(["launchCaText", "chartCaChipText"], contractDisplay, {
+skipWhenMarketControlled: true,
+});
 setTextByIds(["commitEndsValue", "commitEndsAtStat"], Number.isFinite(commitEndsAt) ? new Date(commitEndsAt).toLocaleString() : "—");
 setTextByIds(
 ["countdownEndsValue", "countdownEndsAtStat"],
@@ -1570,6 +1631,11 @@ if (phaseBadgeEl) {
 setLaunchPhaseBadgeClass(phaseBadgeEl, status);
 }
 setTextByIds(["launchPhaseBadgeText"], phaseDisplayText(status).toUpperCase());
+
+const launchCaState = $("launchCaState");
+if (launchCaState) {
+launchCaState.textContent = caVisible ? (contractDisplay === "Pending" ? "Pending" : "Live") : "Hidden";
+}
 
 const contractRows = ["contractAddressRow", "caRow", "launchCaRow"];
 contractRows.forEach((id) => {
@@ -1594,14 +1660,27 @@ const tokenName = getLaunchDisplayName(launch);
 
 setTextByIds(
 ["phaseValueMirror", "launchStatusBoardValue", "launchCommandPhase", "launchCommandStatus"],
-phaseText
+phaseText,
+{ skipWhenMarketControlled: true }
 );
-setTextByIds(["phaseNoteMirror", "launchStatusBoardNote", "launchCommandText"], stateInfo.message || "Awaiting launch state.");
-setTextByIds(["launchStatusBoardStatus"], phaseText);
-setTextByIds(["launchStatusBoardAccess", "launchCommandMarket"], accessText);
-setTextByIds(["launchStatusBoardBuilderWallet"], builderWallet ? shortenWallet(builderWallet) : "Pending");
-setTextByIds(["launchStatusBoardCa"], caText);
-setTextByIds(["launchCommandTitle", "launchTokenNameMirror"], tokenName);
+setTextByIds(
+["phaseNoteMirror", "launchStatusBoardNote", "launchCommandText"],
+stateInfo.message || "Awaiting launch state.",
+{ skipWhenMarketControlled: true }
+);
+setTextByIds(["launchStatusBoardStatus"], phaseText, { skipWhenMarketControlled: true });
+setTextByIds(["launchStatusBoardAccess", "launchCommandMarket"], accessText, {
+skipWhenMarketControlled: true,
+});
+setTextByIds(
+["launchStatusBoardBuilderWallet"],
+builderWallet ? shortenWallet(builderWallet) : "Pending",
+{ skipWhenMarketControlled: true }
+);
+setTextByIds(["launchStatusBoardCa"], caText, { skipWhenMarketControlled: true });
+setTextByIds(["launchCommandTitle", "launchTokenNameMirror"], tokenName, {
+skipWhenMarketControlled: true,
+});
 
 const mirrorPill = $("phasePillMirror");
 if (mirrorPill) {
@@ -1928,17 +2007,20 @@ const commitEndsAt = getCommitEndsMs(launch, stats);
 const pct = hardCap > 0 ? Math.max(0, Math.min(100, Math.floor((committed / hardCap) * 100))) : 0;
 const displayStatus = getDisplayPhaseStatus(launch, stats, lifecycle);
 const tokenName = getLaunchDisplayName(launch);
+const displaySymbol = getDisplaySymbol(launch.symbol);
 
 if ($("launchSubline")) {
 const lifecycleText = buildLifecycleSummaryText(lifecycle, launch);
-$("launchSubline").textContent = `${choosePreferredString(launch.symbol, "—")} • ${String(launch.template || "—").replaceAll("_", " ")} • ${phaseDisplayText(displayStatus)}${lifecycleText ? ` • ${lifecycleText}` : ""}`;
+$("launchSubline").textContent = `${displaySymbol} • ${String(launch.template || "—").replaceAll("_", " ")} • ${phaseDisplayText(displayStatus)}${lifecycleText ? ` • ${lifecycleText}` : ""}`;
 }
 
 if ($("launchDesc")) {
 $("launchDesc").textContent = launch.description || "No description provided.";
 }
 
-setTextByIds(["launchTokenName", "launchCommandTitle", "launchTokenNameMirror"], tokenName);
+setTextByIds(["launchTokenName", "launchCommandTitle", "launchTokenNameMirror"], tokenName, {
+skipWhenMarketControlled: true,
+});
 
 updateLifecycleVisibility(displayStatus);
 renderHeroIdentity(launch, stats, lifecycle);

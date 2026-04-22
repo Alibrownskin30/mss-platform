@@ -119,6 +119,10 @@ throw new Error(data?.error || `HTTP ${res.status}`);
 return data;
 }
 
+const BUILDER_ALLOWED_HARD_CAPS = [250, 500, 750, 1000];
+const BUILDER_MIN_SOFT_CAP_SOL = 200;
+const DEFAULT_BUILDER_HARD_CAP_SOL = 250;
+
 const TEMPLATE_CONFIG = {
 meme_lite: {
 supply: 1000000000,
@@ -132,8 +136,8 @@ hardCapSol: 200,
 },
 builder: {
 supply: 1000000000,
-minRaiseSol: 50,
-hardCapSol: 250,
+minRaiseSol: BUILDER_MIN_SOFT_CAP_SOL,
+hardCapSol: DEFAULT_BUILDER_HARD_CAP_SOL,
 },
 community: {
 supply: 1000000000,
@@ -142,8 +146,8 @@ hardCapSol: 200,
 },
 degen_zone: {
 supply: 1000000000,
-minRaiseSol: 10,
-hardCapSol: 50,
+minRaiseSol: 1,
+hardCapSol: 1.1,
 },
 };
 
@@ -158,40 +162,122 @@ const TEAM_LABEL_OPTIONS = [
 "Custom",
 ];
 
-function getSelectedTemplate() {
-const key = $("template")?.value || "meme_lite";
+function isBuilderTemplate() {
+return ($("template")?.value || "meme_lite") === "builder";
+}
+
+function normalizeBuilderHardCap(raw) {
+const parsed = Number(raw);
+if (BUILDER_ALLOWED_HARD_CAPS.includes(parsed)) {
+return parsed;
+}
+return DEFAULT_BUILDER_HARD_CAP_SOL;
+}
+
+function normalizeBuilderMinRaise(raw, hardCap) {
+const parsed = Number(raw);
+const effectiveHardCap = Number(hardCap);
+
+if (!Number.isFinite(effectiveHardCap) || effectiveHardCap <= BUILDER_MIN_SOFT_CAP_SOL) {
+return BUILDER_MIN_SOFT_CAP_SOL;
+}
+
+const maxAllowed = Math.max(BUILDER_MIN_SOFT_CAP_SOL, effectiveHardCap - 1);
+
+if (!Number.isFinite(parsed)) {
+return Math.min(BUILDER_MIN_SOFT_CAP_SOL, maxAllowed);
+}
+
+const rounded = Math.floor(parsed);
+if (rounded < BUILDER_MIN_SOFT_CAP_SOL) {
+return BUILDER_MIN_SOFT_CAP_SOL;
+}
+
+if (rounded >= effectiveHardCap) {
+return maxAllowed;
+}
+
+return rounded;
+}
+
+function updateBuilderResolvedInputs() {
+const builderHardCapInput = $("builderHardCapSol");
+const builderMinRaiseInput = $("builderMinRaiseSol");
+
+if (!builderHardCapInput || !builderMinRaiseInput) {
 return {
-key,
-...(TEMPLATE_CONFIG[key] || TEMPLATE_CONFIG.meme_lite),
+hardCapSol: DEFAULT_BUILDER_HARD_CAP_SOL,
+minRaiseSol: BUILDER_MIN_SOFT_CAP_SOL,
 };
 }
 
-function isBuilderTemplate() {
-return getSelectedTemplate().key === "builder";
+const hardCapSol = normalizeBuilderHardCap(builderHardCapInput.value);
+builderHardCapInput.value = String(hardCapSol);
+
+const maxMinRaise = Math.max(BUILDER_MIN_SOFT_CAP_SOL, hardCapSol - 1);
+builderMinRaiseInput.min = String(BUILDER_MIN_SOFT_CAP_SOL);
+builderMinRaiseInput.max = String(maxMinRaise);
+
+const minRaiseSol = normalizeBuilderMinRaise(builderMinRaiseInput.value, hardCapSol);
+builderMinRaiseInput.value = String(minRaiseSol);
+
+return {
+hardCapSol,
+minRaiseSol,
+};
+}
+
+function getSelectedTemplate() {
+const key = $("template")?.value || "meme_lite";
+const base = TEMPLATE_CONFIG[key] || TEMPLATE_CONFIG.meme_lite;
+
+if (key !== "builder") {
+return {
+key,
+...base,
+};
+}
+
+const resolvedBuilder = updateBuilderResolvedInputs();
+
+return {
+key,
+...base,
+hardCapSol: resolvedBuilder.hardCapSol,
+minRaiseSol: resolvedBuilder.minRaiseSol,
+};
 }
 
 function applyTemplateValues() {
 const tpl = getSelectedTemplate();
-const builderMode = isBuilderTemplate();
+const builderMode = tpl.key === "builder";
 
 const supplyInput = $("supply");
 const supplyPreset = $("supplyPreset");
 const fixedSupplyField = $("fixedSupplyField");
 const builderSupplyField = $("builderSupplyField");
+const builderHardCapField = $("builderHardCapField");
+const builderMinRaiseField = $("builderMinRaiseField");
 const builderExtras = $("builderExtras");
 const builderHighlight = $("builderModeHighlight");
 
 if (builderMode) {
 const builderSupply = Number(supplyPreset?.value || tpl.supply);
 if (supplyInput) supplyInput.value = String(builderSupply);
+
 if (fixedSupplyField) fixedSupplyField.style.display = "none";
 if (builderSupplyField) builderSupplyField.classList.add("show");
+if (builderHardCapField) builderHardCapField.classList.add("show");
+if (builderMinRaiseField) builderMinRaiseField.classList.add("show");
 if (builderExtras) builderExtras.classList.add("show");
 if (builderHighlight) builderHighlight.classList.add("show");
 } else {
 if (supplyInput) supplyInput.value = String(tpl.supply);
+
 if (fixedSupplyField) fixedSupplyField.style.display = "grid";
 if (builderSupplyField) builderSupplyField.classList.remove("show");
+if (builderHardCapField) builderHardCapField.classList.remove("show");
+if (builderMinRaiseField) builderMinRaiseField.classList.remove("show");
 if (builderExtras) builderExtras.classList.remove("show");
 if (builderHighlight) builderHighlight.classList.remove("show");
 }
@@ -287,7 +373,7 @@ totalEl.classList.add("good");
 
 function getFormValues() {
 const tpl = getSelectedTemplate();
-const builderMode = isBuilderTemplate();
+const builderMode = tpl.key === "builder";
 const supplyValue = builderMode
 ? Number($("supplyPreset")?.value || tpl.supply)
 : tpl.supply;
@@ -352,11 +438,23 @@ if (!Number.isFinite(Number(values.hardCapSol)) || Number(values.hardCapSol) <= 
 throw new Error("Template hard cap is invalid.");
 }
 
-if (Number(values.minRaiseSol) > Number(values.hardCapSol)) {
-throw new Error("Template configuration is invalid: min raise exceeds hard cap.");
+if (Number(values.minRaiseSol) >= Number(values.hardCapSol)) {
+throw new Error("Template configuration is invalid: minimum raise must stay below hard cap.");
 }
 
 if (values.template === "builder") {
+if (!BUILDER_ALLOWED_HARD_CAPS.includes(Number(values.hardCapSol))) {
+throw new Error(`Builder hard cap must be one of ${BUILDER_ALLOWED_HARD_CAPS.join(", ")} SOL.`);
+}
+
+if (Number(values.minRaiseSol) < BUILDER_MIN_SOFT_CAP_SOL) {
+throw new Error(`Builder minimum raise must be at least ${BUILDER_MIN_SOFT_CAP_SOL} SOL.`);
+}
+
+if (Number(values.minRaiseSol) >= Number(values.hardCapSol)) {
+throw new Error("Builder minimum raise must stay below the selected hard cap.");
+}
+
 if (!Number.isFinite(values.teamAllocation) || values.teamAllocation < 0) {
 throw new Error("Team allocation limit is invalid.");
 }
@@ -920,6 +1018,8 @@ const ids = [
 "imageUrl",
 "logoInput",
 "supplyPreset",
+"builderHardCapSol",
+"builderMinRaiseSol",
 "teamWalletCount",
 "teamAllocation",
 "builderBond",
@@ -930,7 +1030,7 @@ const el = $(id);
 if (!el) continue;
 
 el.addEventListener("input", () => {
-if (id === "template" || id === "supplyPreset") {
+if (id === "template" || id === "supplyPreset" || id === "builderHardCapSol" || id === "builderMinRaiseSol") {
 applyTemplateValues();
 }
 if (id === "teamWalletCount") {
@@ -941,7 +1041,7 @@ updateTeamAllocationTotal();
 });
 
 el.addEventListener("change", () => {
-if (id === "template" || id === "supplyPreset") {
+if (id === "template" || id === "supplyPreset" || id === "builderHardCapSol" || id === "builderMinRaiseSol") {
 applyTemplateValues();
 }
 if (id === "teamWalletCount") {
@@ -1032,6 +1132,16 @@ updateTeamAllocationTotal();
 });
 
 $("supplyPreset")?.addEventListener("change", () => {
+applyTemplateValues();
+updatePreview();
+});
+
+$("builderHardCapSol")?.addEventListener("change", () => {
+applyTemplateValues();
+updatePreview();
+});
+
+$("builderMinRaiseSol")?.addEventListener("input", () => {
 applyTemplateValues();
 updatePreview();
 });
