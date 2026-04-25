@@ -1,3 +1,10 @@
+import {
+getConnectedWallet as getConnectedWalletState,
+getConnectedPublicKey,
+onWalletChange,
+restoreWalletIfTrusted,
+} from "../wallet.js";
+
 function $(id) {
 return document.getElementById(id);
 }
@@ -14,16 +21,6 @@ return `${protocol}//${hostname.replace("-3000.app.github.dev", "-8787.app.githu
 }
 
 return `${protocol}//${hostname}${port ? `:${port}` : ""}`;
-}
-
-function getPhantomProvider() {
-if ("phantom" in window && window.phantom?.solana?.isPhantom) {
-return window.phantom.solana;
-}
-if (window.solana?.isPhantom) {
-return window.solana;
-}
-return null;
 }
 
 function qs(name) {
@@ -45,6 +42,10 @@ return Math.max(min, Math.min(max, n));
 
 function cleanText(value, max = 280) {
 return String(value ?? "").trim().slice(0, max);
+}
+
+function normalizeWalletKey(value) {
+return cleanText(value, 120).toLowerCase();
 }
 
 function escapeHtml(str) {
@@ -108,13 +109,7 @@ return cleanText(value, 80)
 }
 
 function getConnectedWallet() {
-const provider = getPhantomProvider();
-return (
-provider?.publicKey?.toString?.() ||
-window.phantom?.solana?.publicKey?.toString?.() ||
-window.solana?.publicKey?.toString?.() ||
-""
-);
+return getConnectedPublicKey() || "";
 }
 
 function getWalletFromUrlOrProvider() {
@@ -477,7 +472,11 @@ const connectedWallet = getConnectedWallet();
 
 if (!editCard) return;
 
-if (connectedWallet && profileWallet && connectedWallet === profileWallet) {
+if (
+connectedWallet &&
+profileWallet &&
+normalizeWalletKey(connectedWallet) === normalizeWalletKey(profileWallet)
+) {
 editCard.classList.remove("hidden");
 } else {
 editCard.classList.add("hidden");
@@ -807,7 +806,7 @@ $("builderScore").textContent = "—";
 $("builderTrust").textContent = "—";
 $("profileTier").textContent = "—";
 $("builderTrustNote").textContent =
-"Connect your wallet in a supported browser, or open this page from a builder link to view a builder profile.";
+"Connect Phantom, Solflare, or Backpack, or open this page from a builder link to view a builder profile.";
 
 $("statAll").textContent = "0";
 $("statLive").textContent = "0";
@@ -832,7 +831,7 @@ highlightWrap.innerHTML = `<span class="highlight-chip">No achievements yet</spa
 
 const achievementList = $("achievementList");
 if (achievementList) {
-achievementList.innerHTML = `<div class="empty">No builder wallet detected. Open a builder profile from launchpad, or connect Phantom and return here.</div>`;
+achievementList.innerHTML = `<div class="empty">No builder wallet detected. Open a builder profile from launchpad, or connect Phantom, Solflare, or Backpack and return here.</div>`;
 }
 
 const badgeGrid = $("badgeGrid");
@@ -842,7 +841,7 @@ badgeGrid.innerHTML = `<div class="empty">Badge catalogue unavailable until a bu
 
 const list = $("launchList");
 if (list) {
-list.innerHTML = `<div class="empty">No builder wallet detected. Open a builder profile from launchpad, or connect Phantom and return here.</div>`;
+list.innerHTML = `<div class="empty">No builder wallet detected. Open a builder profile from launchpad, or connect Phantom, Solflare, or Backpack and return here.</div>`;
 }
 
 renderEditState("");
@@ -936,22 +935,7 @@ btn.textContent = oldText;
 };
 }
 
-async function init() {
-try {
-const wallet = getWalletFromUrlOrProvider();
-if (!wallet) {
-renderNoWalletState();
-} else {
-await loadProfile(wallet, { showLoadError: false });
-}
-} catch (err) {
-console.error(err);
-setStatus(err.message || "Failed to load builder profile.", "bad");
-}
-
-const provider = getPhantomProvider();
-if (provider?.on) {
-provider.on("accountChanged", async () => {
+async function handleWalletDrivenRefresh() {
 const connectedWallet = getConnectedWallet();
 
 if (!currentProfileLockedToUrl) {
@@ -970,33 +954,30 @@ return;
 }
 
 renderEditState(currentProfileWallet);
-});
+}
 
-provider.on("connect", async () => {
-if (!currentProfileLockedToUrl) {
-const connectedWallet = getConnectedWallet();
-if (!connectedWallet) return;
-
+async function init() {
 try {
-await loadProfile(connectedWallet, { showLoadError: false });
+await restoreWalletIfTrusted();
+
+const wallet = getWalletFromUrlOrProvider();
+if (!wallet) {
+renderNoWalletState();
+} else {
+await loadProfile(wallet, { showLoadError: false });
+}
 } catch (err) {
 console.error(err);
-setStatus(err.message || "Failed to refresh builder profile.", "bad");
-}
-return;
+setStatus(err.message || "Failed to load builder profile.", "bad");
 }
 
+onWalletChange(() => {
+void handleWalletDrivenRefresh();
+});
+
+const state = getConnectedWalletState();
+if (state?.isConnected) {
 renderEditState(currentProfileWallet);
-});
-
-provider.on("disconnect", () => {
-if (!currentProfileLockedToUrl) {
-renderNoWalletState();
-return;
-}
-
-renderEditState("");
-});
 }
 }
 

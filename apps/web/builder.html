@@ -150,6 +150,101 @@ letter-spacing:.06em;
 text-transform:uppercase;
 }
 
+.builder-page .access-shell{
+margin-top:18px;
+padding:16px;
+border-radius:20px;
+border:1px solid rgba(255,255,255,.10);
+background:rgba(255,255,255,.03);
+box-shadow:inset 0 1px 0 rgba(255,255,255,.03);
+position:relative;
+z-index:1;
+display:grid;
+gap:12px;
+}
+
+.builder-page .access-head{
+display:flex;
+justify-content:space-between;
+gap:12px;
+align-items:flex-start;
+flex-wrap:wrap;
+}
+
+.builder-page .access-kicker{
+font-size:11px;
+letter-spacing:.16em;
+text-transform:uppercase;
+color:var(--muted2);
+font-weight:800;
+}
+
+.builder-page .access-copy{
+margin-top:8px;
+font-size:13px;
+line-height:1.65;
+color:rgba(255,255,255,.74);
+max-width:720px;
+}
+
+.builder-page .wallet-row{
+display:flex;
+gap:10px;
+align-items:center;
+flex-wrap:wrap;
+}
+
+.builder-page .wallet-pill{
+display:inline-flex;
+align-items:center;
+gap:8px;
+min-height:42px;
+padding:0 14px;
+border-radius:999px;
+border:1px solid rgba(255,255,255,.10);
+background:rgba(255,255,255,.04);
+color:rgba(255,255,255,.84);
+font-size:12px;
+overflow-wrap:anywhere;
+max-width:100%;
+}
+
+.builder-page .access-actions{
+display:flex;
+gap:10px;
+flex-wrap:wrap;
+align-items:center;
+}
+
+.builder-page .access-status{
+display:none;
+padding:14px 16px;
+border-radius:16px;
+border:1px solid rgba(255,255,255,.10);
+background:rgba(255,255,255,.03);
+color:#fff;
+white-space:pre-wrap;
+font-size:13px;
+line-height:1.6;
+}
+
+.builder-page .access-status.show{ display:block; }
+.builder-page .access-status.good{
+border-color:rgba(53,245,163,.20);
+background:rgba(53,245,163,.08);
+color:#fff;
+}
+.builder-page .access-status.warn{
+border-color:rgba(255,209,102,.20);
+background:rgba(255,209,102,.08);
+color:#fff;
+}
+.builder-page .access-status.bad{
+border-color:rgba(255,91,107,.20);
+background:rgba(255,91,107,.08);
+color:#fff;
+}
+
 .builder-page .profile-board{
 padding:18px;
 display:grid;
@@ -801,10 +896,22 @@ border-radius:22px;
 .builder-page .wrap{
 padding:22px 14px 80px;
 }
+
+.builder-page .wallet-row,
+.builder-page .access-actions{
+align-items:stretch;
+}
+
+.builder-page .wallet-row .btn,
+.builder-page .access-actions .btn{
+width:100%;
+}
 }
 </style>
 </head>
-<body class="builder-page" data-shell-active="launchpad" data-shell-subtitle="Builder Profile">
+<body class="builder-page" data-shell-active="builder" data-shell-subtitle="Builder Console">
+<div id="layoutShellHeader"></div>
+
 <div class="wrap">
 <a class="back-link" href="./launchpad.html">← Back to Launchpad</a>
 
@@ -827,6 +934,29 @@ padding:22px 14px 80px;
 
 <div class="highlight-row" id="profileHighlights">
 <span class="highlight-chip">No achievements yet</span>
+</div>
+
+<div class="access-shell">
+<div class="access-head">
+<div>
+<div class="access-kicker">Builder Access</div>
+<div class="access-copy">
+Connect your wallet here to open your own builder console, manage your alias, and unlock wallet-linked editing when the connected wallet matches this profile.
+</div>
+</div>
+</div>
+
+<div class="wallet-row">
+<button id="builderConnectWalletBtn" class="btn" type="button">Connect Wallet</button>
+<button id="builderDisconnectWalletBtn" class="btn" type="button" style="display:none;">Disconnect</button>
+<div id="builderWalletPill" class="wallet-pill">No wallet connected</div>
+</div>
+
+<div class="access-actions">
+<button id="openMyBuilderConsoleBtn" class="btn primary" type="button" style="display:none;">Open My Builder Console</button>
+</div>
+
+<div id="builderAccessStatus" class="access-status" aria-live="polite"></div>
 </div>
 </section>
 
@@ -971,7 +1101,171 @@ Builder aliases must remain unique across MSS.
 </section>
 </div>
 
-<script type="module" src="./assets/layout-shell.js"></script>
+<div id="layoutShellFooter"></div>
+
+<script type="module">
+import { bindSessionUi } from "./assets/auth.js";
+import {
+connectWallet as connectAnyWallet,
+disconnectWallet as disconnectAnyWallet,
+getConnectedWallet,
+getConnectedPublicKey,
+onWalletChange,
+restoreWalletIfTrusted,
+getMobileWalletHelpText,
+} from "./assets/wallet.js";
+
+function setAccessStatus(kind, message) {
+const el = document.getElementById("builderAccessStatus");
+if (!el) return;
+
+if (!message) {
+el.className = "access-status";
+el.textContent = "";
+return;
+}
+
+el.className = `access-status show ${kind}`;
+el.textContent = message;
+}
+
+function shortenWallet(wallet) {
+const w = String(wallet || "").trim();
+if (!w) return "No wallet connected";
+if (w.length <= 12) return w;
+return `${w.slice(0, 4)}...${w.slice(-4)}`;
+}
+
+function getViewedBuilderWallet() {
+const url = new URL(window.location.href);
+return String(url.searchParams.get("wallet") || "").trim();
+}
+
+function updateBuilderAccessUi() {
+const state = getConnectedWallet();
+const pill = document.getElementById("builderWalletPill");
+const connectBtn = document.getElementById("builderConnectWalletBtn");
+const disconnectBtn = document.getElementById("builderDisconnectWalletBtn");
+const openBtn = document.getElementById("openMyBuilderConsoleBtn");
+
+if (pill) {
+pill.textContent = state.isConnected
+? `Connected: ${state.shortPublicKey || shortenWallet(state.publicKey)}`
+: "No wallet connected";
+}
+
+if (connectBtn) {
+connectBtn.style.display = state.isConnected ? "none" : "inline-flex";
+}
+
+if (disconnectBtn) {
+disconnectBtn.style.display = state.isConnected ? "inline-flex" : "none";
+}
+
+if (openBtn) {
+if (!state.isConnected || !state.publicKey) {
+openBtn.style.display = "none";
+} else {
+const viewedWallet = getViewedBuilderWallet().toLowerCase();
+const connectedWallet = String(state.publicKey || "").trim().toLowerCase();
+openBtn.style.display = "inline-flex";
+openBtn.textContent =
+viewedWallet && viewedWallet === connectedWallet
+? "Viewing My Builder Console"
+: "Open My Builder Console";
+openBtn.disabled = Boolean(viewedWallet && viewedWallet === connectedWallet);
+}
+}
+}
+
+async function mountSharedShell() {
+try {
+const shellModule = await import("./assets/layout-shell.js");
+const mountShell =
+shellModule.mountLayoutShell ||
+shellModule.renderLayoutShell ||
+shellModule.initLayoutShell ||
+shellModule.default;
+
+if (typeof mountShell === "function") {
+await mountShell({
+activeNav: "builder",
+pageLabel: "Builder Console",
+pageTitle: "Builder Console",
+pageSubtitle: "Builder Console",
+headerTargetId: "layoutShellHeader",
+footerTargetId: "layoutShellFooter",
+});
+}
+} catch (err) {
+console.error("Shared shell mount failed:", err);
+}
+}
+
+async function connectWallet() {
+try {
+const wallet = await connectAnyWallet();
+updateBuilderAccessUi();
+
+if (wallet?.isConnected) {
+setAccessStatus("good", `Wallet connected: ${shortenWallet(wallet.publicKey)}`);
+return;
+}
+
+setAccessStatus("warn", "Wallet connection cancelled.");
+} catch (err) {
+const msg = err?.message || "Wallet connection failed.";
+setAccessStatus("bad", msg.includes("No supported wallet") ? getMobileWalletHelpText() : msg);
+}
+}
+
+async function disconnectWallet() {
+try {
+await disconnectAnyWallet();
+} catch {
+// ignore
+}
+
+updateBuilderAccessUi();
+setAccessStatus("warn", "Wallet disconnected.");
+}
+
+function openMyBuilderConsole() {
+const wallet = getConnectedPublicKey();
+if (!wallet) {
+setAccessStatus("warn", "Connect your wallet first.");
+return;
+}
+
+window.location.href = `./builder.html?wallet=${encodeURIComponent(wallet)}`;
+}
+
+await mountSharedShell();
+
+bindSessionUi({
+sessionPillId: "sessionPill",
+sessionDotId: "sessionDot",
+sessionTextId: "sessionText",
+logoutBtnId: "logoutBtn",
+loggedOutHref: "./login.html",
+loggedInHref: "./index.html#access",
+onLogout() {
+window.location.reload();
+},
+});
+
+document.getElementById("builderConnectWalletBtn")?.addEventListener("click", connectWallet);
+document.getElementById("builderDisconnectWalletBtn")?.addEventListener("click", disconnectWallet);
+document.getElementById("openMyBuilderConsoleBtn")?.addEventListener("click", openMyBuilderConsole);
+
+onWalletChange(() => {
+updateBuilderAccessUi();
+});
+
+await restoreWalletIfTrusted();
+updateBuilderAccessUi();
+</script>
+
 <script type="module" src="./assets/pages/builder.js"></script>
 </body>
 </html>

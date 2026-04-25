@@ -253,6 +253,11 @@ function normalizeMintTag(value) {
 return clean(value, 32).toUpperCase() || DEFAULT_REQUIRED_MINT_TAG;
 }
 
+function isLiveLikeLaunchStatus(status) {
+const normalized = clean(status, 40).toLowerCase();
+return normalized === "live" || normalized === "graduated";
+}
+
 function mintContainsRequiredTag(address, requiredTag = DEFAULT_REQUIRED_MINT_TAG) {
 const tag = normalizeMintTag(requiredTag);
 const mint = clean(address, 120);
@@ -332,25 +337,29 @@ return floorToken(
 }
 
 function resolveBootstrapVestingStartAt(launch, existingVestingRow = null) {
-const status = clean(launch?.status, 40).toLowerCase();
-const liveAt = clean(launch?.live_at, 120);
 const existingStart = clean(existingVestingRow?.vesting_start_at, 120);
-
-if (status === "live" || status === "graduated") {
-return liveAt || existingStart || new Date().toISOString();
-}
-
-if (existingStart && liveAt && existingStart !== liveAt) {
+if (existingStart) {
 return existingStart;
 }
 
-return new Date().toISOString();
+const status = clean(launch?.status, 40).toLowerCase();
+const liveAt = clean(launch?.live_at, 120);
+
+if (status === "live" || status === "graduated") {
+return liveAt || new Date().toISOString();
+}
+
+return null;
 }
 
 function isBootstrapCompleteForLaunch(launch, token, pool) {
+const internalMint =
+clean(launch?.token_mint, 120) ||
+clean(token?.mint_address, 120) ||
+clean(launch?.contract_address, 120);
+
 return Boolean(
-clean(launch?.contract_address, 120) &&
-clean(token?.mint_address, 120) &&
+internalMint &&
 token?.id &&
 pool?.id &&
 safeNum(pool?.sol_reserve, 0) > 0 &&
@@ -413,10 +422,6 @@ throw new Error("pool reserves missing after bootstrap");
 function validateLaunchMarketFields(launch) {
 if (!launch) {
 throw new Error("launch missing after market field update");
-}
-
-if (!clean(launch.contract_address, 120)) {
-throw new Error("launch contract address not written during bootstrap");
 }
 
 if (safeNum(launch.liquidity, 0) <= 0) {
@@ -809,21 +814,61 @@ AND reserved_for_launch_id = ?
 );
 }
 
-async function updateLaunchMintFields(
+async function persistBootstrapMintFields(
 launchId,
 mintAddress,
-reservationStatus = "finalized"
+{
+reservationStatus = "minted",
+clearContractAddress = true,
+clearMintFinalizedAt = true,
+} = {}
 ) {
 const hasTokenMint = await launchesHasColumn("token_mint");
 
 if (hasTokenMint) {
+if (clearContractAddress && clearMintFinalizedAt) {
+await db.run(
+`
+UPDATE launches
+SET contract_address = NULL,
+token_mint = ?,
+mint_reservation_status = ?,
+mint_finalized_at = NULL,
+reserved_mint_secret = NULL,
+updated_at = CURRENT_TIMESTAMP
+WHERE id = ?
+`,
+[mintAddress, reservationStatus, launchId]
+);
+return;
+}
+
+if (clearContractAddress) {
+await db.run(
+`
+UPDATE launches
+SET contract_address = NULL,
+token_mint = ?,
+mint_reservation_status = ?,
+mint_finalized_at = COALESCE(mint_finalized_at, CURRENT_TIMESTAMP),
+reserved_mint_secret = NULL,
+updated_at = CURRENT_TIMESTAMP
+WHERE id = ?
+`,
+[mintAddress, reservationStatus, launchId]
+);
+return;
+}
+
+if (clearMintFinalizedAt) {
 await db.run(
 `
 UPDATE launches
 SET contract_address = ?,
 token_mint = ?,
 mint_reservation_status = ?,
-mint_finalized_at = COALESCE(mint_finalized_at, CURRENT_TIMESTAMP),
+mint_finalized_at = NULL,
+reserved_mint_secret = NULL,
 updated_at = CURRENT_TIMESTAMP
 WHERE id = ?
 `,
@@ -836,8 +881,73 @@ await db.run(
 `
 UPDATE launches
 SET contract_address = ?,
+token_mint = ?,
 mint_reservation_status = ?,
 mint_finalized_at = COALESCE(mint_finalized_at, CURRENT_TIMESTAMP),
+reserved_mint_secret = NULL,
+updated_at = CURRENT_TIMESTAMP
+WHERE id = ?
+`,
+[mintAddress, mintAddress, reservationStatus, launchId]
+);
+return;
+}
+
+if (clearContractAddress && clearMintFinalizedAt) {
+await db.run(
+`
+UPDATE launches
+SET contract_address = NULL,
+mint_reservation_status = ?,
+mint_finalized_at = NULL,
+reserved_mint_secret = NULL,
+updated_at = CURRENT_TIMESTAMP
+WHERE id = ?
+`,
+[reservationStatus, launchId]
+);
+return;
+}
+
+if (clearContractAddress) {
+await db.run(
+`
+UPDATE launches
+SET contract_address = NULL,
+mint_reservation_status = ?,
+mint_finalized_at = COALESCE(mint_finalized_at, CURRENT_TIMESTAMP),
+reserved_mint_secret = NULL,
+updated_at = CURRENT_TIMESTAMP
+WHERE id = ?
+`,
+[reservationStatus, launchId]
+);
+return;
+}
+
+if (clearMintFinalizedAt) {
+await db.run(
+`
+UPDATE launches
+SET contract_address = ?,
+mint_reservation_status = ?,
+mint_finalized_at = NULL,
+reserved_mint_secret = NULL,
+updated_at = CURRENT_TIMESTAMP
+WHERE id = ?
+`,
+[mintAddress, reservationStatus, launchId]
+);
+return;
+}
+
+await db.run(
+`
+UPDATE launches
+SET contract_address = ?,
+mint_reservation_status = ?,
+mint_finalized_at = COALESCE(mint_finalized_at, CURRENT_TIMESTAMP),
+reserved_mint_secret = NULL,
 updated_at = CURRENT_TIMESTAMP
 WHERE id = ?
 `,
@@ -879,18 +989,26 @@ WHERE id = ?
 );
 }
 
+async function syncLaunchMintRevealState(launchId, mintAddress, launchStatus) {
+if (isLiveLikeLaunchStatus(launchStatus)) {
+await finalizeLaunchMintFields(launchId, mintAddress);
+return;
+}
+
+await persistBootstrapMintFields(launchId, mintAddress, {
+reservationStatus: "minted",
+clearContractAddress: true,
+clearMintFinalizedAt: true,
+});
+}
+
 async function ensureMintAddress(launch) {
 const existingToken = await getTokenByLaunchId(launch.id);
 
 if (existingToken?.mint_address) {
 const existingMint = clean(existingToken.mint_address, 120);
 
-if (
-clean(launch.contract_address, 120) !== existingMint ||
-clean(launch.token_mint, 120) !== existingMint
-) {
-await updateLaunchMintFields(launch.id, existingMint, "finalized");
-}
+await syncLaunchMintRevealState(launch.id, existingMint, launch.status);
 
 await markPoolReservationFinalizedByLaunch({
 ...launch,
@@ -914,6 +1032,16 @@ reservationStatus === "finalized" &&
 existingLaunchAddress &&
 isValidSolanaAddress(existingLaunchAddress)
 ) {
+if (isLiveLikeLaunchStatus(launch.status)) {
+await finalizeLaunchMintFields(launch.id, existingLaunchAddress);
+} else {
+await persistBootstrapMintFields(launch.id, existingLaunchAddress, {
+reservationStatus: "minted",
+clearContractAddress: true,
+clearMintFinalizedAt: true,
+});
+}
+
 await markPoolReservationFinalizedByLaunch({
 ...launch,
 reserved_mint_address: launch.reserved_mint_address || existingLaunchAddress,
@@ -923,7 +1051,9 @@ return {
 created: false,
 mintAddress: existingLaunchAddress,
 tokenRow: null,
-source: "launch_row_finalized",
+source: isLiveLikeLaunchStatus(launch.status)
+? "launch_row_finalized"
+: "launch_row_healed_pre_live",
 };
 }
 
@@ -958,7 +1088,7 @@ if (mintAddress !== reservedMintAddress) {
 throw new Error("created mint address does not match reserved mint address");
 }
 
-await finalizeLaunchMintFields(launch.id, mintAddress);
+await syncLaunchMintRevealState(launch.id, mintAddress, launch.status);
 await markPoolReservationFinalizedByLaunch(launch);
 
 return {
@@ -1256,15 +1386,9 @@ sets.push("locked_amount = COALESCE(locked_amount, ?)");
 values.push(lockedRemaining);
 }
 if (hasVestingStartAt) {
-const existingStart = clean(existing.vesting_start_at, 120);
-const launchLiveAt = clean(launch.live_at, 120);
-
 if (launchStatus === "live" || launchStatus === "graduated") {
 sets.push("vesting_start_at = COALESCE(vesting_start_at, ?)");
-values.push(bootstrapVestingStartAt);
-} else if (!existingStart || (launchLiveAt && existingStart === launchLiveAt)) {
-sets.push("vesting_start_at = ?");
-values.push(bootstrapVestingStartAt);
+values.push(bootstrapVestingStartAt || new Date().toISOString());
 }
 }
 if (hasUpdatedAt) {
@@ -1315,7 +1439,11 @@ values.push(lockedRemaining);
 if (hasVestingStartAt) {
 columns.push("vesting_start_at");
 placeholders.push("?");
-values.push(bootstrapVestingStartAt);
+values.push(
+launchStatus === "live" || launchStatus === "graduated"
+? bootstrapVestingStartAt || new Date().toISOString()
+: null
+);
 }
 if (hasCreatedAt) {
 columns.push("created_at");
@@ -1544,7 +1672,7 @@ launch,
 token,
 pool,
 }) {
-validateTokenRow(token, clean(launch.contract_address, 120));
+validateTokenRow(token, clean(token?.mint_address, 120));
 validatePoolRow(pool);
 
 await updateLaunchMarketFields(launchId, launch, pool);
@@ -1561,6 +1689,11 @@ refreshedLaunch = await getLaunchById(launchId);
 validateLaunchMarketFields(refreshedLaunch);
 
 await ensureLaunchLiquidityLifecycle(launchId, refreshedLaunch, pool);
+
+if (isLiveLikeLaunchStatus(refreshedLaunch?.status) && clean(token?.mint_address, 120)) {
+await finalizeLaunchMintFields(launchId, clean(token.mint_address, 120));
+refreshedLaunch = await getLaunchById(launchId);
+}
 
 return refreshedLaunch;
 }
@@ -1600,7 +1733,9 @@ return {
 ok: true,
 launchId,
 mintAddress:
-clean(existingToken?.mint_address, 120) || clean(healedLaunch.contract_address, 120),
+clean(existingToken?.mint_address, 120) ||
+clean(healedLaunch.token_mint, 120) ||
+clean(healedLaunch.contract_address, 120),
 mintSource: "existing_bootstrap",
 tokenId: existingToken?.id || null,
 poolId: existingPool?.id || null,

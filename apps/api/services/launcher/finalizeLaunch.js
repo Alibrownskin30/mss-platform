@@ -83,6 +83,7 @@ internal_pool_tokens: cleanText(row.internal_pool_tokens, 120),
 raydium_liquidity_tokens_reserved: cleanText(row.raydium_liquidity_tokens_reserved, 120),
 unsold_participant_tokens_burned: cleanText(row.unsold_participant_tokens_burned, 120),
 unused_bonus_tokens_burned: cleanText(row.unused_bonus_tokens_burned, 120),
+status: cleanText(row.status, 40).toLowerCase(),
 };
 }
 
@@ -147,7 +148,13 @@ getTokenByLaunchId(launchId),
 getPoolByLaunchId(launchId),
 ]);
 
-return Boolean(tokenRow?.id && poolRow?.id);
+return Boolean(
+tokenRow?.id &&
+cleanText(tokenRow?.mint_address, 120) &&
+poolRow?.id &&
+safeNum(poolRow?.sol_reserve, 0) > 0 &&
+safeNum(poolRow?.token_reserve, 0) > 0
+);
 }
 
 function buildFinalizeResponse({
@@ -335,7 +342,7 @@ UPDATE launches
 SET status = 'building',
 updated_at = CURRENT_TIMESTAMP
 WHERE id = ?
-AND status IN ('countdown', 'building', 'live')
+AND status IN ('countdown', 'building')
 `,
 [launchId]
 );
@@ -346,17 +353,21 @@ if (!launch) {
 throw new Error("launch not found after building promotion");
 }
 
+if (String(launch.status || "").toLowerCase() !== "building") {
+throw new Error("launch is not building after promotion");
+}
+
 return launch;
 }
 
-async function revertLaunchToCountdownAfterBootstrapFailure(launchId) {
+async function refreshBuildingStateAfterBootstrapFailure(launchId) {
 await db.run(
 `
 UPDATE launches
-SET status = 'countdown',
+SET status = 'building',
 updated_at = CURRENT_TIMESTAMP
 WHERE id = ?
-AND status = 'building'
+AND status IN ('building', 'countdown')
 `,
 [launchId]
 );
@@ -631,7 +642,7 @@ reason: "builder bond not paid",
 };
 }
 
-if ((status === "live" || status === "building") && await hasCompletedLiveBootstrap(launchId, launch)) {
+if ((status === "live" || status === "building") && (await hasCompletedLiveBootstrap(launchId, launch))) {
 if (status !== "live") {
 launch = await forcePromoteLaunchToLive(launchId);
 }
@@ -694,7 +705,7 @@ reason: "builder bond not paid",
 if (
 (String(launch.status || "").toLowerCase() === "live" ||
 String(launch.status || "").toLowerCase() === "building") &&
-await hasCompletedLiveBootstrap(launchId, launch)
+(await hasCompletedLiveBootstrap(launchId, launch))
 ) {
 if (String(launch.status || "").toLowerCase() !== "live") {
 launch = await forcePromoteLaunchToLive(launchId);
@@ -741,11 +752,7 @@ feePlan,
 feeDistribution,
 feeDistributionPending,
 feeDistributionError,
-} = await ensureFeeDistribution(
-launchId,
-launch,
-totalCommitted
-);
+} = await ensureFeeDistribution(launchId, launch, totalCommitted);
 
 launch = await forcePromoteLaunchToBuilding(launchId);
 
@@ -786,16 +793,16 @@ console.log("Market bootstrap complete:", marketBootstrap);
 } catch (err) {
 console.error(`Market bootstrap failed for launch ${launchId}:`, err);
 
-const revertedLaunch = await revertLaunchToCountdownAfterBootstrapFailure(launchId);
+const buildingLaunch = await refreshBuildingStateAfterBootstrapFailure(launchId);
 
 return buildFinalizeResponse({
 ok: false,
 launchId,
-launch: revertedLaunch || launch,
+launch: buildingLaunch || launch,
 totalCommitted,
 participants: stats.participants,
 feePlan,
-feeDistribution: (revertedLaunch?.fee_distribution_json || feeDistribution),
+feeDistribution: buildingLaunch?.fee_distribution_json || feeDistribution,
 feeDistributionPending,
 feeDistributionError: feeDistributionError || err?.message || "market bootstrap failed",
 allocationsBuilt,
@@ -809,18 +816,43 @@ retryable: true,
 });
 }
 
-const bootstrapReadyLaunch = await getLaunchById(launchId);
-if (!await hasCompletedLiveBootstrap(launchId, bootstrapReadyLaunch || launch)) {
-const revertedLaunch = await revertLaunchToCountdownAfterBootstrapFailure(launchId);
+if (!marketBootstrap?.ok) {
+const buildingLaunch = await refreshBuildingStateAfterBootstrapFailure(launchId);
 
 return buildFinalizeResponse({
 ok: false,
 launchId,
-launch: revertedLaunch || bootstrapReadyLaunch || launch,
+launch: buildingLaunch || launch,
 totalCommitted,
 participants: stats.participants,
 feePlan,
-feeDistribution: (bootstrapReadyLaunch?.fee_distribution_json || feeDistribution),
+feeDistribution: buildingLaunch?.fee_distribution_json || feeDistribution,
+feeDistributionPending,
+feeDistributionError:
+feeDistributionError || cleanText(marketBootstrap?.error, 500) || "market bootstrap failed",
+allocationsBuilt,
+marketBootstrap,
+allocationResult,
+alreadyFinalized: false,
+stage: "building",
+stageLabel: "Bootstrap retry pending",
+reason: cleanText(marketBootstrap?.error, 500) || "market bootstrap failed",
+retryable: true,
+});
+}
+
+const bootstrapReadyLaunch = await getLaunchById(launchId);
+if (!(await hasCompletedLiveBootstrap(launchId, bootstrapReadyLaunch || launch))) {
+const buildingLaunch = await refreshBuildingStateAfterBootstrapFailure(launchId);
+
+return buildFinalizeResponse({
+ok: false,
+launchId,
+launch: buildingLaunch || bootstrapReadyLaunch || launch,
+totalCommitted,
+participants: stats.participants,
+feePlan,
+feeDistribution: bootstrapReadyLaunch?.fee_distribution_json || feeDistribution,
 feeDistributionPending,
 feeDistributionError: feeDistributionError || "market bootstrap incomplete",
 allocationsBuilt,
@@ -841,18 +873,19 @@ throw new Error("Launch not found after market bootstrap");
 }
 
 if (!cleanText(finalLaunch.contract_address, 120)) {
-const revertedLaunch = await revertLaunchToCountdownAfterBootstrapFailure(launchId);
+const buildingLaunch = await refreshBuildingStateAfterBootstrapFailure(launchId);
 
 return buildFinalizeResponse({
 ok: false,
 launchId,
-launch: revertedLaunch || finalLaunch,
+launch: buildingLaunch || finalLaunch,
 totalCommitted,
 participants: stats.participants,
 feePlan,
 feeDistribution: finalLaunch.fee_distribution_json || feeDistribution,
 feeDistributionPending,
-feeDistributionError: feeDistributionError || "launch contract address missing after market bootstrap",
+feeDistributionError:
+feeDistributionError || "launch contract address missing after market bootstrap",
 allocationsBuilt,
 marketBootstrap,
 allocationResult,

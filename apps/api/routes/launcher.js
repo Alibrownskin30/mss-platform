@@ -635,18 +635,17 @@ const countdownEndsMs = parseDbTime(launch.countdown_ends_at || launch.live_at);
 const hasCountdownWindow =
 Number.isFinite(countdownStartedMs) || Number.isFinite(countdownEndsMs);
 
-const contractAddress = cleanText(
-launch.contract_address || launch.reserved_mint_address,
-120
-);
+const contractAddress = cleanText(launch.contract_address, 120);
 const mintReservationStatus = cleanText(
 launch.mint_reservation_status,
 40
 ).toLowerCase();
+const mintFinalizedAtMs = parseDbTime(launch.mint_finalized_at);
 
 const hasLiveSignal = Boolean(
 contractAddress ||
-mintReservationStatus === "finalized"
+mintReservationStatus === "finalized" ||
+Number.isFinite(mintFinalizedAtMs)
 );
 
 if (rawStatus === "failed" || rawStatus === "failed_refunded") {
@@ -1123,6 +1122,110 @@ return db.get(
 `SELECT id, wallet, alias FROM builders WHERE wallet = ?`,
 [wallet]
 );
+}
+
+async function getBuilderByAlias(alias) {
+return db.get(
+`
+SELECT id, wallet, alias
+FROM builders
+WHERE LOWER(alias) = LOWER(?)
+LIMIT 1
+`,
+[alias]
+);
+}
+
+function buildDefaultBuilderAlias(wallet) {
+const cleanWallet = normalizeWallet(wallet);
+if (!cleanWallet) return "New Builder";
+
+const first = cleanWallet.slice(0, 4);
+const last = cleanWallet.slice(-4);
+
+return cleanText(`Builder ${first}${last}`, 60) || "New Builder";
+}
+
+function buildBuilderAliasVariant(baseAlias, suffix) {
+if (!suffix || suffix <= 1) {
+return cleanText(baseAlias, 60);
+}
+
+const suffixText = ` ${suffix}`;
+const trimmedBase = cleanText(
+String(baseAlias || "").slice(0, Math.max(1, 60 - suffixText.length)),
+60 - suffixText.length
+);
+
+return cleanText(`${trimmedBase}${suffixText}`, 60);
+}
+
+async function ensureBuilderProfileForWallet(wallet) {
+const cleanWallet = normalizeWallet(wallet);
+if (!cleanWallet) {
+throw new Error("wallet is required");
+}
+
+const existing = await getBuilderByWallet(cleanWallet);
+if (existing) {
+return existing;
+}
+
+const baseAlias = buildDefaultBuilderAlias(cleanWallet);
+
+for (let suffix = 1; suffix <= 500; suffix += 1) {
+const alias = buildBuilderAliasVariant(baseAlias, suffix);
+const aliasOwner = await getBuilderByAlias(alias);
+
+if (aliasOwner && normalizeWalletKey(aliasOwner.wallet) !== normalizeWalletKey(cleanWallet)) {
+continue;
+}
+
+try {
+const insert = await db.run(
+`
+INSERT INTO builders (
+wallet,
+alias,
+builder_score
+) VALUES (?, ?, ?)
+`,
+[cleanWallet, alias, 50]
+);
+
+const created = await db.get(
+`SELECT id, wallet, alias FROM builders WHERE id = ? LIMIT 1`,
+[insert.lastID]
+);
+
+if (created) {
+return created;
+}
+} catch (err) {
+const msg = String(err?.message || "").toLowerCase();
+
+if (
+msg.includes("unique") ||
+msg.includes("constraint") ||
+msg.includes("already exists")
+) {
+const recovered = await getBuilderByWallet(cleanWallet);
+if (recovered) {
+return recovered;
+}
+continue;
+}
+
+throw err;
+}
+}
+
+const recovered = await getBuilderByWallet(cleanWallet);
+if (recovered) {
+return recovered;
+}
+
+throw new Error("builder profile could not be created automatically");
 }
 
 async function getBuilderWalletForLaunch(launchId) {
@@ -1820,15 +1923,6 @@ if (!symbol) {
 return res.status(400).json({ ok: false, error: "symbol is required" });
 }
 
-const builder = await getBuilderByWallet(wallet);
-
-if (!builder) {
-return res.status(404).json({
-ok: false,
-error: "builder profile not found",
-});
-}
-
 let cfg;
 try {
 cfg = getTemplateConfig(template, req.body);
@@ -1847,6 +1941,16 @@ validateBuilderConfig(template, cfg, builderCfg);
 return res.status(400).json({
 ok: false,
 error: validationErr.message,
+});
+}
+
+let builder;
+try {
+builder = await ensureBuilderProfileForWallet(wallet);
+} catch (builderErr) {
+return res.status(400).json({
+ok: false,
+error: builderErr.message || "builder profile could not be created automatically",
 });
 }
 

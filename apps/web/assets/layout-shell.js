@@ -2,6 +2,7 @@ const NAV_ITEMS = [
 { key: "home", label: "Home", href: "./index.html" },
 { key: "scanner", label: "Scanner", href: "./token.html" },
 { key: "launchpad", label: "Launchpad", href: "./launchpad.html" },
+{ key: "builder", label: "Builder Console", href: "./builder.html" },
 { key: "explore", label: "Explore", href: "./explore.html" },
 { key: "alerts", label: "Alerts", href: "./alerts.html" },
 { key: "methodology", label: "Methodology", href: "./methodology.html" },
@@ -966,6 +967,7 @@ const meta = {
 home: "Protocol overview",
 scanner: "Token intelligence",
 launchpad: "Launch command",
+builder: "Builder console",
 explore: "Market discovery",
 alerts: "Monitoring layer",
 methodology: "Scoring framework",
@@ -1161,6 +1163,7 @@ Blockchain security intelligence for transparent crypto markets. Built to surfac
 <div class="mss-shell-footer-links">
 <a class="mss-shell-footer-link" href="./token.html">Scanner</a>
 <a class="mss-shell-footer-link" href="./launchpad.html">Launchpad</a>
+<a class="mss-shell-footer-link" href="./builder.html">Builder Console</a>
 <a class="mss-shell-footer-link" href="./explore.html">Explore</a>
 <a class="mss-shell-footer-link" href="./alerts.html">Alerts</a>
 </div>

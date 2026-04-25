@@ -27,6 +27,10 @@ return `${protocol}//${hostname.replace("-3000.app.github.dev", "-8787.app.githu
 return `${protocol}//${hostname}${port ? `:${port}` : ""}`;
 }
 
+function sleep(ms) {
+return new Promise((resolve) => window.setTimeout(resolve, ms));
+}
+
 function normalizeSymbol(v) {
 return String(v || "")
 .toUpperCase()
@@ -66,7 +70,28 @@ return `${w.slice(0, 4)}...${w.slice(-4)}`;
 function defaultBuilderAlias(wallet) {
 const w = String(wallet || "").trim();
 if (!w) return "New Builder";
-return `Builder ${w.slice(0, 4)}`;
+
+return `Builder ${w.slice(0, 4)}${w.slice(-4)}`;
+}
+
+function getBuilderAliasCandidates(wallet) {
+const w = String(wallet || "").trim();
+if (!w) return ["New Builder"];
+
+const first4 = w.slice(0, 4);
+const last4 = w.slice(-4);
+const first6 = w.slice(0, 6);
+
+return Array.from(
+new Set(
+[
+`Builder ${first4}${last4}`,
+`Builder ${first4}-${last4}`,
+`Builder ${first6}`,
+defaultBuilderAlias(wallet),
+].map((value) => String(value).trim().slice(0, 60))
+)
+).filter(Boolean);
 }
 
 function setStatus(kind, message) {
@@ -81,6 +106,14 @@ const el = $("createStatus");
 if (!el) return;
 el.className = "status";
 el.textContent = "";
+}
+
+function isBuilderNotFoundMessage(message) {
+const text = String(message || "").toLowerCase();
+return (
+text.includes("builder not found") ||
+text.includes("builder profile not found")
+);
 }
 
 let cachedBuilderBond = null;
@@ -664,7 +697,8 @@ list.innerHTML = `<div class="preview-builder-row"><span>No visible team wallets
 return;
 }
 
-list.innerHTML = rows.map((row, i) => {
+list.innerHTML = rows
+.map((row, i) => {
 const label = row.label || `Wallet ${i + 1}`;
 const wallet = row.wallet ? shortenWallet(row.wallet) : "No wallet";
 const pct = Number(row.pct || 0).toFixed(row.pct % 1 ? 1 : 0);
@@ -674,7 +708,8 @@ return `
 <strong>${pct}%</strong>
 </div>
 `;
-}).join("");
+})
+.join("");
 }
 
 function clearLogoPreviewObjectUrl() {
@@ -818,8 +853,11 @@ throw err;
 }
 
 async function createBuilderProfile(wallet) {
-const alias = defaultBuilderAlias(wallet);
+const aliases = getBuilderAliasCandidates(wallet);
+let lastError = null;
 
+for (const alias of aliases) {
+try {
 const data = await fetchJson(`/api/builders/create`, {
 method: "POST",
 headers: {
@@ -831,15 +869,57 @@ alias,
 }),
 });
 
-return data.builder;
-}
+return data.builder || null;
+} catch (err) {
+const message = String(err?.message || "");
 
-async function ensureBuilderProfile(wallet) {
+if (
+message.toLowerCase().includes("already exists") ||
+message.toLowerCase().includes("duplicate")
+) {
 const existing = await getBuilderByWallet(wallet);
 if (existing) return existing;
+}
+
+if (message.toLowerCase().includes("alias is already taken")) {
+lastError = err;
+continue;
+}
+
+throw err;
+}
+}
+
+if (lastError) {
+throw lastError;
+}
+
+throw new Error("Builder profile could not be created automatically.");
+}
+
+async function ensureBuilderProfile(wallet, { forceCreate = false } = {}) {
+if (!wallet) {
+throw new Error("Builder wallet is required.");
+}
+
+if (!forceCreate) {
+const existing = await getBuilderByWallet(wallet);
+if (existing) return existing;
+}
 
 setStatus("warn", "No builder profile found. Creating one automatically...");
-return createBuilderProfile(wallet);
+const created = await createBuilderProfile(wallet);
+
+if (created) {
+return created;
+}
+
+await sleep(250);
+
+const retry = await getBuilderByWallet(wallet);
+if (retry) return retry;
+
+throw new Error("Builder profile could not be created automatically.");
 }
 
 async function createLaunch(payload) {
@@ -852,6 +932,22 @@ body: JSON.stringify(payload),
 });
 
 return data;
+}
+
+async function createLaunchWithBuilderFallback(payload) {
+try {
+return await createLaunch(payload);
+} catch (err) {
+if (!isBuilderNotFoundMessage(err?.message)) {
+throw err;
+}
+
+setStatus("warn", "Builder profile was missing during launch creation. Rebuilding profile and retrying...");
+await ensureBuilderProfile(payload.wallet, { forceCreate: true });
+await sleep(300);
+
+return createLaunch(payload);
+}
 }
 
 async function collectBuilderBond(values) {
@@ -977,7 +1073,7 @@ builder_bond_sol: values.template === "builder" ? Number(values.builderBond) : 0
 builder_bond_tx_signature: builderBondTxSignature,
 };
 
-const result = await createLaunch(payload);
+const result = await createLaunchWithBuilderFallback(payload);
 const launch = result?.launch || null;
 const mintReservation = result?.mintReservation || null;
 

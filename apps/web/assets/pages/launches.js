@@ -143,6 +143,10 @@ function isActiveStatus(status) {
 return isCurrentFieldStatus(status);
 }
 
+function isQuickCommitPhase(status) {
+return normalizeStatus(status) === "commit";
+}
+
 function matchesStatusFilter(launch, statusFilter) {
 if (statusFilter === "all") return true;
 
@@ -454,15 +458,65 @@ return `<div class="feed-line"><span>${escapeHtml(wallet)} committed</span><span
 }
 
 function buildQuickButtons(launch) {
-const status = normalizeStatus(launch.status);
-const disabled = status !== "commit" ? "disabled" : "";
+if (!isQuickCommitPhase(launch?.status)) {
+return "";
+}
+
 const amounts = [0.1, 0.25, 0.5, 0.75, 1];
 
 return amounts
 .map((amount) => {
-return `<button type="button" class="quick-commit-btn" data-launch-id="${launch.id}" data-amount="${amount}" ${disabled}>${amount} SOL</button>`;
+return `<button type="button" class="quick-commit-btn" data-launch-id="${launch.id}" data-amount="${amount}">${amount} SOL</button>`;
 })
 .join("");
+}
+
+function buildQuickCommitBlock(launch, { featured = false, listMode = false } = {}) {
+if (!isQuickCommitPhase(launch?.status)) {
+return "";
+}
+
+const walletConnected = getConnectedWallet().isConnected;
+const buttons = buildQuickButtons(launch);
+
+if (!buttons) return "";
+
+if (featured) {
+return `
+<div class="featured-quick-shell">
+<div class="quick-title">Featured Quick Commit</div>
+<div class="quick-row" style="margin-top:10px;">
+${buttons}
+</div>
+<div style="margin-top:10px;font-size:12px;color:rgba(255,255,255,.62);">
+${walletConnected ? "Connected wallet can commit directly into the featured launch." : "Connect wallet to enable featured quick commit."}
+</div>
+</div>
+`;
+}
+
+if (listMode) {
+return `
+<div class="quick-row">
+${buttons}
+</div>
+<div style="font-size:12px;color:rgba(255,255,255,.62);">
+${walletConnected ? "Quick commit enabled" : "Connect wallet to commit"}
+</div>
+`;
+}
+
+return `
+<div class="quick-commit">
+<div class="quick-title">Quick Commit</div>
+<div class="quick-row">
+${buttons}
+</div>
+<div style="margin-top:8px;font-size:12px;color:rgba(255,255,255,.62);">
+${walletConnected ? "Connected wallet can quick commit from this card." : "Connect wallet to enable quick commit."}
+</div>
+</div>
+`;
 }
 
 function getLaunchHref(launchId) {
@@ -487,7 +541,6 @@ const participants = safeNum(launch.participants_count);
 const percent = clamp(getCommitPercent(launch), 0, 100);
 const softCapPercent = getSoftCapPercent(launch);
 const timing = getTimingMeta(launch);
-const walletConnected = getConnectedWallet().isConnected;
 const stateNote = getLaunchStateNote(launch);
 const momentumScore = Math.round(trendingScore(launch));
 
@@ -562,15 +615,7 @@ ${minRaise > 0 ? `${Math.round(softCapPercent)}% of min raise` : "No minimum rai
 ${getFeedLines(launch)}
 </div>
 
-<div class="quick-commit">
-<div class="quick-title">Quick Commit</div>
-<div class="quick-row">
-${buildQuickButtons(launch)}
-</div>
-<div style="margin-top:8px;font-size:12px;color:rgba(255,255,255,.62);">
-${walletConnected ? "Connected wallet can quick commit from this card." : "Connect wallet to enable quick commit."}
-</div>
-</div>
+${buildQuickCommitBlock(launch)}
 
 <div class="token-footer">
 <div class="meta-line">
@@ -610,8 +655,6 @@ const stateNote = getLaunchStateNote(launch);
 const builderHtml = builderWallet
 ? `<a href="./builder.html?wallet=${encodeURIComponent(builderWallet)}" style="color:rgba(255,255,255,.92);text-decoration:none;">${builderName}</a>`
 : builderName;
-
-const walletConnected = getConnectedWallet().isConnected;
 
 return `
 <div class="list-row">
@@ -663,12 +706,7 @@ ${getFeedLines(launch)}
 </div>
 
 <div class="list-actions">
-<div class="quick-row">
-${buildQuickButtons(launch)}
-</div>
-<div style="font-size:12px;color:rgba(255,255,255,.62);">
-${walletConnected ? "Quick commit enabled" : "Connect wallet to commit"}
-</div>
+${buildQuickCommitBlock(launch, { listMode: true })}
 <a class="btn primary" href="${getLaunchHref(launch.id)}">View</a>
 </div>
 </div>
@@ -746,7 +784,7 @@ ${section.items.map(buildCard).join("")}
 })
 .join("");
 
-return html || `<div class="empty" style="grid-column:1/-1;">No launches found.</div>`;
+return html || `<div class="launch-empty-state" style="grid-column:1/-1;">No launches found.</div>`;
 }
 
 function renderListSections(activeItems, historyItems = []) {
@@ -790,7 +828,7 @@ ${section.items.map(buildListRow).join("")}
 })
 .join("");
 
-return html || `<div class="empty">No launches found.</div>`;
+return html || `<div class="launch-empty-state">No launches found.</div>`;
 }
 
 function getFeaturedCandidate(items) {
@@ -827,7 +865,6 @@ const percent = clamp(getCommitPercent(featured), 0, 100);
 const timing = getTimingMeta(featured);
 const stateNote = getLaunchStateNote(featured);
 const momentumScore = Math.round(trendingScore(featured));
-const walletConnected = getConnectedWallet().isConnected;
 
 const builderHtml = builderWallet
 ? `<a href="./builder.html?wallet=${encodeURIComponent(builderWallet)}" style="color:rgba(255,255,255,.92);text-decoration:none;">${builderName}</a>`
@@ -900,15 +937,7 @@ ${timing.endAt ? `data-end-at="${timing.endAt}"` : ""}
 </div>
 </div>
 
-<div class="featured-quick-shell">
-<div class="quick-title">Featured Quick Commit</div>
-<div class="quick-row" style="margin-top:10px;">
-${buildQuickButtons(featured)}
-</div>
-<div style="margin-top:10px;font-size:12px;color:rgba(255,255,255,.62);">
-${walletConnected ? "Connected wallet can commit directly into the featured launch." : "Connect wallet to enable featured quick commit."}
-</div>
-</div>
+${buildQuickCommitBlock(featured, { featured: true })}
 
 <a class="btn primary featured-open-btn" href="${getLaunchHref(featured.id)}">Open Launch Terminal</a>
 </div>
@@ -1181,8 +1210,8 @@ const grid = $("launchGrid");
 const list = $("launchList");
 if (!grid || !list) return;
 
-grid.innerHTML = `<div class="empty" style="grid-column:1/-1;">No launches found.</div>`;
-list.innerHTML = `<div class="empty">No launches found.</div>`;
+grid.innerHTML = `<div class="launch-empty-state" style="grid-column:1/-1;">No launches found.</div>`;
+list.innerHTML = `<div class="launch-empty-state">No launches found.</div>`;
 bindQuickCommitButtons();
 }
 
@@ -1367,7 +1396,7 @@ quickCommitInFlight = false;
 setTimeout(() => {
 allQuickButtons.forEach((el) => {
 const launch = ALL_LAUNCHES.find((x) => Number(x.id) === Number(el.getAttribute("data-launch-id")));
-const isCommitOpen = normalizeStatus(launch?.status) === "commit";
+const isCommitOpen = isQuickCommitPhase(launch?.status);
 el.disabled = !isCommitOpen;
 el.classList.remove("is-loading");
 });
