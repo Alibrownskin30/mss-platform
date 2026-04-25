@@ -124,6 +124,59 @@ walletBalanceColumnsCache = getWalletBalanceColumnsFromRows(rows);
 return walletBalanceColumnsCache;
 }
 
+function hasMintFinalizationSignal(row = {}) {
+const contractAddress = cleanText(row.contract_address, 120);
+const tokenMintAddress = cleanText(row.token_mint_address, 120);
+const mintReservationStatus = cleanText(row.mint_reservation_status, 64).toLowerCase();
+const mintFinalizedAt = row.mint_finalized_at || null;
+
+return Boolean(
+contractAddress ||
+tokenMintAddress ||
+mintReservationStatus === "finalized" ||
+mintFinalizedAt
+);
+}
+
+function hasBootstrapReserveSignal(row = {}) {
+const poolId = toInt(row.pool_id, 0);
+const tokenId = toInt(row.token_id, 0);
+
+const poolSolReserve = toNumber(row.sol_reserve, 0);
+const poolTokenReserve = toNumber(row.token_reserve, 0);
+
+const lifecycleSolReserve = toNumber(row.lifecycle_internal_sol_reserve, 0);
+const lifecycleTokenReserve = toNumber(row.lifecycle_internal_token_reserve, 0);
+
+const launchInternalPoolSol = toNumber(row.internal_pool_sol, 0);
+const launchInternalPoolTokens = toNumber(row.internal_pool_tokens, 0);
+
+const launchLiquidity = toNumber(row.liquidity, 0);
+const launchPrice = toNumber(row.price, 0);
+
+const hasPoolArtifacts =
+tokenId > 0 &&
+poolId > 0 &&
+poolSolReserve > 0 &&
+poolTokenReserve > 0;
+
+const hasLifecycleReserves =
+lifecycleSolReserve > 0 &&
+lifecycleTokenReserve > 0;
+
+const hasLaunchSeedTruth =
+launchInternalPoolSol > 0 &&
+launchInternalPoolTokens > 0 &&
+launchLiquidity > 0 &&
+launchPrice > 0;
+
+return hasPoolArtifacts || hasLifecycleReserves || hasLaunchSeedTruth;
+}
+
+function hasBootstrappedMarketSignal(row = {}) {
+return hasMintFinalizationSignal(row) && hasBootstrapReserveSignal(row);
+}
+
 function computeLaunchPhase(row = {}) {
 const rawStatus = cleanText(row.status, 64).toLowerCase();
 const lifecycleGraduationStatus = cleanText(
@@ -137,18 +190,10 @@ const countdownEndsMs = parseDbTime(row.countdown_ends_at || row.live_at);
 const liveAtMs = parseDbTime(row.live_at || row.countdown_ends_at);
 const now = Date.now();
 
-const contractAddress = choosePreferredString(
-row.contract_address,
-row.token_mint_address
-);
-const mintReservationStatus = cleanText(
-row.mint_reservation_status,
-64
-).toLowerCase();
+const hasCountdownWindow =
+Number.isFinite(countdownStartedMs) || Number.isFinite(countdownEndsMs);
 
-const hasLiveSignal = Boolean(
-contractAddress || mintReservationStatus === "finalized"
-);
+const hasBootstrappedMarket = hasBootstrappedMarketSignal(row);
 
 if (rawStatus === "failed_refunded" || rawStatus === "failed") {
 return rawStatus;
@@ -163,31 +208,43 @@ return "graduated";
 }
 
 if (rawStatus === "live") {
-return "live";
+if (hasBootstrappedMarket) return "live";
+if (hasCountdownWindow) {
+if (Number.isFinite(countdownEndsMs) && now < countdownEndsMs) {
+return "countdown";
+}
+return "building";
+}
+return "building";
 }
 
 if (rawStatus === "building") {
-return hasLiveSignal ? "live" : "building";
+return hasBootstrappedMarket ? "live" : "building";
 }
 
 if (rawStatus === "countdown") {
-if (countdownEndsMs && now < countdownEndsMs) return "countdown";
-return hasLiveSignal ? "live" : "building";
-}
-
-if (countdownStartedMs && countdownEndsMs && now < countdownEndsMs) {
+if (Number.isFinite(countdownEndsMs) && now < countdownEndsMs) {
 return "countdown";
 }
-
-if (countdownEndsMs && now >= countdownEndsMs) {
-return hasLiveSignal ? "live" : "building";
+return hasBootstrappedMarket ? "live" : "building";
 }
 
-if (liveAtMs && now >= liveAtMs && hasLiveSignal) {
+if (rawStatus === "commit") {
+return hasBootstrappedMarket ? "live" : "commit";
+}
+
+if (hasCountdownWindow) {
+if (Number.isFinite(countdownEndsMs) && now < countdownEndsMs) {
+return "countdown";
+}
+return hasBootstrappedMarket ? "live" : "building";
+}
+
+if (liveAtMs && now >= liveAtMs && hasBootstrappedMarket) {
 return "live";
 }
 
-if (hasLiveSignal) {
+if (hasBootstrappedMarket) {
 return "live";
 }
 
@@ -217,6 +274,7 @@ poolSolReserve > 0
 
 const mintAddress = cleanText(row.token_mint_address, 120) || null;
 const contractAddress = cleanText(row.contract_address, 120) || null;
+const marketBootstrapped = hasBootstrappedMarketSignal(row);
 
 return {
 id: row.id,
@@ -225,6 +283,8 @@ token_name: row.token_name,
 symbol: row.symbol,
 template: row.template,
 status,
+raw_status: cleanText(row.status, 64).toLowerCase() || "commit",
+market_bootstrapped: marketBootstrapped,
 
 description: cleanText(row.description, 5000),
 image_url: cleanText(row.image_url, 1000),
@@ -331,6 +391,7 @@ cleanText(row.lifecycle_mss_locked_lp_amount, 200) || null,
 lock_status: cleanText(row.lifecycle_lock_status, 120) || "not_locked",
 lock_tx: cleanText(row.lifecycle_lock_tx, 300) || null,
 lock_expires_at: row.lifecycle_lock_expires_at || null,
+market_bootstrapped: marketBootstrapped,
 },
 
 builder_vesting: {
@@ -511,6 +572,8 @@ cleanText(builderRow?.alias, 120) ||
 null,
 builder_score: builderRow?.builder_score ?? launchRow?.builder_score ?? 0,
 
+token_id: token?.id || null,
+pool_id: pool?.id || null,
 sol_reserve: pool?.sol_reserve ?? 0,
 token_reserve: pool?.token_reserve ?? 0,
 token_mint_address: token?.mint_address || null,
@@ -589,6 +652,7 @@ monitoring_active: true,
 phase: String(launch?.status || "").toLowerCase() || "commit",
 layer: "market-intelligence",
 risk_state: riskState,
+market_bootstrapped: Boolean(launch?.market_bootstrapped),
 };
 }
 

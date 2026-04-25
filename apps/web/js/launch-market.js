@@ -292,6 +292,132 @@ return formatSol(sol, solDecimals);
 return "—";
 }
 
+function normalizeGraduationReadinessPayload(raw = {}) {
+if (!raw || typeof raw !== "object") return null;
+
+return {
+ready: Boolean(raw.ready),
+reason: cleanString(raw.reason, 500) || "",
+thresholds:
+raw.thresholds && typeof raw.thresholds === "object"
+? {
+marketcapSol: toNumber(raw.thresholds.marketcapSol ?? raw.thresholds.marketcap_sol, 0),
+volume24hSol: toNumber(raw.thresholds.volume24hSol ?? raw.thresholds.volume24h_sol, 0),
+minHolders: toInt(raw.thresholds.minHolders ?? raw.thresholds.min_holders, 0),
+minLiveMinutes: toInt(raw.thresholds.minLiveMinutes ?? raw.thresholds.min_live_minutes, 0),
+lockDays: toInt(raw.thresholds.lockDays ?? raw.thresholds.lock_days, 0),
+}
+: null,
+metrics:
+raw.metrics && typeof raw.metrics === "object"
+? {
+marketcapSol: toNumber(raw.metrics.marketcapSol ?? raw.metrics.marketcap_sol, 0),
+volume24hSol: toNumber(raw.metrics.volume24hSol ?? raw.metrics.volume24h_sol, 0),
+holderCount: toInt(raw.metrics.holderCount ?? raw.metrics.holder_count, 0),
+liveMinutes: toInt(raw.metrics.liveMinutes ?? raw.metrics.live_minutes, 0),
+solReserve: toNumber(raw.metrics.solReserve ?? raw.metrics.sol_reserve, 0),
+tokenReserve: toInt(raw.metrics.tokenReserve ?? raw.metrics.token_reserve, 0),
+priceSol: toNumber(raw.metrics.priceSol ?? raw.metrics.price_sol, 0),
+totalSupply: toInt(raw.metrics.totalSupply ?? raw.metrics.total_supply, 0),
+}
+: null,
+checks:
+raw.checks && typeof raw.checks === "object"
+? {
+liveStatus: Boolean(raw.checks.liveStatus ?? raw.checks.live_status),
+marketcapReached: Boolean(raw.checks.marketcapReached ?? raw.checks.marketcap_reached),
+volumeReached: Boolean(raw.checks.volumeReached ?? raw.checks.volume_reached),
+holdersReached: Boolean(raw.checks.holdersReached ?? raw.checks.holders_reached),
+minimumLiveWindowReached: Boolean(
+raw.checks.minimumLiveWindowReached ?? raw.checks.minimum_live_window_reached
+),
+hasReserves: Boolean(raw.checks.hasReserves ?? raw.checks.has_reserves),
+alreadyGraduated: Boolean(raw.checks.alreadyGraduated ?? raw.checks.already_graduated),
+}
+: null,
+};
+}
+
+function normalizeBuilderVestingPayload(raw = {}) {
+if (!raw || typeof raw !== "object") {
+return {
+builderWallet: "",
+totalAllocation: 0,
+dailyUnlock: 0,
+unlockedAmount: 0,
+lockedAmount: 0,
+vestingStartAt: null,
+createdAt: null,
+updatedAt: null,
+vestedDays: 0,
+};
+}
+
+return {
+builderWallet: choosePreferredNonEmpty(raw.builderWallet, raw.builder_wallet),
+totalAllocation: toInt(raw.totalAllocation ?? raw.total_allocation, 0),
+dailyUnlock: toInt(raw.dailyUnlock ?? raw.daily_unlock, 0),
+unlockedAmount: toInt(raw.unlockedAmount ?? raw.unlocked_amount, 0),
+lockedAmount: toInt(raw.lockedAmount ?? raw.locked_amount, 0),
+vestingStartAt: raw.vestingStartAt ?? raw.vesting_start_at ?? null,
+createdAt: raw.createdAt ?? raw.created_at ?? null,
+updatedAt: raw.updatedAt ?? raw.updated_at ?? null,
+vestedDays: toInt(raw.vestedDays ?? raw.vested_days, 0),
+};
+}
+
+function normalizeLifecyclePayload(raw = {}) {
+if (!raw || typeof raw !== "object") return null;
+
+const builderVesting = normalizeBuilderVestingPayload(
+raw.builderVesting || raw.builder_vesting || {}
+);
+
+return {
+launchStatus: cleanString(raw.launchStatus ?? raw.launch_status, 80).toLowerCase(),
+internalSolReserve: toNumber(raw.internalSolReserve ?? raw.internal_sol_reserve, 0),
+internalTokenReserve: toInt(raw.internalTokenReserve ?? raw.internal_token_reserve, 0),
+impliedMarketcapSol: toNumber(raw.impliedMarketcapSol ?? raw.implied_marketcap_sol, 0),
+graduationStatus:
+cleanString(raw.graduationStatus ?? raw.graduation_status, 120) || "internal_live",
+graduated: Boolean(raw.graduated),
+graduationReason:
+cleanString(raw.graduationReason ?? raw.graduation_reason, 200) || null,
+graduatedAt: raw.graduatedAt ?? raw.graduated_at ?? null,
+raydiumTargetPct: toNumber(raw.raydiumTargetPct ?? raw.raydium_target_pct, 50),
+mssLockedTargetPct: toNumber(raw.mssLockedTargetPct ?? raw.mss_locked_target_pct, 50),
+raydiumPoolId: cleanString(raw.raydiumPoolId ?? raw.raydium_pool_id, 240),
+raydiumSolMigrated: toNumber(raw.raydiumSolMigrated ?? raw.raydium_sol_migrated, 0),
+raydiumTokenMigrated: toInt(raw.raydiumTokenMigrated ?? raw.raydium_token_migrated, 0),
+raydiumLpTokens: cleanString(raw.raydiumLpTokens ?? raw.raydium_lp_tokens, 240),
+raydiumMigrationTx: cleanString(raw.raydiumMigrationTx ?? raw.raydium_migration_tx, 240),
+mssLockedSol: toNumber(raw.mssLockedSol ?? raw.mss_locked_sol, 0),
+mssLockedToken: toInt(raw.mssLockedToken ?? raw.mss_locked_token, 0),
+mssLockedLpAmount: cleanString(raw.mssLockedLpAmount ?? raw.mss_locked_lp_amount, 240),
+lockStatus: cleanString(raw.lockStatus ?? raw.lock_status, 120) || "not_locked",
+lockTx: cleanString(raw.lockTx ?? raw.lock_tx, 240),
+lockExpiresAt: raw.lockExpiresAt ?? raw.lock_expires_at ?? null,
+graduationReadiness: normalizeGraduationReadinessPayload(
+raw.graduationReadiness || raw.graduation_readiness || null
+),
+builderVesting,
+};
+}
+
+function normalizeGraduationPlanPayload(raw = {}) {
+if (!raw || typeof raw !== "object") return null;
+
+return {
+raydiumSplitPct: toNumber(raw.raydiumSplitPct ?? raw.raydium_split_pct ?? raw.raydiumTargetPct ?? raw.raydium_target_pct, 50),
+mssLockedSplitPct: toNumber(raw.mssLockedSplitPct ?? raw.mss_locked_split_pct ?? raw.mssLockedTargetPct ?? raw.mss_locked_target_pct, 50),
+marketcapThresholdSol: toNumber(raw.marketcapThresholdSol ?? raw.marketcap_threshold_sol, 0),
+volume24hThresholdSol: toNumber(raw.volume24hThresholdSol ?? raw.volume24h_threshold_sol, 0),
+minHolders: toInt(raw.minHolders ?? raw.min_holders, 0),
+minLiveMinutes: toInt(raw.minLiveMinutes ?? raw.min_live_minutes, 0),
+lockDays: toInt(raw.lockDays ?? raw.lock_days, 0),
+};
+}
+
 function buildLaunchPatchFromTokenPayload(tokenPayload = {}) {
 const token = tokenPayload?.token || {};
 const launch = tokenPayload?.launch || {};
@@ -662,11 +788,10 @@ if (explicit === "graduated") return PHASES.LIVE;
 if (explicit === "live") return PHASES.LIVE;
 
 if (explicit === "building") {
-return hasLiveSignal ? PHASES.LIVE : PHASES.BUILDING;
+return PHASES.BUILDING;
 }
 
 if (explicit === "countdown") {
-if (hasLiveSignal) return PHASES.LIVE;
 if (countdownEndMs && now >= countdownEndMs) return PHASES.BUILDING;
 return PHASES.COUNTDOWN;
 }
@@ -675,15 +800,18 @@ if (explicit === "failed" || explicit === "failed_refunded") {
 return PHASES.COMMIT;
 }
 
-if ((countdownStartMs || countdownEndMs) && !hasLiveSignal) {
-if (countdownEndMs && now >= countdownEndMs) return PHASES.BUILDING;
+if (explicit === "commit") {
+return PHASES.COMMIT;
+}
+
+if (countdownStartMs || countdownEndMs) {
+if (countdownEndMs && now >= countdownEndMs) {
+return hasLiveSignal ? PHASES.LIVE : PHASES.BUILDING;
+}
 return PHASES.COUNTDOWN;
 }
 
 if (hasLiveSignal) {
-if (countdownEndMs && now < countdownEndMs) {
-return PHASES.COUNTDOWN;
-}
 return PHASES.LIVE;
 }
 
@@ -2172,6 +2300,18 @@ function renderLifecycleCard(lifecycle = null, graduationPlan = null, phase = PH
 const section = $("lifecycleSection");
 if (!section) return;
 
+const lifecycleSafe = normalizeLifecyclePayload(lifecycle || {}) || {
+graduationStatus: phase === PHASES.LIVE ? "internal_live" : "pending",
+internalSolReserve: 0,
+internalTokenReserve: 0,
+raydiumTargetPct: 50,
+mssLockedTargetPct: 50,
+builderVesting: normalizeBuilderVestingPayload({}),
+graduationReadiness: null,
+graduated: false,
+};
+const graduationPlanSafe = normalizeGraduationPlanPayload(graduationPlan || {}) || null;
+
 const statusValue = $("lifecycleStatusValue");
 const statusPill = $("lifecycleStatusPill");
 const reservesValue = $("lifecycleReservesValue");
@@ -2184,9 +2324,9 @@ const readinessNote = $("graduationReadinessNote");
 const graduateBtn = $("graduateDevnetBtn");
 const graduationProof = $("graduationProofList");
 
-const readiness = lifecycle?.graduationReadiness || null;
+const readiness = lifecycleSafe?.graduationReadiness || null;
 const statusText = cleanString(
-lifecycle?.graduationStatus ||
+lifecycleSafe?.graduationStatus ||
 (phase === PHASES.LIVE ? "internal_live" : "pending"),
 80
 ) || "pending";
@@ -2200,8 +2340,8 @@ statusPill.textContent = statusText.replaceAll("_", " ");
 statusPill.className = `status-pill ${getLifecycleStatusTone(statusText) === "good" ? "live" : getLifecycleStatusTone(statusText) === "warn" ? "countdown" : "commit"}`;
 }
 
-const internalSol = toNumber(lifecycle?.internalSolReserve, 0);
-const internalTokens = toInt(lifecycle?.internalTokenReserve, 0);
+const internalSol = toNumber(lifecycleSafe?.internalSolReserve, 0);
+const internalTokens = toInt(lifecycleSafe?.internalTokenReserve, 0);
 
 if (reservesValue) {
 reservesValue.innerHTML = `
@@ -2211,11 +2351,11 @@ reservesValue.innerHTML = `
 }
 
 const raydiumPct = toNumber(
-lifecycle?.raydiumTargetPct ?? graduationPlan?.raydiumSplitPct,
+lifecycleSafe?.raydiumTargetPct ?? graduationPlanSafe?.raydiumSplitPct,
 50
 );
 const mssPct = toNumber(
-lifecycle?.mssLockedTargetPct ?? graduationPlan?.mssLockedSplitPct,
+lifecycleSafe?.mssLockedTargetPct ?? graduationPlanSafe?.mssLockedSplitPct,
 50
 );
 
@@ -2226,9 +2366,9 @@ splitValue.innerHTML = `
 `;
 }
 
-const lockStatus = cleanString(lifecycle?.lockStatus, 80) || "not_locked";
-const lockTx = cleanString(lifecycle?.lockTx, 240);
-const lockExpiry = lifecycle?.lockExpiresAt || null;
+const lockStatus = cleanString(lifecycleSafe?.lockStatus, 80) || "not_locked";
+const lockTx = cleanString(lifecycleSafe?.lockTx, 240);
+const lockExpiry = lifecycleSafe?.lockExpiresAt || null;
 
 if (lockValue) {
 lockValue.innerHTML = `
@@ -2240,10 +2380,10 @@ ${lockExpiry ? ` • ${escapeHtml(formatDateTime(lockExpiry))}` : ""}
 `;
 }
 
-const raydiumPoolId = cleanString(lifecycle?.raydiumPoolId, 240);
-const raydiumMigrationTx = cleanString(lifecycle?.raydiumMigrationTx, 240);
-const raydiumSolMigrated = toNumber(lifecycle?.raydiumSolMigrated, 0);
-const raydiumTokenMigrated = toInt(lifecycle?.raydiumTokenMigrated, 0);
+const raydiumPoolId = cleanString(lifecycleSafe?.raydiumPoolId, 240);
+const raydiumMigrationTx = cleanString(lifecycleSafe?.raydiumMigrationTx, 240);
+const raydiumSolMigrated = toNumber(lifecycleSafe?.raydiumSolMigrated, 0);
+const raydiumTokenMigrated = toInt(lifecycleSafe?.raydiumTokenMigrated, 0);
 
 if (raydiumValue) {
 raydiumValue.innerHTML = `
@@ -2254,7 +2394,7 @@ ${raydiumMigrationTx ? `${escapeHtml(shortAddress(raydiumMigrationTx, 10, 8))} �
 `;
 }
 
-const vest = lifecycle?.builderVesting || {};
+const vest = lifecycleSafe?.builderVesting || normalizeBuilderVestingPayload({});
 const unlockedAmount = toInt(vest?.unlockedAmount, 0);
 const lockedAmount = toInt(vest?.lockedAmount, 0);
 const vestedDays = toInt(vest?.vestedDays, 0);
@@ -2280,7 +2420,7 @@ const thresholdText = readiness?.thresholds
 readinessNote.textContent =
 readiness?.ready
 ? "Graduation thresholds satisfied."
-: lifecycle?.graduated
+: lifecycleSafe?.graduated
 ? "Launch has already graduated."
 : thresholdText || "Graduation conditions are still being monitored.";
 }
@@ -2289,7 +2429,7 @@ if (graduateBtn) {
 const canShow =
 phase === PHASES.LIVE &&
 Boolean(readiness?.ready) &&
-!Boolean(lifecycle?.graduated);
+!Boolean(lifecycleSafe?.graduated);
 
 graduateBtn.classList.toggle("hidden", !canShow);
 graduateBtn.disabled = !canShow || graduateBtn.dataset.busy === "1";
@@ -2320,14 +2460,14 @@ items.push(`
 `);
 }
 
-if (lockTx || lifecycle?.mssLockedLpAmount) {
+if (lockTx || lifecycleSafe?.mssLockedLpAmount) {
 items.push(`
 <div class="recent-item">
 <div>
 <div class="recent-wallet">MSS Lock Proof</div>
 <div class="recent-meta">${escapeHtml(lockTx || "Lock metadata recorded")}</div>
 </div>
-<div class="recent-wallet">${escapeHtml(cleanString(lifecycle?.mssLockedLpAmount, 80) || "Tracked")}</div>
+<div class="recent-wallet">${escapeHtml(cleanString(lifecycleSafe?.mssLockedLpAmount, 80) || "Tracked")}</div>
 </div>
 `);
 }
@@ -2337,7 +2477,7 @@ graduationProof.innerHTML = items.join("");
 
 setText("launchGraduationReadinessText", readiness?.ready ? "Ready" : "Monitoring");
 setText("launchLpInternalText", internalSol > 0 ? formatSol(internalSol, 4) : "Pending");
-setText("launchLockedLpText", cleanString(lifecycle?.lockStatus, 80) || "Pending");
+setText("launchLockedLpText", cleanString(lifecycleSafe?.lockStatus, 80) || "Pending");
 setText("launchMigrationStateText", statusText.replaceAll("_", " "));
 }
 
@@ -2746,6 +2886,22 @@ if (payload?.chartLaunch) {
 this.launch = mergeLaunchTruth(this.launch || {}, payload.chartLaunch);
 }
 
+if (!this.lifecycle) {
+this.lifecycle = normalizeLifecyclePayload(
+this.tokenPayload?.lifecycle ||
+this.tokenPayload?.launch?.lifecycle ||
+null
+);
+}
+
+if (!this.graduationPlan) {
+this.graduationPlan = normalizeGraduationPlanPayload(
+this.tokenPayload?.graduationPlan ||
+this.tokenPayload?.graduation_plan ||
+null
+);
+}
+
 this.launch = mergeLaunchTruth(this.launch || {}, tokenLaunchPatch);
 this.launch = canonicalizeLaunchTruth(this.launch || {}, this.commitStats || {});
 
@@ -2764,8 +2920,8 @@ async refreshLifecycleOnly() {
 if (!this.launchId) return;
 
 const payload = await this.fetchLifecycle(this.launchId);
-this.lifecycle = payload?.lifecycle || null;
-this.graduationPlan = payload?.graduationPlan || null;
+this.lifecycle = normalizeLifecyclePayload(payload?.lifecycle || null);
+this.graduationPlan = normalizeGraduationPlanPayload(payload?.graduationPlan || payload?.graduation_plan || null);
 }
 
 async refreshLiveMarketOnly({ force = false, previousPhaseOverride = null } = {}) {
@@ -2850,8 +3006,19 @@ this.launch = mergeLaunchTruth(this.launch || {}, commitStatsPatch);
 this.launch = mergeLaunchTruth(this.launch || {}, tokenLaunchPatch);
 this.launch = canonicalizeLaunchTruth(this.launch || {}, this.commitStats || {});
 
-this.lifecycle = lifecyclePayload?.lifecycle || null;
-this.graduationPlan = lifecyclePayload?.graduationPlan || null;
+this.lifecycle = normalizeLifecyclePayload(
+lifecyclePayload?.lifecycle ||
+tokenPayload?.lifecycle ||
+tokenPayload?.launch?.lifecycle ||
+null
+);
+this.graduationPlan = normalizeGraduationPlanPayload(
+lifecyclePayload?.graduationPlan ||
+lifecyclePayload?.graduation_plan ||
+tokenPayload?.graduationPlan ||
+tokenPayload?.graduation_plan ||
+null
+);
 
 const nextPhase = inferPhase(this.launch, this.commitStats);
 this.phase = nextPhase;
@@ -3377,7 +3544,7 @@ const result = await this.graduateDevnet(this.launchId, {
 reason: "devnet_manual_override",
 });
 
-this.lifecycle = result?.lifecycle || this.lifecycle;
+this.lifecycle = normalizeLifecyclePayload(result?.lifecycle || this.lifecycle || null);
 if (result?.launch) {
 this.launch = mergeLaunchTruth(this.launch || {}, result.launch);
 this.launch = canonicalizeLaunchTruth(this.launch || {}, this.commitStats || {});

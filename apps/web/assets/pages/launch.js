@@ -303,12 +303,18 @@ if (normalized === "building" || normalized === "bootstrap" || normalized === "b
 if (normalized === "countdown") return "countdown";
 if (normalized === "failed_refunded") return "failed_refunded";
 if (normalized === "failed") return "failed";
-return "commit";
+if (normalized === "commit") return "commit";
+return "";
 }
 
 function resolveCanonicalLaunchStatus(launchLike = {}, statsLike = {}, lifecycleLike = null) {
 const rawStatus = normalizePhaseStatus(launchLike?.status);
-const lifecycleStatus = normalizePhaseStatus(lifecycleLike?.launchStatus || lifecycleLike?.status || "");
+const lifecycleStatus = normalizePhaseStatus(
+lifecycleLike?.launchStatus ||
+lifecycleLike?.launch_status ||
+lifecycleLike?.status ||
+""
+);
 
 const contractAddress = choosePreferredString(
 launchLike?.contract_address,
@@ -320,6 +326,7 @@ lifecycleLike?.contract_address
 const mintStatus = cleanString(launchLike?.mint_reservation_status, 64).toLowerCase();
 const countdownStartedMs = parseTs(statsLike?.countdownStartedAt || launchLike?.countdown_started_at);
 const countdownEndsMs = parseTs(statsLike?.countdownEndsAt || launchLike?.countdown_ends_at || launchLike?.live_at);
+const commitEndMs = parseTs(statsLike?.commitEndsAt || launchLike?.commit_ends_at);
 const hasCountdownWindow = Number.isFinite(countdownStartedMs) || Number.isFinite(countdownEndsMs);
 const hasLiveSignal = Boolean(contractAddress || mintStatus === "finalized");
 const now = Date.now();
@@ -341,25 +348,23 @@ return "live";
 }
 
 if (rawStatus === "building" || lifecycleStatus === "building") {
-return hasLiveSignal ? "live" : "building";
+return "building";
 }
 
 if (rawStatus === "countdown" || lifecycleStatus === "countdown") {
-if (hasLiveSignal && (!Number.isFinite(countdownEndsMs) || now >= countdownEndsMs)) {
-return "live";
-}
 if (Number.isFinite(countdownEndsMs) && now >= countdownEndsMs) {
 return "building";
 }
 return "countdown";
 }
 
-if (hasCountdownWindow) {
-if (hasLiveSignal && (!Number.isFinite(countdownEndsMs) || now >= countdownEndsMs)) {
-return "live";
+if (rawStatus === "commit") {
+return "commit";
 }
+
+if (hasCountdownWindow) {
 if (Number.isFinite(countdownEndsMs) && now >= countdownEndsMs) {
-return "building";
+return hasLiveSignal ? "live" : "building";
 }
 return "countdown";
 }
@@ -368,7 +373,11 @@ if (hasLiveSignal) {
 return "live";
 }
 
-return rawStatus || "commit";
+if (Number.isFinite(commitEndMs) && Number.isFinite(countdownEndsMs) && now >= commitEndMs && now < countdownEndsMs) {
+return "countdown";
+}
+
+return "commit";
 }
 
 function sanitizePublicLaunchFields(launchLike = {}, statsLike = {}, lifecycleLike = null) {
@@ -488,33 +497,77 @@ updated_at: cleanString(raw?.updated_at, 200),
 };
 }
 
+function normalizeGraduationReadinessData(raw = {}) {
+if (!raw || typeof raw !== "object") return null;
+
+return {
+...raw,
+ready: Boolean(raw.ready),
+reason: cleanString(raw.reason, 500),
+thresholds:
+raw.thresholds && typeof raw.thresholds === "object"
+? {
+...raw.thresholds,
+marketcapSol: safeNum(raw.thresholds.marketcapSol ?? raw.thresholds.marketcap_sol, 0),
+volume24hSol: safeNum(raw.thresholds.volume24hSol ?? raw.thresholds.volume24h_sol, 0),
+minHolders: safeNum(raw.thresholds.minHolders ?? raw.thresholds.min_holders, 0),
+minLiveMinutes: safeNum(raw.thresholds.minLiveMinutes ?? raw.thresholds.min_live_minutes, 0),
+lockDays: safeNum(raw.thresholds.lockDays ?? raw.thresholds.lock_days, 0),
+}
+: null,
+};
+}
+
+function normalizeBuilderVestingData(raw = {}) {
+if (!raw || typeof raw !== "object") return null;
+
+return {
+...raw,
+builderWallet: choosePreferredString(raw.builderWallet, raw.builder_wallet),
+totalAllocation: safeNum(raw.totalAllocation ?? raw.total_allocation, 0),
+dailyUnlock: safeNum(raw.dailyUnlock ?? raw.daily_unlock, 0),
+unlockedAmount: safeNum(raw.unlockedAmount ?? raw.unlocked_amount, 0),
+lockedAmount: safeNum(raw.lockedAmount ?? raw.locked_amount, 0),
+vestingStartAt: cleanString(raw.vestingStartAt ?? raw.vesting_start_at, 200),
+createdAt: cleanString(raw.createdAt ?? raw.created_at, 200),
+updatedAt: cleanString(raw.updatedAt ?? raw.updated_at, 200),
+vestedDays: safeNum(raw.vestedDays ?? raw.vested_days, 0),
+};
+}
+
 function normalizeLifecycleData(raw = {}) {
 if (!raw || typeof raw !== "object") return null;
 
 return {
 ...raw,
 status: cleanString(raw.status, 64).toLowerCase(),
-launchStatus: cleanString(raw.launchStatus, 64).toLowerCase(),
-contractAddress: cleanString(raw.contractAddress, 200),
-contract_address: cleanString(raw.contract_address, 200),
-builderWallet: cleanString(raw.builderWallet, 200),
-builder_wallet: cleanString(raw.builder_wallet, 200),
-graduationStatus: cleanString(raw.graduationStatus, 120),
-graduationReason: cleanString(raw.graduationReason, 200),
-raydiumPoolId: cleanString(raw.raydiumPoolId, 300),
-lockStatus: cleanString(raw.lockStatus, 120),
+launchStatus: cleanString(raw.launchStatus ?? raw.launch_status ?? raw.status, 64).toLowerCase(),
+contractAddress: cleanString(raw.contractAddress ?? raw.contract_address, 200),
+contract_address: cleanString(raw.contract_address ?? raw.contractAddress, 200),
+builderWallet: cleanString(raw.builderWallet ?? raw.builder_wallet, 200),
+builder_wallet: cleanString(raw.builder_wallet ?? raw.builderWallet, 200),
+internalSolReserve: safeNum(raw.internalSolReserve ?? raw.internal_sol_reserve, 0),
+internalTokenReserve: safeNum(raw.internalTokenReserve ?? raw.internal_token_reserve, 0),
+totalSupply: safeNum(raw.totalSupply ?? raw.total_supply, 0),
+priceSol: safeNum(raw.priceSol ?? raw.price_sol, 0),
+volume24hSol: safeNum(raw.volume24hSol ?? raw.volume24h_sol, 0),
+lockedLpAmount: safeNum(raw.lockedLpAmount ?? raw.locked_lp_amount, 0),
+mssLockedLpAmount: safeNum(raw.mssLockedLpAmount ?? raw.mss_locked_lp_amount, 0),
+mssLockedLpSol: safeNum(raw.mssLockedLpSol ?? raw.mss_locked_lp_sol, 0),
+lockedSolReserve: safeNum(raw.lockedSolReserve ?? raw.locked_sol_reserve, 0),
+raydiumTargetPct: safeNum(raw.raydiumTargetPct ?? raw.raydium_target_pct, 0),
+mssLockedTargetPct: safeNum(raw.mssLockedTargetPct ?? raw.mss_locked_target_pct, 0),
+graduationStatus: cleanString(raw.graduationStatus ?? raw.graduation_status, 120),
+graduationReason: cleanString(raw.graduationReason ?? raw.graduation_reason, 200),
+raydiumPoolId: cleanString(raw.raydiumPoolId ?? raw.raydium_pool_id, 300),
+lockStatus: cleanString(raw.lockStatus ?? raw.lock_status, 120),
 updated_at: cleanString(raw.updated_at, 200),
-graduationReadiness:
-raw.graduationReadiness && typeof raw.graduationReadiness === "object"
-? {
-...raw.graduationReadiness,
-reason: cleanString(raw.graduationReadiness.reason, 500),
-}
-: null,
-builderVesting:
-raw.builderVesting && typeof raw.builderVesting === "object"
-? { ...raw.builderVesting }
-: null,
+graduationReadiness: normalizeGraduationReadinessData(
+raw.graduationReadiness || raw.graduation_readiness || null
+),
+builderVesting: normalizeBuilderVestingData(
+raw.builderVesting || raw.builder_vesting || null
+),
 };
 }
 
@@ -523,9 +576,20 @@ if (!previous && !next) return null;
 if (!previous) return normalizeLifecycleData(next);
 if (!next) return normalizeLifecycleData(previous);
 
+const prev = normalizeLifecycleData(previous);
+const incoming = normalizeLifecycleData(next);
+
 return {
-...normalizeLifecycleData(previous),
-...normalizeLifecycleData(next),
+...prev,
+...incoming,
+graduationReadiness:
+incoming?.graduationReadiness ||
+prev?.graduationReadiness ||
+null,
+builderVesting:
+incoming?.builderVesting ||
+prev?.builderVesting ||
+null,
 };
 }
 
@@ -1528,7 +1592,7 @@ if (safeNum(lifecycle.totalSupply, 0) > 0 && safeNum(lifecycle.priceSol, 0) > 0)
 parts.push(`Internal price: ${safeNum(lifecycle.priceSol).toFixed(8).replace(/\.?0+$/, "")} SOL`);
 }
 
-if (lifecycle.builderVesting?.lockedAmount > 0) {
+if (safeNum(lifecycle?.builderVesting?.lockedAmount, 0) > 0) {
 parts.push(`Builder locked: ${fmtTokenAmount(lifecycle.builderVesting.lockedAmount, 0)} tokens`);
 }
 
@@ -1806,8 +1870,11 @@ currentLifecycle
 
 currentGraduationPlan =
 launchRes?.graduationPlan ||
+launchRes?.graduation_plan ||
 commitsRes?.graduationPlan ||
+commitsRes?.graduation_plan ||
 reconcileRes?.graduationPlan ||
+reconcileRes?.graduation_plan ||
 currentGraduationPlan ||
 null;
 }
@@ -1834,12 +1901,16 @@ const lifecycleRes = await fetchJson(`/api/launcher/${id}/lifecycle`).catch(() =
 if (!lifecycleRes) return;
 
 currentLifecycle = mergeLifecycleTruth(currentLifecycle, lifecycleRes.lifecycle || null);
-currentGraduationPlan = lifecycleRes.graduationPlan || currentGraduationPlan || null;
+currentGraduationPlan =
+lifecycleRes.graduationPlan ||
+lifecycleRes.graduation_plan ||
+currentGraduationPlan ||
+null;
 
 currentLaunch = mergeLaunchTruth(
 currentLaunch || {},
 {
-status: lifecycleRes.status || currentLaunch?.status || "",
+status: currentLifecycle?.launchStatus || currentLaunch?.status || "",
 contract_address:
 currentLifecycle?.contractAddress ||
 currentLifecycle?.contract_address ||

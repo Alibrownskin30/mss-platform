@@ -661,19 +661,29 @@ return "live";
 }
 
 if (rawStatus === "building") {
-return hasLiveSignal ? "live" : "building";
+return "building";
 }
 
 if (rawStatus === "countdown") {
 if (Number.isFinite(countdownEndsMs) && Date.now() >= countdownEndsMs) {
-return hasLiveSignal ? "live" : "building";
+return "building";
 }
 return "countdown";
 }
 
+if (rawStatus === "commit") {
 if (hasCountdownWindow) {
 if (Number.isFinite(countdownEndsMs) && Date.now() >= countdownEndsMs) {
-return hasLiveSignal ? "live" : "building";
+return "building";
+}
+return "countdown";
+}
+return "commit";
+}
+
+if (hasCountdownWindow) {
+if (Number.isFinite(countdownEndsMs) && Date.now() >= countdownEndsMs) {
+return "building";
 }
 return "countdown";
 }
@@ -704,24 +714,20 @@ function sanitizeLaunchForPublic(row, { includeMintMeta = false } = {}) {
 const parsed = applyCanonicalLaunchTruth(row);
 const revealCa = shouldRevealContractAddress(parsed?.status);
 
-const sanitized = {
+return {
 ...parsed,
 contract_address: revealCa ? cleanText(parsed?.contract_address, 120) || null : null,
 reserved_mint_address: null,
+reserved_mint_secret: null,
+mint_reservation_status: revealCa ? cleanText(parsed?.mint_reservation_status, 40) || null : null,
+mint_reservation_attempts: revealCa && includeMintMeta
+? Number(parsed?.mint_reservation_attempts || 0)
+: 0,
+mint_reserved_at: revealCa && includeMintMeta
+? parsed?.mint_reserved_at || null
+: null,
+mint_finalized_at: revealCa ? parsed?.mint_finalized_at || null : null,
 };
-
-if (!revealCa) {
-sanitized.mint_reservation_status = includeMintMeta
-? null
-: sanitized.mint_reservation_status;
-sanitized.mint_reservation_attempts = includeMintMeta
-? 0
-: sanitized.mint_reservation_attempts;
-sanitized.mint_reserved_at = includeMintMeta ? null : sanitized.mint_reserved_at;
-sanitized.mint_finalized_at = includeMintMeta ? null : sanitized.mint_finalized_at;
-}
-
-return sanitized;
 }
 
 function hasCollectedBuilderBond(row) {
@@ -2793,7 +2799,7 @@ return res.status(404).json({ ok: false, error: "launch not found" });
 
 const hydratedLaunch = await getLaunchWithBuilderById(launchId);
 const stats = await getCommitStats(launchId);
-const lifecycle = await safeGetLifecycle(launchId);
+const lifecycle = await safeSyncLifecycle(launchId);
 const graduationPlan = await safeGetGraduationPlan(launchId);
 
 return res.json({
@@ -3088,7 +3094,7 @@ hydratedLaunch || reconciledLaunch,
 { includeMintMeta: false }
 );
 const stats = await getCommitStats(launchId);
-const lifecycle = await safeGetLifecycle(launchId);
+const lifecycle = await safeSyncLifecycle(launchId);
 const graduationPlan = await safeGetGraduationPlan(launchId);
 
 const recent = await db.all(
@@ -3221,7 +3227,7 @@ return res.status(404).json({ ok: false, error: "launch not found" });
 
 const hydratedLaunch = await getLaunchWithBuilderById(id);
 const parsedLaunch = sanitizeLaunchForPublic(hydratedLaunch || reconciledLaunch);
-const lifecycle = await safeGetLifecycle(id);
+const lifecycle = await safeSyncLifecycle(id);
 const graduationPlan = await safeGetGraduationPlan(id);
 
 return res.json({
