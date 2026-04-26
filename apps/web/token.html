@@ -29,6 +29,11 @@ content="Blockchain Security Intelligence: contract authorities, holder concentr
 <script>
 (function () {
 const { protocol, hostname, port } = window.location;
+
+const isDevnetHost =
+hostname === "devnet.mssprotocol.com" ||
+hostname === "www.devnet.mssprotocol.com";
+
 const isLocalDev =
 hostname === "127.0.0.1" ||
 hostname === "localhost" ||
@@ -1810,6 +1815,6 @@ window.location.reload();
 });
 </script>
 
-<script type="module" src="./assets/token.js?v=15"></script>
+<script type="module" src="./assets/token.js?v=16"></script>
 </body>
 </html>
