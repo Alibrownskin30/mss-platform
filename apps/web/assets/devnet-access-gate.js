@@ -6,14 +6,40 @@ const DEVNET_HOSTS = new Set([
 
 const ACCESS_CODES = new Set(["MSSDEVNETSOL"]);
 
-// v2 forces old testers/devices that already entered the old gate to re-enter once.
-// Change back to "mss_devnet_access_v1" if you do not want to reset access.
-const STORAGE_KEY = "mss_devnet_access_v2";
+// v3 forces old saved access to refresh once after the shield/logo upgrade.
+const STORAGE_KEY = "mss_devnet_access_v3";
 
 const hostname = window.location.hostname.toLowerCase();
 
 if (!DEVNET_HOSTS.has(hostname)) {
 return;
+}
+
+function getShieldSvg() {
+return `
+<svg viewBox="0 0 64 64" fill="none" aria-hidden="true">
+<path
+d="M32 6L49.5 12.8V28.6C49.5 39.4 42.8 49.2 32 54C21.2 49.2 14.5 39.4 14.5 28.6V12.8L32 6Z"
+fill="url(#mssDevnetShieldFill)"
+stroke="rgba(255,248,222,.92)"
+stroke-width="2.2"
+/>
+<path
+d="M21 39.5V21.8L27.2 31.1L32 24.5L36.8 31.1L43 21.8V39.5"
+stroke="rgba(16,18,22,.96)"
+stroke-width="4"
+stroke-linecap="round"
+stroke-linejoin="round"
+/>
+<defs>
+<linearGradient id="mssDevnetShieldFill" x1="16" y1="10" x2="48" y2="54" gradientUnits="userSpaceOnUse">
+<stop stop-color="#f4de9a"/>
+<stop offset="0.52" stop-color="#dcb96a"/>
+<stop offset="1" stop-color="#a97526"/>
+</linearGradient>
+</defs>
+</svg>
+`;
 }
 
 function normalizeCode(value) {
@@ -91,9 +117,9 @@ padding: 18px;
 color: #f6f8ff;
 font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
 background:
-radial-gradient(circle at 18% 16%, rgba(39, 136, 255, 0.24), transparent 30%),
-radial-gradient(circle at 86% 20%, rgba(223, 180, 86, 0.18), transparent 28%),
-radial-gradient(circle at 50% 92%, rgba(72, 199, 255, 0.14), transparent 34%),
+radial-gradient(circle at 18% 16%, rgba(244, 222, 154, 0.12), transparent 31%),
+radial-gradient(circle at 86% 20%, rgba(220, 185, 106, 0.12), transparent 28%),
+radial-gradient(circle at 50% 92%, rgba(182, 190, 203, 0.08), transparent 34%),
 linear-gradient(135deg, #02040a 0%, #07101d 38%, #03040a 100%);
 overflow: hidden;
 }
@@ -117,7 +143,7 @@ position: absolute;
 inset: 0;
 pointer-events: none;
 background:
-linear-gradient(90deg, transparent, rgba(108, 200, 255, 0.08), transparent),
+linear-gradient(90deg, transparent, rgba(244, 222, 154, 0.055), transparent),
 repeating-linear-gradient(
 to bottom,
 rgba(255, 255, 255, 0.022) 0,
@@ -135,13 +161,13 @@ width: 620px;
 height: 620px;
 border-radius: 50%;
 filter: blur(10px);
-opacity: 0.55;
+opacity: 0.5;
 pointer-events: none;
 background:
-radial-gradient(circle at 38% 36%, rgba(118, 216, 255, 0.2), transparent 18%),
-radial-gradient(circle at 50% 50%, rgba(12, 38, 76, 0.36), transparent 54%),
+radial-gradient(circle at 38% 36%, rgba(244, 222, 154, 0.13), transparent 18%),
+radial-gradient(circle at 50% 50%, rgba(12, 38, 76, 0.32), transparent 54%),
 radial-gradient(circle at 50% 50%, rgba(220, 181, 89, 0.11), transparent 68%);
-border: 1px solid rgba(129, 200, 255, 0.08);
+border: 1px solid rgba(244, 222, 154, 0.08);
 }
 
 .mss-devnet-orb.one {
@@ -172,15 +198,16 @@ position: relative;
 min-width: 0;
 height: 100%;
 overflow: hidden;
-border: 1px solid rgba(154, 190, 255, 0.18);
+border: 1px solid rgba(244, 222, 154, 0.13);
 border-radius: 30px;
 background:
 linear-gradient(180deg, rgba(11, 18, 34, 0.88), rgba(5, 8, 16, 0.94)),
-radial-gradient(circle at 22% 0%, rgba(70, 151, 255, 0.13), transparent 36%);
+radial-gradient(circle at 22% 0%, rgba(220, 185, 106, 0.10), transparent 36%);
 box-shadow:
 0 34px 120px rgba(0, 0, 0, 0.62),
 inset 0 1px 0 rgba(255, 255, 255, 0.075);
 backdrop-filter: blur(24px);
+-webkit-backdrop-filter: blur(24px);
 }
 
 .mss-devnet-panel::before {
@@ -190,7 +217,7 @@ inset: 0;
 pointer-events: none;
 background:
 linear-gradient(135deg, rgba(255, 255, 255, 0.09), transparent 22%),
-radial-gradient(circle at 80% 0%, rgba(113, 209, 255, 0.12), transparent 32%);
+radial-gradient(circle at 80% 0%, rgba(244, 222, 154, 0.10), transparent 32%);
 }
 
 .mss-devnet-panel::after {
@@ -238,17 +265,37 @@ min-width: 0;
 .mss-devnet-mark {
 width: 48px;
 height: 48px;
-border-radius: 16px;
+border-radius: 14px;
+position: relative;
 display: grid;
 place-items: center;
-color: #07101d;
-font-size: 13px;
-font-weight: 950;
-letter-spacing: -0.06em;
-background: linear-gradient(135deg, #f1d28a 0%, #7fd7ff 100%);
+flex: 0 0 auto;
+overflow: hidden;
+background:
+radial-gradient(circle at 30% 24%, rgba(255,255,255,.18), transparent 36%),
+linear-gradient(135deg, rgba(28,32,38,.98), rgba(12,14,18,.98));
+border: 1px solid rgba(244,222,154,.20);
 box-shadow:
-0 14px 34px rgba(56, 181, 255, 0.18),
-0 10px 36px rgba(221, 178, 91, 0.11);
+0 0 0 1px rgba(244,222,154,.03),
+0 0 24px rgba(220,185,106,.10),
+inset 0 1px 0 rgba(255,255,255,.07);
+}
+
+.mss-devnet-mark::before {
+content: "";
+position: absolute;
+inset: 0;
+pointer-events: none;
+background: linear-gradient(180deg, rgba(255,255,255,.06), transparent 38%);
+}
+
+.mss-devnet-mark svg {
+width: 30px;
+height: 30px;
+display: block;
+position: relative;
+z-index: 1;
+filter: drop-shadow(0 0 12px rgba(244,222,154,.18));
 }
 
 .mss-devnet-brand {
@@ -274,11 +321,11 @@ font-weight: 750;
 display: inline-flex;
 align-items: center;
 gap: 8px;
-border: 1px solid rgba(127, 215, 255, 0.24);
+border: 1px solid rgba(244, 222, 154, 0.20);
 border-radius: 999px;
 padding: 8px 11px;
-color: #a9ddff;
-background: rgba(74, 172, 255, 0.075);
+color: #ead49d;
+background: rgba(220, 185, 106, 0.075);
 font-size: 11px;
 font-weight: 950;
 letter-spacing: 0.1em;
@@ -290,8 +337,8 @@ white-space: nowrap;
 width: 7px;
 height: 7px;
 border-radius: 999px;
-background: #7dd7ff;
-box-shadow: 0 0 18px rgba(125, 215, 255, 0.9);
+background: #e4bd6d;
+box-shadow: 0 0 18px rgba(228, 189, 109, 0.75);
 }
 
 .mss-devnet-kicker {
@@ -356,8 +403,8 @@ margin-top: 24px;
 .mss-devnet-signal {
 min-height: 96px;
 border-radius: 20px;
-border: 1px solid rgba(154, 190, 255, 0.13);
-background: rgba(255, 255, 255, 0.045);
+border: 1px solid rgba(244, 222, 154, 0.11);
+background: rgba(255, 255, 255, 0.04);
 padding: 15px;
 display: flex;
 flex-direction: column;
@@ -384,7 +431,7 @@ letter-spacing: 0.08em;
 .mss-devnet-terminal {
 margin-top: 18px;
 border-radius: 20px;
-border: 1px solid rgba(127, 215, 255, 0.15);
+border: 1px solid rgba(244, 222, 154, 0.13);
 background: rgba(1, 5, 13, 0.56);
 overflow: hidden;
 }
@@ -395,7 +442,7 @@ align-items: center;
 justify-content: space-between;
 gap: 12px;
 padding: 11px 13px;
-border-bottom: 1px solid rgba(154, 190, 255, 0.1);
+border-bottom: 1px solid rgba(244, 222, 154, 0.09);
 color: rgba(238, 244, 255, 0.5);
 font-size: 10.5px;
 font-weight: 950;
@@ -412,7 +459,7 @@ gap: 6px;
 width: 7px;
 height: 7px;
 border-radius: 999px;
-background: rgba(238, 244, 255, 0.28);
+background: rgba(244, 222, 154, 0.38);
 }
 
 .mss-devnet-terminal-body {
@@ -432,7 +479,7 @@ gap: 10px;
 
 .mss-devnet-terminal-body b {
 min-width: 58px;
-color: #84dcff;
+color: #ead49d;
 font-weight: 900;
 }
 
@@ -443,19 +490,15 @@ text-overflow: ellipsis;
 white-space: nowrap;
 }
 
-.mss-devnet-form-card {
-max-width: 100%;
-}
-
 .mss-devnet-form-badge {
 display: inline-flex;
 width: fit-content;
 align-items: center;
 gap: 8px;
 border-radius: 999px;
-border: 1px solid rgba(125, 215, 255, 0.24);
-background: rgba(75, 169, 255, 0.08);
-color: #9edcff;
+border: 1px solid rgba(244, 222, 154, 0.20);
+background: rgba(220, 185, 106, 0.08);
+color: #ead49d;
 padding: 8px 12px;
 font-size: 11px;
 font-weight: 950;
@@ -500,14 +543,14 @@ position: absolute;
 inset: -1px;
 border-radius: 18px;
 padding: 1px;
-background: linear-gradient(135deg, rgba(125, 215, 255, 0.46), rgba(228, 189, 109, 0.34), rgba(255, 255, 255, 0.08));
+background: linear-gradient(135deg, rgba(244, 222, 154, 0.42), rgba(220, 185, 106, 0.34), rgba(255, 255, 255, 0.08));
 -webkit-mask:
 linear-gradient(#000 0 0) content-box,
 linear-gradient(#000 0 0);
 -webkit-mask-composite: xor;
 mask-composite: exclude;
 pointer-events: none;
-opacity: 0.7;
+opacity: 0.75;
 }
 
 .mss-devnet-input {
@@ -531,8 +574,8 @@ color: rgba(238, 244, 255, 0.32);
 
 .mss-devnet-input:focus {
 box-shadow:
-0 0 0 4px rgba(125, 215, 255, 0.09),
-0 18px 50px rgba(44, 158, 255, 0.12);
+0 0 0 4px rgba(244, 222, 154, 0.075),
+0 18px 50px rgba(220, 185, 106, 0.11);
 }
 
 .mss-devnet-button {
@@ -542,11 +585,11 @@ margin-top: 13px;
 border: 0;
 border-radius: 18px;
 cursor: pointer;
-background: linear-gradient(135deg, #f0d48c 0%, #7ed8ff 100%);
-color: #06101d;
+background: linear-gradient(135deg, #f0d48c 0%, #dcb96a 45%, #8a5c20 100%);
+color: #090b10;
 box-shadow:
-0 18px 46px rgba(71, 184, 255, 0.18),
-0 14px 40px rgba(224, 184, 93, 0.12);
+0 18px 46px rgba(220, 185, 106, 0.18),
+0 14px 40px rgba(0, 0, 0, 0.18);
 font-size: 13px;
 font-weight: 1000;
 letter-spacing: 0.11em;
@@ -561,12 +604,8 @@ box-shadow 160ms ease;
 transform: translateY(-1px);
 filter: brightness(1.06);
 box-shadow:
-0 22px 56px rgba(71, 184, 255, 0.24),
-0 16px 44px rgba(224, 184, 93, 0.16);
-}
-
-.mss-devnet-button:active {
-transform: translateY(0);
+0 22px 56px rgba(220, 185, 106, 0.22),
+0 16px 44px rgba(0, 0, 0, 0.18);
 }
 
 .mss-devnet-error {
@@ -598,7 +637,7 @@ text-transform: uppercase;
 content: "";
 flex: 1;
 height: 1px;
-background: linear-gradient(90deg, transparent, rgba(238, 244, 255, 0.16), transparent);
+background: linear-gradient(90deg, transparent, rgba(244, 222, 154, 0.16), transparent);
 }
 
 .mss-devnet-rules {
@@ -626,8 +665,8 @@ height: 7px;
 margin-top: 6px;
 flex: 0 0 auto;
 border-radius: 999px;
-background: #7ed8ff;
-box-shadow: 0 0 14px rgba(126, 216, 255, 0.8);
+background: #e4bd6d;
+box-shadow: 0 0 14px rgba(228, 189, 109, 0.72);
 }
 
 .mss-devnet-foot {
@@ -778,6 +817,11 @@ height: 54px;
 border-radius: 16px;
 }
 
+.mss-devnet-mark svg {
+width: 34px;
+height: 34px;
+}
+
 .mss-devnet-brand strong {
 font-size: 13px;
 }
@@ -826,7 +870,7 @@ gate.innerHTML = `
 <div>
 <div class="mss-devnet-topline">
 <div class="mss-devnet-logo" aria-label="MSS Protocol">
-<div class="mss-devnet-mark">MSS</div>
+<div class="mss-devnet-mark">${getShieldSvg()}</div>
 <div class="mss-devnet-brand">
 <strong>MSS Protocol</strong>
 <span>Security Intelligence Layer</span>
@@ -874,8 +918,8 @@ market transition, wallet actions, and platform integrity before broader release
 </div>
 <div class="mss-devnet-terminal-body">
 <div><b>cluster</b><span>solana.devnet</span></div>
-<div><b>api</b><span>api.devnet.mssprotocol.com</span></div>
-<div><b>mode</b><span>controlled.launcher.testing</span></div>
+<div><b>access</b><span>private.testing.environment</span></div>
+<div><b>mode</b><span>controlled.launcher.validation</span></div>
 </div>
 </div>
 </div>
