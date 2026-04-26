@@ -10,7 +10,7 @@ if (
 hostname === "devnet.mssprotocol.com" ||
 hostname === "www.devnet.mssprotocol.com"
 ) {
-return "https://api.devnet.mssprotocol.com";
+return "https://api.mssprotocol.com";
 }
 
 

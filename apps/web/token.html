@@ -44,7 +44,7 @@ typeof hostname === "string" &&
 hostname.includes("-3000.app.github.dev");
 
 window.API_BASE = isDevnetHost
-? "https://api.devnet.mssprotocol.com"
+? "https://api.mssprotocol.com"
 : isLocalDev
 ? `${protocol}//${hostname}:8787`
 : isCodespacesPreview
