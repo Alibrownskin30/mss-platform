@@ -30,6 +30,13 @@ return Array.from(document.querySelectorAll(selector));
 
 function getApiBase() {
 const { protocol, hostname, port } = window.location;
+if (
+hostname === "devnet.mssprotocol.com" ||
+hostname === "www.devnet.mssprotocol.com"
+) {
+return "https://api.devnet.mssprotocol.com";
+}
+
 
 if (port === "3000") {
 return `${protocol}//${hostname}:8787`;
