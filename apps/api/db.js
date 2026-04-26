@@ -1,11 +1,46 @@
 import Database from "better-sqlite3";
+import path from "path";
+import fs from "fs";
 
-const DB_PATH = process.env.DB_PATH || "./mss.sqlite";
+function cleanText(value, max = 1000) {
+return String(value ?? "").trim().slice(0, max);
+}
+
+function resolveScannerDbPath() {
+const explicitPath = cleanText(
+process.env.SCANNER_DB_PATH ||
+process.env.MSS_SCANNER_DB_PATH ||
+process.env.AUTH_DB_PATH ||
+process.env.ALERTS_DB_PATH ||
+process.env.MSS_DB_PATH ||
+"",
+1000
+);
+
+if (explicitPath) {
+return explicitPath === ":memory:" ? explicitPath : path.resolve(explicitPath);
+}
+
+return path.resolve("./mss.sqlite");
+}
+
+const DB_PATH = resolveScannerDbPath();
+
+if (DB_PATH !== ":memory:") {
+fs.mkdirSync(path.dirname(DB_PATH), { recursive: true });
+}
+
 export const db = new Database(DB_PATH);
 
+try {
 db.pragma("journal_mode = WAL");
 db.pragma("foreign_keys = ON");
 db.pragma("busy_timeout = 5000");
+} catch (error) {
+console.warn("[scanner-db] SQLite pragma setup warning:", error?.message || error);
+}
+
+console.log(`[scanner-db] Connected to SQLite database: ${DB_PATH}`);
 
 db.exec(`
 CREATE TABLE IF NOT EXISTS users (
@@ -232,12 +267,14 @@ DELETE FROM risk_history
 WHERE created_at < ?
 `).run(cutoff);
 
-const mints = db.prepare(`
+const mints = db
+.prepare(`
 SELECT mint, COUNT(*) AS cnt
 FROM risk_history
 GROUP BY mint
 HAVING COUNT(*) > ?
-`).all(Number(keepPerMint));
+`)
+.all(Number(keepPerMint));
 
 for (const row of mints) {
 db.prepare(`
@@ -264,12 +301,14 @@ DELETE FROM scan_cache
 WHERE created_at < ?
 `).run(cutoff);
 
-const mints = db.prepare(`
+const mints = db
+.prepare(`
 SELECT mint, COUNT(*) AS cnt
 FROM scan_cache
 GROUP BY mint
 HAVING COUNT(*) > ?
-`).all(Number(keepPerMint));
+`)
+.all(Number(keepPerMint));
 
 for (const row of mints) {
 db.prepare(`
