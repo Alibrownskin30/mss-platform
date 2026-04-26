@@ -68,6 +68,7 @@ return null;
 
 function parseDbTime(value) {
 if (!value) return null;
+
 const raw = String(value).trim();
 if (!raw) return null;
 
@@ -86,65 +87,170 @@ const direct = Date.parse(raw);
 return Number.isFinite(direct) ? direct : null;
 }
 
-function inferRevealStatus(launch = null) {
+function normalizeLaunchStatus(raw) {
+const status = cleanText(raw, 80).toLowerCase();
+
+if (!status) return "";
+
+if (status === "failed_refunded" || status === "refunded") {
+return "failed_refunded";
+}
+
+if (
+status === "failed" ||
+status === "cancelled" ||
+status === "canceled" ||
+status === "expired"
+) {
+return "failed";
+}
+
+if (
+status === "graduated" ||
+status === "surged" ||
+status === "surge"
+) {
+return "graduated";
+}
+
+if (
+status === "live" ||
+status === "trading" ||
+status === "market_live"
+) {
+return "live";
+}
+
+if (
+status === "building" ||
+status === "bootstrapping" ||
+status === "deploying" ||
+status === "finalizing" ||
+status === "finalising"
+) {
+return "building";
+}
+
+if (
+status === "countdown" ||
+status === "pre_live" ||
+status === "prelive"
+) {
+return "countdown";
+}
+
+if (
+status === "commit" ||
+status === "committing" ||
+status === "open" ||
+status === "pending" ||
+status === "created" ||
+status === "draft"
+) {
+return "commit";
+}
+
+return status;
+}
+
+function getContractCandidateFromLaunch(launch = null) {
 if (!launch) return "";
 
-const rawStatus = cleanText(launch.status, 64).toLowerCase();
-const contractAddress = choosePreferredString(
+return choosePreferredString(
 launch.contract_address,
 launch.mint_address,
-launch.token_mint
+launch.token_mint,
+launch.mint
 );
+}
+
+function hasLiveMintSignal(launch = null) {
+if (!launch) return false;
+
+const contractAddress = getContractCandidateFromLaunch(launch);
 const reservationStatus = cleanText(
 launch.mint_reservation_status,
 64
 ).toLowerCase();
 const mintFinalizedAtMs = parseDbTime(launch.mint_finalized_at);
 
-const countdownStartedMs = parseDbTime(launch.countdown_started_at);
-const countdownEndsMs = parseDbTime(
-launch.countdown_ends_at || launch.live_at
-);
-const liveAtMs = parseDbTime(launch.live_at || launch.countdown_ends_at);
-
-const hasCountdownWindow =
-Number.isFinite(countdownStartedMs) || Number.isFinite(countdownEndsMs);
-
-const hasLiveSignal = Boolean(
+return Boolean(
 contractAddress ||
 reservationStatus === "finalized" ||
 Number.isFinite(mintFinalizedAtMs)
 );
+}
+
+function inferRevealStatus(launch = null) {
+if (!launch) return "commit";
+
+const rawStatus = normalizeLaunchStatus(launch.status);
+const now = Date.now();
+
+const countdownStartedMs = parseDbTime(launch.countdown_started_at);
+const countdownEndsMs = parseDbTime(launch.countdown_ends_at);
+const liveAtMs = parseDbTime(launch.live_at);
+
+const hasCountdownWindow =
+Number.isFinite(countdownStartedMs) || Number.isFinite(countdownEndsMs);
+
+const countdownStillRunning =
+Number.isFinite(countdownEndsMs) && now < countdownEndsMs;
+
+const liveMintSignal = hasLiveMintSignal(launch);
 
 if (rawStatus === "failed_refunded") return "failed_refunded";
 if (rawStatus === "failed") return "failed";
 if (rawStatus === "graduated") return "graduated";
 if (rawStatus === "live") return "live";
 
-if (rawStatus === "building") {
-return hasLiveSignal ? "live" : "building";
-}
+/*
+Critical:
+Building is a real protected phase.
+Do not promote building -> live just because mint/contract data exists.
+finalizeLaunch.js owns the final live promotion.
+*/
+if (rawStatus === "building") return "building";
 
 if (rawStatus === "countdown") {
-if (Number.isFinite(countdownEndsMs) && Date.now() < countdownEndsMs) {
+if (!Number.isFinite(countdownEndsMs) || countdownStillRunning) {
 return "countdown";
 }
-return hasLiveSignal ? "live" : "building";
+
+return "building";
 }
 
+if (rawStatus === "commit") {
 if (hasCountdownWindow) {
-if (Number.isFinite(countdownEndsMs) && Date.now() < countdownEndsMs) {
+if (!Number.isFinite(countdownEndsMs) || countdownStillRunning) {
 return "countdown";
 }
-return hasLiveSignal ? "live" : "building";
+
+return "building";
 }
 
-if (Number.isFinite(liveAtMs) && Date.now() >= liveAtMs && hasLiveSignal) {
+return "commit";
+}
+
+/*
+Legacy fallback:
+Only infer live from mint/contract signals when the stored status is missing
+or unknown. Never use this to override countdown/building/failed states.
+*/
+if (!rawStatus && liveMintSignal) {
 return "live";
 }
 
-if (hasLiveSignal) {
+if (!rawStatus && Number.isFinite(liveAtMs) && now >= liveAtMs && liveMintSignal) {
 return "live";
+}
+
+if (!rawStatus && hasCountdownWindow) {
+if (!Number.isFinite(countdownEndsMs) || countdownStillRunning) {
+return "countdown";
+}
+
+return "building";
 }
 
 return rawStatus || "commit";
@@ -180,67 +286,87 @@ const revealContract = phase.market_enabled;
 
 const revealedMintAddress = revealContract
 ? cleanText(
-launch.mint_address || launch.contract_address || launch.token_mint,
+launch.mint_address ||
+launch.contract_address ||
+launch.token_mint ||
+launch.mint,
 120
 ) || null
 : null;
 
+const priceSol = revealContract
+? toNumber(chooseFirstFinite(stats.price_sol, stats.price, launch.price), 0)
+: 0;
+
+const liquiditySol = revealContract
+? toNumber(
+chooseFirstFinite(
+stats.liquidity_sol,
+stats.liquidity,
+launch.liquidity_sol,
+launch.liquidity
+),
+0
+)
+: 0;
+
+const marketCapSol = revealContract
+? toNumber(
+chooseFirstFinite(
+stats.market_cap_sol,
+stats.market_cap,
+launch.market_cap
+),
+0
+)
+: 0;
+
+const volume24hSol = revealContract
+? toNumber(
+chooseFirstFinite(
+stats.volume_24h_sol,
+stats.volume_24h,
+launch.volume_24h
+),
+0
+)
+: 0;
+
 return {
 ...launch,
+
 status: phase.status || launch.status || null,
+raw_status: cleanText(launch.status, 80) || null,
 phase,
+market_enabled: phase.market_enabled,
+can_trade: phase.can_trade,
 
 contract_address: revealContract
 ? cleanText(launch.contract_address, 120) || revealedMintAddress
 : null,
 mint_address: revealedMintAddress,
 token_mint: revealedMintAddress,
+mint: revealedMintAddress,
 
 reserved_mint_address: null,
+reserved_mint_public_key: null,
 reserved_mint_secret: null,
+reserved_mint_private_key: null,
+reserved_mint_keypair: null,
+
 mint_reservation_status: revealContract
 ? cleanText(launch.mint_reservation_status, 64) || null
 : null,
 mint_finalized_at: revealContract ? launch.mint_finalized_at || null : null,
 
-price: revealContract
-? toNumber(
-chooseFirstFinite(stats.price_sol, stats.price, launch.price),
-0
-)
-: 0,
-price_sol: revealContract
-? toNumber(
-chooseFirstFinite(stats.price_sol, stats.price, launch.price),
-0
-)
-: 0,
+price: priceSol,
+price_sol: priceSol,
 price_usd: revealContract
 ? toNumber(chooseFirstFinite(stats.price_usd, launch.price_usd), 0)
 : 0,
 
-liquidity: revealContract
-? toNumber(
-chooseFirstFinite(
-stats.liquidity_sol,
-stats.liquidity,
-launch.liquidity_sol,
-launch.liquidity
-),
-0
-)
-: 0,
-liquidity_sol: revealContract
-? toNumber(
-chooseFirstFinite(
-stats.liquidity_sol,
-stats.liquidity,
-launch.liquidity_sol,
-launch.liquidity
-),
-0
-)
-: 0,
+liquidity: liquiditySol,
+liquidity_sol: liquiditySol,
 liquidity_usd: revealContract
 ? toNumber(
 chooseFirstFinite(
@@ -262,65 +388,20 @@ launch.liquidity_usd
 )
 : 0,
 
-market_cap: revealContract
-? toNumber(
-chooseFirstFinite(
-stats.market_cap_sol,
-stats.market_cap,
-launch.market_cap
-),
-0
-)
-: 0,
-market_cap_sol: revealContract
-? toNumber(
-chooseFirstFinite(
-stats.market_cap_sol,
-stats.market_cap,
-launch.market_cap
-),
-0
-)
-: 0,
+market_cap: marketCapSol,
+market_cap_sol: marketCapSol,
 market_cap_usd: revealContract
-? toNumber(
-chooseFirstFinite(stats.market_cap_usd, launch.market_cap_usd),
-0
-)
+? toNumber(chooseFirstFinite(stats.market_cap_usd, launch.market_cap_usd), 0)
 : 0,
 
-volume_24h: revealContract
-? toNumber(
-chooseFirstFinite(
-stats.volume_24h_sol,
-stats.volume_24h,
-launch.volume_24h
-),
-0
-)
-: 0,
-volume_24h_sol: revealContract
-? toNumber(
-chooseFirstFinite(
-stats.volume_24h_sol,
-stats.volume_24h,
-launch.volume_24h
-),
-0
-)
-: 0,
+volume_24h: volume24hSol,
+volume_24h_sol: volume24hSol,
 volume_24h_usd: revealContract
-? toNumber(
-chooseFirstFinite(stats.volume_24h_usd, launch.volume_24h_usd),
-0
-)
+? toNumber(chooseFirstFinite(stats.volume_24h_usd, launch.volume_24h_usd), 0)
 : 0,
 
 sol_usd_price: revealContract
-? toNumber(
-chooseFirstFinite(stats.sol_usd_price, launch.sol_usd_price),
-0
-)
+? toNumber(chooseFirstFinite(stats.sol_usd_price, launch.sol_usd_price), 0)
 : 0,
 };
 }
@@ -333,15 +414,30 @@ const revealContract = phase.market_enabled;
 
 const revealedMintAddress = revealContract
 ? cleanText(
-token.mint_address || token.mint || launch?.mint_address || launch?.token_mint,
+token.mint_address ||
+token.mint ||
+token.token_mint ||
+token.contract_address ||
+launch?.mint_address ||
+launch?.contract_address ||
+launch?.token_mint,
 120
 ) || null
 : null;
 
 return {
 ...token,
+
 mint_address: revealedMintAddress,
 mint: revealedMintAddress,
+token_mint: revealedMintAddress,
+contract_address: revealedMintAddress,
+
+reserved_mint_address: null,
+reserved_mint_public_key: null,
+reserved_mint_secret: null,
+reserved_mint_private_key: null,
+reserved_mint_keypair: null,
 };
 }
 
@@ -407,71 +503,217 @@ function sanitizeStatsForResponse(stats = {}, launch = null) {
 const phase = buildPhaseMeta(launch);
 const marketActive = phase.market_enabled;
 
+const totalSupply = toNumber(
+chooseFirstFinite(stats.total_supply, launch?.total_supply, launch?.supply),
+0
+);
+
+const circulatingSupply = marketActive
+? toNumber(
+chooseFirstFinite(
+stats.circulating_supply,
+launch?.circulating_supply,
+totalSupply
+),
+0
+)
+: 0;
+
+const priceSol = marketActive
+? toNumber(chooseFirstFinite(stats.price_sol, stats.price), 0)
+: 0;
+
+const liquiditySol = marketActive
+? toNumber(chooseFirstFinite(stats.liquidity_sol, stats.liquidity), 0)
+: 0;
+
+const marketCapSol = marketActive
+? toNumber(chooseFirstFinite(stats.market_cap_sol, stats.market_cap), 0)
+: 0;
+
+const volume24hSol = marketActive
+? toNumber(chooseFirstFinite(stats.volume_24h_sol, stats.volume_24h), 0)
+: 0;
+
+const trades24h = marketActive
+? toInt(stats.trades_24h ?? stats.tx_count_24h, 0)
+: 0;
+
+const walletTokenBalance = marketActive
+? toInt(stats.wallet_token_balance ?? stats.wallet_balance_tokens, 0)
+: 0;
+
+const walletTotalBalance = marketActive
+? toInt(
+stats.wallet_total_balance ??
+stats.wallet_visible_total_balance ??
+walletTokenBalance,
+walletTokenBalance
+)
+: 0;
+
+const walletVisibleTotalBalance = marketActive
+? toInt(
+stats.wallet_visible_total_balance ?? walletTotalBalance,
+walletTotalBalance
+)
+: 0;
+
+const walletSellableBalance = marketActive
+? toInt(
+stats.wallet_sellable_balance ??
+stats.wallet_sellable_token_balance ??
+walletTokenBalance,
+walletTokenBalance
+)
+: 0;
+
+const walletUnlockedBalance = marketActive
+? toInt(
+stats.wallet_unlocked_balance ??
+stats.wallet_unlocked_token_balance ??
+walletSellableBalance,
+walletSellableBalance
+)
+: 0;
+
+const walletLockedBalance = marketActive
+? toInt(
+stats.wallet_locked_balance ??
+stats.wallet_locked_token_balance ??
+Math.max(0, walletVisibleTotalBalance - walletUnlockedBalance),
+Math.max(0, walletVisibleTotalBalance - walletUnlockedBalance)
+)
+: 0;
+
+const walletSolBalance = marketActive
+? toNumber(stats.wallet_sol_balance ?? stats.sol_balance, 0)
+: 0;
+
+const walletSolDelta = marketActive
+? toNumber(
+stats.wallet_sol_delta ?? stats.walletSolDelta ?? walletSolBalance,
+walletSolBalance
+)
+: 0;
+
+const revealedMintAddress = marketActive
+? cleanText(
+stats.mint_address ||
+stats.contract_address ||
+stats.token_mint ||
+getContractCandidateFromLaunch(launch),
+120
+) || null
+: null;
+
 return {
 ...stats,
+
 phase,
 market_enabled: marketActive,
 can_trade: marketActive,
 
-total_supply: toNumber(stats.total_supply, 0),
-circulating_supply: marketActive ? toNumber(stats.circulating_supply, 0) : 0,
+contract_address: revealedMintAddress,
+mint_address: revealedMintAddress,
+token_mint: revealedMintAddress,
+mint: revealedMintAddress,
+
+reserved_mint_address: null,
+reserved_mint_public_key: null,
+reserved_mint_secret: null,
+reserved_mint_private_key: null,
+reserved_mint_keypair: null,
+
+mint_reservation_status: marketActive
+? cleanText(stats.mint_reservation_status || launch?.mint_reservation_status, 64) ||
+null
+: null,
+mint_finalized_at: marketActive
+? stats.mint_finalized_at || launch?.mint_finalized_at || null
+: null,
+
+total_supply: totalSupply,
+circulating_supply: circulatingSupply,
 
 sol_usd_price: marketActive ? toNumber(stats.sol_usd_price, 0) : 0,
 
-price: marketActive ? toNumber(stats.price ?? stats.price_sol, 0) : 0,
-price_sol: marketActive ? toNumber(stats.price_sol ?? stats.price, 0) : 0,
+price: priceSol,
+price_sol: priceSol,
 price_usd: marketActive ? toNumber(stats.price_usd, 0) : 0,
 
-liquidity: marketActive ? toNumber(stats.liquidity ?? stats.liquidity_sol, 0) : 0,
-liquidity_sol: marketActive ? toNumber(stats.liquidity_sol ?? stats.liquidity, 0) : 0,
+liquidity: liquiditySol,
+liquidity_sol: liquiditySol,
 liquidity_usd: marketActive ? toNumber(stats.liquidity_usd, 0) : 0,
 
-market_cap: marketActive ? toNumber(stats.market_cap ?? stats.market_cap_sol, 0) : 0,
-market_cap_sol: marketActive ? toNumber(stats.market_cap_sol ?? stats.market_cap, 0) : 0,
+market_cap: marketCapSol,
+market_cap_sol: marketCapSol,
 market_cap_usd: marketActive ? toNumber(stats.market_cap_usd, 0) : 0,
 
-volume_24h: marketActive ? toNumber(stats.volume_24h ?? stats.volume_24h_sol, 0) : 0,
-volume_24h_sol: marketActive ? toNumber(stats.volume_24h_sol ?? stats.volume_24h, 0) : 0,
+volume_24h: volume24hSol,
+volume_24h_sol: volume24hSol,
 volume_24h_usd: marketActive ? toNumber(stats.volume_24h_usd, 0) : 0,
 
 buys_24h: marketActive ? toInt(stats.buys_24h, 0) : 0,
 sells_24h: marketActive ? toInt(stats.sells_24h, 0) : 0,
-trades_24h: marketActive ? toInt(stats.trades_24h ?? stats.tx_count_24h, 0) : 0,
-tx_count_24h: marketActive ? toInt(stats.tx_count_24h ?? stats.trades_24h, 0) : 0,
+trades_24h: trades24h,
+tx_count_24h: trades24h,
 
 price_change_pct: marketActive ? toNumber(stats.price_change_pct, 0) : 0,
 high_24h: marketActive ? toNumber(stats.high_24h, 0) : 0,
 low_24h: marketActive ? toNumber(stats.low_24h, 0) : 0,
-high_24h_sol: marketActive ? toNumber(stats.high_24h_sol ?? stats.high_24h, 0) : 0,
-low_24h_sol: marketActive ? toNumber(stats.low_24h_sol ?? stats.low_24h, 0) : 0,
+high_24h_sol: marketActive
+? toNumber(stats.high_24h_sol ?? stats.high_24h, 0)
+: 0,
+low_24h_sol: marketActive
+? toNumber(stats.low_24h_sol ?? stats.low_24h, 0)
+: 0,
 
-wallet_token_balance: marketActive ? toInt(stats.wallet_token_balance, 0) : 0,
-wallet_balance_tokens: marketActive ? toInt(stats.wallet_balance_tokens, 0) : 0,
-wallet_total_balance: marketActive ? toInt(stats.wallet_total_balance, 0) : 0,
-wallet_visible_total_balance: marketActive ? toInt(stats.wallet_visible_total_balance, 0) : 0,
-wallet_position_value_usd: marketActive ? toNumber(stats.wallet_position_value_usd, 0) : 0,
-wallet_sol_balance: marketActive ? toNumber(stats.wallet_sol_balance, 0) : 0,
-wallet_sol_delta: marketActive ? toNumber(stats.wallet_sol_delta, 0) : 0,
+wallet_token_balance: walletTokenBalance,
+wallet_balance_tokens: walletTokenBalance,
 
-wallet_sellable_balance: marketActive ? toInt(stats.wallet_sellable_balance, 0) : 0,
-wallet_sellable_token_balance: marketActive ? toInt(stats.wallet_sellable_token_balance, 0) : 0,
-wallet_locked_balance: marketActive ? toInt(stats.wallet_locked_balance, 0) : 0,
-wallet_locked_token_balance: marketActive ? toInt(stats.wallet_locked_token_balance, 0) : 0,
-wallet_unlocked_balance: marketActive ? toInt(stats.wallet_unlocked_balance, 0) : 0,
-wallet_unlocked_token_balance: marketActive ? toInt(stats.wallet_unlocked_token_balance, 0) : 0,
+wallet_total_balance: walletTotalBalance,
+wallet_visible_total_balance: walletVisibleTotalBalance,
+
+wallet_position_value_usd: marketActive
+? toNumber(stats.wallet_position_value_usd, 0)
+: 0,
+
+wallet_sol_balance: walletSolBalance,
+wallet_sol_delta: walletSolDelta,
+walletSolDelta: walletSolDelta,
+
+wallet_sellable_balance: walletSellableBalance,
+wallet_sellable_token_balance: walletSellableBalance,
+
+wallet_locked_balance: walletLockedBalance,
+wallet_locked_token_balance: walletLockedBalance,
+
+wallet_unlocked_balance: walletUnlockedBalance,
+wallet_unlocked_token_balance: walletUnlockedBalance,
 
 wallet_is_builder: marketActive ? Boolean(stats.wallet_is_builder) : false,
 wallet_vesting_active: marketActive ? Boolean(stats.wallet_vesting_active) : false,
 
 is_builder_wallet: marketActive ? Boolean(stats.is_builder_wallet) : false,
-builder_total_allocation_tokens: marketActive ? toInt(stats.builder_total_allocation_tokens, 0) : 0,
+builder_total_allocation_tokens: marketActive
+? toInt(stats.builder_total_allocation_tokens, 0)
+: 0,
 builder_unlocked_tokens: marketActive ? toInt(stats.builder_unlocked_tokens, 0) : 0,
 builder_locked_tokens: marketActive ? toInt(stats.builder_locked_tokens, 0) : 0,
 builder_sellable_tokens: marketActive ? toInt(stats.builder_sellable_tokens, 0) : 0,
-builder_visible_total_tokens: marketActive ? toInt(stats.builder_visible_total_tokens, 0) : 0,
-builder_vesting_percent_unlocked: marketActive ? toNumber(stats.builder_vesting_percent_unlocked, 0) : 0,
-builder_vesting_days_live: marketActive ? toInt(stats.builder_vesting_days_live, 0) : 0,
-builder_daily_unlock_tokens: marketActive ? toInt(stats.builder_daily_unlock_tokens, 0) : 0,
+builder_visible_total_tokens: marketActive
+? toInt(stats.builder_visible_total_tokens, 0)
+: 0,
+builder_vesting_percent_unlocked: marketActive
+? toNumber(stats.builder_vesting_percent_unlocked, 0)
+: 0,
+builder_vesting_days_live: marketActive
+? toInt(stats.builder_vesting_days_live, 0)
+: 0,
+builder_daily_unlock_tokens: marketActive
+? toInt(stats.builder_daily_unlock_tokens, 0)
+: 0,
 };
 }
 
@@ -537,7 +779,10 @@ can_trade: false,
 const tokenBalance = toInt(
 wallet.token_balance ??
 wallet.tokenBalance ??
-stats.wallet_token_balance,
+wallet.balance_tokens ??
+wallet.wallet_balance_tokens ??
+stats.wallet_token_balance ??
+stats.wallet_balance_tokens,
 0
 );
 
@@ -612,7 +857,9 @@ stats.wallet_sol_balance,
 const solDelta = toNumber(
 wallet.sol_delta ??
 wallet.solDelta ??
+wallet.walletSolDelta ??
 stats.wallet_sol_delta ??
+stats.walletSolDelta ??
 solBalance,
 solBalance
 );
@@ -745,6 +992,27 @@ error: "Launch not found",
 return true;
 }
 
+function buildResponseContext(payload = {}, wallet = "") {
+const rawLaunch = payload?.launch || null;
+const phase = buildPhaseMeta(rawLaunch);
+const stats = sanitizeStatsForResponse(payload?.stats || {}, rawLaunch);
+const sanitizedLaunch = sanitizeLaunchForResponse(rawLaunch, stats);
+const walletPayload = buildWalletPayload(payload?.wallet || {}, stats, rawLaunch);
+
+return {
+rawLaunch,
+phase,
+stats,
+launch: sanitizedLaunch,
+token: sanitizeTokenForResponse(payload?.token || null, rawLaunch),
+pool: sanitizePoolForResponse(payload?.pool || null, rawLaunch),
+wallet: walletPayload,
+wallet_summary: walletPayload,
+cassie: buildCassiePayload(payload?.cassie || null, rawLaunch),
+wallet_address: wallet || null,
+};
+}
+
 router.get("/:launchId/candles", async (req, res) => {
 try {
 const launchId = parseLaunchId(req.params.launchId);
@@ -767,24 +1035,23 @@ limit,
 
 if (ensureLaunchExistsOr404(res, payload?.launch || null)) return;
 
-const rawLaunch = payload?.launch || null;
-const phase = buildPhaseMeta(rawLaunch);
-const stats = sanitizeStatsForResponse(payload?.stats || {}, rawLaunch);
-const sanitizedLaunch = sanitizeLaunchForResponse(rawLaunch, stats);
+const ctx = buildResponseContext(payload);
 
 return res.json({
 ok: true,
 success: true,
 launch_id: launchId,
 launchId,
-status: phase.status,
-phase,
+status: ctx.phase.status,
+phase: ctx.phase,
+market_enabled: ctx.phase.market_enabled,
+can_trade: ctx.phase.can_trade,
 interval,
-candles: sanitizeCandlesForResponse(payload?.candles || [], rawLaunch),
-launch: sanitizedLaunch,
-token: sanitizeTokenForResponse(payload?.token || null, sanitizedLaunch),
-pool: sanitizePoolForResponse(payload?.pool || null, rawLaunch),
-stats,
+candles: sanitizeCandlesForResponse(payload?.candles || [], ctx.rawLaunch),
+launch: ctx.launch,
+token: ctx.token,
+pool: ctx.pool,
+stats: ctx.stats,
 });
 } catch (error) {
 console.error("GET /api/chart/:launchId/candles failed", error);
@@ -815,23 +1082,22 @@ limit,
 
 if (ensureLaunchExistsOr404(res, payload?.launch || null)) return;
 
-const rawLaunch = payload?.launch || null;
-const phase = buildPhaseMeta(rawLaunch);
-const stats = sanitizeStatsForResponse(payload?.stats || {}, rawLaunch);
-const sanitizedLaunch = sanitizeLaunchForResponse(rawLaunch, stats);
+const ctx = buildResponseContext(payload);
 
 return res.json({
 ok: true,
 success: true,
 launch_id: launchId,
 launchId,
-status: phase.status,
-phase,
-trades: sanitizeTradesForResponse(payload?.trades || [], rawLaunch),
-launch: sanitizedLaunch,
-token: sanitizeTokenForResponse(payload?.token || null, sanitizedLaunch),
-pool: sanitizePoolForResponse(payload?.pool || null, rawLaunch),
-stats,
+status: ctx.phase.status,
+phase: ctx.phase,
+market_enabled: ctx.phase.market_enabled,
+can_trade: ctx.phase.can_trade,
+trades: sanitizeTradesForResponse(payload?.trades || [], ctx.rawLaunch),
+launch: ctx.launch,
+token: ctx.token,
+pool: ctx.pool,
+stats: ctx.stats,
 });
 } catch (error) {
 console.error("GET /api/chart/:launchId/trades failed", error);
@@ -862,26 +1128,25 @@ wallet,
 
 if (ensureLaunchExistsOr404(res, payload?.launch || null)) return;
 
-const rawLaunch = payload?.launch || null;
-const phase = buildPhaseMeta(rawLaunch);
-const stats = sanitizeStatsForResponse(payload?.stats || {}, rawLaunch);
-const sanitizedLaunch = sanitizeLaunchForResponse(rawLaunch, stats);
-const walletPayload = buildWalletPayload(payload?.wallet || {}, stats, rawLaunch);
+const ctx = buildResponseContext(payload, wallet);
 
 return res.json({
 ok: true,
 success: true,
 launch_id: launchId,
 launchId,
-status: phase.status,
-phase,
-stats,
-launch: sanitizedLaunch,
-token: sanitizeTokenForResponse(payload?.token || null, sanitizedLaunch),
-pool: sanitizePoolForResponse(payload?.pool || null, rawLaunch),
-wallet: walletPayload,
-wallet_summary: walletPayload,
-cassie: buildCassiePayload(payload?.cassie || null, rawLaunch),
+status: ctx.phase.status,
+phase: ctx.phase,
+market_enabled: ctx.phase.market_enabled,
+can_trade: ctx.phase.can_trade,
+stats: ctx.stats,
+launch: ctx.launch,
+token: ctx.token,
+pool: ctx.pool,
+wallet: ctx.wallet,
+wallet_summary: ctx.wallet_summary,
+wallet_address: ctx.wallet_address,
+cassie: ctx.cassie,
 });
 } catch (error) {
 console.error("GET /api/chart/:launchId/stats failed", error);
@@ -918,29 +1183,28 @@ wallet,
 
 if (ensureLaunchExistsOr404(res, payload?.launch || null)) return;
 
-const rawLaunch = payload?.launch || null;
-const phase = buildPhaseMeta(rawLaunch);
-const stats = sanitizeStatsForResponse(payload?.stats || {}, rawLaunch);
-const sanitizedLaunch = sanitizeLaunchForResponse(rawLaunch, stats);
-const walletPayload = buildWalletPayload(payload?.wallet || {}, stats, rawLaunch);
+const ctx = buildResponseContext(payload, wallet);
 
 return res.json({
 ok: true,
 success: true,
 launch_id: launchId,
 launchId,
-status: phase.status,
-phase,
+status: ctx.phase.status,
+phase: ctx.phase,
+market_enabled: ctx.phase.market_enabled,
+can_trade: ctx.phase.can_trade,
 interval,
-launch: sanitizedLaunch,
-token: sanitizeTokenForResponse(payload?.token || null, sanitizedLaunch),
-pool: sanitizePoolForResponse(payload?.pool || null, rawLaunch),
-wallet: walletPayload,
-wallet_summary: walletPayload,
-stats,
-candles: sanitizeCandlesForResponse(payload?.candles || [], rawLaunch),
-trades: sanitizeTradesForResponse(payload?.trades || [], rawLaunch),
-cassie: buildCassiePayload(payload?.cassie || null, rawLaunch),
+launch: ctx.launch,
+token: ctx.token,
+pool: ctx.pool,
+wallet: ctx.wallet,
+wallet_summary: ctx.wallet_summary,
+wallet_address: ctx.wallet_address,
+stats: ctx.stats,
+candles: sanitizeCandlesForResponse(payload?.candles || [], ctx.rawLaunch),
+trades: sanitizeTradesForResponse(payload?.trades || [], ctx.rawLaunch),
+cassie: ctx.cassie,
 });
 } catch (error) {
 console.error("GET /api/chart/:launchId/snapshot failed", error);

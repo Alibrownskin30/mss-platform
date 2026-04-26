@@ -147,6 +147,26 @@ minute: "2-digit",
 });
 }
 
+function parseDateMs(value) {
+if (!value) return null;
+const raw = String(value).trim();
+if (!raw) return null;
+
+const hasExplicitTimezone =
+/z$/i.test(raw) || /[+-]\d{2}:\d{2}$/.test(raw);
+
+if (
+!hasExplicitTimezone &&
+/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/.test(raw)
+) {
+const sqliteUtc = Date.parse(raw.replace(" ", "T") + "Z");
+return Number.isFinite(sqliteUtc) ? sqliteUtc : null;
+}
+
+const direct = Date.parse(raw);
+return Number.isFinite(direct) ? direct : null;
+}
+
 function formatRelativeTime(value) {
 if (!value) return "—";
 const ts = parseDateMs(value);
@@ -195,23 +215,6 @@ return url.toString();
 } catch {
 return "";
 }
-}
-
-function parseDateMs(value) {
-if (!value) return null;
-const raw = String(value).trim();
-if (!raw) return null;
-
-const hasExplicitTimezone =
-/z$/i.test(raw) || /[+-]\d{2}:\d{2}$/.test(raw);
-
-if (!hasExplicitTimezone && /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/.test(raw)) {
-const sqliteUtc = Date.parse(raw.replace(" ", "T") + "Z");
-return Number.isFinite(sqliteUtc) ? sqliteUtc : null;
-}
-
-const direct = Date.parse(raw);
-return Number.isFinite(direct) ? direct : null;
 }
 
 function getNowMs() {
@@ -618,11 +621,6 @@ function setTextMany(ids, value) {
 ids.forEach((id) => setText(id, value));
 }
 
-function setHtml(id, value) {
-const el = typeof id === "string" ? $(id) : id;
-if (el) el.innerHTML = value;
-}
-
 function toggleHidden(id, hidden) {
 const el = typeof id === "string" ? $(id) : id;
 if (el) el.classList.toggle("hidden", Boolean(hidden));
@@ -792,7 +790,7 @@ return PHASES.BUILDING;
 }
 
 if (explicit === "countdown") {
-if (countdownEndMs && now >= countdownEndMs) return PHASES.BUILDING;
+if (countdownEndMs && now >= countdownEndMs) return hasLiveSignal ? PHASES.LIVE : PHASES.BUILDING;
 return PHASES.COUNTDOWN;
 }
 
@@ -852,14 +850,6 @@ merged.status = "commit";
 }
 
 return normalizeLaunchTruth(merged);
-}
-
-function isLaunchLiveLike(launch = {}, commitStats = {}) {
-return resolveCanonicalPhase(canonicalizeLaunchTruth(launch, commitStats)) === PHASES.LIVE;
-}
-
-function isLaunchBuilding(launch = {}, commitStats = {}) {
-return resolveCanonicalPhase(canonicalizeLaunchTruth(launch, commitStats)) === PHASES.BUILDING;
 }
 
 function getDaysSinceLive(launch = {}) {
@@ -990,7 +980,7 @@ const priceChangePct = toNumber(chartStats?.price_change_pct, 0);
 const buys24h = toNumber(chartStats?.buys_24h, 0);
 const sells24h = toNumber(chartStats?.sells_24h, 0);
 const builderWallet = String(launch?.builder_wallet || "").trim();
-const builderScore = toNumber(launch?.builder_score, 0);
+const builderScore = toNumber(launch?.builder_score ?? tokenPayload?.launch?.builder_score, 0);
 
 let state = cassie?.monitoring_active ? "Monitoring" : "Standby";
 let badge = "LIVE INTELLIGENCE";
@@ -1061,14 +1051,6 @@ note,
 
 function renderCassiePanel(phase, launch = {}, tokenPayload = {}, chartStats = {}) {
 const cassieMeta = getCassieMeta(phase, launch, tokenPayload, chartStats);
-setText("cassieState", cassieMeta.state);
-setText("cassieBadgeText", cassieMeta.badge);
-setText("cassieRiskState", cassieMeta.riskState);
-setText("cassieBuilderSignal", cassieMeta.builderSignal);
-setText("cassieStructureSignal", cassieMeta.structureSignal);
-setText("cassieMarketSignal", cassieMeta.marketSignal);
-setText("cassieNote", cassieMeta.note);
-
 setText("launchCassieVerdictText", cassieMeta.badge);
 setText("launchCassiePrimaryText", cassieMeta.note);
 setText(
@@ -1149,7 +1131,7 @@ setText("marketOverlayEyebrow", meta.overlayEyebrow);
 setText("marketOverlayTitle", meta.overlayTitle);
 
 setTextMany(
-["phaseValueMirror", "launchStatusBoardValue", "launchCommandPhase", "launchCommandStatus", "launchStatusBoardStatus"],
+["phaseValueMirror", "launchStatusBoardValue", "launchCommandPhase", "launchCommandStatus"],
 phaseLabel
 );
 setTextMany(
@@ -1161,6 +1143,7 @@ setTextMany(
 accessLabel
 );
 setText("launchTerminalPhaseLabel", `Phase • ${meta.badgeText}`);
+setText("launchOverviewAccessText", accessLabel);
 
 const marketTitleEl = document.querySelector(".market-card-title");
 if (marketTitleEl) {
@@ -1195,6 +1178,41 @@ marketOverlay.classList.remove("overlay-commit", "overlay-countdown", "overlay-l
 marketOverlay.classList.add(`overlay-${getVisualPhase(phase)}`);
 marketOverlay.classList.toggle("hidden", phase === PHASES.LIVE);
 }
+
+const phasePillMirror = $("phasePillMirror");
+if (phasePillMirror) {
+phasePillMirror.className = `status-pill ${phase === PHASES.LIVE ? "live" : phase === PHASES.COUNTDOWN || phase === PHASES.BUILDING ? "countdown" : "commit"}`;
+phasePillMirror.textContent = phaseLabel;
+}
+
+const launchStatusBadge = $("launchStatusBadge");
+if (launchStatusBadge) {
+launchStatusBadge.className = `status-pill ${phase === PHASES.LIVE ? "live" : phase === PHASES.COUNTDOWN || phase === PHASES.BUILDING ? "countdown" : "commit"}`;
+launchStatusBadge.textContent = phaseLabel;
+}
+
+const launchStatusPill = $("launchStatusPill");
+if (launchStatusPill) {
+launchStatusPill.className = `status-pill ${phase === PHASES.LIVE ? "live" : phase === PHASES.COUNTDOWN || phase === PHASES.BUILDING ? "countdown" : "commit"}`;
+launchStatusPill.textContent = phaseLabel;
+}
+
+const phaseHeadline = $("phaseHeadline");
+if (phaseHeadline) {
+phaseHeadline.textContent =
+phase === PHASES.LIVE
+? "Launch is now live"
+: phase === PHASES.BUILDING
+? "MSS is finalizing launch infrastructure"
+: phase === PHASES.COUNTDOWN
+? "Launch has entered countdown lock"
+: "Commit window is open";
+}
+
+const phaseSummary = $("phaseSummary");
+if (phaseSummary) {
+phaseSummary.textContent = phaseNote;
+}
 }
 
 function updateTokenIdentity(launch, tokenPayload = null) {
@@ -1216,7 +1234,7 @@ launch?.builder_score ?? tokenPayload?.launch?.builder_score,
 
 const initials = getInitials(tokenSymbol, tokenName);
 
-setTextMany(["launchTokenName", "launchTokenNameMirror"], tokenName);
+setTextMany(["launchTokenName", "launchTokenNameMirror", "launchCommandTitle"], tokenName);
 setText("launchTokenSymbol", tokenSymbol);
 setText("launchBuilderLabel", builderAlias);
 setText("launchBuilderWalletShort", builderWallet ? shortAddress(builderWallet) : "Pending");
@@ -1224,6 +1242,9 @@ setText("launchTokenLogo", initials);
 
 setText("builderAlias", builderAlias);
 setText("builderScoreStat", builderScore > 0 ? formatNumber(builderScore, { maximumFractionDigits: 0 }) : "—");
+setText("launchCommandBuilder", builderAlias);
+setText("launchCommandScore", builderScore > 0 ? formatNumber(builderScore, { maximumFractionDigits: 0 }) : "—");
+setText("launchStatusBoardBuilderWallet", builderWallet ? shortAddress(builderWallet) : "Pending");
 
 const tier =
 builderScore >= 80
@@ -1239,6 +1260,12 @@ setText("launchBuilderTierText", tier);
 const nameEl = $("launchTokenName");
 if (nameEl) {
 nameEl.title = tokenName;
+}
+
+const launchSubline = $("launchSubline");
+if (launchSubline) {
+const template = cleanString(launch?.template, 80).replaceAll("_", " ") || "standard";
+launchSubline.textContent = `${tokenSymbol} • ${template} • ${builderAlias}`;
 }
 }
 
@@ -1276,7 +1303,9 @@ state: "Pending",
 function updateContractAddress(launch, tokenPayload = null, commitStats = {}) {
 const resolved = resolveContractAddress(launch || {}, tokenPayload || {}, commitStats || {});
 const fullValue = resolved.value || "";
-const shortValue = fullValue ? shortAddress(fullValue) : (resolved.state === "Hidden" ? "Hidden until live" : resolved.state);
+const shortValue = fullValue
+? shortAddress(fullValue)
+: (resolved.state === "Hidden" ? "Hidden until live" : resolved.state);
 
 setTextMany(
 [
@@ -1316,6 +1345,11 @@ launchCaCopyBtn.disabled = !fullValue;
 if (chartCaCopyBtn) {
 chartCaCopyBtn.dataset.copyValue = fullValue;
 chartCaCopyBtn.disabled = !fullValue;
+}
+
+const contractAddressRow = $("contractAddressRow");
+if (contractAddressRow) {
+contractAddressRow.classList.toggle("hidden", !fullValue);
 }
 }
 
@@ -1670,11 +1704,17 @@ const tokenPayloadTrades = Array.isArray(payload?.tokenPayload?.recent_trades) ?
 const tokenPayloadTradesAlt = Array.isArray(payload?.tokenPayload?.trades) ? payload.tokenPayload.trades : [];
 const tokenStatsTrades = Array.isArray(payload?.tokenPayload?.stats?.recent_trades) ? payload.tokenPayload.stats.recent_trades : [];
 const chartStatsTrades = Array.isArray(payload?.chartStats?.recent_trades) ? payload.chartStats.recent_trades : [];
+const chartTrades = Array.isArray(payload?.snapshotPayload?.trades) ? payload.snapshotPayload.trades : [];
+const nestedChartTrades = Array.isArray(payload?.snapshotPayload?.chart?.trades) ? payload.snapshotPayload.chart.trades : [];
 
 return snapshotTrades.length
 ? snapshotTrades
 : genericTrades.length
 ? genericTrades
+: chartTrades.length
+? chartTrades
+: nestedChartTrades.length
+? nestedChartTrades
 : tokenPayloadTrades.length
 ? tokenPayloadTrades
 : tokenPayloadTradesAlt.length
@@ -2035,6 +2075,7 @@ solBalance
 
 const isBuilderWallet = Boolean(
 wallet?.is_builder_wallet ??
+wallet?.wallet_is_builder ??
 tokenPayload?.wallet_is_builder ??
 chartStats?.wallet_is_builder ??
 false
@@ -2042,6 +2083,7 @@ false
 
 const vestingActive = Boolean(
 wallet?.vesting_active ??
+wallet?.wallet_vesting_active ??
 tokenPayload?.wallet_vesting_active ??
 chartStats?.wallet_vesting_active ??
 false
@@ -2120,7 +2162,9 @@ solBalanceEl.textContent = formatSol(summary.solBalance, 4);
 setText("launchWalletSummaryText", shortAddress(connectedWallet));
 setText(
 "launchWalletPositionText",
-summary.positionValueUsd > 0 ? formatUsd(summary.positionValueUsd, 2) : `${formatTokenAmount(summary.sellableBalance || summary.tokenBalance, 0)} tokens`
+summary.positionValueUsd > 0
+? formatUsd(summary.positionValueUsd, 2)
+: `${formatTokenAmount(summary.sellableBalance || summary.tokenBalance, 0)} tokens`
 );
 setText(
 "launchWalletLimitText",
@@ -2169,12 +2213,17 @@ launch?.supply
 0
 );
 
+const quote = quotePayload?.quote || quotePayload || {};
 const backendMaxWallet = toInt(
 firstFinite(
-quotePayload?.quote?.maxWallet,
-quotePayload?.quote?.maxWalletTokens,
+quote?.maxWallet,
+quote?.maxWalletTokens,
+quote?.max_wallet,
+quote?.max_wallet_tokens,
 quotePayload?.maxWallet,
-quotePayload?.maxWalletTokens
+quotePayload?.maxWalletTokens,
+quotePayload?.max_wallet,
+quotePayload?.max_wallet_tokens
 ) ?? 0,
 0
 );
@@ -2550,15 +2599,17 @@ tokenPayload: tokenPayload || {},
 tokenTrades: resolveTradesFromPayload({
 tokenPayload,
 chartStats: snapshotPayload?.stats || {},
+snapshotPayload,
 tokenTrades: snapshotPayload?.trades || [],
 trades: snapshotPayload?.trades || [],
 }),
 chartStats: snapshotPayload?.stats || {},
-candles: snapshotPayload?.candles || [],
-chartLaunch: snapshotPayload?.launch || null,
-pool: snapshotPayload?.pool || null,
+candles: snapshotPayload?.candles || snapshotPayload?.chart?.candles || [],
+chartLaunch: snapshotPayload?.launch || snapshotPayload?.chart?.launch || null,
+pool: snapshotPayload?.pool || snapshotPayload?.chart?.pool || null,
 wallet: snapshotPayload?.wallet || null,
 cassie: snapshotPayload?.cassie || null,
+snapshotPayload,
 };
 }
 
@@ -2875,6 +2926,7 @@ this.candles = payload?.candles || [];
 this.trades = resolveTradesFromPayload({
 tokenPayload: this.tokenPayload,
 chartStats: this.chartStats,
+snapshotPayload: payload?.snapshotPayload || {},
 tokenTrades: payload?.tokenTrades || [],
 trades: payload?.trades || [],
 });
@@ -2886,21 +2938,22 @@ if (payload?.chartLaunch) {
 this.launch = mergeLaunchTruth(this.launch || {}, payload.chartLaunch);
 }
 
-if (!this.lifecycle) {
 this.lifecycle = normalizeLifecyclePayload(
+payload?.snapshotPayload?.lifecycle ||
+this.lifecycle ||
 this.tokenPayload?.lifecycle ||
 this.tokenPayload?.launch?.lifecycle ||
 null
 );
-}
 
-if (!this.graduationPlan) {
 this.graduationPlan = normalizeGraduationPlanPayload(
+payload?.snapshotPayload?.graduationPlan ||
+payload?.snapshotPayload?.graduation_plan ||
+this.graduationPlan ||
 this.tokenPayload?.graduationPlan ||
 this.tokenPayload?.graduation_plan ||
 null
 );
-}
 
 this.launch = mergeLaunchTruth(this.launch || {}, tokenLaunchPatch);
 this.launch = canonicalizeLaunchTruth(this.launch || {}, this.commitStats || {});
@@ -3058,12 +3111,6 @@ setTradePanelVisibility(this.phase);
 syncMarketShellLayout();
 syncChartSizing(this.phase);
 syncTerminalPresentation(this.phase, this.launch, this.chartStats, this.tokenPayload);
-
-const builderWallet = choosePreferredNonEmpty(
-this.launch?.builder_wallet,
-this.tokenPayload?.launch?.builder_wallet
-);
-setText("launchStatusBoardBuilderWallet", builderWallet ? shortAddress(builderWallet) : "Pending");
 
 if (this.phase === PHASES.COMMIT) {
 clearLiveOnlyUi();
@@ -3385,38 +3432,53 @@ const quote = quotePayload?.quote || quotePayload || {};
 this.lastQuote = quotePayload;
 
 if (this.tradeMode === TRADE_MODES.BUY) {
-setText("tradeQuotePrimaryValue", `${formatTokenAmount(quote?.tokensBought || quote?.tokenOut || 0, 0)} tokens`);
+setText("tradeQuotePrimaryValue", `${formatTokenAmount(quote?.tokensBought ?? quote?.tokenOut ?? quote?.tokens_bought ?? quote?.token_out ?? 0, 0)} tokens`);
 setText("tradeQuotePriceValue", quote?.price > 0 ? `${formatPriceSol(quote.price)} SOL` : "—");
-setText("tradeQuoteFeeValue", formatSol(quote?.feeSol || quote?.fee_sol || 0, 6));
+setText("tradeQuoteFeeValue", formatSol(quote?.feeSol ?? quote?.fee_sol ?? 0, 6));
 
 if ($("tradeQuoteWalletLimitValue")) {
-if (quote?.maxWallet || quote?.maxWalletTokens) {
-const maxWalletTokens = toInt(quote?.maxWallet ?? quote?.maxWalletTokens, 0);
+if (
+quote?.maxWallet ||
+quote?.maxWalletTokens ||
+quote?.max_wallet ||
+quote?.max_wallet_tokens
+) {
+const maxWalletTokens = toInt(
+quote?.maxWallet ??
+quote?.maxWalletTokens ??
+quote?.max_wallet ??
+quote?.max_wallet_tokens,
+0
+);
 const maxWalletText = formatTokenAmount(maxWalletTokens, 0);
+const walletAfter = quote?.walletBalanceAfter ?? quote?.wallet_balance_after;
 const afterText =
-quote?.walletBalanceAfter != null
-? ` / After ${formatTokenAmount(quote.walletBalanceAfter, 0)}`
+walletAfter != null
+? ` / After ${formatTokenAmount(walletAfter, 0)}`
 : "";
 $("tradeQuoteWalletLimitValue").textContent = `${maxWalletText}${afterText}`;
-} else if (quote?.walletBalanceAfter != null) {
-$("tradeQuoteWalletLimitValue").textContent = `After ${formatTokenAmount(quote.walletBalanceAfter, 0)}`;
+} else if ((quote?.walletBalanceAfter ?? quote?.wallet_balance_after) != null) {
+$("tradeQuoteWalletLimitValue").textContent = `After ${formatTokenAmount(quote?.walletBalanceAfter ?? quote?.wallet_balance_after, 0)}`;
 } else {
 $("tradeQuoteWalletLimitValue").textContent = "Applies";
 }
 }
 } else {
-setText("tradeQuotePrimaryValue", formatSol(quote?.netSolOut || quote?.solOut || quote?.solReceived || 0, 6));
+setText("tradeQuotePrimaryValue", formatSol(quote?.netSolOut ?? quote?.solOut ?? quote?.solReceived ?? quote?.net_sol_out ?? quote?.sol_out ?? quote?.sol_received ?? 0, 6));
 setText("tradeQuotePriceValue", quote?.price > 0 ? `${formatPriceSol(quote.price)} SOL` : "—");
-setText("tradeQuoteFeeValue", formatSol(quote?.feeSol || quote?.fee_sol || 0, 6));
+setText("tradeQuoteFeeValue", formatSol(quote?.feeSol ?? quote?.fee_sol ?? 0, 6));
 setText(
 "tradeQuoteWalletLimitValue",
-quote?.walletBalanceAfter != null
-? `${formatTokenAmount(quote.walletBalanceAfter, 0)} tokens`
+(quote?.walletBalanceAfter ?? quote?.wallet_balance_after) != null
+? `${formatTokenAmount(quote?.walletBalanceAfter ?? quote?.wallet_balance_after, 0)} tokens`
 : "—"
 );
 
-if (quote?.walletBalanceBefore != null) {
-this.walletTokenBalanceFallback = toNumber(quote.walletBalanceBefore, this.walletTokenBalanceFallback);
+if ((quote?.walletBalanceBefore ?? quote?.wallet_balance_before) != null) {
+this.walletTokenBalanceFallback = toNumber(
+quote?.walletBalanceBefore ?? quote?.wallet_balance_before,
+this.walletTokenBalanceFallback
+);
 }
 }
 
@@ -3493,20 +3555,20 @@ const result = await this.executeTrade();
 
 if (this.tradeMode === TRADE_MODES.BUY) {
 this.walletTokenBalanceFallback = toNumber(
-result?.walletBalanceAfter,
-this.walletTokenBalanceFallback + toNumber(result?.tokensReceived ?? result?.tokenOut, 0)
+result?.walletBalanceAfter ?? result?.wallet_balance_after,
+this.walletTokenBalanceFallback + toNumber(result?.tokensReceived ?? result?.tokenOut ?? result?.tokens_received ?? result?.token_out, 0)
 );
 } else {
 this.walletTokenBalanceFallback = toNumber(
-result?.walletBalanceAfter,
+result?.walletBalanceAfter ?? result?.wallet_balance_after,
 Math.max(0, this.walletTokenBalanceFallback - toNumber(inputAmount, 0))
 );
 }
 
 const message =
 this.tradeMode === TRADE_MODES.BUY
-? `Buy Executed\nReceived: ${formatTokenAmount(result?.tokensReceived || result?.tokenOut || 0, 0)} tokens\nPaid: ${formatSol(inputAmount, 6)}\nFee: ${formatSol(result?.feeSol || result?.fee_sol || 0, 6)}`
-: `Sell Executed\nReceived: ${formatSol(result?.solReceived || result?.netSolOut || result?.solOut || 0, 6)}\nSold: ${formatTokenAmount(inputAmount, 0)} tokens\nFee: ${formatSol(result?.feeSol || result?.fee_sol || 0, 6)}`;
+? `Buy Executed\nReceived: ${formatTokenAmount(result?.tokensReceived ?? result?.tokenOut ?? result?.tokens_received ?? result?.token_out ?? 0, 0)} tokens\nPaid: ${formatSol(inputAmount, 6)}\nFee: ${formatSol(result?.feeSol ?? result?.fee_sol ?? 0, 6)}`
+: `Sell Executed\nReceived: ${formatSol(result?.solReceived ?? result?.netSolOut ?? result?.solOut ?? result?.sol_received ?? result?.net_sol_out ?? result?.sol_out ?? 0, 6)}\nSold: ${formatTokenAmount(inputAmount, 0)} tokens\nFee: ${formatSol(result?.feeSol ?? result?.fee_sol ?? 0, 6)}`;
 
 setTradeMessage(message, "success");
 

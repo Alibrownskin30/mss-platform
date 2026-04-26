@@ -9,6 +9,7 @@ const INTERVAL_TO_MS = {
 };
 
 function toNumber(value, fallback = 0) {
+if (value === null || value === undefined || value === "") return fallback;
 const num = Number(value);
 return Number.isFinite(num) ? num : fallback;
 }
@@ -48,7 +49,10 @@ return numeric > 1e12 ? Math.floor(numeric) : Math.floor(numeric * 1000);
 const hasExplicitTimezone =
 /z$/i.test(raw) || /[+-]\d{2}:\d{2}$/.test(raw);
 
-if (!hasExplicitTimezone && /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/.test(raw)) {
+if (
+!hasExplicitTimezone &&
+/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/.test(raw)
+) {
 const sqliteUtc = Date.parse(raw.replace(" ", "T") + "Z");
 return Number.isFinite(sqliteUtc) ? sqliteUtc : null;
 }
@@ -112,7 +116,7 @@ trade.base_amount ?? trade.sol_amount ?? trade.amount_base,
 
 return {
 id: trade.id ?? null,
-timestamp: timestampMs ? toIsoString(timestampMs) : null,
+timestamp: Number.isFinite(timestampMs) ? toIsoString(timestampMs) : null,
 timestampMs,
 side: normalizeSide(trade.side),
 price,
@@ -129,25 +133,94 @@ if (!Number.isFinite(time)) return null;
 return Math.floor(time / ms) * ms;
 }
 
-function createBucket(bucketStart, trade) {
+function buildCandlePayload({
+bucketStart,
+open,
+high,
+low,
+close,
+volumeBase = 0,
+volumeToken = 0,
+buys = 0,
+sells = 0,
+tradeCount = 0,
+buyVolumeBase = 0,
+sellVolumeBase = 0,
+buyVolumeToken = 0,
+sellVolumeToken = 0,
+firstTradeAt = null,
+lastTradeAt = null,
+isSynthetic = false,
+}) {
+const safeOpen = round(open);
+const safeHigh = round(high);
+const safeLow = round(low);
+const safeClose = round(close);
+const safeVolumeBase = round(volumeBase);
+const safeVolumeToken = round(volumeToken);
+
+const vwap =
+safeVolumeToken > 0 ? round(safeVolumeBase / safeVolumeToken) : safeClose;
+
+const change = round(safeClose - safeOpen);
+const changePct =
+safeOpen > 0 ? round(((safeClose - safeOpen) / safeOpen) * 100, 8) : 0;
+
 return {
 bucket_start: toIsoString(bucketStart),
+open: safeOpen,
+high: safeHigh,
+low: safeLow,
+close: safeClose,
+
+volume_base: safeVolumeBase,
+volume_sol: safeVolumeBase,
+volume_token: safeVolumeToken,
+
+buys,
+sells,
+trade_count: tradeCount,
+
+buy_volume_base: round(buyVolumeBase),
+buy_volume_sol: round(buyVolumeBase),
+sell_volume_base: round(sellVolumeBase),
+sell_volume_sol: round(sellVolumeBase),
+buy_volume_token: round(buyVolumeToken),
+sell_volume_token: round(sellVolumeToken),
+
+vwap,
+first_trade_at: firstTradeAt,
+last_trade_at: lastTradeAt,
+
+change,
+change_pct: changePct,
+is_bullish: safeClose >= safeOpen,
+is_synthetic: Boolean(isSynthetic),
+};
+}
+
+function createBucket(bucketStart, trade) {
+return {
+bucketStart,
 open: trade.price,
 high: trade.price,
 low: trade.price,
 close: trade.price,
-volume_base: round(trade.baseAmount),
-volume_token: round(trade.tokenAmount),
+
+volumeBase: round(trade.baseAmount),
+volumeToken: round(trade.tokenAmount),
+
 buys: trade.side === "buy" ? 1 : 0,
 sells: trade.side === "sell" ? 1 : 0,
-trade_count: 1,
-buy_volume_base: round(trade.side === "buy" ? trade.baseAmount : 0),
-sell_volume_base: round(trade.side === "sell" ? trade.baseAmount : 0),
-buy_volume_token: round(trade.side === "buy" ? trade.tokenAmount : 0),
-sell_volume_token: round(trade.side === "sell" ? trade.tokenAmount : 0),
-vwap_numerator: round(trade.price * trade.baseAmount),
-first_trade_at: trade.timestamp,
-last_trade_at: trade.timestamp,
+tradeCount: 1,
+
+buyVolumeBase: round(trade.side === "buy" ? trade.baseAmount : 0),
+sellVolumeBase: round(trade.side === "sell" ? trade.baseAmount : 0),
+buyVolumeToken: round(trade.side === "buy" ? trade.tokenAmount : 0),
+sellVolumeToken: round(trade.side === "sell" ? trade.tokenAmount : 0),
+
+firstTradeAt: trade.timestamp,
+lastTradeAt: trade.timestamp,
 };
 }
 
@@ -155,51 +228,114 @@ function updateBucket(bucket, trade) {
 bucket.high = Math.max(bucket.high, trade.price);
 bucket.low = Math.min(bucket.low, trade.price);
 bucket.close = trade.price;
-bucket.volume_base = round(bucket.volume_base + trade.baseAmount);
-bucket.volume_token = round(bucket.volume_token + trade.tokenAmount);
-bucket.trade_count += 1;
-bucket.last_trade_at = trade.timestamp;
+
+bucket.volumeBase = round(bucket.volumeBase + trade.baseAmount);
+bucket.volumeToken = round(bucket.volumeToken + trade.tokenAmount);
+
+bucket.tradeCount += 1;
+bucket.lastTradeAt = trade.timestamp;
 
 if (trade.side === "buy") {
 bucket.buys += 1;
-bucket.buy_volume_base = round(bucket.buy_volume_base + trade.baseAmount);
-bucket.buy_volume_token = round(bucket.buy_volume_token + trade.tokenAmount);
+bucket.buyVolumeBase = round(bucket.buyVolumeBase + trade.baseAmount);
+bucket.buyVolumeToken = round(bucket.buyVolumeToken + trade.tokenAmount);
 } else {
 bucket.sells += 1;
-bucket.sell_volume_base = round(bucket.sell_volume_base + trade.baseAmount);
-bucket.sell_volume_token = round(bucket.sell_volume_token + trade.tokenAmount);
+bucket.sellVolumeBase = round(bucket.sellVolumeBase + trade.baseAmount);
+bucket.sellVolumeToken = round(bucket.sellVolumeToken + trade.tokenAmount);
 }
-
-bucket.vwap_numerator = round(bucket.vwap_numerator + trade.price * trade.baseAmount);
 }
 
 function finalizeBucket(bucket) {
-const volumeBase = toNumber(bucket.volume_base, 0);
-const open = toNumber(bucket.open, 0);
-const close = toNumber(bucket.close, 0);
-
-return {
-bucket_start: bucket.bucket_start,
-open: round(bucket.open),
-high: round(bucket.high),
-low: round(bucket.low),
-close: round(bucket.close),
-volume_base: round(bucket.volume_base),
-volume_token: round(bucket.volume_token),
+return buildCandlePayload({
+bucketStart: bucket.bucketStart,
+open: bucket.open,
+high: bucket.high,
+low: bucket.low,
+close: bucket.close,
+volumeBase: bucket.volumeBase,
+volumeToken: bucket.volumeToken,
 buys: bucket.buys,
 sells: bucket.sells,
-trade_count: bucket.trade_count,
-buy_volume_base: round(bucket.buy_volume_base),
-sell_volume_base: round(bucket.sell_volume_base),
-buy_volume_token: round(bucket.buy_volume_token),
-sell_volume_token: round(bucket.sell_volume_token),
-vwap: volumeBase > 0 ? round(bucket.vwap_numerator / volumeBase) : round(close),
-first_trade_at: bucket.first_trade_at,
-last_trade_at: bucket.last_trade_at,
-change: round(close - open),
-change_pct: open > 0 ? round(((close - open) / open) * 100, 8) : 0,
-is_bullish: close >= open,
-};
+tradeCount: bucket.tradeCount,
+buyVolumeBase: bucket.buyVolumeBase,
+sellVolumeBase: bucket.sellVolumeBase,
+buyVolumeToken: bucket.buyVolumeToken,
+sellVolumeToken: bucket.sellVolumeToken,
+firstTradeAt: bucket.firstTradeAt,
+lastTradeAt: bucket.lastTradeAt,
+isSynthetic: false,
+});
+}
+
+function normalizeExistingCandle(candle = {}) {
+const bucketStartMs = toTimestampMs(candle.bucket_start);
+const open = toNumber(candle.open, 0);
+const high = toNumber(candle.high, open);
+const low = toNumber(candle.low, open);
+const close = toNumber(candle.close, open);
+
+const volumeBase = toNumber(
+candle.volume_base ?? candle.volume_sol,
+0
+);
+const volumeToken = toNumber(candle.volume_token, 0);
+
+const buys = Math.max(0, Math.floor(toNumber(candle.buys, 0)));
+const sells = Math.max(0, Math.floor(toNumber(candle.sells, 0)));
+
+return buildCandlePayload({
+bucketStart: bucketStartMs,
+open,
+high,
+low,
+close,
+volumeBase,
+volumeToken,
+buys,
+sells,
+tradeCount: Math.max(
+0,
+Math.floor(toNumber(candle.trade_count, buys + sells))
+),
+buyVolumeBase: toNumber(
+candle.buy_volume_base ?? candle.buy_volume_sol,
+0
+),
+sellVolumeBase: toNumber(
+candle.sell_volume_base ?? candle.sell_volume_sol,
+0
+),
+buyVolumeToken: toNumber(candle.buy_volume_token, 0),
+sellVolumeToken: toNumber(candle.sell_volume_token, 0),
+firstTradeAt: candle.first_trade_at || null,
+lastTradeAt: candle.last_trade_at || null,
+isSynthetic: Boolean(candle.is_synthetic),
+});
+}
+
+function createSyntheticCandle(bucketStart, carryPrice) {
+const carry = round(carryPrice);
+
+return buildCandlePayload({
+bucketStart,
+open: carry,
+high: carry,
+low: carry,
+close: carry,
+volumeBase: 0,
+volumeToken: 0,
+buys: 0,
+sells: 0,
+tradeCount: 0,
+buyVolumeBase: 0,
+sellVolumeBase: 0,
+buyVolumeToken: 0,
+sellVolumeToken: 0,
+firstTradeAt: null,
+lastTradeAt: null,
+isSynthetic: true,
+});
 }
 
 export function buildCandlesFromTrades(trades = [], interval = "1m") {
@@ -208,11 +344,12 @@ const bucketMap = new Map();
 
 const normalizedTrades = (Array.isArray(trades) ? trades : [])
 .map(normalizeTrade)
-.filter((trade) => trade.timestampMs && trade.price > 0)
+.filter((trade) => Number.isFinite(trade.timestampMs) && trade.price > 0)
 .sort((a, b) => {
 if (a.timestampMs !== b.timestampMs) {
 return a.timestampMs - b.timestampMs;
 }
+
 return String(a.id || "").localeCompare(String(b.id || ""));
 });
 
@@ -232,10 +369,7 @@ updateBucket(existing, trade);
 }
 
 return Array.from(bucketMap.values())
-.sort(
-(a, b) =>
-toTimestampMs(a.bucket_start) - toTimestampMs(b.bucket_start)
-)
+.sort((a, b) => a.bucketStart - b.bucketStart)
 .map(finalizeBucket);
 }
 
@@ -244,13 +378,11 @@ if (!Array.isArray(candles) || !candles.length) return [];
 
 const normalizedInterval = normalizeInterval(interval);
 const ms = INTERVAL_TO_MS[normalizedInterval];
+const safeLimit = Math.max(1, Math.floor(toNumber(limit, 120)));
 
 const sorted = [...candles]
 .filter((candle) => Number.isFinite(toTimestampMs(candle?.bucket_start)))
-.sort(
-(a, b) =>
-toTimestampMs(a.bucket_start) - toTimestampMs(b.bucket_start)
-);
+.sort((a, b) => toTimestampMs(a.bucket_start) - toTimestampMs(b.bucket_start));
 
 if (!sorted.length) return [];
 
@@ -258,84 +390,33 @@ const out = [];
 let prev = null;
 
 for (const candle of sorted) {
-const currentTs = toTimestampMs(candle.bucket_start);
+const normalizedCandle = normalizeExistingCandle(candle);
+const currentTs = toTimestampMs(normalizedCandle.bucket_start);
 
 if (prev) {
-let nextTs = toTimestampMs(prev.bucket_start) + ms;
+const prevTs = toTimestampMs(prev.bucket_start);
+let nextTs = prevTs + ms;
 
 while (nextTs < currentTs) {
-const carry = round(prev.close);
-out.push({
-bucket_start: toIsoString(nextTs),
-open: carry,
-high: carry,
-low: carry,
-close: carry,
-volume_base: 0,
-volume_token: 0,
-buys: 0,
-sells: 0,
-trade_count: 0,
-buy_volume_base: 0,
-sell_volume_base: 0,
-buy_volume_token: 0,
-sell_volume_token: 0,
-vwap: carry,
-first_trade_at: null,
-last_trade_at: null,
-change: 0,
-change_pct: 0,
-is_bullish: true,
-});
+out.push(createSyntheticCandle(nextTs, prev.close));
+
+if (out.length > safeLimit * 2) {
+out.splice(0, out.length - safeLimit * 2);
+}
+
 nextTs += ms;
 }
 }
 
-out.push({
-bucket_start: candle.bucket_start,
-open: round(candle.open),
-high: round(candle.high),
-low: round(candle.low),
-close: round(candle.close),
-volume_base: round(candle.volume_base),
-volume_token: round(candle.volume_token),
-buys: toNumber(candle.buys, 0),
-sells: toNumber(candle.sells, 0),
-trade_count: toNumber(candle.trade_count, toNumber(candle.buys, 0) + toNumber(candle.sells, 0)),
-buy_volume_base: round(candle.buy_volume_base),
-sell_volume_base: round(candle.sell_volume_base),
-buy_volume_token: round(candle.buy_volume_token),
-sell_volume_token: round(candle.sell_volume_token),
-vwap: round(
-candle.vwap != null
-? candle.vwap
-: candle.close
-),
-first_trade_at: candle.first_trade_at || null,
-last_trade_at: candle.last_trade_at || null,
-change: round(
-candle.change != null
-? candle.change
-: toNumber(candle.close, 0) - toNumber(candle.open, 0)
-),
-change_pct: round(
-candle.change_pct != null
-? candle.change_pct
-: toNumber(candle.open, 0) > 0
-? ((toNumber(candle.close, 0) - toNumber(candle.open, 0)) / toNumber(candle.open, 0)) * 100
-: 0,
-8
-),
-is_bullish:
-typeof candle.is_bullish === "boolean"
-? candle.is_bullish
-: toNumber(candle.close, 0) >= toNumber(candle.open, 0),
-});
+out.push(normalizedCandle);
 
-prev = candle;
+if (out.length > safeLimit * 2) {
+out.splice(0, out.length - safeLimit * 2);
 }
 
-const safeLimit = Math.max(1, Math.floor(toNumber(limit, 120)));
+prev = normalizedCandle;
+}
+
 return out.slice(-safeLimit);
 }
 

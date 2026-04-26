@@ -602,6 +602,8 @@ color:rgba(255,255,255,.46);
 letter-spacing:.08em;
 text-transform:uppercase;
 word-break:break-word;
+display:grid;
+gap:4px;
 }
 
 .launch-detail-page .progress-wrap{
@@ -1712,7 +1714,8 @@ Awaiting launch overview state.
 <div style="min-width:0;">
 <div class="progress-card-title"><span id="totalCommittedStat">0 SOL</span> committed</div>
 <div class="progress-card-sub">
-<span id="progressCountdownLabel">Commit ends in</span>: <span id="progressCountdownValue">—</span>
+<div><span id="progressCountdownLabel">Commit ends in</span>: <span id="progressCountdownValue">—</span></div>
+<div><span id="progressSecondaryLabel">Fill duration</span>: <span id="progressSecondaryValue">—</span></div>
 </div>
 </div>
 <div id="phaseBadge" class="status-pill commit">Commit</div>
@@ -1951,7 +1954,7 @@ class="terminal-wallet-badge is-disconnected"
 data-role="wallet-badge"
 >
 <span class="terminal-wallet-badge-dot"></span>
-<span>Wallet Disconnected</span>
+<span class="terminal-wallet-badge-label">Wallet Disconnected</span>
 </div>
 </div>
 
@@ -2159,6 +2162,16 @@ data-role="wallet-input"
 <div id="launchCaRow"></div>
 
 <div id="launchBuilderProfileBtnText"></div>
+
+<div id="launchLogo"></div>
+
+<div id="launchFeePctStat"></div>
+<div id="totalFeeSolStat"></div>
+<div id="founderFeeSolStat"></div>
+<div id="buybackFeeSolStat"></div>
+<div id="treasuryFeeSolStat"></div>
+<div id="netRaiseAfterFeeStat"></div>
+<div id="liquidityFundingStat"></div>
 </div>
 
 <div id="layoutShellFooter"></div>

@@ -37,6 +37,7 @@ display:none !important;
 .launch-market-wrap{
 display:grid;
 gap:20px;
+min-width:0;
 }
 
 /* =========================
@@ -114,6 +115,7 @@ grid-template-columns:minmax(0,1.14fr) minmax(390px,.86fr);
 gap:20px;
 padding:26px;
 align-items:start;
+min-width:0;
 }
 
 .launch-token-hero-left,
@@ -138,6 +140,7 @@ min-width:0;
 position:relative;
 width:92px;
 height:92px;
+flex:0 0 auto;
 }
 
 .launch-token-logo-ring{
@@ -162,11 +165,20 @@ place-items:center;
 font-weight:900;
 font-size:28px;
 color:#fff;
+overflow:hidden;
 background:
 radial-gradient(circle at 28% 20%, rgba(255,255,255,.10), transparent 42%),
 linear-gradient(180deg, rgba(20,24,31,.98), rgba(10,13,19,.98));
 border:1px solid rgba(255,255,255,.07);
 box-shadow:inset 0 1px 0 rgba(255,255,255,.06);
+}
+
+.launch-token-logo img{
+width:100%;
+height:100%;
+object-fit:cover;
+display:block;
+border-radius:inherit;
 }
 
 .launch-token-meta{
@@ -221,6 +233,7 @@ color:var(--text-faint);
 
 .launch-builder-wallet{
 color:rgba(255,255,255,.84);
+word-break:break-word;
 }
 
 .launch-phase-wrap{
@@ -297,6 +310,8 @@ border:1px solid rgba(255,255,255,.08);
 background:
 linear-gradient(180deg, rgba(255,255,255,.04), rgba(255,255,255,.02));
 box-shadow:inset 0 1px 0 rgba(255,255,255,.04);
+min-width:0;
+max-width:100%;
 }
 
 .launch-meta-pill-label{
@@ -304,12 +319,17 @@ color:var(--text-faint);
 font-size:10px;
 letter-spacing:.10em;
 text-transform:uppercase;
+flex:0 0 auto;
 }
 
 .launch-meta-pill-value{
 color:#fff;
 font-size:12px;
 font-weight:800;
+min-width:0;
+overflow:hidden;
+text-overflow:ellipsis;
+white-space:nowrap;
 }
 
 .launch-ca-card,
@@ -324,6 +344,7 @@ padding:15px;
 box-shadow:
 inset 0 1px 0 rgba(255,255,255,.04),
 var(--shadow-sm);
+min-width:0;
 }
 
 .launch-ca-card-top,
@@ -334,6 +355,7 @@ align-items:center;
 justify-content:space-between;
 gap:10px;
 margin-bottom:10px;
+flex-wrap:wrap;
 }
 
 .launch-ca-label,
@@ -366,12 +388,13 @@ background:
 linear-gradient(180deg, rgba(255,255,255,.045), rgba(255,255,255,.022));
 color:var(--text-main);
 cursor:pointer;
-transition:transform .18s ease, background .18s ease, border-color .18s ease, box-shadow .18s ease;
+transition:transform .18s ease, background .18s ease, border-color .18s ease, box-shadow .18s ease, opacity .18s ease;
 box-shadow:inset 0 1px 0 rgba(255,255,255,.04);
+min-width:0;
 }
 
-.launch-ca-pill:hover,
-.chart-ca-chip:hover{
+.launch-ca-pill:hover:not(:disabled),
+.chart-ca-chip:hover:not(:disabled){
 transform:translateY(-1px);
 border-color:rgba(255,241,191,.14);
 background:
@@ -381,12 +404,19 @@ inset 0 1px 0 rgba(255,255,255,.05),
 0 10px 22px rgba(0,0,0,.20);
 }
 
+.launch-ca-pill:disabled,
+.chart-ca-chip:disabled{
+opacity:.55;
+cursor:not-allowed;
+}
+
 .launch-ca-copy-wrap{
 display:inline-flex;
 align-items:center;
 gap:8px;
 color:var(--text-soft);
 font-size:12px;
+flex:0 0 auto;
 }
 
 .launch-ca-copy-icon{
@@ -413,6 +443,9 @@ color:rgba(255,255,255,.86);
 font-size:12px;
 box-shadow:inset 0 1px 0 rgba(255,255,255,.04);
 transition:transform .18s ease, background .18s ease;
+min-width:0;
+max-width:100%;
+overflow-wrap:anywhere;
 }
 
 .launch-link-chip:hover{
@@ -517,6 +550,34 @@ margin-top:12px;
 color:var(--text-soft);
 font-size:12px;
 line-height:1.5;
+}
+
+.launch-builder-intel-main,
+.launch-builder-alias-wrap{
+min-width:0;
+}
+
+.launch-builder-alias{
+color:#fff;
+font-size:18px;
+font-weight:900;
+line-height:1.08;
+letter-spacing:-.02em;
+word-break:break-word;
+}
+
+.launch-builder-sub{
+margin-top:6px;
+color:var(--text-soft);
+font-size:12px;
+line-height:1.5;
+}
+
+.launch-builder-intel-actions{
+display:flex;
+gap:8px;
+flex-wrap:wrap;
+margin-top:12px;
 }
 
 /* =========================
@@ -640,6 +701,7 @@ flex-wrap:wrap;
 .market-title-stack{
 display:grid;
 gap:4px;
+min-width:0;
 }
 
 .market-kicker{
@@ -655,6 +717,7 @@ font-size:30px;
 line-height:.98;
 letter-spacing:-.05em;
 color:#fff;
+word-break:break-word;
 }
 
 .market-live-pill-wrap{
@@ -694,6 +757,7 @@ width:8px;
 height:8px;
 border-radius:999px;
 display:inline-block;
+flex:0 0 auto;
 }
 
 .market-status-dot.phase-commit{
@@ -735,6 +799,7 @@ display:inline-flex;
 align-items:center;
 gap:10px;
 min-width:0;
+overflow:hidden;
 }
 
 .chart-ca-chip-label{
@@ -742,11 +807,13 @@ font-size:10px;
 letter-spacing:.14em;
 text-transform:uppercase;
 color:var(--text-faint);
+flex:0 0 auto;
 }
 
 .chart-ca-chip-copy{
 color:var(--text-soft);
 font-size:12px;
+flex:0 0 auto;
 }
 
 .market-card-header-right{
@@ -993,6 +1060,7 @@ display:grid !important;
 grid-template-columns:repeat(4, minmax(0,1fr)) !important;
 gap:14px !important;
 align-items:stretch !important;
+min-width:0 !important;
 }
 
 .market-card-footer #marketStatsGrid > .market-stat,
@@ -1066,6 +1134,7 @@ grid-template-columns:repeat(3, minmax(0,1fr));
 gap:12px;
 position:relative;
 z-index:2;
+min-width:0;
 }
 
 .market-wallet-chip{
@@ -1079,6 +1148,7 @@ gap:6px;
 box-shadow:
 inset 0 1px 0 rgba(255,255,255,.04),
 0 10px 18px rgba(0,0,0,.14);
+min-width:0;
 }
 
 .market-wallet-chip-label{
@@ -1094,9 +1164,11 @@ font-size:15px;
 font-weight:800;
 line-height:1.18;
 word-break:break-word;
-white-space:nowrap;
-overflow:hidden;
-text-overflow:ellipsis;
+min-width:0;
+}
+
+.market-wallet-chip-value > div{
+white-space:normal;
 }
 
 .market-access-card{
@@ -1111,6 +1183,7 @@ padding:16px;
 box-shadow:
 inset 0 1px 0 rgba(255,255,255,.04),
 0 12px 24px rgba(0,0,0,.16);
+min-width:0;
 }
 
 .market-access-card-top{
@@ -1119,6 +1192,7 @@ align-items:flex-start;
 justify-content:space-between;
 gap:12px;
 margin-bottom:12px;
+flex-wrap:wrap;
 }
 
 .market-access-kicker{
@@ -1135,6 +1209,7 @@ font-weight:900;
 line-height:1.05;
 letter-spacing:-.03em;
 color:#fff;
+word-break:break-word;
 }
 
 .market-access-state-pill{
@@ -1151,6 +1226,7 @@ text-transform:uppercase;
 color:var(--countdown);
 background:rgba(255,111,127,.08);
 border:1px solid rgba(255,111,127,.18);
+flex:0 0 auto;
 }
 
 .market-access-state-pill.is-open{
@@ -1307,6 +1383,7 @@ linear-gradient(180deg, rgba(255,255,255,.045), rgba(255,255,255,.02));
 color:#fff;
 padding:0 14px;
 outline:none;
+width:100%;
 }
 
 .launch-links-field input:focus{
@@ -1341,6 +1418,7 @@ ELITE CHART TOOLTIP
 
 .elite-chart-tooltip-card{
 min-width:220px;
+max-width:320px;
 padding:10px 10px 8px;
 border-radius:14px;
 border:1px solid rgba(255,255,255,.10);
@@ -1371,6 +1449,7 @@ gap:6px 10px;
 display:flex;
 justify-content:space-between;
 gap:8px;
+min-width:0;
 }
 
 .elite-chart-tooltip-grid span{
@@ -1382,6 +1461,8 @@ font-size:11px;
 color:#fff;
 font-size:11px;
 font-weight:800;
+text-align:right;
+word-break:break-word;
 }
 
 /* =========================
@@ -1451,6 +1532,7 @@ font-size:10px;
 font-weight:800;
 letter-spacing:.08em;
 text-transform:uppercase;
+flex:0 0 auto;
 }
 
 .trade-panel-phase-pill.phase-commit{
@@ -1617,6 +1699,7 @@ font-weight:800;
 line-height:1.18;
 text-align:right;
 word-break:break-word;
+min-width:0;
 }
 
 .trade-panel-message{
@@ -1819,6 +1902,7 @@ height:8px;
 border-radius:999px;
 background:rgba(255,255,255,.45);
 box-shadow:0 0 12px rgba(255,255,255,.22);
+flex:0 0 auto;
 }
 
 .terminal-wallet-badge.is-connected{
@@ -1959,6 +2043,7 @@ padding:0 14px !important;
 border-radius:999px;
 flex:1 1 260px;
 max-width:100%;
+min-width:0;
 }
 
 /* =========================

@@ -8,6 +8,7 @@ let walletBalanceColumnsCache = null;
 const tableExistsCache = new Map();
 
 function toNumber(value, fallback = 0) {
+if (value === null || value === undefined || value === "") return fallback;
 const num = Number(value);
 return Number.isFinite(num) ? num : fallback;
 }
@@ -22,13 +23,17 @@ return String(value ?? "").trim().slice(0, max);
 
 function parseDbTime(value) {
 if (!value) return null;
+
 const raw = String(value).trim();
 if (!raw) return null;
 
 const hasExplicitTimezone =
 /z$/i.test(raw) || /[+-]\d{2}:\d{2}$/.test(raw);
 
-if (!hasExplicitTimezone && /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/.test(raw)) {
+if (
+!hasExplicitTimezone &&
+/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/.test(raw)
+) {
 const sqliteUtc = Date.parse(raw.replace(" ", "T") + "Z");
 return Number.isFinite(sqliteUtc) ? sqliteUtc : null;
 }
@@ -62,6 +67,7 @@ return "";
 
 function chooseFirstFinite(...values) {
 for (const value of values) {
+if (value === null || value === undefined || value === "") continue;
 const num = Number(value);
 if (Number.isFinite(num)) return num;
 }
@@ -70,6 +76,7 @@ return null;
 
 function chooseFirstPositive(...values) {
 for (const value of values) {
+if (value === null || value === undefined || value === "") continue;
 const num = Number(value);
 if (Number.isFinite(num) && num > 0) return num;
 }
@@ -80,9 +87,67 @@ function clamp(value, min, max) {
 return Math.max(min, Math.min(max, value));
 }
 
+function normalizeLaunchStatus(raw) {
+const status = cleanText(raw, 80).toLowerCase();
+
+if (!status) return "";
+
+if (status === "failed_refunded" || status === "refunded") {
+return "failed_refunded";
+}
+
+if (
+status === "failed" ||
+status === "cancelled" ||
+status === "canceled" ||
+status === "expired"
+) {
+return "failed";
+}
+
+if (status === "graduated" || status === "surged" || status === "surge") {
+return "graduated";
+}
+
+if (status === "live" || status === "trading" || status === "market_live") {
+return "live";
+}
+
+if (
+status === "building" ||
+status === "bootstrapping" ||
+status === "deploying" ||
+status === "finalizing" ||
+status === "finalising"
+) {
+return "building";
+}
+
+if (status === "countdown" || status === "pre_live" || status === "prelive") {
+return "countdown";
+}
+
+if (
+status === "commit" ||
+status === "committing" ||
+status === "open" ||
+status === "pending" ||
+status === "created" ||
+status === "draft"
+) {
+return "commit";
+}
+
+return status;
+}
+
 function shouldRevealContractAddress(status) {
-const normalized = cleanText(status, 64).toLowerCase();
+const normalized = normalizeLaunchStatus(status);
 return normalized === "live" || normalized === "graduated";
+}
+
+function isMarketEnabledLaunch(launch = null) {
+return shouldRevealContractAddress(launch?.status);
 }
 
 async function tableExists(db, tableName) {
@@ -126,8 +191,14 @@ return walletBalanceColumnsCache;
 
 function hasMintFinalizationSignal(row = {}) {
 const contractAddress = cleanText(row.contract_address, 120);
-const tokenMintAddress = cleanText(row.token_mint_address, 120);
-const mintReservationStatus = cleanText(row.mint_reservation_status, 64).toLowerCase();
+const tokenMintAddress = cleanText(
+row.token_mint_address || row.token_mint || row.mint_address || row.mint,
+120
+);
+const mintReservationStatus = cleanText(
+row.mint_reservation_status,
+64
+).toLowerCase();
 const mintFinalizedAt = row.mint_finalized_at || null;
 
 return Boolean(
@@ -155,14 +226,9 @@ const launchLiquidity = toNumber(row.liquidity, 0);
 const launchPrice = toNumber(row.price, 0);
 
 const hasPoolArtifacts =
-tokenId > 0 &&
-poolId > 0 &&
-poolSolReserve > 0 &&
-poolTokenReserve > 0;
+tokenId > 0 && poolId > 0 && poolSolReserve > 0 && poolTokenReserve > 0;
 
-const hasLifecycleReserves =
-lifecycleSolReserve > 0 &&
-lifecycleTokenReserve > 0;
+const hasLifecycleReserves = lifecycleSolReserve > 0 && lifecycleTokenReserve > 0;
 
 const hasLaunchSeedTruth =
 launchInternalPoolSol > 0 &&
@@ -178,26 +244,25 @@ return hasMintFinalizationSignal(row) && hasBootstrapReserveSignal(row);
 }
 
 function computeLaunchPhase(row = {}) {
-const rawStatus = cleanText(row.status, 64).toLowerCase();
-const lifecycleGraduationStatus = cleanText(
-row.lifecycle_graduation_status,
-64
-).toLowerCase();
+const rawStatus = normalizeLaunchStatus(row.status);
+const lifecycleGraduationStatus = normalizeLaunchStatus(
+row.lifecycle_graduation_status
+);
 const lifecycleGraduated = toInt(row.lifecycle_graduated, 0) === 1;
 
 const countdownStartedMs = parseDbTime(row.countdown_started_at);
-const countdownEndsMs = parseDbTime(row.countdown_ends_at || row.live_at);
-const liveAtMs = parseDbTime(row.live_at || row.countdown_ends_at);
+const countdownEndsMs = parseDbTime(row.countdown_ends_at);
+const liveAtMs = parseDbTime(row.live_at);
 const now = Date.now();
 
 const hasCountdownWindow =
 Number.isFinite(countdownStartedMs) || Number.isFinite(countdownEndsMs);
-
+const countdownStillRunning =
+Number.isFinite(countdownEndsMs) && now < countdownEndsMs;
 const hasBootstrappedMarket = hasBootstrappedMarketSignal(row);
 
-if (rawStatus === "failed_refunded" || rawStatus === "failed") {
-return rawStatus;
-}
+if (rawStatus === "failed_refunded") return "failed_refunded";
+if (rawStatus === "failed") return "failed";
 
 if (
 rawStatus === "graduated" ||
@@ -208,47 +273,84 @@ return "graduated";
 }
 
 if (rawStatus === "live") {
-if (hasBootstrappedMarket) return "live";
-if (hasCountdownWindow) {
-if (Number.isFinite(countdownEndsMs) && now < countdownEndsMs) {
-return "countdown";
-}
-return "building";
-}
-return "building";
-}
-
-if (rawStatus === "building") {
 return hasBootstrappedMarket ? "live" : "building";
 }
+
+/*
+Critical:
+building is protected. Mint/pool/bootstrap signals are not allowed to
+promote building -> live here. finalizeLaunch.js owns final live promotion.
+*/
+if (rawStatus === "building") return "building";
 
 if (rawStatus === "countdown") {
-if (Number.isFinite(countdownEndsMs) && now < countdownEndsMs) {
+if (!Number.isFinite(countdownEndsMs) || countdownStillRunning) {
 return "countdown";
 }
-return hasBootstrappedMarket ? "live" : "building";
+
+return "building";
 }
 
 if (rawStatus === "commit") {
-return hasBootstrappedMarket ? "live" : "commit";
-}
-
 if (hasCountdownWindow) {
-if (Number.isFinite(countdownEndsMs) && now < countdownEndsMs) {
+if (!Number.isFinite(countdownEndsMs) || countdownStillRunning) {
 return "countdown";
 }
-return hasBootstrappedMarket ? "live" : "building";
+
+return "building";
 }
 
-if (liveAtMs && now >= liveAtMs && hasBootstrappedMarket) {
+return "commit";
+}
+
+if (!rawStatus && hasCountdownWindow) {
+if (!Number.isFinite(countdownEndsMs) || countdownStillRunning) {
+return "countdown";
+}
+
+return "building";
+}
+
+if (!rawStatus && Number.isFinite(liveAtMs) && now >= liveAtMs && hasBootstrappedMarket) {
 return "live";
 }
 
-if (hasBootstrappedMarket) {
+if (!rawStatus && hasBootstrappedMarket) {
 return "live";
 }
 
 return rawStatus || "commit";
+}
+
+function buildPhaseMeta(launch = {}) {
+const status = normalizeLaunchStatus(launch?.status || "commit") || "commit";
+const marketEnabled = shouldRevealContractAddress(status);
+
+return {
+status,
+market_enabled: marketEnabled,
+can_trade: marketEnabled,
+is_commit: status === "commit",
+is_countdown: status === "countdown",
+is_building: status === "building",
+is_live: status === "live",
+is_graduated: status === "graduated",
+is_failed: status === "failed" || status === "failed_refunded",
+};
+}
+
+function getPublicMintAddress(row = {}, publicCaVisible = false) {
+if (!publicCaVisible) return null;
+
+return (
+choosePreferredString(
+row.token_mint_address,
+row.mint_address,
+row.token_mint,
+row.contract_address,
+row.mint
+) || null
+);
 }
 
 function pickLaunchRow(row) {
@@ -263,18 +365,22 @@ const launchLiquidity = toNumber(row.liquidity, 0);
 const poolTokenReserve = toNumber(row.token_reserve, 0);
 const launchInternalPoolTokens = toNumber(row.internal_pool_tokens, 0);
 
-const oneSidedLiquiditySol =
-poolSolReserve > 0
+const oneSidedLiquiditySol = publicCaVisible
+? poolSolReserve > 0
 ? poolSolReserve
 : launchInternalPoolSol > 0
 ? launchInternalPoolSol
 : launchLiquidity > 0
 ? launchLiquidity
+: 0
 : 0;
 
-const mintAddress = cleanText(row.token_mint_address, 120) || null;
-const contractAddress = cleanText(row.contract_address, 120) || null;
+const mintAddress = getPublicMintAddress(row, publicCaVisible);
+const contractAddress = publicCaVisible
+? cleanText(row.contract_address, 120) || mintAddress
+: null;
 const marketBootstrapped = hasBootstrappedMarketSignal(row);
+const lifecycleGraduated = toInt(row.lifecycle_graduated, 0) === 1;
 
 return {
 id: row.id,
@@ -283,17 +389,24 @@ token_name: row.token_name,
 symbol: row.symbol,
 template: row.template,
 status,
-raw_status: cleanText(row.status, 64).toLowerCase() || "commit",
-market_bootstrapped: marketBootstrapped,
+raw_status: normalizeLaunchStatus(row.status) || "commit",
+phase: buildPhaseMeta({ status }),
+market_bootstrapped: publicCaVisible ? marketBootstrapped : false,
 
 description: cleanText(row.description, 5000),
 image_url: cleanText(row.image_url, 1000),
 
-contract_address: publicCaVisible ? contractAddress : null,
-mint_address: publicCaVisible ? mintAddress || contractAddress : null,
+contract_address: contractAddress,
+mint_address: mintAddress,
+token_mint: mintAddress,
+mint: mintAddress,
 
 reserved_mint_address: null,
+reserved_mint_public_key: null,
 reserved_mint_secret: null,
+reserved_mint_private_key: null,
+reserved_mint_keypair: null,
+
 mint_reservation_status: publicCaVisible
 ? cleanText(row.mint_reservation_status, 64).toLowerCase() || null
 : null,
@@ -306,25 +419,32 @@ builder_score: toNumber(row.builder_score, 0),
 supply: toNumber(row.supply, 0),
 final_supply: toNumber(row.final_supply || row.supply, 0),
 total_supply: toNumber(row.final_supply || row.supply, 0),
-circulating_supply: toNumber(
-row.circulating_supply || row.final_supply || row.supply,
-0
-),
+circulating_supply: publicCaVisible
+? toNumber(row.circulating_supply || row.final_supply || row.supply, 0)
+: 0,
 
 liquidity: oneSidedLiquiditySol,
 liquidity_sol: oneSidedLiquiditySol,
-internal_pool_sol: launchInternalPoolSol,
-internal_pool_tokens:
-poolTokenReserve > 0 ? poolTokenReserve : launchInternalPoolTokens,
-liquidity_usd: toNumber(row.liquidity_usd, 0),
-current_liquidity_usd: toNumber(row.current_liquidity_usd, 0),
-sol_usd_price: toNumber(row.sol_usd_price, 0),
-price: toNumber(row.price, 0),
-price_usd: toNumber(row.price_usd, 0),
-market_cap: toNumber(row.market_cap, 0),
-market_cap_usd: toNumber(row.market_cap_usd, 0),
-volume_24h: toNumber(row.volume_24h, 0),
-volume_24h_usd: toNumber(row.volume_24h_usd, 0),
+internal_pool_sol: publicCaVisible ? launchInternalPoolSol : 0,
+internal_pool_tokens: publicCaVisible
+? poolTokenReserve > 0
+? poolTokenReserve
+: launchInternalPoolTokens
+: 0,
+liquidity_usd: publicCaVisible ? toNumber(row.liquidity_usd, 0) : 0,
+current_liquidity_usd: publicCaVisible
+? toNumber(row.current_liquidity_usd, 0)
+: 0,
+sol_usd_price: publicCaVisible ? toNumber(row.sol_usd_price, 0) : 0,
+price: publicCaVisible ? toNumber(row.price, 0) : 0,
+price_sol: publicCaVisible ? toNumber(row.price, 0) : 0,
+price_usd: publicCaVisible ? toNumber(row.price_usd, 0) : 0,
+market_cap: publicCaVisible ? toNumber(row.market_cap, 0) : 0,
+market_cap_sol: publicCaVisible ? toNumber(row.market_cap, 0) : 0,
+market_cap_usd: publicCaVisible ? toNumber(row.market_cap_usd, 0) : 0,
+volume_24h: publicCaVisible ? toNumber(row.volume_24h, 0) : 0,
+volume_24h_sol: publicCaVisible ? toNumber(row.volume_24h, 0) : 0,
+volume_24h_usd: publicCaVisible ? toNumber(row.volume_24h_usd, 0) : 0,
 
 website_url: cleanText(row.website_url, 500),
 x_url: cleanText(row.x_url, 500),
@@ -354,32 +474,26 @@ commit_ends_at: row.commit_ends_at || null,
 created_at: row.created_at || null,
 updated_at: row.updated_at || null,
 
-lifecycle: {
+lifecycle: publicCaVisible
+? {
 launch_status: status,
 internal_sol_reserve: toNumber(row.lifecycle_internal_sol_reserve, 0),
 internal_token_reserve: toInt(row.lifecycle_internal_token_reserve, 0),
 implied_marketcap_sol: toNumber(row.lifecycle_implied_marketcap_sol, 0),
 graduation_status:
 cleanText(row.lifecycle_graduation_status, 120) || "internal_live",
-graduated: toInt(row.lifecycle_graduated, 0) === 1,
+surge_status:
+cleanText(row.lifecycle_graduation_status, 120) || "internal_live",
+graduated: lifecycleGraduated,
 graduation_reason:
 cleanText(row.lifecycle_graduation_reason, 200) || null,
 graduated_at: row.lifecycle_graduated_at || null,
 raydium_target_pct: toNumber(row.lifecycle_raydium_target_pct, 50),
-mss_locked_target_pct: toNumber(
-row.lifecycle_mss_locked_target_pct,
-50
-),
+mss_locked_target_pct: toNumber(row.lifecycle_mss_locked_target_pct, 50),
 raydium_pool_id:
 cleanText(row.lifecycle_raydium_pool_id, 200) || null,
-raydium_sol_migrated: toNumber(
-row.lifecycle_raydium_sol_migrated,
-0
-),
-raydium_token_migrated: toInt(
-row.lifecycle_raydium_token_migrated,
-0
-),
+raydium_sol_migrated: toNumber(row.lifecycle_raydium_sol_migrated, 0),
+raydium_token_migrated: toInt(row.lifecycle_raydium_token_migrated, 0),
 raydium_lp_tokens:
 cleanText(row.lifecycle_raydium_lp_tokens, 200) || null,
 raydium_migration_tx:
@@ -392,9 +506,11 @@ lock_status: cleanText(row.lifecycle_lock_status, 120) || "not_locked",
 lock_tx: cleanText(row.lifecycle_lock_tx, 300) || null,
 lock_expires_at: row.lifecycle_lock_expires_at || null,
 market_bootstrapped: marketBootstrapped,
-},
+}
+: null,
 
-builder_vesting: {
+builder_vesting: publicCaVisible
+? {
 builder_wallet: cleanText(row.vesting_builder_wallet, 120) || null,
 total_allocation: toInt(row.vesting_total_allocation, 0),
 daily_unlock: toInt(row.vesting_daily_unlock, 0),
@@ -403,21 +519,56 @@ locked_amount: toInt(row.vesting_locked_amount, 0),
 vesting_start_at: row.vesting_start_at || null,
 created_at: row.vesting_created_at || null,
 updated_at: row.vesting_updated_at || null,
-},
+}
+: null,
 };
 }
 
 function pickTokenRow(row) {
 if (!row) return null;
 
+const mintAddress = cleanText(row.mint_address, 120) || null;
+
 return {
 id: row.id,
 launch_id: row.launch_id,
 name: row.name,
 symbol: row.symbol,
+ticker: row.symbol,
 supply: toNumber(row.supply, 0),
-mint_address: cleanText(row.mint_address, 120) || null,
+mint_address: mintAddress,
+mint: mintAddress,
+token_mint: mintAddress,
+contract_address: mintAddress,
 created_at: row.created_at || null,
+};
+}
+
+function maskTokenForLaunch(token = null, launch = null) {
+if (!token) return null;
+
+if (!isMarketEnabledLaunch(launch)) {
+return {
+...token,
+mint_address: null,
+mint: null,
+token_mint: null,
+contract_address: null,
+reserved_mint_address: null,
+reserved_mint_public_key: null,
+reserved_mint_secret: null,
+reserved_mint_private_key: null,
+reserved_mint_keypair: null,
+};
+}
+
+return {
+...token,
+reserved_mint_address: null,
+reserved_mint_public_key: null,
+reserved_mint_secret: null,
+reserved_mint_private_key: null,
+reserved_mint_keypair: null,
 };
 }
 
@@ -434,6 +585,11 @@ k_value: toNumber(row.k_value, 0),
 initial_token_reserve: toNumber(row.initial_token_reserve, 0),
 created_at: row.created_at || null,
 };
+}
+
+function maskPoolForLaunch(pool = null, launch = null) {
+if (!pool || !isMarketEnabledLaunch(launch)) return null;
+return pool;
 }
 
 function normalizeTradeRow(row) {
@@ -635,24 +791,29 @@ return rows.map(normalizeTradeRow);
 }
 
 function buildCassiePayload(launch = {}, stats = {}) {
+const phase = buildPhaseMeta(launch);
 const absMove = Math.abs(toNumber(stats?.price_change_pct, 0));
 const buyCount = toNumber(stats?.buys_24h, 0);
 const sellCount = toNumber(stats?.sells_24h, 0);
 const imbalance = Math.abs(buyCount - sellCount);
 
 let riskState = "normal";
-if (absMove >= 25 || imbalance >= 10) {
+if (phase.market_enabled && (absMove >= 25 || imbalance >= 10)) {
 riskState = "elevated";
-} else if (absMove >= 12 || imbalance >= 5) {
+} else if (phase.market_enabled && (absMove >= 12 || imbalance >= 5)) {
 riskState = "active";
 }
 
 return {
 monitoring_active: true,
-phase: String(launch?.status || "").toLowerCase() || "commit",
+phase: phase.status,
 layer: "market-intelligence",
 risk_state: riskState,
-market_bootstrapped: Boolean(launch?.market_bootstrapped),
+market_enabled: phase.market_enabled,
+can_trade: phase.can_trade,
+market_bootstrapped: phase.market_enabled
+? Boolean(launch?.market_bootstrapped)
+: false,
 };
 }
 
@@ -687,10 +848,7 @@ launch?.internal_pool_tokens ??
 return {
 ...(launch || {}),
 mint_address:
-token?.mint_address ||
-launch?.mint_address ||
-launch?.contract_address ||
-null,
+token?.mint_address || launch?.mint_address || launch?.contract_address || null,
 total_supply: totalSupply,
 circulating_supply: circulatingSupply,
 liquidity: oneSidedLiquiditySol,
@@ -712,9 +870,7 @@ launch?.current_liquidity_usd ?? launch?.liquidity_usd,
 }
 
 function getLiveDays(launch = {}) {
-const liveMs = parseDbTime(
-launch?.live_at || launch?.updated_at || launch?.created_at
-);
+const liveMs = parseDbTime(launch?.live_at || launch?.updated_at || launch?.created_at);
 if (!liveMs) return 0;
 return Math.max(0, Math.floor((Date.now() - liveMs) / 86400000));
 }
@@ -729,11 +885,7 @@ if (teamAllocationPct > 0) return teamAllocationPct;
 return BUILDER_MAX_ALLOCATION_PERCENT;
 }
 
-function buildFallbackBuilderVestingSummary({
-launch,
-wallet,
-tokenBalance,
-}) {
+function buildFallbackBuilderVestingSummary({ launch, wallet, tokenBalance }) {
 const cleanWallet = normalizeWallet(wallet);
 const builderWallet = normalizeWallet(launch?.builder_wallet);
 const template = String(launch?.template || "").toLowerCase();
@@ -743,10 +895,7 @@ launch?.final_supply ?? launch?.total_supply ?? launch?.supply,
 );
 
 const isBuilderWallet = Boolean(
-template === "builder" &&
-builderWallet &&
-cleanWallet &&
-builderWallet === cleanWallet
+template === "builder" && builderWallet && cleanWallet && builderWallet === cleanWallet
 );
 
 if (!isBuilderWallet || totalSupply <= 0) {
@@ -779,9 +928,7 @@ BUILDER_DAILY_UNLOCK_PERCENT,
 );
 
 const totalAllocationTokens = Math.floor((totalSupply * allocationPct) / 100);
-const unlockedAllocationTokens = Math.floor(
-(totalSupply * unlockedPct) / 100
-);
+const unlockedAllocationTokens = Math.floor((totalSupply * unlockedPct) / 100);
 const lockedAllocationTokens = Math.max(
 0,
 totalAllocationTokens - unlockedAllocationTokens
@@ -860,10 +1007,7 @@ const lockedAmount = toInt(vesting.locked_amount, 0);
 const dailyUnlock = toInt(vesting.daily_unlock, 0);
 
 const vestingStartMs = parseDbTime(
-vesting.vesting_start_at ||
-vesting.created_at ||
-launch?.live_at ||
-launch?.created_at
+vesting.vesting_start_at || vesting.created_at || launch?.live_at || launch?.created_at
 );
 
 const vestedDays = vestingStartMs
@@ -871,10 +1015,7 @@ const vestedDays = vestingStartMs
 : getLiveDays(launch);
 
 const hasExplicitVesting =
-totalAllocation > 0 ||
-unlockedAmount > 0 ||
-lockedAmount > 0 ||
-dailyUnlock > 0;
+totalAllocation > 0 || unlockedAmount > 0 || lockedAmount > 0 || dailyUnlock > 0;
 
 if (hasExplicitVesting) {
 const derivedTotalAllocation =
@@ -892,7 +1033,7 @@ storedSellableBalance,
 unlockedAmount,
 tokenBalance,
 0
-)
+) ?? 0
 )
 );
 
@@ -905,32 +1046,22 @@ storedLockedBalance,
 lockedAmount,
 Math.max(0, derivedTotalAllocation - derivedUnlocked),
 0
-)
+) ?? 0
 )
 );
 
 const visibleTotal = Math.max(
-0,
-Math.min(
-Math.max(
 tokenBalance,
 derivedUnlocked + derivedLocked,
 toInt(storedTotalBalance, 0),
 derivedTotalAllocation
-),
-Math.max(
-derivedTotalAllocation,
-tokenBalance,
-derivedUnlocked + derivedLocked
-)
-)
 );
 
 const sellable = Math.max(
 0,
 Math.min(
 visibleTotal,
-chooseFirstFinite(storedSellableBalance, derivedUnlocked, tokenBalance, 0)
+chooseFirstFinite(storedSellableBalance, derivedUnlocked, tokenBalance, 0) ?? 0
 )
 );
 
@@ -944,21 +1075,14 @@ Math.max(derivedLocked, Math.max(0, visibleTotal - sellable))
 
 const percentUnlocked =
 derivedTotalAllocation > 0
-? clamp(
-(Math.max(0, derivedUnlocked) / derivedTotalAllocation) * 100,
-0,
-100
-)
+? clamp((Math.max(0, derivedUnlocked) / derivedTotalAllocation) * 100, 0, 100)
 : 100;
 
 return {
 is_builder_wallet: true,
 vesting_active: visibleLocked > 0 || derivedLocked > 0,
 builder_total_allocation_tokens: derivedTotalAllocation,
-builder_unlocked_tokens: Math.max(
-0,
-Math.min(visibleTotal, derivedUnlocked)
-),
+builder_unlocked_tokens: Math.max(0, Math.min(visibleTotal, derivedUnlocked)),
 builder_locked_tokens: visibleLocked,
 builder_sellable_tokens: sellable,
 builder_visible_total_tokens: visibleTotal,
@@ -968,11 +1092,7 @@ builder_daily_unlock_tokens: dailyUnlock,
 };
 }
 
-return buildFallbackBuilderVestingSummary({
-launch,
-wallet,
-tokenBalance,
-});
+return buildFallbackBuilderVestingSummary({ launch, wallet, tokenBalance });
 }
 
 async function getWalletBalanceSnapshot(db, launchId, wallet) {
@@ -989,21 +1109,13 @@ tokenBalance: [
 "token_balance",
 "wallet_balance_tokens",
 ],
-totalBalance: [
-"total_balance",
-"total_balance_tokens",
-"wallet_total_balance",
-],
+totalBalance: ["total_balance", "total_balance_tokens", "wallet_total_balance"],
 unlockedBalance: [
 "unlocked_balance",
 "unlocked_token_balance",
 "wallet_unlocked_balance",
 ],
-lockedBalance: [
-"locked_balance",
-"locked_token_balance",
-"wallet_locked_balance",
-],
+lockedBalance: ["locked_balance", "locked_token_balance", "wallet_locked_balance"],
 sellableBalance: [
 "sellable_balance",
 "sellable_token_balance",
@@ -1026,7 +1138,7 @@ const row = await db.get(
 `
 SELECT ${selectParts.join(", ")}
 FROM wallet_balances
-WHERE launch_id = ? AND wallet = ?
+WHERE launch_id = ? AND LOWER(wallet) = LOWER(?)
 ORDER BY id DESC
 LIMIT 1
 `,
@@ -1038,10 +1150,10 @@ if (!row) return null;
 return {
 tokenBalance: chooseFirstFinite(row.tokenBalance, 0) ?? 0,
 totalBalance: chooseFirstFinite(row.totalBalance, row.tokenBalance, 0),
-unlockedBalance: chooseFirstFinite(row.unlockedBalance, null),
-lockedBalance: chooseFirstFinite(row.lockedBalance, null),
-sellableBalance: chooseFirstFinite(row.sellableBalance, null),
-solBalance: chooseFirstFinite(row.solBalance, null),
+unlockedBalance: chooseFirstFinite(row.unlockedBalance),
+lockedBalance: chooseFirstFinite(row.lockedBalance),
+sellableBalance: chooseFirstFinite(row.sellableBalance),
+solBalance: chooseFirstFinite(row.solBalance),
 };
 }
 
@@ -1050,12 +1162,12 @@ if (!Array.isArray(trades) || !trades.length) return 0;
 
 for (let i = trades.length - 1; i >= 0; i -= 1) {
 const trade = trades[i];
+const tokenAmount = toNumber(trade?.token_amount, 0);
 const price =
 toNumber(trade?.price_sol, 0) ||
 toNumber(trade?.price, 0) ||
-(toNumber(trade?.token_amount, 0) > 0
-? toNumber(trade?.sol_amount ?? trade?.base_amount, 0) /
-toNumber(trade?.token_amount, 0)
+(tokenAmount > 0
+? toNumber(trade?.sol_amount ?? trade?.base_amount, 0) / tokenAmount
 : 0);
 
 if (price > 0) return price;
@@ -1066,9 +1178,7 @@ return 0;
 
 function getPoolSpotPriceSol(pool = {}, launch = {}) {
 const tokenReserve = toNumber(
-pool?.token_reserve ??
-launch?.lifecycle?.internal_token_reserve ??
-launch?.internal_pool_tokens,
+pool?.token_reserve ?? launch?.lifecycle?.internal_token_reserve ?? launch?.internal_pool_tokens,
 0
 );
 const solReserve = toNumber(
@@ -1097,16 +1207,13 @@ volumeSol = 0,
 const direct = chooseFirstPositive(explicitSolUsd);
 if (direct) return direct;
 
-const fromLiquidity =
-liquidityUsd > 0 && liquiditySol > 0 ? liquidityUsd / liquiditySol : 0;
+const fromLiquidity = liquidityUsd > 0 && liquiditySol > 0 ? liquidityUsd / liquiditySol : 0;
 if (fromLiquidity > 0) return fromLiquidity;
 
-const fromMarketCap =
-marketCapUsd > 0 && marketCapSol > 0 ? marketCapUsd / marketCapSol : 0;
+const fromMarketCap = marketCapUsd > 0 && marketCapSol > 0 ? marketCapUsd / marketCapSol : 0;
 if (fromMarketCap > 0) return fromMarketCap;
 
-const fromVolume =
-volumeUsd > 0 && volumeSol > 0 ? volumeUsd / volumeSol : 0;
+const fromVolume = volumeUsd > 0 && volumeSol > 0 ? volumeUsd / volumeSol : 0;
 if (fromVolume > 0) return fromVolume;
 
 const fromPrice = priceUsd > 0 && priceSol > 0 ? priceUsd / priceSol : 0;
@@ -1115,27 +1222,16 @@ if (fromPrice > 0) return fromPrice;
 return 0;
 }
 
-function finalizeMarketStats({
-stats = {},
-launch = {},
-token = {},
-pool = {},
-trades = [],
-}) {
+function finalizeMarketStats({ stats = {}, launch = {}, token = {}, pool = {}, trades = [] }) {
 const finalized = { ...(stats || {}) };
 
 const totalSupply = toNumber(
-finalized.total_supply ??
-token?.supply ??
-launch?.final_supply ??
-launch?.supply,
+finalized.total_supply ?? token?.supply ?? launch?.final_supply ?? launch?.supply,
 0
 );
 
 const circulatingSupply = toNumber(
-finalized.circulating_supply ??
-launch?.circulating_supply ??
-totalSupply,
+finalized.circulating_supply ?? launch?.circulating_supply ?? totalSupply,
 totalSupply
 );
 
@@ -1163,46 +1259,25 @@ chooseFirstPositive(
 finalized.market_cap_sol,
 finalized.market_cap,
 launch?.market_cap,
-priceSol > 0 && circulatingSupply > 0
-? priceSol * circulatingSupply
-: 0
+priceSol > 0 && circulatingSupply > 0 ? priceSol * circulatingSupply : 0
 ) || 0;
 
 const volume24hSol =
-chooseFirstPositive(
-finalized.volume_24h_sol,
-finalized.volume_24h,
-launch?.volume_24h
-) || 0;
+chooseFirstPositive(finalized.volume_24h_sol, finalized.volume_24h, launch?.volume_24h) || 0;
 
 const explicitLiquidityUsd =
-chooseFirstPositive(
-finalized.liquidity_usd,
-launch?.current_liquidity_usd,
-launch?.liquidity_usd
-) || 0;
+chooseFirstPositive(finalized.liquidity_usd, launch?.current_liquidity_usd, launch?.liquidity_usd) || 0;
 
 const explicitMarketCapUsd =
-chooseFirstPositive(
-finalized.market_cap_usd,
-launch?.market_cap_usd
-) || 0;
+chooseFirstPositive(finalized.market_cap_usd, launch?.market_cap_usd) || 0;
 
 const explicitVolumeUsd =
-chooseFirstPositive(
-finalized.volume_24h_usd,
-launch?.volume_24h_usd
-) || 0;
+chooseFirstPositive(finalized.volume_24h_usd, launch?.volume_24h_usd) || 0;
 
-const explicitPriceUsd =
-chooseFirstPositive(
-finalized.price_usd,
-launch?.price_usd
-) || 0;
+const explicitPriceUsd = chooseFirstPositive(finalized.price_usd, launch?.price_usd) || 0;
 
 const solUsdPrice = deriveSolUsdPrice({
-explicitSolUsd:
-chooseFirstPositive(finalized.sol_usd_price, launch?.sol_usd_price) || 0,
+explicitSolUsd: chooseFirstPositive(finalized.sol_usd_price, launch?.sol_usd_price) || 0,
 priceUsd: explicitPriceUsd,
 priceSol,
 liquidityUsd: explicitLiquidityUsd,
@@ -1265,16 +1340,69 @@ finalized.volume_24h_usd = resolvedVolume24hUsd;
 return finalized;
 }
 
-async function buildWalletSummary({
-db,
-launchId,
-launch,
-trades,
-wallet,
-priceUsd = 0,
-}) {
-const cleanWallet = cleanText(wallet, 120);
-if (!cleanWallet) {
+function applyMarketGateToStats(stats = {}, launch = null) {
+const phase = buildPhaseMeta(launch);
+const marketActive = phase.market_enabled;
+
+if (marketActive) {
+return {
+...(stats || {}),
+phase,
+market_enabled: true,
+can_trade: true,
+};
+}
+
+return {
+...(stats || {}),
+phase,
+market_enabled: false,
+can_trade: false,
+
+contract_address: null,
+mint_address: null,
+token_mint: null,
+mint: null,
+
+reserved_mint_address: null,
+reserved_mint_public_key: null,
+reserved_mint_secret: null,
+reserved_mint_private_key: null,
+reserved_mint_keypair: null,
+
+circulating_supply: 0,
+sol_usd_price: 0,
+
+price: 0,
+price_sol: 0,
+price_usd: 0,
+
+liquidity: 0,
+liquidity_sol: 0,
+liquidity_usd: 0,
+
+market_cap: 0,
+market_cap_sol: 0,
+market_cap_usd: 0,
+
+volume_24h: 0,
+volume_24h_sol: 0,
+volume_24h_usd: 0,
+
+buys_24h: 0,
+sells_24h: 0,
+trades_24h: 0,
+tx_count_24h: 0,
+
+price_change_pct: 0,
+high_24h: 0,
+low_24h: 0,
+high_24h_sol: 0,
+low_24h_sol: 0,
+};
+}
+
+function emptyWalletSummary() {
 return {
 token_balance: 0,
 tokenBalance: 0,
@@ -1324,6 +1452,12 @@ builder_vesting_percent_unlocked: 0,
 builder_vesting_days_live: 0,
 builder_daily_unlock_tokens: 0,
 };
+}
+
+async function buildWalletSummary({ db, launchId, launch, trades, wallet, priceUsd = 0 }) {
+const cleanWallet = cleanText(wallet, 120);
+if (!cleanWallet || !isMarketEnabledLaunch(launch)) {
+return emptyWalletSummary();
 }
 
 const walletSnapshot = await getWalletBalanceSnapshot(db, launchId, cleanWallet);
@@ -1385,13 +1519,10 @@ const totalBalance = vesting.is_builder_wallet
 ? Math.max(walletTokenBalance, vesting.builder_visible_total_tokens)
 : Math.max(walletTokenBalance, toInt(walletSnapshot?.totalBalance, 0));
 
-const positionValueUsd =
-totalBalance > 0 && priceUsd > 0 ? totalBalance * priceUsd : 0;
+const positionValueUsd = totalBalance > 0 && priceUsd > 0 ? totalBalance * priceUsd : 0;
 
 const visibleSolBalance =
-walletSnapshot?.solBalance != null
-? walletSnapshot.solBalance
-: walletSolDelta;
+walletSnapshot?.solBalance != null ? walletSnapshot.solBalance : walletSolDelta;
 
 return {
 token_balance: walletTokenBalance,
@@ -1438,8 +1569,7 @@ builder_unlocked_tokens: vesting.builder_unlocked_tokens,
 builder_locked_tokens: vesting.builder_locked_tokens,
 builder_sellable_tokens: vesting.builder_sellable_tokens,
 builder_visible_total_tokens: vesting.builder_visible_total_tokens,
-builder_vesting_percent_unlocked:
-vesting.builder_vesting_percent_unlocked,
+builder_vesting_percent_unlocked: vesting.builder_vesting_percent_unlocked,
 builder_vesting_days_live: vesting.builder_vesting_days_live,
 builder_daily_unlock_tokens: vesting.builder_daily_unlock_tokens,
 };
@@ -1457,6 +1587,7 @@ walletSummary.visible_total_balance ?? walletSummary.total_balance,
 wallet_position_value_usd: walletSummary.position_value_usd,
 wallet_sol_balance: walletSummary.sol_balance,
 wallet_sol_delta: walletSummary.sol_delta,
+walletSolDelta: walletSummary.walletSolDelta ?? walletSummary.sol_delta,
 
 wallet_sellable_balance: walletSummary.sellable_balance,
 wallet_sellable_token_balance: walletSummary.sellable_token_balance,
@@ -1469,65 +1600,71 @@ wallet_is_builder: walletSummary.wallet_is_builder,
 wallet_vesting_active: walletSummary.wallet_vesting_active,
 
 is_builder_wallet: walletSummary.is_builder_wallet,
-builder_total_allocation_tokens:
-walletSummary.builder_total_allocation_tokens,
+builder_total_allocation_tokens: walletSummary.builder_total_allocation_tokens,
 builder_unlocked_tokens: walletSummary.builder_unlocked_tokens,
 builder_locked_tokens: walletSummary.builder_locked_tokens,
 builder_sellable_tokens: walletSummary.builder_sellable_tokens,
 builder_visible_total_tokens: walletSummary.builder_visible_total_tokens,
-builder_vesting_percent_unlocked:
-walletSummary.builder_vesting_percent_unlocked,
+builder_vesting_percent_unlocked: walletSummary.builder_vesting_percent_unlocked,
 builder_vesting_days_live: walletSummary.builder_vesting_days_live,
 builder_daily_unlock_tokens: walletSummary.builder_daily_unlock_tokens,
 };
 }
 
-export async function getChartCandles({
-db,
-launchId,
-interval = "1m",
-limit = 120,
-}) {
-const [launch, token, pool, trades] = await Promise.all([
+function filterMarketRowsForLaunch({ launch, candles = [], trades = [] }) {
+if (!isMarketEnabledLaunch(launch)) {
+return {
+candles: [],
+trades: [],
+};
+}
+
+return {
+candles,
+trades,
+};
+}
+
+export async function getChartCandles({ db, launchId, interval = "1m", limit = 120 }) {
+const [launch, rawToken, rawPool, trades] = await Promise.all([
 getLaunchById(db, launchId),
 getTokenByLaunchId(db, launchId),
 getPoolByLaunchId(db, launchId),
 getTradeRows(db, launchId, 2000),
 ]);
 
-const candles = fillMissingCandles(
+const rawCandles = fillMissingCandles(
 buildCandlesFromTrades(trades, interval),
 interval,
 limit
 );
 
-const stats = finalizeMarketStats({
+const baseStats = finalizeMarketStats({
 stats: buildMarketStats({
-launch: buildStatsInput({ launch, token, pool }),
+launch: buildStatsInput({ launch, token: rawToken, pool: rawPool }),
 trades,
-candles,
+candles: rawCandles,
 }),
 launch,
-token,
-pool,
+token: rawToken,
+pool: rawPool,
 trades,
 });
 
+const stats = applyMarketGateToStats(baseStats, launch);
+const filtered = filterMarketRowsForLaunch({ launch, candles: rawCandles, trades });
+
 return {
 launch,
-token,
-pool,
+token: maskTokenForLaunch(rawToken, launch),
+pool: maskPoolForLaunch(rawPool, launch),
 stats,
-candles,
+candles: filtered.candles,
 };
 }
 
-export async function getChartTrades({
-db,
-launchId,
-limit = 50,
-}) {
-const [launch, token, pool, trades] = await Promise.all([
+export async function getChartTrades({ db, launchId, limit = 50 }) {
+const [launch, rawToken, rawPool, trades] = await Promise.all([
 getLaunchById(db, launchId),
 getTokenByLaunchId(db, launchId),
 getPoolByLaunchId(db, launchId),
@@ -1536,33 +1673,32 @@ getTradeRows(db, launchId, Math.max(limit, 1)),
 
 const recentTrades = trades.slice(-limit);
 
-const stats = finalizeMarketStats({
+const baseStats = finalizeMarketStats({
 stats: buildMarketStats({
-launch: buildStatsInput({ launch, token, pool }),
+launch: buildStatsInput({ launch, token: rawToken, pool: rawPool }),
 trades,
 candles: [],
 }),
 launch,
-token,
-pool,
+token: rawToken,
+pool: rawPool,
 trades,
 });
 
+const stats = applyMarketGateToStats(baseStats, launch);
+const filtered = filterMarketRowsForLaunch({ launch, trades: recentTrades });
+
 return {
 launch,
-token,
-pool,
+token: maskTokenForLaunch(rawToken, launch),
+pool: maskPoolForLaunch(rawPool, launch),
 stats,
-trades: recentTrades,
+trades: filtered.trades,
 };
 }
 
-export async function getChartStats({
-db,
-launchId,
-wallet = "",
-}) {
-const [launch, token, pool, trades] = await Promise.all([
+export async function getChartStats({ db, launchId, wallet = "" }) {
+const [launch, rawToken, rawPool, trades] = await Promise.all([
 getLaunchById(db, launchId),
 getTokenByLaunchId(db, launchId),
 getPoolByLaunchId(db, launchId),
@@ -1571,17 +1707,19 @@ getTradeRows(db, launchId, 2000),
 
 const candles = buildCandlesFromTrades(trades, "1m");
 
-const stats = finalizeMarketStats({
+const baseStats = finalizeMarketStats({
 stats: buildMarketStats({
-launch: buildStatsInput({ launch, token, pool }),
+launch: buildStatsInput({ launch, token: rawToken, pool: rawPool }),
 trades,
 candles,
 }),
 launch,
-token,
-pool,
+token: rawToken,
+pool: rawPool,
 trades,
 });
+
+const stats = applyMarketGateToStats(baseStats, launch);
 
 const walletSummary = await buildWalletSummary({
 db,
@@ -1594,8 +1732,8 @@ priceUsd: toNumber(stats.price_usd, 0),
 
 return {
 launch,
-token,
-pool,
+token: maskTokenForLaunch(rawToken, launch),
+pool: maskPoolForLaunch(rawPool, launch),
 wallet: walletSummary,
 cassie: buildCassiePayload(launch, stats),
 stats: attachWalletStats(stats, walletSummary),
@@ -1610,14 +1748,14 @@ candleLimit = 120,
 tradeLimit = 50,
 wallet = "",
 }) {
-const [launch, token, pool, trades] = await Promise.all([
+const [launch, rawToken, rawPool, trades] = await Promise.all([
 getLaunchById(db, launchId),
 getTokenByLaunchId(db, launchId),
 getPoolByLaunchId(db, launchId),
 getTradeRows(db, launchId, 2000),
 ]);
 
-const candles = fillMissingCandles(
+const rawCandles = fillMissingCandles(
 buildCandlesFromTrades(trades, interval),
 interval,
 candleLimit
@@ -1625,17 +1763,19 @@ candleLimit
 
 const recentTrades = trades.slice(-tradeLimit);
 
-const stats = finalizeMarketStats({
+const baseStats = finalizeMarketStats({
 stats: buildMarketStats({
-launch: buildStatsInput({ launch, token, pool }),
+launch: buildStatsInput({ launch, token: rawToken, pool: rawPool }),
 trades,
-candles,
+candles: rawCandles,
 }),
 launch,
-token,
-pool,
+token: rawToken,
+pool: rawPool,
 trades,
 });
+
+const stats = applyMarketGateToStats(baseStats, launch);
 
 const walletSummary = await buildWalletSummary({
 db,
@@ -1646,14 +1786,20 @@ wallet,
 priceUsd: toNumber(stats.price_usd, 0),
 });
 
+const filtered = filterMarketRowsForLaunch({
+launch,
+candles: rawCandles,
+trades: recentTrades,
+});
+
 return {
 launch,
-token,
-pool,
+token: maskTokenForLaunch(rawToken, launch),
+pool: maskPoolForLaunch(rawPool, launch),
 wallet: walletSummary,
 cassie: buildCassiePayload(launch, stats),
 stats: attachWalletStats(stats, walletSummary),
-candles,
-trades: recentTrades,
+candles: filtered.candles,
+trades: filtered.trades,
 };
 }
