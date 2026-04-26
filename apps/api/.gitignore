@@ -1,0 +1,11 @@
+.data/
+data/
+uploads/
+
+db/*.db
+db/*.db-wal
+db/*.db-shm
+
+*.sqlite
+*.sqlite-wal
+*.sqlite-shm
