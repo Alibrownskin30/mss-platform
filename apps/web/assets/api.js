@@ -6,6 +6,15 @@ return window.API_BASE.replace(/\/+$/, "");
 const { protocol, hostname } = window.location;
 
 if (
+hostname === "devnet.mssprotocol.com" ||
+hostname === "www.devnet.mssprotocol.com"
+) {
+return "https://api.devnet.mssprotocol.com";
+}
+
+
+
+if (
 hostname === "mssprotocol.com" ||
 hostname === "www.mssprotocol.com" ||
 hostname.endsWith(".mssprotocol.com")

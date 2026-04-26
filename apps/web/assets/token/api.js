@@ -6,6 +6,15 @@ return window.API_BASE.trim().replace(/\/+$/, "");
 
 const { protocol, hostname } = window.location;
 
+if (
+hostname === "devnet.mssprotocol.com" ||
+hostname === "www.devnet.mssprotocol.com"
+) {
+return "https://api.devnet.mssprotocol.com";
+}
+
+
+
 // Codespaces auto-detect: web=3000, api=8787
 if (hostname.includes("app.github.dev")) {
 return `${protocol}//${hostname.replace("-3000.", "-8787.")}`;

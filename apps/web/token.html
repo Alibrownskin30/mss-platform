@@ -38,7 +38,9 @@ const isCodespacesPreview =
 typeof hostname === "string" &&
 hostname.includes("-3000.app.github.dev");
 
-window.API_BASE = isLocalDev
+window.API_BASE = isDevnetHost
+? "https://api.devnet.mssprotocol.com"
+: isLocalDev
 ? `${protocol}//${hostname}:8787`
 : isCodespacesPreview
 ? `${protocol}//${hostname.replace("-3000.app.github.dev", "-8787.app.github.dev")}`
