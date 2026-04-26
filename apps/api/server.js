@@ -1,7 +1,6 @@
 import "dotenv/config";
 import express from "express";
 import cors from "cors";
-import fetch from "node-fetch";
 import helmet from "helmet";
 import rateLimit from "express-rate-limit";
 import slowDown from "express-slow-down";
@@ -20,6 +19,11 @@ import { startLaunchWorker } from "./workers/launchWorker.js";
 import chartRoutes from "./routes/chart.js";
 import tokenMarketRoutes from "./routes/token-market.js";
 import launchLifecycleRoutes from "./routes/launch-lifecycle.js";
+import launcherDb, { dbPath as launcherDbPath } from "./db/index.js";
+import {
+getSolPriceSnapshot,
+startSolPriceWatcher,
+} from "./services/sol-price.js";
 
 import { Connection, PublicKey } from "@solana/web3.js";
 import pkg from "@metaplex-foundation/mpl-token-metadata";
@@ -51,6 +55,11 @@ app.set("trust proxy", 1);
 app.disable("x-powered-by");
 
 const NODE_ENV = process.env.NODE_ENV || "development";
+const APP_ENV = cleanEnv(process.env.APP_ENV || NODE_ENV, 80);
+const SOLANA_CLUSTER = cleanEnv(process.env.SOLANA_CLUSTER || "devnet", 80);
+const ENABLE_BACKGROUND_WORKERS =
+cleanEnv(process.env.ENABLE_BACKGROUND_WORKERS || "true", 20).toLowerCase() !==
+"false";
 
 const TOKEN_PROGRAM_IDS = new Set([
 TOKEN_PROGRAM_ID.toBase58(),
@@ -86,6 +95,7 @@ return "Solana RPC (Live)";
 }
 
 const RPC = resolveRpcUrl();
+const RPC_FALLBACK = cleanEnv(process.env.SOLANA_RPC_FALLBACK, 1000);
 const RPC_LABEL = getRpcLabel(RPC);
 
 // ---- Security headers ----
@@ -260,6 +270,25 @@ try {
 await fn();
 } catch (error) {
 console.error(`[background:${label}]`, error);
+}
+}
+
+async function fetchWithTimeout(url, options = {}) {
+if (typeof globalThis.fetch !== "function") {
+throw new Error("Native fetch is not available. Use Node 18+ runtime.");
+}
+
+const timeoutMs = Number(options.timeoutMs || options.timeout || 10_000);
+const controller = new AbortController();
+const timeout = setTimeout(() => controller.abort(), timeoutMs);
+
+try {
+return await globalThis.fetch(url, {
+...options,
+signal: controller.signal,
+});
+} finally {
+clearTimeout(timeout);
 }
 }
 
@@ -936,7 +965,9 @@ key: "wallet_coordination",
 label: "Wallet Coordination",
 value: clamp(
 Math.round(
-(safeNum(activity?.score, 0) + whaleActivityScore + walletNetConfidence) /
+(safeNum(activity?.score, 0) +
+whaleActivityScore +
+walletNetConfidence) /
 3
 ),
 0,
@@ -1370,7 +1401,7 @@ const cached = marketCache.get(mintStr);
 if (cached && Date.now() - cached.ts < MARKET_TTL_MS) return cached.data;
 
 const url = `https://api.dexscreener.com/latest/dex/tokens/${mintStr}`;
-const r = await fetch(url, { timeout: 10_000 });
+const r = await fetchWithTimeout(url, { timeoutMs: 10_000 });
 const j = await r.json();
 
 if (!j?.pairs?.length) {
@@ -1514,19 +1545,135 @@ top20: sumTopN(20),
 };
 }
 
+function checkScannerDbHealth() {
+try {
+db.prepare("SELECT 1 AS ok").get();
+return { ok: true };
+} catch (error) {
+return {
+ok: false,
+error: String(error?.message || error),
+};
+}
+}
+
+async function checkLauncherDbHealth() {
+try {
+await launcherDb.get("SELECT 1 AS ok");
+return {
+ok: true,
+path: launcherDbPath || null,
+};
+} catch (error) {
+return {
+ok: false,
+path: launcherDbPath || null,
+error: String(error?.message || error),
+};
+}
+}
+
+async function checkRpcHealth({ deep = false } = {}) {
+if (!deep) {
+return {
+ok: true,
+label: RPC_LABEL,
+cluster: SOLANA_CLUSTER,
+primaryConfigured: Boolean(RPC),
+fallbackConfigured: Boolean(RPC_FALLBACK),
+};
+}
+
+try {
+const slot = await rpcRetry(() => connection.getSlot("confirmed"), {
+tries: 2,
+baseDelayMs: 200,
+});
+
+return {
+ok: true,
+label: RPC_LABEL,
+cluster: SOLANA_CLUSTER,
+slot,
+primaryConfigured: Boolean(RPC),
+fallbackConfigured: Boolean(RPC_FALLBACK),
+};
+} catch (error) {
+return {
+ok: false,
+label: RPC_LABEL,
+cluster: SOLANA_CLUSTER,
+primaryConfigured: Boolean(RPC),
+fallbackConfigured: Boolean(RPC_FALLBACK),
+error: String(error?.message || error),
+};
+}
+}
+
+async function buildHealthPayload(req) {
+const deep = String(req.query.deep || "").toLowerCase() === "1";
+const [launcherDbHealth, rpcHealth] = await Promise.all([
+checkLauncherDbHealth(),
+checkRpcHealth({ deep }),
+]);
+
+const scannerDbHealth = checkScannerDbHealth();
+const solPrice = getSolPriceSnapshot();
+
+const ok =
+Boolean(scannerDbHealth.ok) &&
+Boolean(launcherDbHealth.ok) &&
+Boolean(rpcHealth.ok);
+
+return {
+ok,
+service: "mss-api",
+env: NODE_ENV,
+appEnv: APP_ENV,
+cluster: SOLANA_CLUSTER,
+port: Number(PORT),
+uptimeSec: Math.round(process.uptime()),
+time: new Date().toISOString(),
+corsOriginsConfigured: allowedOrigins.length,
+backgroundWorkersEnabled: ENABLE_BACKGROUND_WORKERS,
+rpc: rpcHealth,
+databases: {
+scanner: scannerDbHealth,
+launcher: launcherDbHealth,
+},
+solPrice,
+};
+}
+
 // ---- Health ----
-app.get("/health", (req, res) => {
+app.get("/health", async (req, res) => {
+const payload = await buildHealthPayload(req);
+res.status(payload.ok ? 200 : 503).json(payload);
+});
+
+app.get("/healthz", async (req, res) => {
+const payload = await buildHealthPayload(req);
+res.status(payload.ok ? 200 : 503).json(payload);
+});
+
+app.get("/api/health", async (req, res) => {
+const payload = await buildHealthPayload(req);
+res.status(payload.ok ? 200 : 503).json(payload);
+});
+
+app.get("/api/healthz", async (req, res) => {
+const payload = await buildHealthPayload(req);
+res.status(payload.ok ? 200 : 503).json(payload);
+});
+
+app.get("/", (req, res) => {
 res.json({
 ok: true,
 service: "mss-api",
 env: NODE_ENV,
-port: Number(PORT),
-rpcLabel: RPC_LABEL,
+appEnv: APP_ENV,
+cluster: SOLANA_CLUSTER,
 });
-});
-
-app.get("/", (req, res) => {
-res.json({ ok: true, service: "mss-api" });
 });
 
 // ---- Auth ----
@@ -1954,13 +2101,26 @@ globalThis.__mssApiServerStarted = true;
 
 app.listen(PORT, "0.0.0.0", () => {
 console.log(`✅ MSS API running on http://0.0.0.0:${PORT}`);
+console.log(`🌐 Environment: ${APP_ENV}`);
+console.log(`⛓️ Cluster: ${SOLANA_CLUSTER}`);
 console.log(`🔒 RPC hidden (${RPC_LABEL})`);
+console.log(
+`🔁 RPC fallback configured: ${RPC_FALLBACK ? "yes" : "no"}`
+);
 console.log(`🛡️ Cassie: enabled (defensive middleware + intel layer)`);
+console.log(
+`🧠 Background workers: ${ENABLE_BACKGROUND_WORKERS ? "enabled" : "disabled"}`
+);
 });
 
 if (!globalThis.__mssBackgroundServicesStarted) {
 globalThis.__mssBackgroundServicesStarted = true;
 
+runBackgroundTask("solPriceWatcher:start", async () => {
+startSolPriceWatcher();
+});
+
+if (ENABLE_BACKGROUND_WORKERS) {
 runBackgroundTask("launchWorker:start", async () => {
 startLaunchWorker();
 });
@@ -1977,5 +2137,6 @@ runBackgroundTask("launchCountdowns:start", async () => {
 startLaunchWatcher();
 await checkLaunchCountdowns();
 });
+}
 }
 }
