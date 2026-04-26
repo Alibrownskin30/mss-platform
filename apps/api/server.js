@@ -6,7 +6,6 @@ import rateLimit from "express-rate-limit";
 import slowDown from "express-slow-down";
 import builderRoutes from "./routes/builders.js";
 import launcherRoutes from "./routes/launcher.js";
-import cilaRoutes from "./routes/cila.js";
 import {
 checkLaunchCountdowns,
 startLaunchWatcher,
@@ -205,7 +204,6 @@ app.use("/api/chart", chartRoutes);
 app.use("/api/token-market", tokenMarketRoutes);
 app.use("/api/token", tokenRoutes);
 app.use("/api/market", marketRoutes);
-app.use("/api/cila", cilaRoutes);
 
 // Honeypots
 app.get("/api/_cassie/diag", (req, res) => res.status(404).end());
