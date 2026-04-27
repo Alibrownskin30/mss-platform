@@ -8,7 +8,7 @@
 name="description"
 content="MSS Protocol Alerts — account-linked monitoring for structural risk, whale activity, liquidity changes, authority exposure, and hidden control signals."
 />
-<link rel="stylesheet" href="./assets/app.css" />
+<link rel="stylesheet" href="./assets/app.css?v=5" />
 <style>
 .alerts-page .alerts-wrap{
 max-width:1320px;
@@ -21,10 +21,12 @@ z-index:1;
 .alerts-page .alerts-hero,
 .alerts-page .alerts-section{
 position:relative;
-border:1px solid var(--line);
+border:1px solid rgba(74,165,255,.16);
 border-radius:var(--radius-xl);
 background:linear-gradient(180deg, rgba(255,255,255,.055), rgba(255,255,255,.026));
-box-shadow:var(--shadow-lg);
+box-shadow:
+var(--shadow-lg),
+0 0 24px rgba(21,156,255,.035);
 overflow:hidden;
 }
 
@@ -35,14 +37,33 @@ position:absolute;
 inset:0;
 pointer-events:none;
 background:
-linear-gradient(180deg, rgba(255,255,255,.04), transparent 28%),
-radial-gradient(760px 220px at 0% 0%, rgba(243,217,139,.05), transparent 38%);
+linear-gradient(180deg, rgba(255,255,255,.032), transparent 28%),
+radial-gradient(760px 220px at 0% 0%, rgba(21,156,255,.085), transparent 38%),
+radial-gradient(680px 200px at 100% 0%, rgba(54,215,255,.055), transparent 40%),
+radial-gradient(520px 180px at 50% 110%, rgba(229,193,115,.045), transparent 44%);
+}
+
+.alerts-page .alerts-hero::after,
+.alerts-page .alerts-section::after{
+content:"";
+position:absolute;
+left:0;
+right:0;
+top:0;
+height:1px;
+background:
+linear-gradient(90deg, rgba(0,0,0,0), rgba(54,215,255,.42), rgba(229,193,115,.24), rgba(0,0,0,0));
+opacity:.92;
+pointer-events:none;
 }
 
 .alerts-page .alerts-hero{
 padding:30px;
 margin-bottom:18px;
-box-shadow:var(--shadow-xl), 0 0 0 1px rgba(243,217,139,.03), 0 0 26px rgba(243,217,139,.05);
+box-shadow:
+var(--shadow-xl),
+0 0 0 1px rgba(74,165,255,.035),
+0 0 34px rgba(21,156,255,.075);
 }
 
 .alerts-page .alerts-hero > *,
@@ -58,21 +79,25 @@ gap:10px;
 min-height:32px;
 padding:0 12px;
 border-radius:999px;
-border:1px solid rgba(243,217,139,.18);
-background:rgba(214,178,94,.08);
+border:1px solid rgba(74,165,255,.22);
+background:
+linear-gradient(180deg, rgba(21,156,255,.13), rgba(255,255,255,.035));
 font-size:11px;
 font-weight:800;
 letter-spacing:.18em;
 text-transform:uppercase;
 color:#fff;
+box-shadow:
+0 0 16px rgba(21,156,255,.07),
+inset 0 1px 0 rgba(255,255,255,.04);
 }
 
 .alerts-page .alerts-eyebrow-dot{
 width:7px;
 height:7px;
 border-radius:999px;
-background:var(--gold-2);
-box-shadow:0 0 12px rgba(243,217,139,.26);
+background:#36d7ff;
+box-shadow:0 0 14px rgba(54,215,255,.72);
 }
 
 .alerts-page .alerts-hero-grid{
@@ -94,6 +119,7 @@ line-height:.96;
 letter-spacing:-.05em;
 font-weight:900;
 max-width:760px;
+color:#fff;
 }
 
 .alerts-page .alerts-copy{
@@ -122,9 +148,10 @@ border:1px solid rgba(255,255,255,.10);
 background:rgba(255,255,255,.04);
 font-size:12px;
 font-weight:700;
-color:rgba(255,255,255,.82);
+color:rgba(244,248,255,.82);
 white-space:nowrap;
 max-width:100%;
+box-shadow:inset 0 1px 0 rgba(255,255,255,.03);
 }
 
 .alerts-page .alerts-side-grid{
@@ -204,7 +231,7 @@ margin-bottom:14px;
 font-size:14px;
 letter-spacing:.18em;
 text-transform:uppercase;
-color:rgba(255,255,255,.60);
+color:rgba(244,248,255,.62);
 font-weight:800;
 margin:0;
 }
@@ -233,7 +260,7 @@ gap:8px;
 .alerts-page .alerts-label{
 font-size:12px;
 font-weight:700;
-color:rgba(255,255,255,.78);
+color:rgba(244,248,255,.78);
 letter-spacing:.06em;
 text-transform:uppercase;
 }
@@ -252,8 +279,8 @@ box-shadow:inset 0 1px 0 rgba(255,255,255,.04);
 }
 
 .alerts-page .alerts-input:focus{
-border-color:rgba(243,217,139,.24);
-box-shadow:0 0 0 4px rgba(243,217,139,.08);
+border-color:rgba(74,165,255,.28);
+box-shadow:0 0 0 4px rgba(21,156,255,.085);
 background:rgba(255,255,255,.06);
 }
 
@@ -279,7 +306,7 @@ line-height:1.5;
 }
 
 .alerts-page .alerts-status.good{ color:var(--good); }
-.alerts-page .alerts-status.warn{ color:var(--warn); }
+.alerts-page .alerts-status.warn{ color:#f4d691; }
 .alerts-page .alerts-status.bad{ color:var(--bad); }
 
 .alerts-page .alerts-hint-grid{
@@ -373,7 +400,7 @@ width:100%;
 }
 </style>
 </head>
-<body class="alerts-page">
+<body class="alerts-page" data-shell-active="alerts" data-shell-subtitle="Alerts Command">
 <div id="layoutShellHeader"></div>
 
 <div class="alerts-wrap">
@@ -577,6 +604,8 @@ if (typeof mountShell === "function") {
 await mountShell({
 activeNav: "alerts",
 pageLabel: "Alerts",
+pageTitle: "Alerts Command",
+pageSubtitle: "Account-linked monitoring",
 headerTargetId: "layoutShellHeader",
 footerTargetId: "layoutShellFooter",
 });
@@ -601,6 +630,6 @@ window.location.reload();
 });
 </script>
 
-<script type="module" src="./assets/alerts.js?v=3"></script>
+<script type="module" src="./assets/alerts.js?v=5"></script>
 </body>
 </html>

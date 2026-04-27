@@ -59,14 +59,16 @@ gap:8px;
 min-height:38px;
 padding:0 12px;
 border-radius:999px;
-border:1px solid rgba(255,241,191,.12);
-background:linear-gradient(180deg, rgba(255,255,255,.04), rgba(255,255,255,.02));
-color:rgba(244,246,250,.84);
+border:1px solid rgba(74,165,255,.18);
+background:linear-gradient(180deg, rgba(255,255,255,.045), rgba(255,255,255,.020));
+color:rgba(244,248,255,.86);
 font-size:12px;
 font-weight:800;
 letter-spacing:.04em;
 white-space:nowrap;
-box-shadow:inset 0 1px 0 rgba(255,255,255,.04);
+box-shadow:
+inset 0 1px 0 rgba(255,255,255,.05),
+0 0 16px rgba(21,156,255,.035);
 }
 
 .launch-detail-page .page-pill-dot{
@@ -101,13 +103,16 @@ align-items:stretch;
 .launch-detail-page .launch-command-card{
 position:relative;
 overflow:hidden;
-border:1px solid rgba(255,241,191,.12);
+border:1px solid rgba(74,165,255,.18);
 border-radius:24px;
 background:
-radial-gradient(circle at 10% 0%, rgba(214,178,94,.12), transparent 28%),
-radial-gradient(circle at 90% 10%, rgba(88,111,140,.10), transparent 24%),
-linear-gradient(180deg, rgba(255,255,255,.05), rgba(255,255,255,.02));
-box-shadow:0 30px 100px rgba(0,0,0,.42);
+radial-gradient(circle at 10% 0%, rgba(21,156,255,.16), transparent 30%),
+radial-gradient(circle at 90% 10%, rgba(54,215,255,.10), transparent 24%),
+radial-gradient(circle at 50% 115%, rgba(229,193,115,.07), transparent 34%),
+linear-gradient(180deg, rgba(255,255,255,.055), rgba(255,255,255,.022));
+box-shadow:
+0 30px 100px rgba(0,0,0,.42),
+0 0 28px rgba(21,156,255,.055);
 padding:18px;
 }
 
@@ -116,7 +121,20 @@ content:"";
 position:absolute;
 inset:0;
 pointer-events:none;
-background:linear-gradient(180deg, rgba(255,255,255,.03), transparent 28%);
+background:
+linear-gradient(180deg, rgba(255,255,255,.035), transparent 28%),
+linear-gradient(90deg, transparent, rgba(54,215,255,.075), transparent);
+}
+
+.launch-detail-page .launch-command-card::after{
+content:"";
+position:absolute;
+left:0;
+right:0;
+top:0;
+height:1px;
+background:linear-gradient(90deg, transparent, rgba(54,215,255,.62), rgba(229,193,115,.34), transparent);
+pointer-events:none;
 }
 
 .launch-detail-page .launch-command-top{
@@ -133,7 +151,7 @@ flex-wrap:wrap;
 font-size:11px;
 letter-spacing:.20em;
 text-transform:uppercase;
-color:rgba(255,255,255,.44);
+color:rgba(220,230,245,.52);
 margin-bottom:10px;
 }
 
@@ -148,7 +166,7 @@ color:#fff;
 
 .launch-detail-page .launch-command-text{
 margin-top:12px;
-color:rgba(255,255,255,.70);
+color:rgba(220,230,245,.72);
 font-size:14px;
 line-height:1.65;
 max-width:760px;
@@ -162,8 +180,8 @@ gap:8px;
 min-height:34px;
 padding:0 12px;
 border-radius:999px;
-border:1px solid rgba(255,255,255,.12);
-background:rgba(255,255,255,.05);
+border:1px solid rgba(74,165,255,.18);
+background:rgba(21,156,255,.075);
 color:#fff;
 font-size:11px;
 font-weight:800;
@@ -176,8 +194,8 @@ line-height:1;
 width:8px;
 height:8px;
 border-radius:999px;
-background:var(--accent-a, #d6b25e);
-box-shadow:0 0 14px rgba(214,178,94,.55);
+background:#36d7ff;
+box-shadow:0 0 14px rgba(54,215,255,.72);
 }
 
 .launch-detail-page .launch-command-grid{
@@ -191,7 +209,7 @@ margin-top:16px;
 
 .launch-detail-page .launch-command-metric{
 border:1px solid rgba(255,255,255,.08);
-background:rgba(255,255,255,.025);
+background:rgba(255,255,255,.026);
 border-radius:16px;
 padding:12px;
 min-width:0;
@@ -202,7 +220,7 @@ box-shadow:inset 0 1px 0 rgba(255,255,255,.04);
 font-size:10px;
 letter-spacing:.12em;
 text-transform:uppercase;
-color:rgba(255,255,255,.46);
+color:rgba(220,230,245,.52);
 margin-bottom:8px;
 }
 
@@ -216,7 +234,7 @@ word-break:break-word;
 
 .launch-detail-page .launch-command-metric-sub{
 margin-top:6px;
-color:rgba(255,255,255,.68);
+color:rgba(220,230,245,.68);
 font-size:12px;
 line-height:1.4;
 }
@@ -224,12 +242,15 @@ line-height:1.4;
 .launch-detail-page .launch-status-board{
 position:relative;
 overflow:hidden;
-border:1px solid rgba(255,241,191,.12);
+border:1px solid rgba(74,165,255,.16);
 border-radius:24px;
 background:
-radial-gradient(circle at 82% 0%, rgba(88,111,140,.12), transparent 24%),
+radial-gradient(circle at 82% 0%, rgba(54,215,255,.11), transparent 24%),
+radial-gradient(circle at 12% 100%, rgba(229,193,115,.06), transparent 28%),
 linear-gradient(180deg, rgba(255,255,255,.048), rgba(255,255,255,.02));
-box-shadow:0 18px 60px rgba(0,0,0,.32);
+box-shadow:
+0 18px 60px rgba(0,0,0,.32),
+0 0 22px rgba(21,156,255,.035);
 padding:18px;
 display:grid;
 gap:12px;
@@ -240,7 +261,18 @@ content:"";
 position:absolute;
 inset:0;
 pointer-events:none;
-background:linear-gradient(180deg, rgba(255,255,255,.028), transparent 24%);
+background:linear-gradient(180deg, rgba(255,255,255,.03), transparent 24%);
+}
+
+.launch-detail-page .launch-status-board::after{
+content:"";
+position:absolute;
+left:0;
+right:0;
+top:0;
+height:1px;
+background:linear-gradient(90deg, transparent, rgba(54,215,255,.46), rgba(229,193,115,.26), transparent);
+pointer-events:none;
 }
 
 .launch-detail-page .launch-status-board-top{
@@ -257,7 +289,7 @@ flex-wrap:wrap;
 font-size:12px;
 letter-spacing:.16em;
 text-transform:uppercase;
-color:rgba(255,255,255,.46);
+color:rgba(220,230,245,.52);
 }
 
 .launch-detail-page .launch-status-board-value{
@@ -272,7 +304,7 @@ letter-spacing:-.04em;
 .launch-detail-page .launch-status-board-note{
 position:relative;
 z-index:1;
-color:rgba(255,255,255,.70);
+color:rgba(220,230,245,.72);
 font-size:13px;
 line-height:1.55;
 }
@@ -287,7 +319,7 @@ gap:10px;
 
 .launch-detail-page .launch-status-board-cell{
 border:1px solid rgba(255,255,255,.08);
-background:rgba(255,255,255,.025);
+background:rgba(255,255,255,.026);
 border-radius:16px;
 padding:12px;
 min-width:0;
@@ -297,7 +329,7 @@ min-width:0;
 font-size:10px;
 letter-spacing:.10em;
 text-transform:uppercase;
-color:rgba(255,255,255,.46);
+color:rgba(220,230,245,.52);
 margin-bottom:6px;
 }
 
@@ -332,11 +364,15 @@ min-width:0;
 
 .launch-detail-page .panel{
 position:relative;
-border:1px solid rgba(255,241,191,.12);
-background:linear-gradient(180deg, rgba(255,255,255,.052), rgba(255,255,255,.024));
+border:1px solid rgba(74,165,255,.16);
+background:
+radial-gradient(circle at 8% 0%, rgba(21,156,255,.08), transparent 24%),
+linear-gradient(180deg, rgba(255,255,255,.052), rgba(255,255,255,.024));
 border-radius:24px;
 padding:18px;
-box-shadow:0 18px 60px rgba(0,0,0,.32);
+box-shadow:
+0 18px 60px rgba(0,0,0,.32),
+0 0 18px rgba(21,156,255,.028);
 min-width:0;
 overflow:hidden;
 }
@@ -346,14 +382,26 @@ content:"";
 position:absolute;
 inset:0;
 pointer-events:none;
-background:linear-gradient(180deg, rgba(255,255,255,.028), transparent 26%);
+background:linear-gradient(180deg, rgba(255,255,255,.03), transparent 26%);
+}
+
+.launch-detail-page .panel::after{
+content:"";
+position:absolute;
+left:0;
+right:0;
+top:0;
+height:1px;
+background:linear-gradient(90deg, transparent, rgba(54,215,255,.34), rgba(229,193,115,.18), transparent);
+pointer-events:none;
+opacity:.8;
 }
 
 .launch-detail-page .section-title{
 font-size:12px;
 letter-spacing:.16em;
 text-transform:uppercase;
-color:rgba(255,255,255,.46);
+color:rgba(220,230,245,.52);
 margin-bottom:14px;
 }
 
@@ -374,12 +422,12 @@ flex-wrap:wrap;
 font-size:13px;
 letter-spacing:.16em;
 text-transform:uppercase;
-color:rgba(255,255,255,.46);
+color:rgba(220,230,245,.52);
 }
 
 .launch-detail-page .terminal-section-sub{
 margin-top:4px;
-color:rgba(255,255,255,.70);
+color:rgba(220,230,245,.72);
 font-size:13px;
 line-height:1.45;
 }
@@ -388,8 +436,9 @@ line-height:1.45;
 display:grid;
 gap:14px;
 background:
-radial-gradient(circle at 12% 0%, rgba(214,178,94,.07), transparent 24%),
-radial-gradient(circle at 88% 8%, rgba(88,111,140,.06), transparent 20%),
+radial-gradient(circle at 12% 0%, rgba(21,156,255,.10), transparent 24%),
+radial-gradient(circle at 88% 8%, rgba(54,215,255,.06), transparent 20%),
+radial-gradient(circle at 50% 115%, rgba(229,193,115,.06), transparent 32%),
 linear-gradient(180deg, rgba(255,255,255,.055), rgba(255,255,255,.024));
 box-shadow:0 30px 100px rgba(0,0,0,.42);
 }
@@ -413,7 +462,7 @@ word-break:break-word;
 
 .launch-detail-page .overview-card-subline{
 margin-top:6px;
-color:rgba(255,255,255,.46);
+color:rgba(220,230,245,.52);
 font-size:12px;
 text-transform:uppercase;
 letter-spacing:.14em;
@@ -421,7 +470,7 @@ word-break:break-word;
 }
 
 .launch-detail-page .overview-card-desc{
-color:rgba(255,255,255,.72);
+color:rgba(220,230,245,.74);
 line-height:1.68;
 font-size:14px;
 word-break:break-word;
@@ -442,7 +491,7 @@ border-radius:999px;
 background:rgba(255,255,255,.04);
 border:1px solid rgba(255,255,255,.09);
 font-size:12px;
-color:rgba(255,255,255,.84);
+color:rgba(244,248,255,.86);
 min-width:0;
 max-width:100%;
 overflow-wrap:anywhere;
@@ -467,7 +516,7 @@ gap:12px;
 
 .launch-detail-page .launch-side-stat{
 border:1px solid rgba(255,255,255,.08);
-background:rgba(255,255,255,.025);
+background:rgba(255,255,255,.026);
 border-radius:16px;
 padding:14px 15px;
 min-width:0;
@@ -477,7 +526,7 @@ min-width:0;
 font-size:10px;
 letter-spacing:.12em;
 text-transform:uppercase;
-color:rgba(255,255,255,.46);
+color:rgba(220,230,245,.52);
 margin-bottom:7px;
 }
 
@@ -493,7 +542,7 @@ word-break:break-word;
 padding:16px;
 border-radius:18px;
 border:1px solid rgba(255,255,255,.09);
-background:rgba(255,255,255,.025);
+background:rgba(255,255,255,.026);
 min-width:0;
 }
 
@@ -507,7 +556,7 @@ flex-wrap:wrap;
 
 .launch-detail-page .phase-label{
 font-size:12px;
-color:rgba(255,255,255,.46);
+color:rgba(220,230,245,.52);
 text-transform:uppercase;
 letter-spacing:.14em;
 }
@@ -520,7 +569,7 @@ word-break:break-word;
 
 .launch-detail-page .phase-note{
 margin-top:10px;
-color:rgba(255,255,255,.72);
+color:rgba(220,230,245,.74);
 font-size:14px;
 line-height:1.55;
 word-break:break-word;
@@ -546,8 +595,8 @@ box-shadow:inset 0 1px 0 rgba(255,255,255,.05);
 }
 
 .launch-detail-page .status-pill.commit{
-border-color:rgba(214,178,94,.20);
-background:rgba(214,178,94,.10);
+border-color:rgba(229,193,115,.24);
+background:rgba(229,193,115,.10);
 }
 
 .launch-detail-page .status-pill.countdown{
@@ -566,14 +615,14 @@ background:rgba(255,91,107,.10);
 }
 
 .launch-detail-page .status-pill.graduated{
-border-color:rgba(255,255,255,.12);
-background:rgba(255,255,255,.05);
+border-color:rgba(74,165,255,.20);
+background:rgba(21,156,255,.08);
 }
 
 .launch-detail-page .progress-card{
 padding:16px;
 border:1px solid rgba(255,255,255,.09);
-background:rgba(255,255,255,.025);
+background:rgba(255,255,255,.026);
 border-radius:22px;
 min-width:0;
 }
@@ -598,7 +647,7 @@ word-break:break-word;
 .launch-detail-page .progress-card-sub{
 margin-top:4px;
 font-size:12px;
-color:rgba(255,255,255,.46);
+color:rgba(220,230,245,.52);
 letter-spacing:.08em;
 text-transform:uppercase;
 word-break:break-word;
@@ -619,7 +668,7 @@ justify-content:space-between;
 gap:8px;
 align-items:center;
 font-size:12px;
-color:rgba(255,255,255,.72);
+color:rgba(220,230,245,.74);
 flex-wrap:wrap;
 }
 
@@ -635,8 +684,10 @@ border:1px solid rgba(255,255,255,.08);
 .launch-detail-page .progress-fill{
 height:100%;
 width:0%;
-background:linear-gradient(90deg, rgba(214,178,94,.96), rgba(88,111,140,.96));
-box-shadow:0 0 20px rgba(214,178,94,.18);
+background:linear-gradient(90deg, rgba(229,193,115,.96), rgba(21,156,255,.96), rgba(54,215,255,.86));
+box-shadow:
+0 0 20px rgba(21,156,255,.20),
+0 0 12px rgba(229,193,115,.08);
 transition:width .25s ease;
 }
 
@@ -652,7 +703,7 @@ min-width:0;
 .launch-detail-page .commit-kpi,
 .launch-detail-page .stat{
 border:1px solid rgba(255,255,255,.09);
-background:rgba(255,255,255,.025);
+background:rgba(255,255,255,.026);
 border-radius:16px;
 padding:14px;
 min-width:0;
@@ -662,7 +713,7 @@ box-shadow:inset 0 1px 0 rgba(255,255,255,.04);
 .launch-detail-page .commit-kpi .k,
 .launch-detail-page .stat .k{
 font-size:11px;
-color:rgba(255,255,255,.46);
+color:rgba(220,230,245,.52);
 text-transform:uppercase;
 letter-spacing:.12em;
 }
@@ -677,10 +728,10 @@ word-break:break-word;
 
 .launch-detail-page .compact-note{
 border:1px solid rgba(255,255,255,.08);
-background:rgba(255,255,255,.025);
+background:rgba(255,255,255,.026);
 border-radius:16px;
 padding:14px 16px;
-color:rgba(255,255,255,.72);
+color:rgba(220,230,245,.74);
 font-size:14px;
 line-height:1.55;
 }
@@ -695,7 +746,7 @@ min-width:0;
 
 .launch-detail-page .recent-item{
 border:1px solid rgba(255,255,255,.09);
-background:rgba(255,255,255,.025);
+background:rgba(255,255,255,.026);
 border-radius:14px;
 padding:12px 14px;
 display:flex;
@@ -714,7 +765,7 @@ word-break:break-word;
 }
 
 .launch-detail-page .recent-meta{
-color:rgba(255,255,255,.68);
+color:rgba(220,230,245,.68);
 font-size:12px;
 overflow-wrap:anywhere;
 }
@@ -748,8 +799,9 @@ white-space:nowrap;
 }
 
 .launch-detail-page .hero-wallet-btn.primary{
-border-color:rgba(214,178,94,.20);
-background:rgba(214,178,94,.10);
+border-color:rgba(74,165,255,.20);
+background:rgba(21,156,255,.10);
+box-shadow:0 0 16px rgba(21,156,255,.06);
 }
 
 .launch-detail-page .hero-wallet-pill{
@@ -761,7 +813,7 @@ padding:0 13px;
 border-radius:999px;
 border:1px solid rgba(255,255,255,.10);
 background:rgba(255,255,255,.04);
-color:rgba(255,255,255,.84);
+color:rgba(244,248,255,.84);
 font-size:12px;
 font-weight:800;
 max-width:100%;
@@ -800,7 +852,7 @@ margin:0;
 
 .launch-detail-page .action-panel-topline{
 margin:-2px 0 12px;
-color:rgba(255,255,255,.72);
+color:rgba(220,230,245,.74);
 font-size:13px;
 line-height:1.6;
 }
@@ -809,7 +861,7 @@ line-height:1.6;
 font-size:10px;
 letter-spacing:.18em;
 text-transform:uppercase;
-color:rgba(255,255,255,.46);
+color:rgba(220,230,245,.52);
 }
 
 .launch-detail-page .terminal-card-title{
@@ -825,7 +877,7 @@ display:grid;
 gap:10px;
 padding:12px;
 border:1px solid rgba(255,255,255,.08);
-background:rgba(255,255,255,.025);
+background:rgba(255,255,255,.026);
 border-radius:16px;
 }
 
@@ -871,13 +923,13 @@ box-shadow:0 0 12px rgba(53,245,163,.55);
 }
 
 .launch-detail-page .terminal-wallet-badge.is-disconnected{
-border-color:rgba(255,209,102,.18);
-background:rgba(255,209,102,.08);
+border-color:rgba(229,193,115,.22);
+background:rgba(229,193,115,.08);
 }
 
 .launch-detail-page .terminal-wallet-badge.is-disconnected .terminal-wallet-badge-dot{
 background:var(--warn);
-box-shadow:0 0 12px rgba(255,209,102,.55);
+box-shadow:0 0 12px rgba(229,193,115,.48);
 }
 
 .launch-detail-page .terminal-wallet-row{
@@ -895,7 +947,7 @@ padding:10px 12px;
 border-radius:999px;
 border:1px solid rgba(255,255,255,.10);
 background:rgba(255,255,255,.04);
-color:rgba(255,255,255,.82);
+color:rgba(244,248,255,.82);
 font-size:12px;
 max-width:100%;
 overflow-wrap:anywhere;
@@ -929,8 +981,9 @@ line-height:1;
 }
 
 .launch-detail-page .btn.primary{
-border-color:rgba(214,178,94,.20);
-background:rgba(214,178,94,.10);
+border-color:rgba(74,165,255,.20);
+background:rgba(21,156,255,.10);
+box-shadow:0 0 16px rgba(21,156,255,.06);
 }
 
 .launch-detail-page .btn:disabled{
@@ -940,7 +993,7 @@ cursor:not-allowed;
 
 .launch-detail-page .desc{
 margin-top:14px;
-color:rgba(255,255,255,.72);
+color:rgba(220,230,245,.74);
 line-height:1.65;
 font-size:15px;
 word-break:break-word;
@@ -964,7 +1017,7 @@ min-width:0;
 font-size:12px;
 letter-spacing:.10em;
 text-transform:uppercase;
-color:rgba(255,255,255,.46);
+color:rgba(220,230,245,.52);
 }
 
 .launch-detail-page input{
@@ -979,9 +1032,14 @@ font:inherit;
 min-width:0;
 }
 
+.launch-detail-page input:focus{
+border-color:rgba(74,165,255,.26);
+box-shadow:0 0 0 4px rgba(21,156,255,.08);
+}
+
 .launch-detail-page input[readonly]{
 background:rgba(255,255,255,.03);
-color:rgba(255,255,255,.84);
+color:rgba(244,248,255,.84);
 }
 
 .launch-detail-page .quick{
@@ -1005,6 +1063,13 @@ text-transform:uppercase;
 min-width:0;
 }
 
+.launch-detail-page .quick button:hover,
+.launch-detail-page .btn:hover:not(:disabled),
+.launch-detail-page .hero-wallet-btn:hover{
+border-color:rgba(74,165,255,.22);
+background:rgba(21,156,255,.10);
+}
+
 .launch-detail-page .action-stack{
 display:flex;
 flex-direction:column;
@@ -1017,7 +1082,7 @@ padding:14px 16px;
 border-radius:16px;
 border:1px solid rgba(255,255,255,.10);
 background:rgba(255,255,255,.03);
-color:rgba(255,255,255,.72);
+color:rgba(220,230,245,.74);
 display:none;
 white-space:pre-wrap;
 word-break:break-word;
@@ -1039,8 +1104,8 @@ color:rgba(255,255,255,.92);
 
 .launch-detail-page .status.warn{
 display:block;
-border-color:rgba(255,209,102,.20);
-background:rgba(255,209,102,.08);
+border-color:rgba(229,193,115,.22);
+background:rgba(229,193,115,.08);
 color:rgba(255,255,255,.94);
 }
 
@@ -1644,7 +1709,7 @@ Commit phase closed. Market activation is imminent.
 <div class="compact-note" style="margin-top:12px;">
 <div style="font-weight:800; margin-bottom:8px;">Lifecycle Summary</div>
 <div id="launchLifecycleSummaryText">Commit → Countdown → Live</div>
-<div id="launchOverviewCopy" style="margin-top:8px; font-size:12px; color:rgba(255,255,255,.68); line-height:1.55;">
+<div id="launchOverviewCopy" style="margin-top:8px; font-size:12px; color:rgba(220,230,245,.68); line-height:1.55;">
 Awaiting launch overview state.
 </div>
 </div>
@@ -1848,7 +1913,7 @@ Awaiting launch overview state.
 <div class="compact-note">
 <div style="font-weight:800; margin-bottom:8px;">Graduation Readiness</div>
 <div id="graduationReadinessValue" style="font-size:22px;font-weight:900;">—</div>
-<div id="graduationReadinessNote" style="margin-top:6px;font-size:12px;color:rgba(255,255,255,.70);line-height:1.5;">
+<div id="graduationReadinessNote" style="margin-top:6px;font-size:12px;color:rgba(220,230,245,.70);line-height:1.5;">
 Graduation conditions are still being evaluated.
 </div>
 </div>
@@ -1924,7 +1989,7 @@ builder vesting tracking, and refund protection that disables the moment countdo
 <div class="compact-note">
 <div style="font-weight:800; margin-bottom:8px;">CassIE Primary</div>
 <div id="launchCassiePrimaryText">Awaiting intelligence.</div>
-<div id="launchCassiePatternText" style="margin-top:8px;font-size:12px;color:rgba(255,255,255,.68);line-height:1.55;">
+<div id="launchCassiePatternText" style="margin-top:8px;font-size:12px;color:rgba(220,230,245,.68);line-height:1.55;">
 Pattern monitoring inactive.
 </div>
 </div>
@@ -1981,7 +2046,7 @@ data-role="wallet-disconnect"
 <div
 id="walletHint"
 class="desc"
-style="margin-top:0;font-size:12px;color:rgba(255,255,255,.52);"
+style="margin-top:0;font-size:12px;color:rgba(220,230,245,.52);"
 data-role="wallet-hint"
 >
 Use Connect Wallet to choose Phantom, Solflare, or Backpack.
@@ -2249,6 +2314,6 @@ await mountSharedShell();
 </script>
 
 <script type="module" src="./assets/pages/launch.js?v=5"></script>
- <script src="/assets/devnet-access-gate.js?v=4"></script>
+<script src="/assets/devnet-access-gate.js?v=5"></script>
 </body>
 </html>

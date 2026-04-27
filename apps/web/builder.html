@@ -4,7 +4,7 @@
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width,initial-scale=1" />
 <title>MSS Protocol — Builder Profile</title>
-<link rel="stylesheet" href="./assets/app.css" />
+<link rel="stylesheet" href="./assets/app.css?v=5" />
 <style>
 .builder-page .wrap{
 max-width:1320px;
@@ -25,10 +25,12 @@ margin-bottom:18px;
 .builder-page .profile-board,
 .builder-page .section-card{
 position:relative;
-border:1px solid var(--line);
+border:1px solid rgba(74,165,255,.16);
 border-radius:28px;
 background:linear-gradient(180deg, rgba(255,255,255,.055), rgba(255,255,255,.026));
-box-shadow:var(--shadow-lg);
+box-shadow:
+var(--shadow-lg),
+0 0 24px rgba(21,156,255,.035);
 overflow:hidden;
 }
 
@@ -40,13 +42,33 @@ position:absolute;
 inset:0;
 pointer-events:none;
 background:
-linear-gradient(180deg, rgba(255,255,255,.04), transparent 28%),
-radial-gradient(760px 220px at 0% 0%, rgba(226,197,138,.06), transparent 38%);
+linear-gradient(180deg, rgba(255,255,255,.032), transparent 28%),
+radial-gradient(760px 220px at 0% 0%, rgba(21,156,255,.085), transparent 38%),
+radial-gradient(680px 200px at 100% 0%, rgba(54,215,255,.055), transparent 40%),
+radial-gradient(520px 180px at 50% 110%, rgba(229,193,115,.045), transparent 44%);
+}
+
+.builder-page .profile-command::after,
+.builder-page .profile-board::after,
+.builder-page .section-card::after{
+content:"";
+position:absolute;
+left:0;
+right:0;
+top:0;
+height:1px;
+background:
+linear-gradient(90deg, rgba(0,0,0,0), rgba(54,215,255,.42), rgba(229,193,115,.24), rgba(0,0,0,0));
+opacity:.92;
+pointer-events:none;
 }
 
 .builder-page .profile-command{
 padding:28px;
-box-shadow:var(--shadow-xl), 0 0 0 1px rgba(226,197,138,.04), 0 0 34px rgba(200,169,107,.08);
+box-shadow:
+var(--shadow-xl),
+0 0 0 1px rgba(74,165,255,.035),
+0 0 34px rgba(21,156,255,.075);
 }
 
 .builder-page .eyebrow{
@@ -56,8 +78,9 @@ gap:10px;
 min-height:32px;
 padding:0 12px;
 border-radius:999px;
-border:1px solid rgba(226,197,138,.22);
-background:rgba(200,169,107,.08);
+border:1px solid rgba(74,165,255,.22);
+background:
+linear-gradient(180deg, rgba(21,156,255,.13), rgba(255,255,255,.035));
 font-size:11px;
 font-weight:800;
 letter-spacing:.18em;
@@ -65,14 +88,17 @@ text-transform:uppercase;
 color:#fff;
 position:relative;
 z-index:1;
+box-shadow:
+0 0 16px rgba(21,156,255,.07),
+inset 0 1px 0 rgba(255,255,255,.04);
 }
 
 .builder-page .eyebrow-dot{
 width:7px;
 height:7px;
 border-radius:999px;
-background:var(--gold-2);
-box-shadow:0 0 14px rgba(226,197,138,.36);
+background:#36d7ff;
+box-shadow:0 0 14px rgba(54,215,255,.72);
 }
 
 .builder-page .profile-title{
@@ -85,6 +111,7 @@ max-width:760px;
 position:relative;
 z-index:1;
 word-break:break-word;
+color:#fff;
 }
 
 .builder-page .profile-copy{
@@ -115,9 +142,10 @@ border-radius:999px;
 border:1px solid rgba(255,255,255,.10);
 background:rgba(255,255,255,.04);
 font-size:12px;
-color:rgba(255,255,255,.82);
+color:rgba(244,248,255,.82);
 max-width:100%;
 overflow-wrap:anywhere;
+box-shadow:inset 0 1px 0 rgba(255,255,255,.03);
 }
 
 .builder-page .hero-chip strong{
@@ -141,13 +169,14 @@ gap:8px;
 min-height:30px;
 padding:0 10px;
 border-radius:999px;
-border:1px solid rgba(226,197,138,.20);
-background:rgba(200,169,107,.08);
+border:1px solid rgba(74,165,255,.20);
+background:rgba(21,156,255,.075);
 font-size:11px;
 color:#fff;
 font-weight:800;
 letter-spacing:.06em;
 text-transform:uppercase;
+box-shadow:0 0 14px rgba(21,156,255,.04);
 }
 
 .builder-page .access-shell{
@@ -183,7 +212,7 @@ font-weight:800;
 margin-top:8px;
 font-size:13px;
 line-height:1.65;
-color:rgba(255,255,255,.74);
+color:rgba(244,248,255,.74);
 max-width:720px;
 }
 
@@ -203,7 +232,7 @@ padding:0 14px;
 border-radius:999px;
 border:1px solid rgba(255,255,255,.10);
 background:rgba(255,255,255,.04);
-color:rgba(255,255,255,.84);
+color:rgba(244,248,255,.84);
 font-size:12px;
 overflow-wrap:anywhere;
 max-width:100%;
@@ -235,8 +264,8 @@ background:rgba(53,245,163,.08);
 color:#fff;
 }
 .builder-page .access-status.warn{
-border-color:rgba(255,209,102,.20);
-background:rgba(255,209,102,.08);
+border-color:rgba(229,193,115,.22);
+background:rgba(229,193,115,.08);
 color:#fff;
 }
 .builder-page .access-status.bad{
@@ -274,6 +303,7 @@ margin-top:8px;
 font-size:24px;
 font-weight:900;
 letter-spacing:-.03em;
+color:#fff;
 }
 
 .builder-page .tier-pill{
@@ -283,13 +313,14 @@ justify-content:center;
 min-height:34px;
 padding:0 12px;
 border-radius:999px;
-border:1px solid rgba(226,197,138,.22);
-background:rgba(200,169,107,.08);
+border:1px solid rgba(74,165,255,.22);
+background:rgba(21,156,255,.075);
 font-size:11px;
 font-weight:900;
 letter-spacing:.14em;
 text-transform:uppercase;
 color:#fff;
+box-shadow:0 0 14px rgba(21,156,255,.04);
 }
 
 .builder-page .board-grid{
@@ -345,6 +376,11 @@ padding:20px;
 margin-bottom:18px;
 }
 
+.builder-page .section-card > *{
+position:relative;
+z-index:1;
+}
+
 .builder-page .section-head{
 display:flex;
 justify-content:space-between;
@@ -360,7 +396,7 @@ z-index:1;
 font-size:14px;
 letter-spacing:.18em;
 text-transform:uppercase;
-color:rgba(255,255,255,.60);
+color:rgba(244,248,255,.62);
 font-weight:800;
 margin:0;
 }
@@ -393,10 +429,10 @@ z-index:1;
 
 .builder-page .achievement-card{
 position:relative;
-border:1px solid rgba(226,197,138,.16);
+border:1px solid rgba(74,165,255,.16);
 border-radius:20px;
 background:
-radial-gradient(420px 120px at 0% 0%, rgba(226,197,138,.08), transparent 38%),
+radial-gradient(420px 120px at 0% 0%, rgba(21,156,255,.085), transparent 38%),
 linear-gradient(180deg, rgba(255,255,255,.05), rgba(255,255,255,.03));
 padding:16px;
 min-width:0;
@@ -418,12 +454,12 @@ justify-content:center;
 min-width:34px;
 height:34px;
 border-radius:12px;
-border:1px solid rgba(226,197,138,.18);
-background:rgba(200,169,107,.10);
+border:1px solid rgba(74,165,255,.20);
+background:rgba(21,156,255,.10);
 color:#fff;
 font-size:14px;
 font-weight:900;
-box-shadow:0 0 20px rgba(200,169,107,.10);
+box-shadow:0 0 18px rgba(21,156,255,.08);
 flex:0 0 auto;
 }
 
@@ -476,7 +512,7 @@ border-radius:999px;
 border:1px solid rgba(255,255,255,.10);
 background:rgba(255,255,255,.04);
 font-size:11px;
-color:rgba(255,255,255,.84);
+color:rgba(244,248,255,.84);
 white-space:nowrap;
 }
 
@@ -499,8 +535,8 @@ transition:.18s ease;
 }
 
 .builder-page .badge-card.is-unlocked{
-border-color:rgba(226,197,138,.20);
-box-shadow:0 0 24px rgba(200,169,107,.08);
+border-color:rgba(74,165,255,.20);
+box-shadow:0 0 24px rgba(21,156,255,.075);
 }
 
 .builder-page .badge-card.is-locked{
@@ -530,9 +566,9 @@ flex:0 0 auto;
 }
 
 .builder-page .badge-card.is-unlocked .badge-icon{
-border-color:rgba(226,197,138,.18);
-background:rgba(200,169,107,.10);
-box-shadow:0 0 16px rgba(200,169,107,.10);
+border-color:rgba(74,165,255,.20);
+background:rgba(21,156,255,.10);
+box-shadow:0 0 16px rgba(21,156,255,.08);
 }
 
 .builder-page .badge-tier{
@@ -544,7 +580,7 @@ padding:0 10px;
 border-radius:999px;
 border:1px solid rgba(255,255,255,.10);
 background:rgba(255,255,255,.04);
-color:rgba(255,255,255,.82);
+color:rgba(244,248,255,.82);
 font-size:10px;
 font-weight:900;
 letter-spacing:.12em;
@@ -596,8 +632,8 @@ position:relative;
 .builder-page .progress-fill{
 height:100%;
 width:0%;
-background:linear-gradient(90deg, rgba(226,197,138,.96), rgba(159,176,198,.94));
-box-shadow:0 0 18px rgba(200,169,107,.18);
+background:linear-gradient(90deg, rgba(21,156,255,.96), rgba(54,215,255,.90) 55%, rgba(229,193,115,.72));
+box-shadow:0 0 18px rgba(21,156,255,.16);
 transition:width .25s ease;
 position:relative;
 }
@@ -619,7 +655,7 @@ gap:8px;
 .builder-page label{
 font-size:12px;
 font-weight:700;
-color:rgba(255,255,255,.78);
+color:rgba(244,248,255,.78);
 letter-spacing:.06em;
 text-transform:uppercase;
 }
@@ -638,8 +674,8 @@ box-shadow:inset 0 1px 0 rgba(255,255,255,.04);
 }
 
 .builder-page input:focus{
-border-color:rgba(226,197,138,.28);
-box-shadow:0 0 0 4px rgba(200,169,107,.08);
+border-color:rgba(74,165,255,.28);
+box-shadow:0 0 0 4px rgba(21,156,255,.085);
 background:rgba(255,255,255,.06);
 }
 
@@ -671,8 +707,8 @@ background:rgba(53,245,163,.08);
 color:#fff;
 }
 .builder-page .status.warn{
-border-color:rgba(255,209,102,.20);
-background:rgba(255,209,102,.08);
+border-color:rgba(229,193,115,.22);
+background:rgba(229,193,115,.08);
 color:#fff;
 }
 .builder-page .status.bad{
@@ -693,7 +729,7 @@ position:relative;
 border:1px solid rgba(255,255,255,.10);
 border-radius:24px;
 background:
-radial-gradient(720px 180px at 0% 0%, rgba(226,197,138,.05), transparent 34%),
+radial-gradient(720px 180px at 0% 0%, rgba(21,156,255,.055), transparent 34%),
 linear-gradient(180deg, rgba(255,255,255,.06), rgba(255,255,255,.028));
 padding:18px;
 display:grid;
@@ -751,7 +787,7 @@ font-weight:900;
 letter-spacing:.16em;
 border:1px solid rgba(255,255,255,.10);
 background:rgba(255,255,255,.05);
-color:rgba(255,255,255,.92);
+color:rgba(244,248,255,.92);
 text-transform:uppercase;
 box-shadow:inset 0 1px 0 rgba(255,255,255,.05);
 flex:0 0 auto;
@@ -760,14 +796,14 @@ white-space:nowrap;
 
 .builder-page .badge.commit{
 color:#bcd2ec;
-border-color:rgba(159,176,198,.24);
-background:rgba(159,176,198,.10);
+border-color:rgba(160,174,195,.24);
+background:rgba(160,174,195,.10);
 }
 
 .builder-page .badge.countdown{
-color:var(--gold-2);
-border-color:rgba(226,197,138,.24);
-background:rgba(200,169,107,.10);
+color:#f4d691;
+border-color:rgba(229,193,115,.24);
+background:rgba(229,193,115,.10);
 }
 
 .builder-page .badge.live{
@@ -819,7 +855,7 @@ border-radius:16px;
 background:rgba(255,255,255,.03);
 font-size:12px;
 line-height:1.6;
-color:rgba(255,255,255,.72);
+color:rgba(244,248,255,.72);
 position:relative;
 z-index:1;
 }
@@ -1266,7 +1302,7 @@ await restoreWalletIfTrusted();
 updateBuilderAccessUi();
 </script>
 
-<script type="module" src="./assets/pages/builder.js"></script>
- <script src="/assets/devnet-access-gate.js?v=4"></script>
+<script type="module" src="./assets/pages/builder.js?v=5"></script>
+<script src="/assets/devnet-access-gate.js?v=5"></script>
 </body>
 </html>

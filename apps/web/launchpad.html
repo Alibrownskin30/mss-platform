@@ -31,10 +31,16 @@ margin-bottom:18px;
 .launchpad-page .featured-launch,
 .launchpad-page .launch-terminal{
 position:relative;
-border:1px solid var(--line);
+border:1px solid rgba(115,185,255,.15);
 border-radius:var(--radius-xl);
-background:linear-gradient(180deg, rgba(255,255,255,.055), rgba(255,255,255,.026));
-box-shadow:var(--shadow-lg);
+background:
+linear-gradient(180deg, rgba(170,205,255,.052), rgba(255,255,255,.022)),
+radial-gradient(820px 260px at 0% 0%, rgba(18,140,255,.085), transparent 44%),
+radial-gradient(620px 220px at 100% 0%, rgba(79,195,255,.052), transparent 42%),
+radial-gradient(520px 180px at 50% 100%, rgba(235,215,171,.030), transparent 48%);
+box-shadow:
+var(--shadow-lg),
+0 0 0 1px rgba(79,195,255,.025);
 overflow:hidden;
 }
 
@@ -49,15 +55,24 @@ inset:0;
 pointer-events:none;
 background:
 linear-gradient(180deg, rgba(255,255,255,.04), transparent 28%),
-radial-gradient(760px 220px at 0% 0%, rgba(243,217,139,.05), transparent 38%);
+radial-gradient(760px 220px at 0% 0%, rgba(79,195,255,.075), transparent 38%),
+radial-gradient(560px 180px at 100% 0%, rgba(235,215,171,.035), transparent 40%);
 }
 
-.launchpad-page .hero-command,
-.launchpad-page .ops-board,
-.launchpad-page .command-rail,
-.launchpad-page .featured-launch,
-.launchpad-page .launch-terminal{
-position:relative;
+.launchpad-page .hero-command::after,
+.launchpad-page .ops-board::after,
+.launchpad-page .command-rail::after,
+.launchpad-page .featured-launch::after,
+.launchpad-page .launch-terminal::after{
+content:"";
+position:absolute;
+left:0;
+right:0;
+top:0;
+height:1px;
+pointer-events:none;
+background:linear-gradient(90deg, rgba(79,195,255,0), rgba(79,195,255,.34), rgba(235,215,171,.16), rgba(79,195,255,0));
+opacity:.85;
 }
 
 .launchpad-page .hero-command > *,
@@ -71,7 +86,10 @@ z-index:1;
 
 .launchpad-page .hero-command{
 padding:30px;
-box-shadow:var(--shadow-xl), 0 0 0 1px rgba(243,217,139,.03), 0 0 26px rgba(243,217,139,.05);
+box-shadow:
+var(--shadow-xl),
+0 0 0 1px rgba(79,195,255,.035),
+0 0 34px rgba(18,140,255,.07);
 }
 
 .launchpad-page .ops-board{
@@ -87,21 +105,24 @@ gap:10px;
 min-height:32px;
 padding:0 12px;
 border-radius:999px;
-border:1px solid rgba(243,217,139,.18);
-background:rgba(214,178,94,.08);
+border:1px solid rgba(79,195,255,.22);
+background:linear-gradient(180deg, rgba(79,195,255,.10), rgba(18,140,255,.055));
 font-size:11px;
 font-weight:800;
 letter-spacing:.18em;
 text-transform:uppercase;
 color:#fff;
+box-shadow:0 0 18px rgba(79,195,255,.055);
 }
 
 .launchpad-page .eyebrow-dot{
 width:7px;
 height:7px;
 border-radius:999px;
-background:var(--gold-2);
-box-shadow:0 0 12px rgba(243,217,139,.26);
+background:linear-gradient(135deg, #4fc3ff, #ebd7ab);
+box-shadow:
+0 0 12px rgba(79,195,255,.42),
+0 0 18px rgba(235,215,171,.10);
 }
 
 .launchpad-page .hero-title{
@@ -111,6 +132,8 @@ line-height:.98;
 letter-spacing:-.04em;
 font-weight:900;
 max-width:780px;
+color:#fff;
+text-wrap:balance;
 }
 
 .launchpad-page .hero-copy{
@@ -145,6 +168,12 @@ max-width:100%;
 white-space:nowrap;
 }
 
+.launchpad-page .hero-pill:hover,
+.launchpad-page .rule-chip:hover{
+border-color:rgba(79,195,255,.18);
+background:rgba(79,195,255,.055);
+}
+
 .launchpad-page .hero-cta{
 display:inline-flex;
 align-items:center;
@@ -165,13 +194,19 @@ box-shadow:inset 0 1px 0 rgba(255,255,255,.04);
 }
 
 .launchpad-page .hero-cta.primary{
-border-color:rgba(255,241,191,.16);
-background:linear-gradient(180deg, rgba(240,210,122,.10), rgba(240,210,122,.04));
+border-color:rgba(79,195,255,.24);
+background:
+linear-gradient(135deg, rgba(79,195,255,.18), rgba(18,140,255,.12) 58%, rgba(235,215,171,.07));
+box-shadow:
+0 0 18px rgba(79,195,255,.075),
+inset 0 1px 0 rgba(255,255,255,.05);
 }
 
 .launchpad-page .hero-cta:hover{
 transform:translateY(-1px);
-background:rgba(255,255,255,.08);
+border-color:rgba(79,195,255,.20);
+background:rgba(79,195,255,.07);
+box-shadow:0 0 18px rgba(79,195,255,.055);
 }
 
 .launchpad-page .launch-builder-note{
@@ -203,6 +238,7 @@ margin-top:8px;
 font-size:24px;
 font-weight:900;
 letter-spacing:-.03em;
+color:#fff;
 }
 
 .launchpad-page .ops-state{
@@ -212,20 +248,23 @@ gap:8px;
 min-height:32px;
 padding:0 12px;
 border-radius:999px;
-border:1px solid rgba(255,241,191,.14);
-background:rgba(240,210,122,.06);
+border:1px solid rgba(79,195,255,.20);
+background:rgba(79,195,255,.075);
 font-size:11px;
 font-weight:900;
 letter-spacing:.14em;
 text-transform:uppercase;
+color:#9fe4ff;
 }
 
 .launchpad-page .ops-state-dot{
 width:8px;
 height:8px;
 border-radius:999px;
-background:var(--gold-2);
-box-shadow:0 0 8px rgba(255,241,191,.16);
+background:linear-gradient(135deg, #4fc3ff, #ebd7ab);
+box-shadow:
+0 0 12px rgba(79,195,255,.55),
+0 0 18px rgba(235,215,171,.12);
 }
 
 .launchpad-page .ops-grid{
@@ -247,12 +286,29 @@ gap:12px;
 }
 
 .launchpad-page .ops-card{
+position:relative;
 border:1px solid rgba(255,255,255,.08);
 border-radius:18px;
 background:rgba(255,255,255,.03);
 padding:16px;
 min-width:0;
 box-shadow:inset 0 1px 0 rgba(255,255,255,.03);
+overflow:hidden;
+}
+
+.launchpad-page .ops-card::before{
+content:"";
+position:absolute;
+inset:0;
+pointer-events:none;
+background:
+linear-gradient(180deg, rgba(255,255,255,.018), transparent 34%),
+radial-gradient(240px 90px at 0% 0%, rgba(79,195,255,.055), transparent 60%);
+}
+
+.launchpad-page .ops-card > *{
+position:relative;
+z-index:1;
 }
 
 .launchpad-page .ops-card .k{
@@ -293,6 +349,14 @@ display:flex;
 gap:10px;
 align-items:center;
 min-width:0;
+}
+
+.launchpad-page .search-shell input:focus,
+.launchpad-page .input:focus{
+border-color:rgba(79,195,255,.28);
+box-shadow:
+0 0 0 4px rgba(79,195,255,.09),
+0 0 24px rgba(18,140,255,.055);
 }
 
 .launchpad-page .wallet-access{
@@ -336,11 +400,17 @@ transition:.18s ease;
 white-space:nowrap;
 }
 
+.launchpad-page .view-btn:hover{
+transform:translateY(-1px);
+border-color:rgba(79,195,255,.18);
+background:rgba(79,195,255,.06);
+}
+
 .launchpad-page .view-btn.active{
 color:#fff;
-border-color:rgba(255,241,191,.14);
-background:linear-gradient(180deg, rgba(240,210,122,.08), rgba(240,210,122,.03));
-box-shadow:0 0 10px rgba(255,241,191,.03);
+border-color:rgba(79,195,255,.22);
+background:linear-gradient(180deg, rgba(79,195,255,.12), rgba(18,140,255,.055));
+box-shadow:0 0 14px rgba(79,195,255,.045);
 }
 
 .launchpad-page .status-banner{
@@ -387,7 +457,7 @@ margin-bottom:14px;
 }
 
 .launchpad-page .featured-placeholder{
-border:1px dashed rgba(255,255,255,.12);
+border:1px dashed rgba(115,185,255,.18);
 border-radius:20px;
 padding:22px;
 color:var(--muted);
@@ -446,11 +516,28 @@ gap:12px;
 }
 
 .launchpad-page .featured-stat-card{
+position:relative;
 border:1px solid rgba(255,255,255,.08);
 border-radius:16px;
 background:rgba(255,255,255,.03);
 padding:14px;
 min-width:0;
+overflow:hidden;
+}
+
+.launchpad-page .featured-stat-card::before{
+content:"";
+position:absolute;
+inset:0;
+pointer-events:none;
+background:
+linear-gradient(180deg, rgba(255,255,255,.018), transparent 34%),
+radial-gradient(220px 80px at 0% 0%, rgba(79,195,255,.045), transparent 58%);
+}
+
+.launchpad-page .featured-stat-card > *{
+position:relative;
+z-index:1;
 }
 
 .launchpad-page .featured-stat-card .k{
@@ -535,14 +622,41 @@ padding:2px 4px;
 }
 
 .launchpad-page .list-row{
+position:relative;
 border:1px solid rgba(255,255,255,.08);
 border-radius:20px;
-background:rgba(255,255,255,.03);
+background:
+linear-gradient(180deg, rgba(255,255,255,.038), rgba(255,255,255,.018)),
+radial-gradient(520px 160px at 0% 0%, rgba(18,140,255,.055), transparent 56%);
 padding:18px;
 display:grid;
 gap:14px;
 min-width:0;
 box-shadow:inset 0 1px 0 rgba(255,255,255,.03);
+overflow:hidden;
+}
+
+.launchpad-page .list-row::before{
+content:"";
+position:absolute;
+inset:0;
+pointer-events:none;
+background:
+linear-gradient(180deg, rgba(255,255,255,.018), transparent 34%),
+radial-gradient(220px 80px at 100% 0%, rgba(235,215,171,.030), transparent 58%);
+}
+
+.launchpad-page .list-row > *{
+position:relative;
+z-index:1;
+}
+
+.launchpad-page .list-row:hover{
+border-color:rgba(79,195,255,.18);
+box-shadow:
+0 22px 58px rgba(0,0,0,.40),
+0 0 18px rgba(79,195,255,.055);
+transform:translateY(-1px);
 }
 
 .launchpad-page .list-row-top{
@@ -615,7 +729,7 @@ display:none !important;
 
 .launchpad-page .launch-empty-state{
 padding:30px;
-border:1px dashed rgba(255,255,255,.12);
+border:1px dashed rgba(115,185,255,.18);
 border-radius:20px;
 color:var(--muted);
 text-align:center;
@@ -993,6 +1107,6 @@ setBuilderButtonState();
 });
 }
 </script>
- <script src="/assets/devnet-access-gate.js?v=4"></script>
+<script src="/assets/devnet-access-gate.js?v=5"></script>
 </body>
 </html>

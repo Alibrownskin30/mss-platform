@@ -8,7 +8,7 @@
 name="description"
 content="MSS Protocol Login — sign in to manage alerts and access account-linked blockchain security intelligence features."
 />
-<link rel="stylesheet" href="./assets/app.css" />
+<link rel="stylesheet" href="./assets/app.css?v=5" />
 <style>
 .auth-page .wrap{
 max-width:1200px;
@@ -28,10 +28,12 @@ align-items:stretch;
 .auth-page .hero-shell,
 .auth-page .auth-card{
 position:relative;
-border:1px solid var(--line);
+border:1px solid rgba(74,165,255,.16);
 border-radius:28px;
 background:linear-gradient(180deg, rgba(255,255,255,.055), rgba(255,255,255,.026));
-box-shadow:var(--shadow-lg);
+box-shadow:
+var(--shadow-lg),
+0 0 24px rgba(21,156,255,.035);
 overflow:hidden;
 min-width:0;
 }
@@ -43,8 +45,24 @@ position:absolute;
 inset:0;
 pointer-events:none;
 background:
-linear-gradient(180deg, rgba(255,255,255,.04), transparent 28%),
-radial-gradient(760px 220px at 0% 0%, rgba(243,217,139,.05), transparent 38%);
+linear-gradient(180deg, rgba(255,255,255,.032), transparent 28%),
+radial-gradient(760px 220px at 0% 0%, rgba(21,156,255,.085), transparent 38%),
+radial-gradient(680px 200px at 100% 0%, rgba(54,215,255,.055), transparent 40%),
+radial-gradient(520px 180px at 50% 110%, rgba(229,193,115,.045), transparent 44%);
+}
+
+.auth-page .hero-shell::after,
+.auth-page .auth-card::after{
+content:"";
+position:absolute;
+left:0;
+right:0;
+top:0;
+height:1px;
+background:
+linear-gradient(90deg, rgba(0,0,0,0), rgba(54,215,255,.42), rgba(229,193,115,.24), rgba(0,0,0,0));
+opacity:.92;
+pointer-events:none;
 }
 
 .auth-page .hero-shell,
@@ -68,8 +86,9 @@ gap:10px;
 min-height:34px;
 padding:0 12px;
 border-radius:999px;
-border:1px solid rgba(243,217,139,.18);
-background:rgba(214,178,94,.08);
+border:1px solid rgba(74,165,255,.22);
+background:
+linear-gradient(180deg, rgba(21,156,255,.13), rgba(255,255,255,.035));
 font-size:11px;
 font-weight:800;
 letter-spacing:.18em;
@@ -77,14 +96,17 @@ text-transform:uppercase;
 color:#fff;
 width:max-content;
 max-width:100%;
+box-shadow:
+0 0 16px rgba(21,156,255,.07),
+inset 0 1px 0 rgba(255,255,255,.04);
 }
 
 .auth-page .eyebrow-dot{
 width:7px;
 height:7px;
 border-radius:999px;
-background:var(--gold-2);
-box-shadow:0 0 12px rgba(243,217,139,.26);
+background:#36d7ff;
+box-shadow:0 0 14px rgba(54,215,255,.72);
 flex:0 0 auto;
 }
 
@@ -95,6 +117,7 @@ line-height:.98;
 letter-spacing:-.05em;
 font-weight:900;
 max-width:10ch;
+color:#fff;
 }
 
 .auth-page .hero-copy{
@@ -112,6 +135,7 @@ margin-top:20px;
 }
 
 .auth-page .hero-feature-card{
+position:relative;
 border:1px solid rgba(255,255,255,.08);
 border-radius:18px;
 background:rgba(255,255,255,.03);
@@ -122,6 +146,30 @@ box-shadow:inset 0 1px 0 rgba(255,255,255,.03);
 display:flex;
 flex-direction:column;
 justify-content:space-between;
+overflow:hidden;
+}
+
+.auth-page .hero-feature-card::before{
+content:"";
+position:absolute;
+inset:0;
+pointer-events:none;
+background:
+linear-gradient(180deg, rgba(255,255,255,.018), transparent 34%),
+radial-gradient(260px 90px at 0% 0%, rgba(21,156,255,.055), transparent 58%);
+}
+
+.auth-page .hero-feature-card > *{
+position:relative;
+z-index:1;
+}
+
+.auth-page .hero-feature-card:nth-child(2),
+.auth-page .hero-feature-card:nth-child(4){
+border-color:rgba(229,193,115,.14);
+background:
+radial-gradient(360px 120px at 0% 0%, rgba(229,193,115,.045), transparent 45%),
+rgba(255,255,255,.03);
 }
 
 .auth-page .hero-feature-k{
@@ -153,11 +201,13 @@ line-height:1.58;
 margin-top:auto;
 padding:14px 16px;
 border-radius:16px;
-border:1px solid rgba(255,255,255,.08);
-background:rgba(255,255,255,.03);
+border:1px solid rgba(74,165,255,.13);
+background:
+linear-gradient(180deg, rgba(21,156,255,.055), rgba(255,255,255,.026));
 color:var(--muted);
 font-size:13px;
 line-height:1.65;
+box-shadow:inset 0 1px 0 rgba(255,255,255,.03);
 }
 
 .auth-page .auth-head{
@@ -173,7 +223,7 @@ margin-bottom:10px;
 font-size:11px;
 letter-spacing:.18em;
 text-transform:uppercase;
-color:rgba(255,255,255,.60);
+color:rgba(244,248,255,.62);
 font-weight:800;
 margin:0 0 10px;
 }
@@ -202,14 +252,18 @@ gap:8px;
 min-height:32px;
 padding:0 12px;
 border-radius:999px;
-border:1px solid rgba(243,217,139,.18);
-background:rgba(214,178,94,.08);
+border:1px solid rgba(74,165,255,.22);
+background:
+linear-gradient(180deg, rgba(21,156,255,.13), rgba(255,255,255,.035));
 color:#fff;
 font-size:10px;
 font-weight:900;
 letter-spacing:.14em;
 text-transform:uppercase;
 white-space:nowrap;
+box-shadow:
+0 0 16px rgba(21,156,255,.07),
+inset 0 1px 0 rgba(255,255,255,.04);
 }
 
 .auth-page .secure-pill::before{
@@ -217,8 +271,8 @@ content:"";
 width:7px;
 height:7px;
 border-radius:999px;
-background:var(--gold-2);
-box-shadow:0 0 12px rgba(243,217,139,.26);
+background:#36d7ff;
+box-shadow:0 0 14px rgba(54,215,255,.72);
 flex:0 0 auto;
 }
 
@@ -251,12 +305,17 @@ color:var(--text);
 outline:none;
 font:inherit;
 box-shadow:inset 0 1px 0 rgba(255,255,255,.04);
+transition:border-color .16s ease, box-shadow .16s ease, background .16s ease;
 }
 
 .auth-page .input:focus{
-border-color:rgba(243,217,139,.24);
-box-shadow:0 0 0 4px rgba(243,217,139,.08);
+border-color:rgba(74,165,255,.26);
+box-shadow:0 0 0 4px rgba(21,156,255,.09);
 background:rgba(255,255,255,.06);
+}
+
+.auth-page .input::placeholder{
+color:rgba(244,248,255,.36);
 }
 
 .auth-page .hp{
@@ -271,13 +330,14 @@ padding:13px 14px;
 border-radius:14px;
 border:1px solid rgba(255,255,255,.10);
 background:rgba(255,255,255,.04);
+box-shadow:inset 0 1px 0 rgba(255,255,255,.03);
 }
 
 .auth-page .checkbox{
 width:18px;
 height:18px;
 margin-top:2px;
-accent-color:var(--gold-1);
+accent-color:#159cff;
 flex:0 0 auto;
 }
 
@@ -295,6 +355,19 @@ font-weight:800;
 .auth-page .btn{
 width:100%;
 min-height:48px;
+border-color:rgba(74,165,255,.20);
+background:
+linear-gradient(135deg, rgba(21,156,255,.18), rgba(54,215,255,.08) 56%, rgba(229,193,115,.08));
+box-shadow:
+0 12px 28px rgba(0,0,0,.22),
+0 0 18px rgba(21,156,255,.06),
+inset 0 1px 0 rgba(255,255,255,.04);
+}
+
+.auth-page .btn:hover{
+border-color:rgba(74,165,255,.28);
+background:
+linear-gradient(135deg, rgba(21,156,255,.22), rgba(54,215,255,.10) 56%, rgba(229,193,115,.10));
 }
 
 .auth-page .status{
@@ -326,6 +399,7 @@ align-items:center;
 color:rgba(255,255,255,.78);
 font-size:12px;
 font-weight:700;
+transition:color .16s ease;
 }
 
 .auth-page .link-row a:hover{

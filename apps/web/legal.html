@@ -8,7 +8,7 @@
 name="description"
 content="MSS Protocol Legal — risk disclosure, beta notice, and platform use terms for blockchain security intelligence and market research."
 />
-<link rel="stylesheet" href="./assets/app.css" />
+<link rel="stylesheet" href="./assets/app.css?v=5" />
 <style>
 .legal-page .legal-wrap{
 max-width:1320px;
@@ -21,10 +21,12 @@ z-index:1;
 .legal-page .legal-hero,
 .legal-page .legal-section{
 position:relative;
-border:1px solid var(--line);
+border:1px solid rgba(74,165,255,.16);
 border-radius:var(--radius-xl);
 background:linear-gradient(180deg, rgba(255,255,255,.055), rgba(255,255,255,.026));
-box-shadow:var(--shadow-lg);
+box-shadow:
+var(--shadow-lg),
+0 0 24px rgba(21,156,255,.035);
 overflow:hidden;
 }
 
@@ -35,14 +37,33 @@ position:absolute;
 inset:0;
 pointer-events:none;
 background:
-linear-gradient(180deg, rgba(255,255,255,.04), transparent 28%),
-radial-gradient(760px 220px at 0% 0%, rgba(243,217,139,.05), transparent 38%);
+linear-gradient(180deg, rgba(255,255,255,.032), transparent 28%),
+radial-gradient(760px 220px at 0% 0%, rgba(21,156,255,.085), transparent 38%),
+radial-gradient(680px 200px at 100% 0%, rgba(54,215,255,.055), transparent 40%),
+radial-gradient(520px 180px at 50% 110%, rgba(229,193,115,.045), transparent 44%);
+}
+
+.legal-page .legal-hero::after,
+.legal-page .legal-section::after{
+content:"";
+position:absolute;
+left:0;
+right:0;
+top:0;
+height:1px;
+background:
+linear-gradient(90deg, rgba(0,0,0,0), rgba(54,215,255,.42), rgba(229,193,115,.24), rgba(0,0,0,0));
+opacity:.92;
+pointer-events:none;
 }
 
 .legal-page .legal-hero{
 padding:30px;
 margin-bottom:18px;
-box-shadow:var(--shadow-xl), 0 0 0 1px rgba(243,217,139,.03), 0 0 26px rgba(243,217,139,.05);
+box-shadow:
+var(--shadow-xl),
+0 0 0 1px rgba(74,165,255,.035),
+0 0 34px rgba(21,156,255,.075);
 }
 
 .legal-page .legal-hero > *,
@@ -58,21 +79,25 @@ gap:10px;
 min-height:32px;
 padding:0 12px;
 border-radius:999px;
-border:1px solid rgba(243,217,139,.18);
-background:rgba(214,178,94,.08);
+border:1px solid rgba(74,165,255,.22);
+background:
+linear-gradient(180deg, rgba(21,156,255,.13), rgba(255,255,255,.035));
 font-size:11px;
 font-weight:800;
 letter-spacing:.18em;
 text-transform:uppercase;
 color:#fff;
+box-shadow:
+0 0 16px rgba(21,156,255,.07),
+inset 0 1px 0 rgba(255,255,255,.04);
 }
 
 .legal-page .legal-eyebrow-dot{
 width:7px;
 height:7px;
 border-radius:999px;
-background:var(--gold-2);
-box-shadow:0 0 12px rgba(243,217,139,.26);
+background:#36d7ff;
+box-shadow:0 0 14px rgba(54,215,255,.72);
 }
 
 .legal-page .legal-title{
@@ -82,6 +107,7 @@ line-height:.96;
 letter-spacing:-.05em;
 font-weight:900;
 max-width:860px;
+color:#fff;
 }
 
 .legal-page .legal-copy{
@@ -99,12 +125,29 @@ margin-top:18px;
 }
 
 .legal-page .legal-summary-card{
+position:relative;
 border:1px solid rgba(255,255,255,.08);
 border-radius:18px;
 background:rgba(255,255,255,.03);
 padding:16px;
 min-width:0;
 box-shadow:inset 0 1px 0 rgba(255,255,255,.03);
+overflow:hidden;
+}
+
+.legal-page .legal-summary-card::before{
+content:"";
+position:absolute;
+inset:0;
+pointer-events:none;
+background:
+linear-gradient(180deg, rgba(255,255,255,.018), transparent 34%),
+radial-gradient(260px 90px at 0% 0%, rgba(21,156,255,.055), transparent 58%);
+}
+
+.legal-page .legal-summary-card > *{
+position:relative;
+z-index:1;
 }
 
 .legal-page .legal-summary-k{
@@ -149,7 +192,7 @@ margin-bottom:14px;
 font-size:14px;
 letter-spacing:.18em;
 text-transform:uppercase;
-color:rgba(255,255,255,.60);
+color:rgba(244,248,255,.62);
 font-weight:800;
 margin:0;
 }
@@ -165,10 +208,28 @@ gap:14px;
 }
 
 .legal-page .legal-block{
+position:relative;
 border:1px solid rgba(255,255,255,.08);
 border-radius:18px;
 background:rgba(255,255,255,.025);
 padding:16px;
+overflow:hidden;
+box-shadow:inset 0 1px 0 rgba(255,255,255,.03);
+}
+
+.legal-page .legal-block::before{
+content:"";
+position:absolute;
+inset:0;
+pointer-events:none;
+background:
+linear-gradient(180deg, rgba(255,255,255,.018), transparent 34%),
+radial-gradient(320px 110px at 0% 0%, rgba(21,156,255,.045), transparent 58%);
+}
+
+.legal-page .legal-block > *{
+position:relative;
+z-index:1;
 }
 
 .legal-page .legal-block h2{
@@ -188,6 +249,19 @@ font-size:14px;
 .legal-page .legal-block ul{
 margin:10px 0 0 18px;
 padding:0;
+}
+
+.legal-page .legal-block strong{
+color:rgba(255,255,255,.92);
+}
+
+.legal-page .legal-block:nth-child(1),
+.legal-page .legal-block:nth-child(4),
+.legal-page .legal-block:nth-child(6){
+border-color:rgba(229,193,115,.16);
+background:
+radial-gradient(460px 150px at 0% 0%, rgba(229,193,115,.055), transparent 45%),
+linear-gradient(145deg, rgba(21,156,255,.035), rgba(255,255,255,.024));
 }
 
 @media (max-width:980px){
@@ -220,7 +294,7 @@ padding:22px 14px 80px;
 }
 </style>
 </head>
-<body class="legal-page">
+<body class="legal-page" data-shell-active="legal" data-shell-subtitle="Risk Disclosure">
 <div id="layoutShellHeader"></div>
 
 <div class="legal-wrap">
@@ -334,6 +408,8 @@ if (typeof mountShell === "function") {
 await mountShell({
 activeNav: "legal",
 pageLabel: "Legal",
+pageTitle: "MSS Protocol Legal",
+pageSubtitle: "Risk Disclosure",
 headerTargetId: "layoutShellHeader",
 footerTargetId: "layoutShellFooter",
 });

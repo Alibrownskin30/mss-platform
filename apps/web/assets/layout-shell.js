@@ -12,6 +12,8 @@ const NAV_ITEMS = [
 const X_URL = "https://x.com/MssProtocol";
 const TG_URL = "https://t.me/mssprotocol";
 
+const MSS_LOGO_SRC = "/assets/images/mss-logo-mark.png";
+
 function ensureStyles() {
 if (document.getElementById("mss-shell-styles")) return;
 
@@ -45,12 +47,13 @@ z-index:1000;
 backdrop-filter:blur(18px);
 -webkit-backdrop-filter:blur(18px);
 background:
-radial-gradient(900px 160px at 0% 0%, rgba(244,222,154,.06), transparent 40%),
-radial-gradient(720px 140px at 100% 0%, rgba(182,190,203,.05), transparent 42%),
-linear-gradient(180deg, rgba(7,8,12,.94), rgba(7,8,12,.78));
-border-bottom:1px solid rgba(255,255,255,.06);
+radial-gradient(900px 160px at 0% 0%, rgba(18,140,255,.10), transparent 40%),
+radial-gradient(720px 140px at 100% 0%, rgba(182,210,245,.07), transparent 42%),
+radial-gradient(560px 120px at 50% 0%, rgba(235,215,171,.035), transparent 46%),
+linear-gradient(180deg, rgba(3,7,15,.94), rgba(3,7,15,.80));
+border-bottom:1px solid rgba(115,185,255,.10);
 box-shadow:
-0 16px 40px rgba(0,0,0,.24),
+0 16px 40px rgba(0,0,0,.28),
 inset 0 -1px 0 rgba(255,255,255,.02);
 overflow:visible;
 }
@@ -60,7 +63,7 @@ content:"";
 position:absolute;
 inset:0 0 auto 0;
 height:1px;
-background:linear-gradient(90deg, rgba(255,255,255,0), rgba(244,222,154,.30), rgba(182,190,203,.18), rgba(255,255,255,0));
+background:linear-gradient(90deg, rgba(255,255,255,0), rgba(79,195,255,.36), rgba(235,215,171,.18), rgba(255,255,255,0));
 opacity:.95;
 pointer-events:none;
 }
@@ -104,22 +107,24 @@ text-decoration:none;
 }
 
 .mss-shell-mark{
-width:40px;
-height:40px;
-border-radius:12px;
+width:42px;
+height:42px;
+border-radius:14px;
 position:relative;
 display:grid;
 place-items:center;
 flex:0 0 auto;
 overflow:hidden;
 background:
-radial-gradient(circle at 30% 24%, rgba(255,255,255,.18), transparent 36%),
-linear-gradient(135deg, rgba(28,32,38,.98), rgba(12,14,18,.98));
-border:1px solid rgba(244,222,154,.20);
+radial-gradient(circle at 50% 28%, rgba(79,195,255,.20), transparent 44%),
+radial-gradient(circle at 80% 84%, rgba(235,215,171,.08), transparent 46%),
+linear-gradient(135deg, rgba(17,24,39,.98), rgba(3,7,15,.98));
+border:1px solid rgba(79,195,255,.24);
 box-shadow:
-0 0 0 1px rgba(244,222,154,.03),
-0 0 24px rgba(220,185,106,.08),
-inset 0 1px 0 rgba(255,255,255,.07);
+0 0 0 1px rgba(235,215,171,.04),
+0 0 24px rgba(18,140,255,.18),
+0 0 34px rgba(79,195,255,.08),
+inset 0 1px 0 rgba(255,255,255,.08);
 }
 
 .mss-shell-mark::before{
@@ -127,16 +132,36 @@ content:"";
 position:absolute;
 inset:0;
 pointer-events:none;
-background:linear-gradient(180deg, rgba(255,255,255,.06), transparent 38%);
+background:
+linear-gradient(180deg, rgba(255,255,255,.08), transparent 38%),
+radial-gradient(circle at 50% 0%, rgba(255,255,255,.08), transparent 48%);
 }
 
-.mss-shell-mark svg{
-width:24px;
-height:24px;
+.mss-shell-mark img{
+width:30px;
+height:30px;
 display:block;
 position:relative;
-z-index:1;
-filter:drop-shadow(0 0 12px rgba(244,222,154,.16));
+z-index:2;
+object-fit:contain;
+filter:
+drop-shadow(0 0 10px rgba(18,140,255,.42))
+drop-shadow(0 0 18px rgba(99,220,255,.18));
+}
+
+.mss-shell-mark-fallback{
+display:none;
+width:26px;
+height:26px;
+position:relative;
+z-index:2;
+border-radius:8px;
+background:
+linear-gradient(180deg, rgba(241,247,255,.96), rgba(200,214,230,.88) 44%, rgba(79,195,255,.86) 72%, rgba(18,140,255,.92));
+clip-path:polygon(18% 18%, 82% 18%, 82% 30%, 58% 30%, 58% 82%, 42% 82%, 42% 30%, 18% 30%);
+box-shadow:
+0 0 12px rgba(79,195,255,.22),
+0 0 18px rgba(235,215,171,.08);
 }
 
 .mss-shell-brand-copy{
@@ -154,14 +179,14 @@ line-height:1.1;
 white-space:nowrap;
 overflow:hidden;
 text-overflow:ellipsis;
-color:#eef3fb;
+color:#eef6ff;
 }
 
 .mss-shell-brand-sub{
 display:block;
 margin-top:3px;
 font-size:11px;
-color:rgba(238,243,251,.44);
+color:rgba(198,211,226,.50);
 letter-spacing:.12em;
 text-transform:uppercase;
 line-height:1.2;
@@ -179,9 +204,9 @@ gap:8px;
 min-height:40px;
 padding:0 14px;
 border-radius:999px;
-border:1px solid rgba(255,255,255,.10);
-background:rgba(255,255,255,.04);
-color:rgba(255,255,255,.84);
+border:1px solid rgba(115,185,255,.16);
+background:rgba(79,195,255,.055);
+color:rgba(241,247,255,.86);
 font-size:11px;
 font-weight:800;
 letter-spacing:.12em;
@@ -194,8 +219,10 @@ box-shadow:inset 0 1px 0 rgba(255,255,255,.04);
 width:7px;
 height:7px;
 border-radius:999px;
-background:rgba(244,222,154,.92);
-box-shadow:0 0 0 5px rgba(244,222,154,.08);
+background:linear-gradient(135deg, rgba(79,195,255,.95), rgba(235,215,171,.86));
+box-shadow:
+0 0 0 5px rgba(79,195,255,.08),
+0 0 16px rgba(79,195,255,.24);
 flex:0 0 auto;
 }
 
@@ -207,9 +234,9 @@ gap:10px;
 min-height:42px;
 padding:0 14px;
 border-radius:14px;
-border:1px solid rgba(255,255,255,.10);
+border:1px solid rgba(115,185,255,.15);
 background:rgba(255,255,255,.04);
-color:#eef3fb;
+color:#eef6ff;
 font-size:11px;
 font-weight:900;
 letter-spacing:.14em;
@@ -222,16 +249,16 @@ white-space:nowrap;
 
 .mss-shell-menu-toggle:hover{
 transform:translateY(-1px);
-border-color:rgba(244,222,154,.18);
-background:rgba(220,185,106,.08);
-box-shadow:0 0 18px rgba(244,222,154,.08);
+border-color:rgba(79,195,255,.24);
+background:rgba(79,195,255,.08);
+box-shadow:0 0 18px rgba(79,195,255,.09);
 }
 
 .mss-shell-menu-toggle[aria-expanded="true"]{
 color:#fff;
-border-color:rgba(244,222,154,.20);
-background:linear-gradient(180deg, rgba(220,185,106,.10), rgba(220,185,106,.04));
-box-shadow:0 0 18px rgba(244,222,154,.08);
+border-color:rgba(79,195,255,.26);
+background:linear-gradient(180deg, rgba(79,195,255,.12), rgba(18,140,255,.05));
+box-shadow:0 0 18px rgba(79,195,255,.10);
 }
 
 .mss-shell-menu-toggle-bars{
@@ -278,7 +305,7 @@ pointer-events:auto;
 .mss-shell-drawer-backdrop{
 position:absolute;
 inset:0;
-background:rgba(4,6,10,.62);
+background:rgba(2,5,11,.68);
 backdrop-filter:blur(14px);
 -webkit-backdrop-filter:blur(14px);
 opacity:0;
@@ -299,12 +326,13 @@ max-width:100%;
 display:flex;
 flex-direction:column;
 background:
-radial-gradient(720px 220px at 0% 0%, rgba(244,222,154,.08), transparent 42%),
-radial-gradient(560px 180px at 100% 0%, rgba(182,190,203,.06), transparent 38%),
-linear-gradient(180deg, rgba(10,12,18,.98), rgba(7,8,12,.98));
-border-left:1px solid rgba(255,255,255,.08);
+radial-gradient(720px 220px at 0% 0%, rgba(18,140,255,.12), transparent 42%),
+radial-gradient(560px 180px at 100% 0%, rgba(182,210,245,.07), transparent 38%),
+radial-gradient(420px 140px at 70% 100%, rgba(235,215,171,.045), transparent 44%),
+linear-gradient(180deg, rgba(5,9,20,.98), rgba(3,7,15,.98));
+border-left:1px solid rgba(115,185,255,.12);
 box-shadow:
--24px 0 60px rgba(0,0,0,.34),
+-24px 0 60px rgba(0,0,0,.38),
 inset 1px 0 0 rgba(255,255,255,.03);
 transform:translateX(108%);
 transition:transform .28s cubic-bezier(.22,.8,.22,1);
@@ -320,7 +348,7 @@ content:"";
 position:absolute;
 inset:0 0 auto 0;
 height:1px;
-background:linear-gradient(90deg, rgba(255,255,255,0), rgba(244,222,154,.24), rgba(255,255,255,0));
+background:linear-gradient(90deg, rgba(255,255,255,0), rgba(79,195,255,.32), rgba(235,215,171,.16), rgba(255,255,255,0));
 opacity:.9;
 pointer-events:none;
 }
@@ -344,7 +372,7 @@ flex:1 1 auto;
 
 .mss-shell-drawer-title{
 display:block;
-color:#eef3fb;
+color:#eef6ff;
 font-size:13px;
 font-weight:900;
 letter-spacing:.16em;
@@ -355,7 +383,7 @@ line-height:1.2;
 .mss-shell-drawer-sub{
 display:block;
 margin-top:5px;
-color:rgba(238,243,251,.46);
+color:rgba(198,211,226,.52);
 font-size:11px;
 letter-spacing:.12em;
 text-transform:uppercase;
@@ -370,9 +398,9 @@ justify-content:center;
 width:42px;
 height:42px;
 border-radius:12px;
-border:1px solid rgba(255,255,255,.10);
+border:1px solid rgba(115,185,255,.15);
 background:rgba(255,255,255,.04);
-color:#eef3fb;
+color:#eef6ff;
 cursor:pointer;
 transition:.18s ease;
 flex:0 0 auto;
@@ -380,8 +408,8 @@ flex:0 0 auto;
 
 .mss-shell-drawer-close:hover{
 transform:translateY(-1px);
-border-color:rgba(244,222,154,.18);
-background:rgba(220,185,106,.08);
+border-color:rgba(79,195,255,.24);
+background:rgba(79,195,255,.08);
 }
 
 .mss-shell-drawer-scroll{
@@ -390,7 +418,7 @@ min-height:0;
 overflow:auto;
 padding:18px;
 scrollbar-width:thin;
-scrollbar-color:rgba(255,255,255,.18) transparent;
+scrollbar-color:rgba(115,185,255,.22) transparent;
 }
 
 .mss-shell-drawer-block + .mss-shell-drawer-block{
@@ -402,7 +430,7 @@ display:flex;
 align-items:center;
 gap:8px;
 margin-bottom:10px;
-color:rgba(238,243,251,.46);
+color:rgba(198,211,226,.52);
 font-size:10px;
 font-weight:900;
 letter-spacing:.16em;
@@ -414,8 +442,10 @@ content:"";
 width:7px;
 height:7px;
 border-radius:999px;
-background:rgba(244,222,154,.9);
-box-shadow:0 0 0 5px rgba(244,222,154,.08);
+background:linear-gradient(135deg, rgba(79,195,255,.96), rgba(235,215,171,.84));
+box-shadow:
+0 0 0 5px rgba(79,195,255,.08),
+0 0 14px rgba(79,195,255,.22);
 flex:0 0 auto;
 }
 
@@ -434,7 +464,7 @@ padding:0 16px;
 border-radius:16px;
 border:1px solid rgba(255,255,255,.08);
 background:rgba(255,255,255,.03);
-color:rgba(255,255,255,.82);
+color:rgba(241,247,255,.82);
 text-decoration:none;
 transition:.18s ease;
 box-shadow:inset 0 1px 0 rgba(255,255,255,.03);
@@ -443,15 +473,15 @@ box-shadow:inset 0 1px 0 rgba(255,255,255,.03);
 .mss-shell-drawer-link:hover{
 transform:translateX(-2px);
 color:#fff;
-border-color:rgba(255,255,255,.14);
-background:rgba(255,255,255,.05);
+border-color:rgba(79,195,255,.18);
+background:rgba(79,195,255,.06);
 }
 
 .mss-shell-drawer-link.active{
 color:#fff;
-border-color:rgba(244,222,154,.20);
-background:linear-gradient(180deg, rgba(220,185,106,.10), rgba(220,185,106,.04));
-box-shadow:0 0 16px rgba(244,222,154,.06);
+border-color:rgba(79,195,255,.24);
+background:linear-gradient(180deg, rgba(79,195,255,.12), rgba(18,140,255,.05));
+box-shadow:0 0 16px rgba(79,195,255,.07);
 }
 
 .mss-shell-drawer-link-main{
@@ -478,9 +508,9 @@ flex:0 0 auto;
 }
 
 .mss-shell-drawer-link.active .mss-shell-drawer-link-index{
-color:#11151c;
-background:linear-gradient(135deg, rgba(244,222,154,.98), rgba(220,185,106,.94));
-border-color:rgba(244,222,154,.22);
+color:#03101d;
+background:linear-gradient(135deg, rgba(241,247,255,.98), rgba(79,195,255,.94));
+border-color:rgba(79,195,255,.22);
 }
 
 .mss-shell-drawer-link-text{
@@ -524,7 +554,7 @@ box-shadow:inset 0 1px 0 rgba(255,255,255,.03);
 }
 
 .mss-shell-account-copy{
-color:rgba(238,243,251,.58);
+color:rgba(198,211,226,.62);
 font-size:12px;
 line-height:1.6;
 }
@@ -538,9 +568,9 @@ gap:8px;
 min-height:44px;
 padding:0 14px;
 border-radius:14px;
-border:1px solid rgba(255,255,255,.10);
+border:1px solid rgba(115,185,255,.15);
 background:rgba(255,255,255,.04);
-color:#eef3fb;
+color:#eef6ff;
 font-weight:800;
 font-size:11px;
 letter-spacing:.12em;
@@ -555,8 +585,8 @@ width:100%;
 .mss-shell-session:hover,
 .mss-shell-logout:hover{
 transform:translateY(-1px);
-border-color:rgba(255,255,255,.16);
-background:rgba(255,255,255,.06);
+border-color:rgba(79,195,255,.22);
+background:rgba(79,195,255,.07);
 }
 
 .mss-shell-logout{
@@ -568,8 +598,10 @@ background:rgba(255,91,107,.08);
 width:7px;
 height:7px;
 border-radius:999px;
-background:rgba(244,222,154,.92);
-box-shadow:0 0 0 5px rgba(244,222,154,.08);
+background:linear-gradient(135deg, rgba(79,195,255,.96), rgba(235,215,171,.84));
+box-shadow:
+0 0 0 5px rgba(79,195,255,.08),
+0 0 14px rgba(79,195,255,.22);
 flex:0 0 auto;
 }
 
@@ -588,7 +620,7 @@ padding:0 14px;
 border-radius:16px;
 border:1px solid rgba(255,255,255,.08);
 background:rgba(255,255,255,.03);
-color:rgba(255,255,255,.84);
+color:rgba(241,247,255,.84);
 text-decoration:none;
 transition:.18s ease;
 box-shadow:inset 0 1px 0 rgba(255,255,255,.03);
@@ -597,9 +629,9 @@ box-shadow:inset 0 1px 0 rgba(255,255,255,.03);
 .mss-shell-social-card:hover{
 transform:translateY(-1px);
 color:#fff;
-border-color:rgba(244,222,154,.18);
-background:rgba(220,185,106,.08);
-box-shadow:0 0 18px rgba(244,222,154,.08);
+border-color:rgba(79,195,255,.22);
+background:rgba(79,195,255,.08);
+box-shadow:0 0 18px rgba(79,195,255,.09);
 }
 
 .mss-shell-social-card-icon{
@@ -654,10 +686,11 @@ flex-wrap:wrap;
 
 .mss-shell-footer{
 margin-top:56px;
-border-top:1px solid rgba(255,255,255,.08);
+border-top:1px solid rgba(115,185,255,.10);
 background:
-radial-gradient(900px 180px at 0% 0%, rgba(220,185,106,.06), transparent 38%),
-linear-gradient(180deg, rgba(8,10,14,.84), rgba(8,10,14,.62));
+radial-gradient(900px 180px at 0% 0%, rgba(18,140,255,.08), transparent 38%),
+radial-gradient(680px 160px at 100% 0%, rgba(235,215,171,.035), transparent 42%),
+linear-gradient(180deg, rgba(4,9,18,.84), rgba(4,9,18,.62));
 position:relative;
 overflow:hidden;
 }
@@ -667,7 +700,7 @@ content:"";
 position:absolute;
 inset:0 0 auto 0;
 height:1px;
-background:linear-gradient(90deg, rgba(255,255,255,0), rgba(244,222,154,.28), rgba(255,255,255,0));
+background:linear-gradient(90deg, rgba(255,255,255,0), rgba(79,195,255,.34), rgba(235,215,171,.16), rgba(255,255,255,0));
 opacity:.9;
 }
 
@@ -695,7 +728,7 @@ min-width:0;
 }
 
 .mss-shell-footer-title{
-color:#eef3fb;
+color:#eef6ff;
 font-size:13px;
 font-weight:900;
 letter-spacing:.16em;
@@ -705,7 +738,7 @@ line-height:1.1;
 
 .mss-shell-footer-sub{
 margin-top:4px;
-color:rgba(238,243,251,.46);
+color:rgba(198,211,226,.52);
 font-size:11px;
 letter-spacing:.12em;
 text-transform:uppercase;
@@ -713,7 +746,7 @@ text-transform:uppercase;
 
 .mss-shell-footer-copy{
 margin-top:14px;
-color:rgba(238,243,251,.62);
+color:rgba(198,211,226,.68);
 font-size:13px;
 line-height:1.7;
 max-width:420px;
@@ -724,7 +757,7 @@ min-width:0;
 }
 
 .mss-shell-footer-heading{
-color:#eef3fb;
+color:#eef6ff;
 font-size:11px;
 font-weight:900;
 letter-spacing:.14em;
@@ -738,7 +771,7 @@ gap:10px;
 }
 
 .mss-shell-footer-link{
-color:rgba(238,243,251,.62);
+color:rgba(198,211,226,.68);
 font-size:13px;
 line-height:1.45;
 text-decoration:none;
@@ -752,7 +785,7 @@ color:#fff;
 }
 
 .mss-shell-footer-note{
-color:rgba(238,243,251,.56);
+color:rgba(198,211,226,.62);
 font-size:13px;
 line-height:1.65;
 }
@@ -772,7 +805,7 @@ border-radius:12px;
 display:inline-flex;
 align-items:center;
 justify-content:center;
-border:1px solid rgba(255,255,255,.10);
+border:1px solid rgba(115,185,255,.14);
 background:rgba(255,255,255,.04);
 color:rgba(255,255,255,.82);
 transition:.18s ease;
@@ -784,9 +817,9 @@ text-decoration:none;
 .mss-shell-icon:hover{
 transform:translateY(-1px);
 color:#fff;
-border-color:rgba(244,222,154,.18);
-background:rgba(220,185,106,.08);
-box-shadow:0 0 18px rgba(244,222,154,.08);
+border-color:rgba(79,195,255,.22);
+background:rgba(79,195,255,.08);
+box-shadow:0 0 18px rgba(79,195,255,.09);
 }
 
 .mss-shell-footer-bottom{
@@ -800,7 +833,7 @@ border-top:1px solid rgba(255,255,255,.06);
 }
 
 .mss-shell-footer-bottomline{
-color:rgba(238,243,251,.44);
+color:rgba(198,211,226,.48);
 font-size:12px;
 line-height:1.5;
 }
@@ -822,7 +855,7 @@ padding:0 11px;
 border-radius:999px;
 border:1px solid rgba(255,255,255,.10);
 background:rgba(255,255,255,.04);
-color:rgba(255,255,255,.76);
+color:rgba(241,247,255,.76);
 font-size:11px;
 font-weight:800;
 letter-spacing:.08em;
@@ -834,8 +867,10 @@ white-space:nowrap;
 width:7px;
 height:7px;
 border-radius:999px;
-background:rgba(244,222,154,.88);
-box-shadow:0 0 12px rgba(244,222,154,.30);
+background:linear-gradient(135deg, rgba(79,195,255,.94), rgba(235,215,171,.80));
+box-shadow:
+0 0 12px rgba(79,195,255,.24),
+0 0 18px rgba(235,215,171,.08);
 flex:0 0 auto;
 }
 
@@ -908,28 +943,14 @@ headerTarget.style.minHeight = "72px";
 
 function getShieldSvg() {
 return `
-<svg viewBox="0 0 64 64" fill="none" aria-hidden="true">
-<path
-d="M32 6L49.5 12.8V28.6C49.5 39.4 42.8 49.2 32 54C21.2 49.2 14.5 39.4 14.5 28.6V12.8L32 6Z"
-fill="url(#mssShieldFill)"
-stroke="rgba(255,248,222,.92)"
-stroke-width="2.2"
+<img
+src="${MSS_LOGO_SRC}"
+alt=""
+loading="eager"
+decoding="async"
+onerror="this.style.display='none'; this.nextElementSibling.style.display='block';"
 />
-<path
-d="M21 39.5V21.8L27.2 31.1L32 24.5L36.8 31.1L43 21.8V39.5"
-stroke="rgba(16,18,22,.96)"
-stroke-width="4"
-stroke-linecap="round"
-stroke-linejoin="round"
-/>
-<defs>
-<linearGradient id="mssShieldFill" x1="16" y1="10" x2="48" y2="54" gradientUnits="userSpaceOnUse">
-<stop stop-color="#f4de9a"/>
-<stop offset="0.52" stop-color="#dcb96a"/>
-<stop offset="1" stop-color="#a97526"/>
-</linearGradient>
-</defs>
-</svg>
+<span class="mss-shell-mark-fallback" aria-hidden="true"></span>
 `;
 }
 

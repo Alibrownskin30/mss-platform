@@ -6,52 +6,324 @@
 <title>MSS Protocol — Launch</title>
 <meta name="description" content="MSS Protocol Launch Terminal" />
 <meta http-equiv="refresh" content="0; url=./launch-detail.html" />
+
 <style>
-html,body{
+:root{
+--bg0:#02040a;
+--bg1:#050914;
+--bg2:#0a1220;
+--text:#f4f8ff;
+--muted:rgba(220,229,242,.72);
+--faint:rgba(178,190,210,.48);
+--blue:#159cff;
+--cyan:#36d7ff;
+--steel:#aebdce;
+--silver:#dce7f3;
+--gold:#e5c173;
+--gold-soft:rgba(229,193,115,.14);
+--blue-soft:rgba(21,156,255,.16);
+--line:rgba(120,178,235,.16);
+--line-strong:rgba(94,185,255,.28);
+--shadow:0 34px 110px rgba(0,0,0,.58);
+}
+
+*,
+*::before,
+*::after{
+box-sizing:border-box;
+}
+
+html,
+body{
 margin:0;
 min-height:100%;
-background:#070b12;
-color:#f3f5f8;
+background:
+radial-gradient(900px 520px at 16% 0%, rgba(21,156,255,.18), transparent 58%),
+radial-gradient(760px 420px at 86% 12%, rgba(54,215,255,.10), transparent 50%),
+radial-gradient(680px 360px at 50% 100%, rgba(229,193,115,.07), transparent 60%),
+linear-gradient(180deg, var(--bg0) 0%, var(--bg1) 42%, var(--bg2) 100%);
+color:var(--text);
 font-family:Inter,system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;
 }
+
 body{
 display:grid;
 place-items:center;
 padding:24px;
+overflow:hidden;
 }
-.card{
-width:min(560px, 100%);
-border:1px solid rgba(255,241,191,.12);
-border-radius:24px;
+
+body::before{
+content:"";
+position:fixed;
+inset:0;
+pointer-events:none;
 background:
-radial-gradient(circle at 15% 0%, rgba(214,178,94,.10), transparent 26%),
-radial-gradient(circle at 85% 10%, rgba(88,111,140,.10), transparent 24%),
-linear-gradient(180deg, rgba(255,255,255,.05), rgba(255,255,255,.02));
-box-shadow:0 30px 80px rgba(0,0,0,.42);
-padding:24px;
+linear-gradient(rgba(255,255,255,.020) 1px, transparent 1px),
+linear-gradient(90deg, rgba(255,255,255,.016) 1px, transparent 1px);
+background-size:46px 46px;
+mask-image:radial-gradient(circle at center, black 0%, transparent 74%);
+opacity:.38;
 }
+
+body::after{
+content:"";
+position:fixed;
+inset:0;
+pointer-events:none;
+background:
+linear-gradient(90deg, transparent, rgba(54,215,255,.055), transparent),
+repeating-linear-gradient(
+to bottom,
+rgba(255,255,255,.018) 0,
+rgba(255,255,255,.018) 1px,
+transparent 2px,
+transparent 8px
+);
+mix-blend-mode:screen;
+opacity:.32;
+}
+
+.card{
+position:relative;
+z-index:1;
+width:min(560px, 100%);
+overflow:hidden;
+border:1px solid var(--line);
+border-radius:26px;
+background:
+radial-gradient(circle at 18% 0%, rgba(21,156,255,.18), transparent 34%),
+radial-gradient(circle at 86% 10%, rgba(54,215,255,.12), transparent 30%),
+radial-gradient(circle at 50% 120%, rgba(229,193,115,.09), transparent 38%),
+linear-gradient(180deg, rgba(255,255,255,.060), rgba(255,255,255,.024));
+box-shadow:
+var(--shadow),
+inset 0 1px 0 rgba(255,255,255,.08),
+0 0 0 1px rgba(255,255,255,.024);
+padding:26px;
+backdrop-filter:blur(18px);
+-webkit-backdrop-filter:blur(18px);
+}
+
+.card::before{
+content:"";
+position:absolute;
+inset:0;
+pointer-events:none;
+background:
+linear-gradient(180deg, rgba(255,255,255,.055), transparent 28%),
+linear-gradient(90deg, transparent, rgba(54,215,255,.10), transparent);
+opacity:.78;
+}
+
+.card::after{
+content:"";
+position:absolute;
+left:0;
+right:0;
+top:0;
+height:1px;
+pointer-events:none;
+background:linear-gradient(90deg, transparent, rgba(54,215,255,.76), rgba(229,193,115,.44), transparent);
+}
+
+.card-inner{
+position:relative;
+z-index:1;
+}
+
+.brand-row{
+display:flex;
+align-items:center;
+gap:13px;
+margin-bottom:18px;
+min-width:0;
+}
+
+.brand-mark{
+width:48px;
+height:48px;
+border-radius:15px;
+display:grid;
+place-items:center;
+position:relative;
+overflow:hidden;
+background:
+radial-gradient(circle at 30% 24%, rgba(255,255,255,.14), transparent 36%),
+linear-gradient(135deg, rgba(18,29,44,.98), rgba(7,11,18,.98));
+border:1px solid rgba(54,215,255,.22);
+box-shadow:
+0 0 0 1px rgba(255,255,255,.025),
+0 0 24px rgba(21,156,255,.18),
+inset 0 1px 0 rgba(255,255,255,.08);
+flex:0 0 auto;
+}
+
+.brand-mark::before{
+content:"";
+position:absolute;
+inset:9px;
+background:
+linear-gradient(180deg, var(--silver), #8fa4ba 48%, #314155);
+clip-path:polygon(
+50% 0%,
+88% 20%,
+88% 36%,
+57% 36%,
+57% 48%,
+86% 48%,
+86% 64%,
+57% 64%,
+57% 100%,
+43% 100%,
+43% 64%,
+14% 64%,
+14% 48%,
+43% 48%,
+43% 36%,
+12% 36%,
+12% 20%
+);
+filter:drop-shadow(0 0 10px rgba(54,215,255,.36));
+}
+
+.brand-mark::after{
+content:"";
+position:absolute;
+top:7px;
+bottom:7px;
+left:50%;
+width:2px;
+transform:translateX(-50%);
+background:linear-gradient(180deg, transparent, var(--cyan), var(--blue), transparent);
+box-shadow:0 0 14px rgba(54,215,255,.72);
+}
+
+.brand-copy{
+min-width:0;
+}
+
 .kicker{
 font-size:11px;
 letter-spacing:.18em;
 text-transform:uppercase;
-color:rgba(255,255,255,.46);
-margin-bottom:10px;
+color:var(--gold);
+font-weight:900;
+line-height:1.15;
 }
+
+.brand-sub{
+margin-top:5px;
+font-size:12px;
+letter-spacing:.10em;
+text-transform:uppercase;
+color:var(--faint);
+font-weight:800;
+white-space:nowrap;
+overflow:hidden;
+text-overflow:ellipsis;
+}
+
 h1{
-margin:0 0 10px;
-font-size:30px;
-line-height:1;
-letter-spacing:-.04em;
+margin:0 0 12px;
+font-size:32px;
+line-height:.98;
+letter-spacing:-.045em;
+font-weight:950;
+color:#fff;
 }
+
 p{
 margin:0;
-color:rgba(255,255,255,.72);
-line-height:1.6;
+color:var(--muted);
+line-height:1.65;
+font-size:14px;
+font-weight:650;
 }
+
+.status-row{
+display:flex;
+gap:10px;
+flex-wrap:wrap;
+margin-top:20px;
+}
+
+.status-pill{
+display:inline-flex;
+align-items:center;
+gap:8px;
+min-height:34px;
+padding:0 12px;
+border-radius:999px;
+border:1px solid rgba(54,215,255,.16);
+background:rgba(21,156,255,.075);
+color:rgba(244,248,255,.88);
+font-size:11px;
+font-weight:900;
+letter-spacing:.10em;
+text-transform:uppercase;
+}
+
+.status-dot{
+width:7px;
+height:7px;
+border-radius:999px;
+background:var(--cyan);
+box-shadow:0 0 14px rgba(54,215,255,.78);
+}
+
+.status-pill.gold{
+border-color:rgba(229,193,115,.18);
+background:var(--gold-soft);
+}
+
+.status-pill.gold .status-dot{
+background:var(--gold);
+box-shadow:0 0 14px rgba(229,193,115,.58);
+}
+
 a{
-color:#f3f5f8;
+color:#ffffff;
+font-weight:900;
+text-decoration:none;
+border-bottom:1px solid rgba(54,215,255,.38);
+}
+
+a:hover{
+color:var(--cyan);
+border-bottom-color:var(--cyan);
+}
+
+@media (max-width:560px){
+body{
+padding:14px;
+}
+
+.card{
+border-radius:22px;
+padding:22px;
+}
+
+brand-row{
+gap:11px;
+}
+
+.brand-mark{
+width:44px;
+height:44px;
+border-radius:14px;
+}
+
+h1{
+font-size:28px;
+}
+
+.status-row{
+gap:8px;
+}
 }
 </style>
+
 <script>
 (function () {
 const target = `./launch-detail.html${window.location.search || ""}${window.location.hash || ""}`;
@@ -59,20 +331,43 @@ window.location.replace(target);
 })();
 </script>
 </head>
+
 <body>
 <div class="card">
+<div class="card-inner">
+<div class="brand-row">
+<div class="brand-mark" aria-hidden="true"></div>
+<div class="brand-copy">
 <div class="kicker">MSS Protocol</div>
+<div class="brand-sub">Launch Terminal</div>
+</div>
+</div>
+
 <h1>Redirecting to Launch Terminal</h1>
+
 <p>
 If you are not redirected automatically,
 <a id="fallbackLink" href="./launch-detail.html">open the active launch page</a>.
 </p>
+
+<div class="status-row" aria-label="Redirect status">
+<span class="status-pill">
+<span class="status-dot"></span>
+Terminal Route
+</span>
+<span class="status-pill gold">
+<span class="status-dot"></span>
+Secure Redirect
+</span>
+</div>
+</div>
 </div>
 
 <script>
 document.getElementById("fallbackLink").href =
 `./launch-detail.html${window.location.search || ""}${window.location.hash || ""}`;
 </script>
- <script src="/assets/devnet-access-gate.js?v=4"></script>
+
+<script src="/assets/devnet-access-gate.js?v=5"></script>
 </body>
 </html>
