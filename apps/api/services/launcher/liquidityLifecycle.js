@@ -2,6 +2,9 @@ import db from "../../db/index.js";
 
 const BUILDER_TOTAL_ALLOCATION_PCT = 5;
 const BUILDER_DAILY_UNLOCK_PCT = 0.5;
+const BUILDER_UNLOCK_DAYS = 10;
+const BUILDER_CLIFF_DAYS = 0;
+
 const RAYDIUM_SPLIT_PCT = 50;
 const MSS_LOCK_SPLIT_PCT = 50;
 
@@ -17,7 +20,7 @@ return Number.isFinite(n) ? n : fallback;
 }
 
 function floorToken(value) {
-return Math.floor(safeNum(value, 0));
+return Math.max(0, Math.floor(safeNum(value, 0)));
 }
 
 function roundSol(value) {
@@ -30,13 +33,17 @@ return String(value ?? "").trim().slice(0, max);
 
 function parseDbTime(value) {
 if (!value) return null;
+
 const raw = String(value).trim();
 if (!raw) return null;
 
 const hasExplicitTimezone =
 /z$/i.test(raw) || /[+-]\d{2}:\d{2}$/.test(raw);
 
-if (!hasExplicitTimezone && /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/.test(raw)) {
+if (
+!hasExplicitTimezone &&
+/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/.test(raw)
+) {
 const sqliteUtc = Date.parse(raw.replace(" ", "T") + "Z");
 return Number.isFinite(sqliteUtc) ? sqliteUtc : null;
 }
@@ -82,20 +89,54 @@ return sol / tokens;
 }
 
 function computeBuilderTotalAllocation(totalSupply) {
-return floorToken((safeNum(totalSupply, 0) * BUILDER_TOTAL_ALLOCATION_PCT) / 100);
+return floorToken(
+(safeNum(totalSupply, 0) * BUILDER_TOTAL_ALLOCATION_PCT) / 100
+);
 }
 
 function computeBuilderDailyUnlock(totalSupply) {
-return floorToken((safeNum(totalSupply, 0) * BUILDER_DAILY_UNLOCK_PCT) / 100);
+return floorToken(
+(safeNum(totalSupply, 0) * BUILDER_DAILY_UNLOCK_PCT) / 100
+);
+}
+
+function resolveBuilderTotalAllocation(totalSupply, override = null) {
+return Math.max(
+computeBuilderTotalAllocation(totalSupply),
+floorToken(override)
+);
+}
+
+function resolveBuilderDailyUnlock(totalSupply, totalAllocation, override = null) {
+const canonicalDailyUnlock = computeBuilderDailyUnlock(totalSupply);
+const allocationDerivedDailyUnlock = floorToken(
+safeNum(totalAllocation, 0) / BUILDER_UNLOCK_DAYS
+);
+
+return Math.max(
+canonicalDailyUnlock,
+allocationDerivedDailyUnlock,
+floorToken(override)
+);
 }
 
 function computeBuilderUnlockedAmount({
 totalSupply,
+totalAllocationOverride = null,
+dailyUnlockOverride = null,
 vestingStartAt,
 now = Date.now(),
 }) {
-const totalAllocation = computeBuilderTotalAllocation(totalSupply);
-const dailyUnlock = computeBuilderDailyUnlock(totalSupply);
+const totalAllocation = resolveBuilderTotalAllocation(
+totalSupply,
+totalAllocationOverride
+);
+
+const dailyUnlock = resolveBuilderDailyUnlock(
+totalSupply,
+totalAllocation,
+dailyUnlockOverride
+);
 
 if (totalAllocation <= 0 || dailyUnlock <= 0) {
 return {
@@ -104,24 +145,36 @@ dailyUnlock,
 unlockedAmount: 0,
 lockedAmount: 0,
 vestedDays: 0,
+unlockDays: BUILDER_UNLOCK_DAYS,
+cliffDays: BUILDER_CLIFF_DAYS,
+totalAllocationPct: BUILDER_TOTAL_ALLOCATION_PCT,
+dailyUnlockPct: BUILDER_DAILY_UNLOCK_PCT,
 };
 }
 
 const startMs = parseDbTime(vestingStartAt);
-if (!startMs) {
+if (!Number.isFinite(startMs) || now < startMs) {
 return {
 totalAllocation,
 dailyUnlock,
 unlockedAmount: 0,
 lockedAmount: totalAllocation,
 vestedDays: 0,
+unlockDays: BUILDER_UNLOCK_DAYS,
+cliffDays: BUILDER_CLIFF_DAYS,
+totalAllocationPct: BUILDER_TOTAL_ALLOCATION_PCT,
+dailyUnlockPct: BUILDER_DAILY_UNLOCK_PCT,
 };
 }
 
 const elapsedMs = Math.max(0, now - startMs);
 const elapsedDays = Math.floor(elapsedMs / 86400000);
-const vestedDays = elapsedDays + 1;
-const unlockedAmount = Math.min(totalAllocation, dailyUnlock * vestedDays);
+const vestedDays = Math.min(BUILDER_UNLOCK_DAYS, elapsedDays + 1);
+
+const unlockedAmount =
+vestedDays >= BUILDER_UNLOCK_DAYS
+? totalAllocation
+: Math.min(totalAllocation, dailyUnlock * vestedDays);
 
 return {
 totalAllocation,
@@ -129,16 +182,15 @@ dailyUnlock,
 unlockedAmount,
 lockedAmount: Math.max(0, totalAllocation - unlockedAmount),
 vestedDays,
+unlockDays: BUILDER_UNLOCK_DAYS,
+cliffDays: BUILDER_CLIFF_DAYS,
+totalAllocationPct: BUILDER_TOTAL_ALLOCATION_PCT,
+dailyUnlockPct: BUILDER_DAILY_UNLOCK_PCT,
 };
 }
 
 function resolveTotalSupply(launch, token) {
-return floorToken(
-token?.supply ||
-launch?.final_supply ||
-launch?.supply ||
-0
-);
+return floorToken(token?.supply || launch?.final_supply || launch?.supply || 0);
 }
 
 function resolveInternalSolReserve(launch, pool, lifecycle) {
@@ -179,7 +231,9 @@ if (persisted) return persisted;
 
 const status = clean(launch?.status, 64).toLowerCase();
 if (status === "graduated") return "locked_pending_proof";
-if ((status === "live" || status === "building") && hasReserves) return "mss_held_internal";
+if ((status === "live" || status === "building") && hasReserves) {
+return "mss_held_internal";
+}
 if (status === "countdown") return "pending_live";
 return "pending";
 }
@@ -197,7 +251,10 @@ DEFAULT_GRADUATION_VOLUME_24H_SOL
 minHolders: Math.max(
 1,
 Math.floor(
-safeNum(process.env.MSS_GRADUATION_MIN_HOLDERS, DEFAULT_GRADUATION_MIN_HOLDERS)
+safeNum(
+process.env.MSS_GRADUATION_MIN_HOLDERS,
+DEFAULT_GRADUATION_MIN_HOLDERS
+)
 )
 ),
 minLiveMinutes: Math.max(
@@ -217,8 +274,10 @@ Math.floor(safeNum(process.env.MSS_LP_LOCK_DAYS, DEFAULT_MSS_LOCK_DAYS))
 }
 
 function getLiveMinutes(launch) {
-const liveMs = parseDbTime(launch?.live_at || launch?.updated_at || launch?.created_at);
-if (!liveMs) return 0;
+const liveMs = parseDbTime(
+launch?.live_at || launch?.updated_at || launch?.created_at
+);
+if (!Number.isFinite(liveMs)) return 0;
 return Math.max(0, Math.floor((Date.now() - liveMs) / 60000));
 }
 
@@ -291,7 +350,7 @@ LIMIT 1
 async function getTrades24hVolume(launchId) {
 const row = await db.get(
 `
-SELECT COALESCE(SUM(sol_amount), 0) AS total
+SELECT COALESCE(SUM(ABS(sol_amount)), 0) AS total
 FROM trades
 WHERE launch_id = ?
 AND datetime(created_at) >= datetime('now', '-24 hours')
@@ -305,17 +364,43 @@ return roundSol(row?.total || 0);
 async function getHolderCount(launchId) {
 if (!(await tableExists("wallet_balances"))) return 0;
 
+const columns = await getTableColumns("wallet_balances");
+const balanceColumn = [
+"token_amount",
+"balance_tokens",
+"token_balance",
+"wallet_balance_tokens",
+"visible_total_balance",
+"visible_total_tokens",
+"wallet_visible_total_balance",
+].find((column) => columns.has(column));
+
+if (!balanceColumn) return 0;
+
 const row = await db.get(
 `
 SELECT COUNT(*) AS total
 FROM wallet_balances
 WHERE launch_id = ?
-AND COALESCE(token_amount, 0) > 0
+AND COALESCE(${balanceColumn}, 0) > 0
 `,
 [launchId]
 );
 
 return safeNum(row?.total, 0);
+}
+
+function resolveBuilderVestingStartAt({ launch, existing }) {
+const status = clean(launch?.status, 64).toLowerCase();
+const liveAt = clean(launch?.live_at, 120);
+
+if (liveAt) return liveAt;
+
+if (status === "live" || status === "graduated") {
+return clean(existing?.vesting_start_at, 120) || nowIso();
+}
+
+return null;
 }
 
 async function ensureBuilderVestingRecord(launchId, launch, token) {
@@ -326,14 +411,15 @@ const has = (name) => columns.has(name);
 
 const totalSupply = resolveTotalSupply(launch, token);
 const builderWallet = clean(launch?.builder_wallet, 120);
-const vestingStartAt = clean(launch?.live_at, 120) || nowIso();
+const existing = await getBuilderVestingRow(launchId);
+const vestingStartAt = resolveBuilderVestingStartAt({ launch, existing });
 
 const computed = computeBuilderUnlockedAmount({
 totalSupply,
+totalAllocationOverride: existing?.total_allocation,
+dailyUnlockOverride: existing?.daily_unlock,
 vestingStartAt,
 });
-
-const existing = await getBuilderVestingRow(launchId);
 
 if (existing) {
 const sets = [];
@@ -360,7 +446,7 @@ sets.push("locked_amount = ?");
 values.push(computed.lockedAmount);
 }
 if (has("vesting_start_at")) {
-sets.push("vesting_start_at = COALESCE(vesting_start_at, ?)");
+sets.push("vesting_start_at = ?");
 values.push(vestingStartAt);
 }
 if (has("updated_at")) {
@@ -447,6 +533,18 @@ const impliedMarketcapSol = roundSol(
 computeSpotPriceSolPerToken(solReserve, tokenReserve) * totalSupply
 );
 
+const launchStatus = clean(launch?.status, 64).toLowerCase();
+const defaultGraduationStatus =
+launchStatus === "graduated"
+? "graduated"
+: launchStatus === "live"
+? "internal_live"
+: launchStatus === "building"
+? "building"
+: launchStatus === "countdown"
+? "countdown"
+: "pending";
+
 const existing = await getLifecycleRow(launchId);
 
 if (existing) {
@@ -466,9 +564,15 @@ sets.push("implied_marketcap_sol = ?");
 values.push(impliedMarketcapSol);
 }
 if (has("graduation_status")) {
-sets.push(
-"graduation_status = CASE WHEN COALESCE(graduated, 0) = 1 THEN graduation_status ELSE COALESCE(graduation_status, 'internal_live') END"
-);
+sets.push(`
+graduation_status = CASE
+WHEN COALESCE(graduated, 0) = 1 THEN graduation_status
+WHEN graduation_status IS NULL OR graduation_status IN ('pending', 'countdown', 'building')
+THEN ?
+ELSE graduation_status
+END
+`);
+values.push(defaultGraduationStatus);
 }
 if (has("raydium_target_pct")) {
 sets.push("raydium_target_pct = COALESCE(raydium_target_pct, ?)");
@@ -477,6 +581,10 @@ values.push(RAYDIUM_SPLIT_PCT);
 if (has("mss_locked_target_pct")) {
 sets.push("mss_locked_target_pct = COALESCE(mss_locked_target_pct, ?)");
 values.push(MSS_LOCK_SPLIT_PCT);
+}
+if (has("lock_status")) {
+sets.push("lock_status = COALESCE(lock_status, ?)");
+values.push(solReserve > 0 && tokenReserve > 0 ? "mss_held_internal" : "pending");
 }
 if (has("updated_at")) {
 sets.push("updated_at = CURRENT_TIMESTAMP");
@@ -516,12 +624,12 @@ values.push(impliedMarketcapSol);
 if (has("graduation_status")) {
 insertColumns.push("graduation_status");
 placeholders.push("?");
-values.push("internal_live");
+values.push(defaultGraduationStatus);
 }
 if (has("graduated")) {
 insertColumns.push("graduated");
 placeholders.push("?");
-values.push(0);
+values.push(defaultGraduationStatus === "graduated" ? 1 : 0);
 }
 if (has("raydium_target_pct")) {
 insertColumns.push("raydium_target_pct");
@@ -536,7 +644,7 @@ values.push(MSS_LOCK_SPLIT_PCT);
 if (has("lock_status")) {
 insertColumns.push("lock_status");
 placeholders.push("?");
-values.push("mss_held_internal");
+values.push(solReserve > 0 && tokenReserve > 0 ? "mss_held_internal" : "pending");
 }
 if (has("created_at")) {
 insertColumns.push("created_at");
@@ -597,7 +705,7 @@ const alreadyGraduated =
 safeNum(lifecycle?.graduated, 0) === 1 || status === "graduated";
 
 const checks = {
-liveStatus: status === "live" || status === "graduated" || status === "building",
+liveStatus: status === "live" || status === "graduated",
 marketcapReached: marketcapSol >= thresholds.marketcapSol,
 volumeReached: volume24hSol >= thresholds.volume24hSol,
 holdersReached: holderCount >= thresholds.minHolders,
@@ -621,6 +729,8 @@ reason: ready
 ? "Graduation thresholds satisfied."
 : !checks.hasReserves
 ? "Internal reserves are still being established."
+: !checks.liveStatus
+? "Launch is not live yet."
 : !checks.marketcapReached
 ? "Market cap threshold not reached yet."
 : !checks.volumeReached
@@ -687,7 +797,7 @@ priceSol,
 totalSupply,
 },
 checks: {
-liveStatus: status === "building" || status === "live" || status === "graduated",
+liveStatus: status === "live" || status === "graduated",
 marketcapReached: false,
 volumeReached: false,
 holdersReached: false,
@@ -701,41 +811,65 @@ alreadyGraduated,
 function buildBuilderVestingSummary({ launch, token, vesting }) {
 const totalSupply = resolveTotalSupply(launch, token);
 const launchStatus = clean(launch?.status, 64).toLowerCase();
-const canVest =
-launchStatus === "building" ||
-launchStatus === "live" ||
-launchStatus === "graduated";
+const canUnlock = launchStatus === "live" || launchStatus === "graduated";
 
-if (!canVest) {
-const totalAllocation = floorToken(
-vesting?.total_allocation || computeBuilderTotalAllocation(totalSupply)
-);
-const dailyUnlock = floorToken(
-vesting?.daily_unlock || computeBuilderDailyUnlock(totalSupply)
-);
+const canonicalTotalAllocation = computeBuilderTotalAllocation(totalSupply);
+const storedTotalAllocation = floorToken(vesting?.total_allocation);
+const totalAllocation = Math.max(canonicalTotalAllocation, storedTotalAllocation);
 
-return {
-totalAllocation,
-dailyUnlock,
-unlockedAmount: 0,
-lockedAmount: totalAllocation,
-vestingStartAt: vesting?.vesting_start_at || launch?.live_at || null,
-vestedDays: 0,
-};
-}
-
-const vestComputed = computeBuilderUnlockedAmount({
+const dailyUnlock = resolveBuilderDailyUnlock(
 totalSupply,
-vestingStartAt: vesting?.vesting_start_at || launch?.live_at,
+totalAllocation,
+vesting?.daily_unlock
+);
+
+const vestingStartAt = canUnlock
+? vesting?.vesting_start_at || launch?.live_at || null
+: null;
+
+const computed = computeBuilderUnlockedAmount({
+totalSupply,
+totalAllocationOverride: totalAllocation,
+dailyUnlockOverride: dailyUnlock,
+vestingStartAt,
 });
 
+const builderWallet =
+clean(vesting?.builder_wallet || launch?.builder_wallet, 120) || null;
+
 return {
-totalAllocation: floorToken(vesting?.total_allocation || vestComputed.totalAllocation),
-dailyUnlock: floorToken(vesting?.daily_unlock || vestComputed.dailyUnlock),
-unlockedAmount: floorToken(vesting?.unlocked_amount || vestComputed.unlockedAmount),
-lockedAmount: floorToken(vesting?.locked_amount || vestComputed.lockedAmount),
-vestingStartAt: vesting?.vesting_start_at || launch?.live_at || null,
-vestedDays: vestComputed.vestedDays,
+builderWallet,
+totalAllocation: computed.totalAllocation,
+dailyUnlock: computed.dailyUnlock,
+unlockedAmount: computed.unlockedAmount,
+lockedAmount: computed.lockedAmount,
+vestingStartAt: vestingStartAt || null,
+createdAt: vesting?.created_at || null,
+updatedAt: vesting?.updated_at || null,
+vestedDays: computed.vestedDays,
+
+builder_wallet: builderWallet,
+total_allocation: computed.totalAllocation,
+daily_unlock: computed.dailyUnlock,
+unlocked_amount: computed.unlockedAmount,
+locked_amount: computed.lockedAmount,
+vesting_start_at: vestingStartAt || null,
+created_at: vesting?.created_at || null,
+updated_at: vesting?.updated_at || null,
+vested_days: computed.vestedDays,
+
+totalAllocationPct: computed.totalAllocationPct,
+dailyUnlockPct: computed.dailyUnlockPct,
+unlockDays: computed.unlockDays,
+cliffDays: computed.cliffDays,
+
+total_allocation_pct: computed.totalAllocationPct,
+daily_unlock_pct: computed.dailyUnlockPct,
+unlock_days: computed.unlockDays,
+cliff_days: computed.cliffDays,
+
+rule:
+"Builder allocation unlocks at 0.5% of total supply per day until the full 5% builder allocation is unlocked.",
 };
 }
 
@@ -760,49 +894,110 @@ clean(launch?.status, 64).toLowerCase() === "graduated";
 const hasReserves = solReserve > 0 && tokenReserve > 0;
 const builderVesting = buildBuilderVestingSummary({ launch, token, vesting });
 const lockStatus = resolveLockStatus(launch, lifecycle, hasReserves);
+const contractAddress =
+clean(launch?.contract_address || launch?.token_mint || launch?.mint_address, 120) ||
+null;
+const builderWallet = clean(launch?.builder_wallet, 120) || null;
 
 return {
 launchId: launch?.id || null,
+launch_id: launch?.id || null,
+
 launchStatus: clean(launch?.status, 64).toLowerCase() || null,
-contractAddress: clean(launch?.contract_address, 120) || null,
-builderWallet: clean(launch?.builder_wallet, 120) || null,
+launch_status: clean(launch?.status, 64).toLowerCase() || null,
+
+contractAddress,
+contract_address: contractAddress,
+
+builderWallet,
+builder_wallet: builderWallet,
 
 totalSupply,
+total_supply: totalSupply,
+
 priceSol: price,
+price_sol: price,
+
 marketcapSol,
+marketcap_sol: marketcapSol,
+
 volume24hSol: roundSol(volume24h),
+volume_24h_sol: roundSol(volume24h),
 
 internalSolReserve: solReserve,
+internal_sol_reserve: solReserve,
+
 internalTokenReserve: tokenReserve,
+internal_token_reserve: tokenReserve,
 
 graduationStatus,
+graduation_status: graduationStatus,
+
 graduated,
 graduationReason: clean(lifecycle?.graduation_reason, 64) || null,
+graduation_reason: clean(lifecycle?.graduation_reason, 64) || null,
 graduatedAt: lifecycle?.graduated_at || null,
+graduated_at: lifecycle?.graduated_at || null,
 
 surgeStatus: graduationStatus === "graduated" ? "surged" : graduationStatus,
+surge_status: graduationStatus === "graduated" ? "surged" : graduationStatus,
 surged: graduated,
 surgeReason: clean(lifecycle?.graduation_reason, 64) || null,
+surge_reason: clean(lifecycle?.graduation_reason, 64) || null,
 
 raydiumTargetPct: safeNum(lifecycle?.raydium_target_pct, RAYDIUM_SPLIT_PCT),
-mssLockedTargetPct: safeNum(lifecycle?.mss_locked_target_pct, MSS_LOCK_SPLIT_PCT),
+raydium_target_pct: safeNum(lifecycle?.raydium_target_pct, RAYDIUM_SPLIT_PCT),
+
+mssLockedTargetPct: safeNum(
+lifecycle?.mss_locked_target_pct,
+MSS_LOCK_SPLIT_PCT
+),
+mss_locked_target_pct: safeNum(
+lifecycle?.mss_locked_target_pct,
+MSS_LOCK_SPLIT_PCT
+),
+
 raydiumPoolId: clean(lifecycle?.raydium_pool_id, 200) || null,
+raydium_pool_id: clean(lifecycle?.raydium_pool_id, 200) || null,
+
 raydiumSolMigrated: roundSol(lifecycle?.raydium_sol_migrated || 0),
+raydium_sol_migrated: roundSol(lifecycle?.raydium_sol_migrated || 0),
+
 raydiumTokenMigrated: floorToken(lifecycle?.raydium_token_migrated || 0),
+raydium_token_migrated: floorToken(lifecycle?.raydium_token_migrated || 0),
+
 raydiumLpTokens: clean(lifecycle?.raydium_lp_tokens, 500) || null,
+raydium_lp_tokens: clean(lifecycle?.raydium_lp_tokens, 500) || null,
+
 raydiumMigrationTx: clean(lifecycle?.raydium_migration_tx, 500) || null,
+raydium_migration_tx: clean(lifecycle?.raydium_migration_tx, 500) || null,
 
 mssLockedSol: roundSol(lifecycle?.mss_locked_sol || 0),
+mss_locked_sol: roundSol(lifecycle?.mss_locked_sol || 0),
+
 mssLockedToken: floorToken(lifecycle?.mss_locked_token || 0),
+mss_locked_token: floorToken(lifecycle?.mss_locked_token || 0),
+
 mssLockedLpAmount: clean(lifecycle?.mss_locked_lp_amount, 500) || null,
+mss_locked_lp_amount: clean(lifecycle?.mss_locked_lp_amount, 500) || null,
+
 lockStatus,
+lock_status: lockStatus,
+
 lockTx: clean(lifecycle?.lock_tx, 500) || null,
+lock_tx: clean(lifecycle?.lock_tx, 500) || null,
+
 lockExpiresAt: lifecycle?.lock_expires_at || null,
+lock_expires_at: lifecycle?.lock_expires_at || null,
 
 builderVesting,
+builder_vesting: builderVesting,
 
 graduationReadiness: readiness || null,
+graduation_readiness: readiness || null,
+
 surgeReadiness: readiness || null,
+surge_readiness: readiness || null,
 };
 }
 
@@ -824,9 +1019,14 @@ const totalSupply = resolveTotalSupply(launch, token);
 const solReserve = resolveInternalSolReserve(launch, pool, lifecycle);
 const tokenReserve = resolveInternalTokenReserve(launch, pool, lifecycle);
 
-if (persist && hasBootstrapArtifacts && ["building", "live", "graduated"].includes(status)) {
+if (
+persist &&
+hasBootstrapArtifacts &&
+["building", "live", "graduated"].includes(status)
+) {
 vesting = await ensureBuilderVestingRecord(launchId, launch, token);
 lifecycle = await ensureLifecycleRecord(launchId, launch, token, pool);
+
 const readiness = await buildGraduationReadiness(
 launchId,
 launch,
@@ -1097,7 +1297,9 @@ return value === false;
 .map(([key]) => key);
 
 throw new Error(
-`launch not ready for graduation: ${unmet.length ? unmet.join(", ") : "conditions not met"}`
+`launch not ready for graduation: ${
+unmet.length ? unmet.join(", ") : "conditions not met"
+}`
 );
 }
 
@@ -1112,7 +1314,9 @@ readiness,
 }
 
 const lockExpiry = clean(
-lockDays != null ? addDaysIso(lockDays) : addDaysIso(getGraduationThresholds().lockDays),
+lockDays != null
+? addDaysIso(lockDays)
+: addDaysIso(getGraduationThresholds().lockDays),
 120
 );
 

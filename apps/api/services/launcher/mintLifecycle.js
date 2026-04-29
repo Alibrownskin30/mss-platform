@@ -9,14 +9,64 @@ const DEFAULT_MINT_RESERVATION_ATTEMPTS = 1000000;
 const DEFAULT_POOL_TARGET_SIZE = 100;
 const DEFAULT_POOL_TOPUP_BATCH = 5;
 const CLAIM_RETRY_LIMIT = 10;
+
 const BUILDER_TOTAL_ALLOCATION_PCT = 5;
-const BUILDER_DAILY_UNLOCK_PCT = 0.5;
+const BUILDER_CLIFF_DAYS = 7;
+const BUILDER_VESTING_DAYS = 90;
+
+const DEFAULT_MAX_WALLET_ALLOCATION_PCT = 0.5;
 const LIQUIDITY_TOKEN_PCT = 20;
 const RAYDIUM_LIQUIDITY_SPLIT_PCT = 50;
+
+const PARTICIPANT_VESTING_BY_TEMPLATE = {
+degen: { unlockPctAtLaunch: 40, vestingDays: 7 },
+degen_zone: { unlockPctAtLaunch: 40, vestingDays: 7 },
+meme_lite: { unlockPctAtLaunch: 35, vestingDays: 14 },
+meme_pro: { unlockPctAtLaunch: 25, vestingDays: 21 },
+community: { unlockPctAtLaunch: 25, vestingDays: 21 },
+builder: { unlockPctAtLaunch: 25, vestingDays: 21 },
+};
+
+const WALLET_BALANCE_ALIAS_GROUPS = {
+tokenAmount: [
+"token_amount",
+"token_balance",
+"balance_tokens",
+"wallet_balance_tokens",
+],
+totalBalance: [
+"total_balance",
+"total_balance_tokens",
+"wallet_total_balance",
+],
+visibleTotalBalance: [
+"visible_total_balance",
+"visible_total_tokens",
+"wallet_visible_total_balance",
+"builder_visible_total_tokens",
+],
+unlockedBalance: [
+"unlocked_balance",
+"unlocked_token_balance",
+"wallet_unlocked_balance",
+],
+lockedBalance: [
+"locked_balance",
+"locked_token_balance",
+"wallet_locked_balance",
+],
+sellableBalance: [
+"sellable_balance",
+"sellable_token_balance",
+"wallet_sellable_balance",
+],
+solBalance: ["sol_balance", "wallet_sol_balance"],
+};
 
 let launchesColumnsCache = null;
 let mintReservationsColumnsCache = null;
 let builderVestingColumnsCache = null;
+let walletBalanceColumnsCache = null;
 const tableExistsCache = new Map();
 
 function safeNum(value, fallback = 0) {
@@ -45,23 +95,6 @@ return JSON.parse(String(value));
 } catch {
 return fallback;
 }
-}
-
-function parseDbTime(value) {
-if (!value) return null;
-const raw = String(value).trim();
-if (!raw) return null;
-
-const hasExplicitTimezone =
-/z$/i.test(raw) || /[+-]\d{2}:\d{2}$/.test(raw);
-
-if (!hasExplicitTimezone && /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/.test(raw)) {
-const sqliteUtc = Date.parse(raw.replace(" ", "T") + "Z");
-return Number.isFinite(sqliteUtc) ? sqliteUtc : null;
-}
-
-const direct = Date.parse(raw);
-return Number.isFinite(direct) ? direct : null;
 }
 
 async function getTableColumns(tableName) {
@@ -96,6 +129,7 @@ async function getLaunchesColumns() {
 if (!launchesColumnsCache) {
 launchesColumnsCache = await getTableColumns("launches");
 }
+
 return launchesColumnsCache;
 }
 
@@ -103,6 +137,7 @@ async function getMintReservationsColumns() {
 if (!mintReservationsColumnsCache) {
 mintReservationsColumnsCache = await getTableColumns("mint_reservations");
 }
+
 return mintReservationsColumnsCache;
 }
 
@@ -114,7 +149,20 @@ builderVestingColumnsCache = await getTableColumns("builder_vesting");
 builderVestingColumnsCache = new Set();
 }
 }
+
 return builderVestingColumnsCache;
+}
+
+async function getWalletBalanceColumns() {
+if (!(await tableExists("wallet_balances"))) {
+return new Set();
+}
+
+if (!walletBalanceColumnsCache) {
+walletBalanceColumnsCache = await getTableColumns("wallet_balances");
+}
+
+return walletBalanceColumnsCache;
 }
 
 async function launchesHasColumn(columnName) {
@@ -131,9 +179,7 @@ async function assertMintReservationSchema() {
 const columns = await getMintReservationsColumns();
 
 if (!columns.has("reserved_for_launch_id")) {
-throw new Error(
-"mint_reservations schema mismatch: expected reserved_for_launch_id"
-);
+throw new Error("mint_reservations schema mismatch: expected reserved_for_launch_id");
 }
 
 if (!columns.has("mint_address")) {
@@ -156,6 +202,9 @@ throw new Error("mint_reservations schema mismatch: expected finalized_at");
 function normalizeLaunch(row) {
 if (!row) return null;
 
+const joinedBuilderWallet = clean(row.builder_wallet_join, 120);
+const directBuilderWallet = clean(row.builder_wallet, 120);
+
 return {
 ...row,
 launch_result_json: parseJsonMaybe(row.launch_result_json, null),
@@ -170,7 +219,7 @@ clean(row.mint_required_tag, 32).toUpperCase() || DEFAULT_REQUIRED_MINT_TAG,
 mint_reservation_attempts: safeNum(row.mint_reservation_attempts, 0),
 contract_address: clean(row.contract_address, 120),
 token_mint: clean(row.token_mint, 120),
-builder_wallet: clean(row.builder_wallet, 120),
+builder_wallet: directBuilderWallet || joinedBuilderWallet,
 liquidity: safeNum(row.liquidity, 0),
 liquidity_usd: safeNum(row.liquidity_usd, 0),
 current_liquidity_usd: safeNum(row.current_liquidity_usd, 0),
@@ -182,6 +231,12 @@ status: clean(row.status, 40).toLowerCase(),
 token_name: clean(row.token_name, 120),
 symbol: clean(row.symbol, 40),
 supply: String(row.supply || "0"),
+template: clean(row.template, 80).toLowerCase(),
+launch_type: clean(row.launch_type, 80).toLowerCase(),
+max_wallet_allocation_pct: safeNum(
+row.max_wallet_allocation_pct,
+DEFAULT_MAX_WALLET_ALLOCATION_PCT
+),
 live_at: row.live_at || null,
 created_at: row.created_at || null,
 updated_at: row.updated_at || null,
@@ -219,6 +274,15 @@ const n = Number(process.env.MSS_TOKEN_DECIMALS || 9);
 return Number.isInteger(n) && n >= 0 && n <= 9 ? n : 9;
 }
 
+function getFallbackSolUsdPrice(launch = null) {
+return safeNum(
+process.env.SOL_USD_PRICE ||
+process.env.MSS_SOL_USD_PRICE ||
+launch?.sol_usd_price,
+0
+);
+}
+
 function getMintAuthorityKeypair() {
 const raw = clean(process.env.MINT_AUTHORITY_PRIVATE_KEY, 20000);
 if (!raw) {
@@ -231,6 +295,7 @@ const arr = JSON.parse(raw);
 if (!Array.isArray(arr) || !arr.length) {
 throw new Error("invalid secret key array");
 }
+
 return Keypair.fromSecretKey(Uint8Array.from(arr));
 }
 
@@ -280,6 +345,7 @@ const arr = JSON.parse(value);
 if (!Array.isArray(arr) || !arr.length) {
 throw new Error("invalid reserved mint secret array");
 }
+
 return Uint8Array.from(arr);
 }
 
@@ -318,22 +384,38 @@ if (solReserve <= 0 || tokenReserve <= 0) return 0;
 return solReserve / tokenReserve;
 }
 
-function computeBuilderDailyUnlock(totalSupply) {
-return floorToken((safeNum(totalSupply, 0) * BUILDER_DAILY_UNLOCK_PCT) / 100);
-}
-
 function computeBuilderTotalAllocation(totalSupply) {
 return floorToken((safeNum(totalSupply, 0) * BUILDER_TOTAL_ALLOCATION_PCT) / 100);
+}
+
+function computeBuilderDailyUnlock(totalSupply) {
+const totalAllocation = computeBuilderTotalAllocation(totalSupply);
+return floorToken(totalAllocation / BUILDER_VESTING_DAYS);
 }
 
 function computeLiquidityTokenAllocation(totalSupply) {
 return floorToken((safeNum(totalSupply, 0) * LIQUIDITY_TOKEN_PCT) / 100);
 }
 
-function computeRaydiumReservedTokens(liquidityTokenAllocation) {
-return floorToken(
-(safeNum(liquidityTokenAllocation, 0) * RAYDIUM_LIQUIDITY_SPLIT_PCT) / 100
-);
+function resolveRaydiumReservedTokens(launch, totalSupply) {
+const launchResult = launch?.launch_result_json || {};
+const explicit = floorToken(launchResult.raydiumLiquidityTokensReserved);
+
+if (explicit > 0) {
+return explicit;
+}
+
+if (
+launchResult.raydiumLiquidityTokensReserved === 0 ||
+launchResult.raydium_liquidity_tokens_reserved === 0
+) {
+return 0;
+}
+
+const legacy = floorToken(launch?.raydium_liquidity_tokens_reserved);
+if (legacy > 0) return legacy;
+
+return 0;
 }
 
 function resolveBootstrapVestingStartAt(launch, existingVestingRow = null) {
@@ -433,6 +515,176 @@ throw new Error("launch implied price not written during bootstrap");
 }
 }
 
+function getParticipantVestingProfile(launch) {
+const template =
+clean(launch?.template, 80).toLowerCase() ||
+clean(launch?.launch_type, 80).toLowerCase();
+
+return PARTICIPANT_VESTING_BY_TEMPLATE[template] || {
+unlockPctAtLaunch: 25,
+vestingDays: 21,
+};
+}
+
+function getAllocationMetadataByWallet(launch) {
+const result = launch?.launch_result_json || {};
+const rows = Array.isArray(result.allocations) ? result.allocations : [];
+const out = new Map();
+
+for (const row of rows) {
+const wallet = clean(row?.wallet, 120).toLowerCase();
+if (!wallet) continue;
+out.set(wallet, row);
+}
+
+return out;
+}
+
+function resolveMaxWalletAllocationTokens(launch) {
+const totalSupply = floorToken(launch?.final_supply || launch?.supply || 0);
+const pct = safeNum(
+launch?.max_wallet_allocation_pct,
+DEFAULT_MAX_WALLET_ALLOCATION_PCT
+);
+
+if (totalSupply <= 0 || pct <= 0) return 0;
+return floorToken((totalSupply * pct) / 100);
+}
+
+function resolveParticipantTotalAllocation({ launch, allocationRow, metadata }) {
+const fromMetadata = floorToken(metadata?.token_amount);
+const fromAllocation = floorToken(allocationRow?.token_amount);
+const rawTotal = fromMetadata > 0 ? fromMetadata : fromAllocation;
+
+const explicitWalletCap = floorToken(metadata?.wallet_cap_tokens);
+const defaultWalletCap = resolveMaxWalletAllocationTokens(launch);
+const cap = explicitWalletCap > 0 ? explicitWalletCap : defaultWalletCap;
+
+if (cap > 0) {
+return Math.max(0, Math.min(rawTotal, cap));
+}
+
+return Math.max(0, rawTotal);
+}
+
+function resolveParticipantUnlockedAtLaunch({ launch, allocationRow, metadata }) {
+const total = resolveParticipantTotalAllocation({ launch, allocationRow, metadata });
+
+const explicit = floorToken(metadata?.unlocked_at_launch_tokens);
+if (explicit > 0 || metadata?.unlocked_at_launch_tokens === 0) {
+return Math.max(0, Math.min(total, explicit));
+}
+
+const vesting = getParticipantVestingProfile(launch);
+return Math.max(0, Math.min(total, floorToken((total * vesting.unlockPctAtLaunch) / 100)));
+}
+
+function buildParticipantWalletSeed({ launch, allocationRow, metadata }) {
+const totalBalance = resolveParticipantTotalAllocation({
+launch,
+allocationRow,
+metadata,
+});
+const unlockedBalance = resolveParticipantUnlockedAtLaunch({
+launch,
+allocationRow,
+metadata,
+});
+const lockedBalance = Math.max(0, totalBalance - unlockedBalance);
+
+return {
+tokenAmount: unlockedBalance,
+totalBalance,
+visibleTotalBalance: totalBalance,
+unlockedBalance,
+lockedBalance,
+sellableBalance: unlockedBalance,
+solBalance: null,
+};
+}
+
+function buildLockedWalletSeed(tokenAmount) {
+const totalBalance = Math.max(0, floorToken(tokenAmount));
+
+return {
+tokenAmount: 0,
+totalBalance,
+visibleTotalBalance: totalBalance,
+unlockedBalance: 0,
+lockedBalance: totalBalance,
+sellableBalance: 0,
+solBalance: null,
+};
+}
+
+function buildWalletSeedForAllocation({ launch, allocationRow, metadata }) {
+const allocationType = String(allocationRow?.allocation_type || "").toLowerCase();
+
+if (allocationType === "participant") {
+return buildParticipantWalletSeed({
+launch,
+allocationRow,
+metadata,
+});
+}
+
+if (allocationType === "builder" || allocationType === "team") {
+return buildLockedWalletSeed(allocationRow?.token_amount);
+}
+
+return null;
+}
+
+function getRowAliasValue(row, aliases = [], fallback = null) {
+for (const alias of aliases) {
+if (row?.[alias] !== undefined && row?.[alias] !== null) {
+return row[alias];
+}
+}
+
+return fallback;
+}
+
+function normalizeWalletBalanceSnapshot(row = {}) {
+const tokenAmount = floorToken(
+getRowAliasValue(row, WALLET_BALANCE_ALIAS_GROUPS.tokenAmount, 0)
+);
+const totalBalance = floorToken(
+getRowAliasValue(row, WALLET_BALANCE_ALIAS_GROUPS.totalBalance, tokenAmount)
+);
+const visibleTotalBalance = floorToken(
+getRowAliasValue(
+row,
+WALLET_BALANCE_ALIAS_GROUPS.visibleTotalBalance,
+totalBalance
+)
+);
+const unlockedBalance = floorToken(
+getRowAliasValue(row, WALLET_BALANCE_ALIAS_GROUPS.unlockedBalance, tokenAmount)
+);
+const lockedBalance = floorToken(
+getRowAliasValue(
+row,
+WALLET_BALANCE_ALIAS_GROUPS.lockedBalance,
+Math.max(0, visibleTotalBalance - unlockedBalance)
+)
+);
+const sellableBalance = floorToken(
+getRowAliasValue(row, WALLET_BALANCE_ALIAS_GROUPS.sellableBalance, unlockedBalance)
+);
+const solBalanceRaw = getRowAliasValue(row, WALLET_BALANCE_ALIAS_GROUPS.solBalance, null);
+
+return {
+tokenAmount,
+totalBalance,
+visibleTotalBalance,
+unlockedBalance,
+lockedBalance,
+sellableBalance,
+solBalance: solBalanceRaw == null ? null : roundSol(solBalanceRaw),
+};
+}
+
 export function prepareReservedMintReservation({
 requiredTag = DEFAULT_REQUIRED_MINT_TAG,
 maxAttempts = DEFAULT_MINT_RESERVATION_ATTEMPTS,
@@ -460,13 +712,24 @@ status: "reserved",
 }
 }
 
-throw new Error(
-`failed to reserve mint ending with ${tag} within ${attemptsLimit} attempts`
-);
+throw new Error(`failed to reserve mint ending with ${tag} within ${attemptsLimit} attempts`);
 }
 
 async function getLaunchById(launchId) {
-const row = await db.get(`SELECT * FROM launches WHERE id = ?`, [launchId]);
+const row = await db.get(
+`
+SELECT
+l.*,
+b.wallet AS builder_wallet_join
+FROM launches l
+LEFT JOIN builders b
+ON b.id = l.builder_id
+WHERE l.id = ?
+LIMIT 1
+`,
+[launchId]
+);
+
 return normalizeLaunch(row);
 }
 
@@ -499,10 +762,25 @@ ORDER BY id ASC
 async function getTrades24hVolumeByLaunch(launchId) {
 const row = await db.get(
 `
-SELECT COALESCE(SUM(sol_amount), 0) AS total
+SELECT COALESCE(SUM(ABS(sol_amount)), 0) AS total
 FROM trades
 WHERE launch_id = ?
 AND datetime(created_at) >= datetime('now', '-24 hours')
+`,
+[launchId]
+);
+
+return safeNum(row?.total, 0);
+}
+
+async function getTradeCountForLaunch(launchId) {
+if (!(await tableExists("trades"))) return 0;
+
+const row = await db.get(
+`
+SELECT COUNT(*) AS total
+FROM trades
+WHERE launch_id = ?
 `,
 [launchId]
 );
@@ -622,6 +900,7 @@ const reservation = prepareReservedMintReservation({
 requiredTag: tag,
 maxAttempts,
 });
+
 await insertPoolReservation(reservation);
 created += 1;
 }
@@ -730,6 +1009,7 @@ targetSize: 1,
 batchSize: 1,
 maxAttempts,
 });
+
 poolReservation = await getAvailablePoolReservation(tag);
 }
 
@@ -1166,42 +1446,156 @@ return token;
 async function getExistingWalletBalance(launchId, wallet) {
 return db.get(
 `
-SELECT id, token_amount
+SELECT *
 FROM wallet_balances
 WHERE launch_id = ? AND wallet = ?
+ORDER BY id DESC
 LIMIT 1
 `,
 [launchId, wallet]
 );
 }
 
-async function insertWalletBalance(launchId, wallet, tokenAmount) {
+function buildWalletBalanceColumnValues(columns, snapshot) {
+const values = new Map();
+
+const addAliases = (aliases, value) => {
+for (const column of aliases) {
+if (columns.has(column)) {
+values.set(column, value);
+}
+}
+};
+
+addAliases(WALLET_BALANCE_ALIAS_GROUPS.tokenAmount, floorToken(snapshot.tokenAmount));
+addAliases(WALLET_BALANCE_ALIAS_GROUPS.totalBalance, floorToken(snapshot.totalBalance));
+addAliases(
+WALLET_BALANCE_ALIAS_GROUPS.visibleTotalBalance,
+floorToken(snapshot.visibleTotalBalance)
+);
+addAliases(WALLET_BALANCE_ALIAS_GROUPS.unlockedBalance, floorToken(snapshot.unlockedBalance));
+addAliases(WALLET_BALANCE_ALIAS_GROUPS.lockedBalance, floorToken(snapshot.lockedBalance));
+addAliases(WALLET_BALANCE_ALIAS_GROUPS.sellableBalance, floorToken(snapshot.sellableBalance));
+
+if (snapshot.solBalance != null) {
+addAliases(WALLET_BALANCE_ALIAS_GROUPS.solBalance, roundSol(snapshot.solBalance));
+}
+
+return values;
+}
+
+async function insertWalletBalanceSnapshot(launchId, wallet, snapshot) {
+const columns = await getWalletBalanceColumns();
+
+const insertColumns = ["launch_id", "wallet"];
+const placeholders = ["?", "?"];
+const values = [launchId, wallet];
+
+const columnValues = buildWalletBalanceColumnValues(columns, snapshot);
+
+for (const [column, value] of columnValues.entries()) {
+insertColumns.push(column);
+placeholders.push("?");
+values.push(String(value));
+}
+
+if (columns.has("created_at")) {
+insertColumns.push("created_at");
+placeholders.push("CURRENT_TIMESTAMP");
+}
+
+if (columns.has("updated_at")) {
+insertColumns.push("updated_at");
+placeholders.push("CURRENT_TIMESTAMP");
+}
+
 await db.run(
 `
-INSERT INTO wallet_balances (
-launch_id,
-wallet,
-token_amount
-) VALUES (?, ?, ?)
+INSERT INTO wallet_balances (${insertColumns.join(", ")})
+VALUES (${placeholders.join(", ")})
 `,
-[launchId, wallet, tokenAmount]
+values
 );
 }
 
-async function seedWalletBalanceIfMissing(launchId, wallet, tokenAmount) {
+async function updateWalletBalanceSnapshot(balanceId, snapshot) {
+const columns = await getWalletBalanceColumns();
+const columnValues = buildWalletBalanceColumnValues(columns, snapshot);
+
+const updates = [];
+const values = [];
+
+for (const [column, value] of columnValues.entries()) {
+updates.push(`${column} = ?`);
+values.push(String(value));
+}
+
+if (columns.has("updated_at")) {
+updates.push("updated_at = CURRENT_TIMESTAMP");
+}
+
+if (!updates.length) return;
+
+values.push(balanceId);
+
+await db.run(
+`
+UPDATE wallet_balances
+SET ${updates.join(", ")}
+WHERE id = ?
+`,
+values
+);
+}
+
+async function seedWalletBalanceIfMissingOrSafeToCorrect({
+launchId,
+wallet,
+snapshot,
+canCorrectExisting = false,
+}) {
 const existing = await getExistingWalletBalance(launchId, wallet);
+
 if (existing) {
+const existingSnapshot = normalizeWalletBalanceSnapshot(existing);
+
+const shouldCorrect =
+canCorrectExisting &&
+(
+existingSnapshot.tokenAmount !== floorToken(snapshot.tokenAmount) ||
+existingSnapshot.totalBalance !== floorToken(snapshot.totalBalance) ||
+existingSnapshot.visibleTotalBalance !== floorToken(snapshot.visibleTotalBalance) ||
+existingSnapshot.unlockedBalance !== floorToken(snapshot.unlockedBalance) ||
+existingSnapshot.lockedBalance !== floorToken(snapshot.lockedBalance) ||
+existingSnapshot.sellableBalance !== floorToken(snapshot.sellableBalance)
+);
+
+if (shouldCorrect) {
+await updateWalletBalanceSnapshot(existing.id, snapshot);
+
 return {
 inserted: false,
-existingTokenAmount: floorToken(existing.token_amount),
+corrected: true,
+existingSnapshot,
+snapshot,
 };
 }
 
-await insertWalletBalance(launchId, wallet, tokenAmount);
+return {
+inserted: false,
+corrected: false,
+existingSnapshot,
+snapshot: existingSnapshot,
+};
+}
+
+await insertWalletBalanceSnapshot(launchId, wallet, snapshot);
 
 return {
 inserted: true,
-existingTokenAmount: null,
+corrected: false,
+existingSnapshot: null,
+snapshot,
 };
 }
 
@@ -1209,43 +1603,48 @@ async function ensureWalletBalancesFromAllocations(launchId, launch) {
 if (!(await tableExists("wallet_balances"))) {
 return {
 seeded: 0,
+corrected: 0,
 skippedExisting: 0,
 };
 }
 
 const allocations = await getAllocationsForLaunch(launchId);
-const totalSupply = floorToken(launch.final_supply || launch.supply || 0);
-const builderWallet = clean(launch.builder_wallet, 120).toLowerCase();
-const builderTotalAllocation = computeBuilderTotalAllocation(totalSupply);
-const builderInitialUnlocked = Math.min(
-builderTotalAllocation,
-computeBuilderDailyUnlock(totalSupply)
-);
+const allocationMetaByWallet = getAllocationMetadataByWallet(launch);
+const tradeCount = await getTradeCountForLaunch(launchId);
+const canCorrectExisting = tradeCount === 0;
 
 const creditable = allocations.filter((row) =>
 ["participant", "builder", "team"].includes(String(row.allocation_type || ""))
 );
 
 let seeded = 0;
+let corrected = 0;
 let skippedExisting = 0;
 
 for (const row of creditable) {
 const wallet = clean(row.wallet, 120);
-let tokenAmount = floorToken(row.token_amount);
+if (!wallet) continue;
 
-if (!wallet || tokenAmount <= 0) continue;
+const metadata = allocationMetaByWallet.get(wallet.toLowerCase());
+const snapshot = buildWalletSeedForAllocation({
+launch,
+allocationRow: row,
+metadata,
+});
 
-if (
-String(row.allocation_type || "") === "builder" &&
-builderWallet &&
-wallet.toLowerCase() === builderWallet
-) {
-tokenAmount = Math.min(tokenAmount, builderInitialUnlocked);
-}
+if (!snapshot) continue;
 
-const result = await seedWalletBalanceIfMissing(launchId, wallet, tokenAmount);
+const result = await seedWalletBalanceIfMissingOrSafeToCorrect({
+launchId,
+wallet,
+snapshot,
+canCorrectExisting,
+});
+
 if (result.inserted) {
 seeded += 1;
+} else if (result.corrected) {
+corrected += 1;
 } else {
 skippedExisting += 1;
 }
@@ -1253,6 +1652,7 @@ skippedExisting += 1;
 
 return {
 seeded,
+corrected,
 skippedExisting,
 };
 }
@@ -1325,8 +1725,8 @@ if (totalSupply <= 0) return null;
 
 const totalAllocation = computeBuilderTotalAllocation(totalSupply);
 const dailyUnlock = computeBuilderDailyUnlock(totalSupply);
-const initialUnlocked = Math.min(totalAllocation, dailyUnlock);
-const lockedRemaining = Math.max(0, totalAllocation - initialUnlocked);
+const initialUnlocked = 0;
+const lockedRemaining = totalAllocation;
 
 if (!(await tableExists("builder_vesting"))) {
 return {
@@ -1336,6 +1736,8 @@ total_allocation: totalAllocation,
 daily_unlock: dailyUnlock,
 unlocked_amount: initialUnlocked,
 locked_amount: lockedRemaining,
+cliff_days: BUILDER_CLIFF_DAYS,
+vesting_days: BUILDER_VESTING_DAYS,
 vesting_start_at: resolveBootstrapVestingStartAt(launch),
 };
 }
@@ -1352,6 +1754,7 @@ LIMIT 1
 
 const bootstrapVestingStartAt = resolveBootstrapVestingStartAt(launch, existing);
 const launchStatus = clean(launch?.status, 40).toLowerCase();
+
 const hasBuilderWallet = await builderVestingHasColumn("builder_wallet");
 const hasTotalAllocation = await builderVestingHasColumn("total_allocation");
 const hasDailyUnlock = await builderVestingHasColumn("daily_unlock");
@@ -1369,28 +1772,34 @@ if (hasBuilderWallet) {
 sets.push("builder_wallet = ?");
 values.push(builderWallet);
 }
+
 if (hasTotalAllocation) {
 sets.push("total_allocation = ?");
 values.push(totalAllocation);
 }
+
 if (hasDailyUnlock) {
 sets.push("daily_unlock = ?");
 values.push(dailyUnlock);
 }
+
 if (hasUnlockedAmount) {
 sets.push("unlocked_amount = COALESCE(unlocked_amount, ?)");
 values.push(initialUnlocked);
 }
+
 if (hasLockedAmount) {
 sets.push("locked_amount = COALESCE(locked_amount, ?)");
 values.push(lockedRemaining);
 }
+
 if (hasVestingStartAt) {
 if (launchStatus === "live" || launchStatus === "graduated") {
 sets.push("vesting_start_at = COALESCE(vesting_start_at, ?)");
 values.push(bootstrapVestingStartAt || new Date().toISOString());
 }
 }
+
 if (hasUpdatedAt) {
 sets.push("updated_at = CURRENT_TIMESTAMP");
 }
@@ -1416,26 +1825,31 @@ columns.push("builder_wallet");
 placeholders.push("?");
 values.push(builderWallet);
 }
+
 if (hasTotalAllocation) {
 columns.push("total_allocation");
 placeholders.push("?");
 values.push(totalAllocation);
 }
+
 if (hasDailyUnlock) {
 columns.push("daily_unlock");
 placeholders.push("?");
 values.push(dailyUnlock);
 }
+
 if (hasUnlockedAmount) {
 columns.push("unlocked_amount");
 placeholders.push("?");
 values.push(initialUnlocked);
 }
+
 if (hasLockedAmount) {
 columns.push("locked_amount");
 placeholders.push("?");
 values.push(lockedRemaining);
 }
+
 if (hasVestingStartAt) {
 columns.push("vesting_start_at");
 placeholders.push("?");
@@ -1445,10 +1859,12 @@ launchStatus === "live" || launchStatus === "graduated"
 : null
 );
 }
+
 if (hasCreatedAt) {
 columns.push("created_at");
 placeholders.push("CURRENT_TIMESTAMP");
 }
+
 if (hasUpdatedAt) {
 columns.push("updated_at");
 placeholders.push("CURRENT_TIMESTAMP");
@@ -1470,67 +1886,159 @@ total_allocation: totalAllocation,
 daily_unlock: dailyUnlock,
 unlocked_amount: initialUnlocked,
 locked_amount: lockedRemaining,
+cliff_days: BUILDER_CLIFF_DAYS,
+vesting_days: BUILDER_VESTING_DAYS,
 vesting_start_at: bootstrapVestingStartAt,
 };
 }
 
-async function getDistributedCirculatingSupply(launchId, launch) {
-if (await tableExists("wallet_balances")) {
+async function getUnlockedWalletBalanceSupply(launchId) {
+if (!(await tableExists("wallet_balances"))) {
+return 0;
+}
+
+const columns = await getWalletBalanceColumns();
+
+const sellableColumn = WALLET_BALANCE_ALIAS_GROUPS.sellableBalance.find((column) =>
+columns.has(column)
+);
+
+if (sellableColumn) {
 const row = await db.get(
 `
-SELECT COALESCE(SUM(token_amount), 0) AS total
+SELECT COALESCE(SUM(${sellableColumn}), 0) AS total
 FROM wallet_balances
 WHERE launch_id = ?
 `,
 [launchId]
 );
 
-const fromWalletBalances = floorToken(row?.total);
-
-if (fromWalletBalances > 0) {
-return fromWalletBalances;
-}
+const total = floorToken(row?.total);
+if (total > 0) return total;
 }
 
-const fallbackRow = await db.get(
+const unlockedColumn = WALLET_BALANCE_ALIAS_GROUPS.unlockedBalance.find((column) =>
+columns.has(column)
+);
+
+if (unlockedColumn) {
+const row = await db.get(
 `
-SELECT COALESCE(SUM(token_amount), 0) AS total
-FROM allocations
+SELECT COALESCE(SUM(${unlockedColumn}), 0) AS total
+FROM wallet_balances
 WHERE launch_id = ?
-AND allocation_type IN ('participant', 'builder', 'team')
 `,
 [launchId]
 );
 
-return Math.max(
-0,
-floorToken(fallbackRow?.total),
-floorToken(launch.circulating_supply || 0)
+const total = floorToken(row?.total);
+if (total > 0) return total;
+}
+
+const tokenColumn = WALLET_BALANCE_ALIAS_GROUPS.tokenAmount.find((column) =>
+columns.has(column)
 );
+
+if (!tokenColumn) return 0;
+
+const row = await db.get(
+`
+SELECT COALESCE(SUM(${tokenColumn}), 0) AS total
+FROM wallet_balances
+WHERE launch_id = ?
+`,
+[launchId]
+);
+
+return floorToken(row?.total);
+}
+
+async function getFallbackUnlockedParticipantSupply(launchId, launch) {
+const allocations = await getAllocationsForLaunch(launchId);
+const allocationMetaByWallet = getAllocationMetadataByWallet(launch);
+
+let total = 0;
+
+for (const row of allocations) {
+if (String(row.allocation_type || "").toLowerCase() !== "participant") continue;
+
+const metadata = allocationMetaByWallet.get(clean(row.wallet, 120).toLowerCase());
+
+total += resolveParticipantUnlockedAtLaunch({
+launch,
+allocationRow: row,
+metadata,
+});
+}
+
+return floorToken(total);
+}
+
+async function getCirculatingSupplyForMarket(launchId, launch, pool) {
+const lpTokens = floorToken(pool?.token_reserve);
+let unlockedWalletTokens = await getUnlockedWalletBalanceSupply(launchId);
+
+if (unlockedWalletTokens <= 0) {
+unlockedWalletTokens = await getFallbackUnlockedParticipantSupply(launchId, launch);
+}
+
+return Math.max(0, lpTokens + unlockedWalletTokens);
 }
 
 async function updateLaunchMarketFields(launchId, launch, pool) {
 const oneSidedSolLiquidity = safeNum(pool.sol_reserve, 0);
-const distributedCirculatingSupply = await getDistributedCirculatingSupply(launchId, launch);
+const circulatingSupply = await getCirculatingSupplyForMarket(launchId, launch, pool);
 const price = computeSpotPriceSolPerToken(pool);
 const marketCap =
-price > 0 && distributedCirculatingSupply > 0
-? price * distributedCirculatingSupply
-: 0;
+price > 0 && circulatingSupply > 0 ? price * circulatingSupply : 0;
 const volume24h = await getTrades24hVolumeByLaunch(launchId);
+
+const solUsdPrice = getFallbackSolUsdPrice(launch);
+const priceUsd = solUsdPrice > 0 && price > 0 ? price * solUsdPrice : 0;
+const liquidityUsd =
+solUsdPrice > 0 && oneSidedSolLiquidity > 0
+? oneSidedSolLiquidity * solUsdPrice
+: 0;
+const marketCapUsd =
+solUsdPrice > 0 && marketCap > 0 ? marketCap * solUsdPrice : 0;
+const volume24hUsd =
+solUsdPrice > 0 && volume24h > 0 ? volume24h * solUsdPrice : 0;
+
+const columns = await getLaunchesColumns();
+
+const fields = {
+circulating_supply: circulatingSupply,
+liquidity: oneSidedSolLiquidity,
+price,
+market_cap: marketCap,
+volume_24h: volume24h,
+sol_usd_price: solUsdPrice,
+price_usd: priceUsd,
+liquidity_usd: liquidityUsd,
+current_liquidity_usd: liquidityUsd,
+market_cap_usd: marketCapUsd,
+volume_24h_usd: volume24hUsd,
+};
+
+const entries = Object.entries(fields).filter(([name]) => columns.has(name));
+const sets = entries.map(([name]) => `${name} = ?`);
+const values = entries.map(([, value]) => value);
+
+if (columns.has("updated_at")) {
+sets.push("updated_at = CURRENT_TIMESTAMP");
+}
+
+if (!sets.length) return;
+
+values.push(launchId);
 
 await db.run(
 `
 UPDATE launches
-SET circulating_supply = ?,
-liquidity = ?,
-price = ?,
-market_cap = ?,
-volume_24h = ?,
-updated_at = CURRENT_TIMESTAMP
+SET ${sets.join(", ")}
 WHERE id = ?
 `,
-[distributedCirculatingSupply, oneSidedSolLiquidity, price, marketCap, volume24h, launchId]
+values
 );
 }
 
@@ -1570,24 +2078,30 @@ if (has("internal_sol_reserve")) {
 sets.push("internal_sol_reserve = ?");
 values.push(internalSolReserve);
 }
+
 if (has("internal_token_reserve")) {
 sets.push("internal_token_reserve = ?");
 values.push(internalTokenReserve);
 }
+
 if (has("graduated")) {
 sets.push("graduated = COALESCE(graduated, 0)");
 }
+
 if (has("raydium_target_pct")) {
 sets.push("raydium_target_pct = COALESCE(raydium_target_pct, ?)");
 values.push(RAYDIUM_LIQUIDITY_SPLIT_PCT);
 }
+
 if (has("mss_locked_target_pct")) {
 sets.push("mss_locked_target_pct = COALESCE(mss_locked_target_pct, ?)");
 values.push(RAYDIUM_LIQUIDITY_SPLIT_PCT);
 }
+
 if (has("lock_status")) {
 sets.push("lock_status = COALESCE(lock_status, 'mss_held_internal')");
 }
+
 if (has("updated_at")) {
 sets.push("updated_at = CURRENT_TIMESTAMP");
 }
@@ -1613,35 +2127,42 @@ insertColumns.push("internal_sol_reserve");
 placeholders.push("?");
 values.push(internalSolReserve);
 }
+
 if (has("internal_token_reserve")) {
 insertColumns.push("internal_token_reserve");
 placeholders.push("?");
 values.push(internalTokenReserve);
 }
+
 if (has("graduated")) {
 insertColumns.push("graduated");
 placeholders.push("?");
 values.push(0);
 }
+
 if (has("raydium_target_pct")) {
 insertColumns.push("raydium_target_pct");
 placeholders.push("?");
 values.push(RAYDIUM_LIQUIDITY_SPLIT_PCT);
 }
+
 if (has("mss_locked_target_pct")) {
 insertColumns.push("mss_locked_target_pct");
 placeholders.push("?");
 values.push(RAYDIUM_LIQUIDITY_SPLIT_PCT);
 }
+
 if (has("lock_status")) {
 insertColumns.push("lock_status");
 placeholders.push("?");
 values.push("mss_held_internal");
 }
+
 if (has("created_at")) {
 insertColumns.push("created_at");
 placeholders.push("CURRENT_TIMESTAMP");
 }
+
 if (has("updated_at")) {
 insertColumns.push("updated_at");
 placeholders.push("CURRENT_TIMESTAMP");
@@ -1675,17 +2196,11 @@ pool,
 validateTokenRow(token, clean(token?.mint_address, 120));
 validatePoolRow(pool);
 
+await ensureBuilderVestingState(launchId, launch);
+await ensureWalletBalancesFromAllocations(launchId, launch);
 await updateLaunchMarketFields(launchId, launch, pool);
 
 let refreshedLaunch = await getLaunchById(launchId);
-validateLaunchMarketFields(refreshedLaunch);
-
-await ensureBuilderVestingState(launchId, refreshedLaunch);
-await ensureWalletBalancesFromAllocations(launchId, refreshedLaunch);
-
-await updateLaunchMarketFields(launchId, refreshedLaunch, pool);
-
-refreshedLaunch = await getLaunchById(launchId);
 validateLaunchMarketFields(refreshedLaunch);
 
 await ensureLaunchLiquidityLifecycle(launchId, refreshedLaunch, pool);
@@ -1727,7 +2242,7 @@ const totalSupply = floorToken(healedLaunch.final_supply || healedLaunch.supply 
 const liquidityTokenAllocation = computeLiquidityTokenAllocation(totalSupply);
 const builderTotalAllocation = computeBuilderTotalAllocation(totalSupply);
 const builderDailyUnlock = computeBuilderDailyUnlock(totalSupply);
-const raydiumReservedTokens = computeRaydiumReservedTokens(liquidityTokenAllocation);
+const raydiumReservedTokens = resolveRaydiumReservedTokens(healedLaunch, totalSupply);
 
 return {
 ok: true,
@@ -1754,6 +2269,8 @@ liquidityTokenAllocation,
 raydiumReservedTokens,
 builderTotalAllocation,
 builderDailyUnlock,
+builderCliffDays: BUILDER_CLIFF_DAYS,
+builderVestingDays: BUILDER_VESTING_DAYS,
 launchStatus: healedLaunch.status,
 };
 }
@@ -1763,6 +2280,7 @@ await claimReservedMintForLaunch(
 launchId,
 launch.mint_required_tag || DEFAULT_REQUIRED_MINT_TAG
 );
+
 launch = await getLaunchById(launchId);
 }
 
@@ -1772,7 +2290,7 @@ const totalSupply = floorToken(launch.final_supply || launch.supply || 0);
 const liquidityTokenAllocation = computeLiquidityTokenAllocation(totalSupply);
 const builderTotalAllocation = computeBuilderTotalAllocation(totalSupply);
 const builderDailyUnlock = computeBuilderDailyUnlock(totalSupply);
-const raydiumReservedTokens = computeRaydiumReservedTokens(liquidityTokenAllocation);
+const raydiumReservedTokens = resolveRaydiumReservedTokens(launch, totalSupply);
 
 const mintResult = await ensureMintAddress(launch);
 launch = await getLaunchById(launchId);
@@ -1818,6 +2336,8 @@ liquidityTokenAllocation,
 raydiumReservedTokens,
 builderTotalAllocation,
 builderDailyUnlock,
+builderCliffDays: BUILDER_CLIFF_DAYS,
+builderVestingDays: BUILDER_VESTING_DAYS,
 launchStatus: refreshedLaunch.status,
 };
 }

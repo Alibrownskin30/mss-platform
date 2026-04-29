@@ -10,7 +10,22 @@ const router = express.Router();
 
 const ALLOWED_INTERVALS = new Set(["1m", "5m", "15m", "1h", "4h", "1d"]);
 
+const BUILDER_TOTAL_ALLOCATION_PCT = 5;
+const BUILDER_DAILY_UNLOCK_PCT = 0.5;
+const BUILDER_UNLOCK_DAYS = 10;
+const BUILDER_CLIFF_DAYS = 0;
+const BUILDER_VESTING_DAYS = BUILDER_UNLOCK_DAYS;
+
+const TEAM_CLIFF_DAYS = 14;
+const TEAM_VESTING_DAYS = 180;
+
+const MS_PER_DAY = 24 * 60 * 60 * 1000;
+
+const BUILDER_VESTING_RULE =
+"Builder allocation unlocks at 0.5% of total supply per day until the full 5% builder allocation is unlocked.";
+
 function toNumber(value, fallback = 0) {
+if (value === null || value === undefined || value === "") return fallback;
 const num = Number(value);
 return Number.isFinite(num) ? num : fallback;
 }
@@ -34,14 +49,17 @@ for (const value of values) {
 const cleaned = cleanText(value, 500);
 if (cleaned) return cleaned;
 }
+
 return "";
 }
 
 function chooseFirstFinite(...values) {
 for (const value of values) {
+if (value === null || value === undefined || value === "") continue;
 const num = Number(value);
 if (Number.isFinite(num)) return num;
 }
+
 return null;
 }
 
@@ -89,19 +107,11 @@ status === "expired"
 return "failed";
 }
 
-if (
-status === "graduated" ||
-status === "surged" ||
-status === "surge"
-) {
+if (status === "graduated" || status === "surged" || status === "surge") {
 return "graduated";
 }
 
-if (
-status === "live" ||
-status === "trading" ||
-status === "market_live"
-) {
+if (status === "live" || status === "trading" || status === "market_live") {
 return "live";
 }
 
@@ -115,11 +125,7 @@ status === "finalising"
 return "building";
 }
 
-if (
-status === "countdown" ||
-status === "pre_live" ||
-status === "prelive"
-) {
+if (status === "countdown" || status === "pre_live" || status === "prelive") {
 return "countdown";
 }
 
@@ -186,13 +192,15 @@ const liveMintSignal = hasLiveMintSignal(launch);
 if (rawStatus === "failed_refunded") return "failed_refunded";
 if (rawStatus === "failed") return "failed";
 if (rawStatus === "graduated") return "graduated";
-if (rawStatus === "live") return "live";
+
+if (rawStatus === "live") {
+return launch.market_bootstrapped === false ? "building" : "live";
+}
 
 /*
-Critical:
-Building is protected.
-Do not promote building -> live just because mint/contract data exists.
-finalizeLaunch.js owns final live promotion.
+Protected phase rule:
+countdown/building must not auto-promote to live from CA/mint/finalized signals.
+finalizeLaunch.js owns true live promotion.
 */
 if (rawStatus === "building") return "building";
 
@@ -216,19 +224,6 @@ return "building";
 return "commit";
 }
 
-/*
-Legacy fallback only:
-allow missing/unknown status to infer live from mint signals.
-Never use this to override countdown/building/failed states.
-*/
-if (!rawStatus && liveMintSignal) {
-return "live";
-}
-
-if (!rawStatus && Number.isFinite(liveAtMs) && now >= liveAtMs && liveMintSignal) {
-return "live";
-}
-
 if (!rawStatus && hasCountdownWindow) {
 if (!Number.isFinite(countdownEndsMs) || countdownStillRunning) {
 return "countdown";
@@ -237,11 +232,23 @@ return "countdown";
 return "building";
 }
 
+/*
+Legacy fallback only:
+old rows with no protected phase may infer live from finalized mint/CA data.
+*/
+if (!rawStatus && Number.isFinite(liveAtMs) && now >= liveAtMs && liveMintSignal) {
+return "live";
+}
+
+if (!rawStatus && liveMintSignal) {
+return "live";
+}
+
 return rawStatus || "commit";
 }
 
 function shouldRevealContractAddress(status) {
-const normalized = cleanText(status, 64).toLowerCase();
+const normalized = normalizeLaunchStatus(status);
 return normalized === "live" || normalized === "graduated";
 }
 
@@ -259,6 +266,202 @@ is_building: status === "building",
 is_live: status === "live",
 is_graduated: status === "graduated",
 is_failed: status === "failed" || status === "failed_refunded",
+};
+}
+
+function lifecycleGraduated(raw = {}) {
+return raw?.graduated === true || toNumber(raw?.graduated, 0) === 1;
+}
+
+function getLaunchTotalSupply(launch = null) {
+return toInt(
+chooseFirstFinite(
+launch?.final_supply,
+launch?.total_supply,
+launch?.supply,
+launch?.circulating_supply
+),
+0
+);
+}
+
+function resolveBuilderVestingStartAt(raw = {}, launch = null) {
+return (
+raw.vesting_start_at ||
+raw.vestingStartAt ||
+raw.builder_vesting_start_at ||
+raw.builderVestingStartAt ||
+launch?.live_at ||
+null
+);
+}
+
+function computeBuilderVestingFromRule(
+raw = {},
+launch = null,
+{ allowSupplyFallback = true } = {}
+) {
+const totalSupply = getLaunchTotalSupply(launch);
+
+const rawTotalAllocation = toInt(
+chooseFirstFinite(
+raw.total_allocation,
+raw.totalAllocation,
+raw.builder_total_allocation_tokens,
+raw.builderTotalAllocationTokens,
+raw.builder_visible_total_tokens,
+raw.builderVisibleTotalTokens
+),
+0
+);
+
+const fallbackTotalAllocation =
+allowSupplyFallback && totalSupply > 0
+? Math.floor((totalSupply * BUILDER_TOTAL_ALLOCATION_PCT) / 100)
+: 0;
+
+const totalAllocation = Math.max(rawTotalAllocation, fallbackTotalAllocation);
+
+const supplyDailyUnlock =
+totalSupply > 0
+? Math.floor((totalSupply * BUILDER_DAILY_UNLOCK_PCT) / 100)
+: 0;
+
+const allocationDailyUnlock =
+totalAllocation > 0 ? Math.floor(totalAllocation / BUILDER_UNLOCK_DAYS) : 0;
+
+const rawDailyUnlock = toInt(
+chooseFirstFinite(
+raw.daily_unlock,
+raw.dailyUnlock,
+raw.builder_daily_unlock_tokens,
+raw.builderDailyUnlockTokens
+),
+0
+);
+
+const dailyUnlock = Math.max(
+supplyDailyUnlock,
+allocationDailyUnlock,
+rawDailyUnlock && totalAllocation <= 0 ? rawDailyUnlock : 0
+);
+
+const vestingStartAt = resolveBuilderVestingStartAt(raw, launch);
+const startMs = parseDbTime(vestingStartAt);
+
+const rawUnlocked = toInt(
+chooseFirstFinite(
+raw.unlocked_amount,
+raw.unlockedAmount,
+raw.builder_unlocked_tokens,
+raw.builderUnlockedTokens,
+raw.builder_unlocked_allocation_tokens,
+raw.builderUnlockedAllocationTokens
+),
+0
+);
+
+const rawLocked = toInt(
+chooseFirstFinite(
+raw.locked_amount,
+raw.lockedAmount,
+raw.builder_locked_tokens,
+raw.builderLockedTokens,
+raw.builder_locked_allocation_tokens,
+raw.builderLockedAllocationTokens
+),
+Math.max(0, totalAllocation - rawUnlocked)
+);
+
+let unlockedAmount = rawUnlocked;
+let lockedAmount = rawLocked;
+let elapsedDays = toInt(
+chooseFirstFinite(
+raw.vesting_days_live,
+raw.vestingDaysLive,
+raw.builder_vesting_days_live,
+raw.builderVestingDaysLive
+),
+0
+);
+let vestedDays = toInt(
+chooseFirstFinite(
+raw.vested_days,
+raw.vestedDays,
+raw.builder_vested_days,
+raw.builderVestedDays
+),
+0
+);
+
+if (totalAllocation > 0 && dailyUnlock > 0 && Number.isFinite(startMs)) {
+const elapsedMs = Math.max(0, Date.now() - startMs);
+elapsedDays = Math.floor(elapsedMs / MS_PER_DAY);
+
+if (Date.now() >= startMs) {
+vestedDays = Math.min(BUILDER_UNLOCK_DAYS, elapsedDays + 1);
+unlockedAmount =
+vestedDays >= BUILDER_UNLOCK_DAYS
+? totalAllocation
+: Math.min(totalAllocation, dailyUnlock * vestedDays);
+lockedAmount = Math.max(0, totalAllocation - unlockedAmount);
+} else {
+vestedDays = 0;
+unlockedAmount = 0;
+lockedAmount = totalAllocation;
+}
+} else if (totalAllocation > 0) {
+unlockedAmount = Math.min(totalAllocation, rawUnlocked);
+lockedAmount = Math.max(0, totalAllocation - unlockedAmount);
+}
+
+const percentUnlocked =
+totalAllocation > 0
+? Math.max(0, Math.min(100, (unlockedAmount / totalAllocation) * 100))
+: 0;
+
+return {
+total_allocation: totalAllocation,
+totalAllocation,
+
+daily_unlock: dailyUnlock,
+dailyUnlock,
+
+unlocked_amount: unlockedAmount,
+unlockedAmount,
+
+locked_amount: lockedAmount,
+lockedAmount,
+
+vesting_start_at: vestingStartAt,
+vestingStartAt,
+
+vested_days: vestedDays,
+vestedDays,
+
+vesting_days_live: elapsedDays,
+vestingDaysLive: elapsedDays,
+
+cliff_days: BUILDER_CLIFF_DAYS,
+cliffDays: BUILDER_CLIFF_DAYS,
+
+vesting_days: BUILDER_VESTING_DAYS,
+vestingDays: BUILDER_VESTING_DAYS,
+
+unlock_days: BUILDER_UNLOCK_DAYS,
+unlockDays: BUILDER_UNLOCK_DAYS,
+
+daily_unlock_pct: BUILDER_DAILY_UNLOCK_PCT,
+dailyUnlockPct: BUILDER_DAILY_UNLOCK_PCT,
+
+total_allocation_pct: BUILDER_TOTAL_ALLOCATION_PCT,
+totalAllocationPct: BUILDER_TOTAL_ALLOCATION_PCT,
+
+percent_unlocked: percentUnlocked,
+percentUnlocked,
+
+rule: BUILDER_VESTING_RULE,
+builder_vesting_rule: BUILDER_VESTING_RULE,
 };
 }
 
@@ -449,10 +652,42 @@ open: toNumber(candle.open, 0),
 high: toNumber(candle.high, 0),
 low: toNumber(candle.low, 0),
 close: toNumber(candle.close, 0),
-volume_base: toNumber(candle.volume_base, 0),
+
+volume_base: toNumber(candle.volume_base ?? candle.volume_sol, 0),
+volume_sol: toNumber(candle.volume_sol ?? candle.volume_base, 0),
 volume_token: toNumber(candle.volume_token, 0),
+
 buys: toInt(candle.buys, 0),
 sells: toInt(candle.sells, 0),
+trade_count: toInt(candle.trade_count, 0),
+
+buy_volume_base: toNumber(
+candle.buy_volume_base ?? candle.buy_volume_sol,
+0
+),
+buy_volume_sol: toNumber(
+candle.buy_volume_sol ?? candle.buy_volume_base,
+0
+),
+sell_volume_base: toNumber(
+candle.sell_volume_base ?? candle.sell_volume_sol,
+0
+),
+sell_volume_sol: toNumber(
+candle.sell_volume_sol ?? candle.sell_volume_base,
+0
+),
+buy_volume_token: toNumber(candle.buy_volume_token, 0),
+sell_volume_token: toNumber(candle.sell_volume_token, 0),
+
+vwap: toNumber(candle.vwap, 0),
+first_trade_at: candle.first_trade_at || null,
+last_trade_at: candle.last_trade_at || null,
+
+change: toNumber(candle.change, 0),
+change_pct: toNumber(candle.change_pct, 0),
+is_bullish: Boolean(candle.is_bullish),
+is_synthetic: Boolean(candle.is_synthetic),
 }))
 : [];
 }
@@ -577,6 +812,22 @@ walletSolBalance
 )
 : 0;
 
+const walletPositionValueSol = marketActive
+? toNumber(
+chooseFirstFinite(
+stats.wallet_position_value_sol,
+priceSol > 0 && walletVisibleTotalBalance > 0
+? priceSol * walletVisibleTotalBalance
+: 0
+),
+0
+)
+: 0;
+
+const walletPositionValueUsd = marketActive
+? toNumber(stats.wallet_position_value_usd, 0)
+: 0;
+
 const revealedMintAddress = marketActive
 ? cleanText(
 stats.mint_address ||
@@ -586,6 +837,35 @@ getContractCandidateFromLaunch(launch),
 120
 ) || null
 : null;
+
+const walletIsBuilder = marketActive
+? Boolean(stats.wallet_is_builder || stats.is_builder_wallet)
+: false;
+
+const hasBuilderStats =
+marketActive &&
+(walletIsBuilder ||
+toInt(stats.builder_total_allocation_tokens, 0) > 0 ||
+toInt(stats.builder_visible_total_tokens, 0) > 0 ||
+toInt(stats.builder_daily_unlock_tokens, 0) > 0);
+
+const builderStatsVesting = hasBuilderStats
+? computeBuilderVestingFromRule(
+{
+total_allocation: stats.builder_total_allocation_tokens,
+daily_unlock: stats.builder_daily_unlock_tokens,
+unlocked_amount:
+stats.builder_unlocked_allocation_tokens ?? stats.builder_unlocked_tokens,
+locked_amount:
+stats.builder_locked_allocation_tokens ?? stats.builder_locked_tokens,
+vesting_start_at: stats.builder_vesting_start_at,
+vested_days: stats.builder_vested_days,
+vesting_days_live: stats.builder_vesting_days_live,
+},
+launch,
+{ allowSupplyFallback: walletIsBuilder }
+)
+: computeBuilderVestingFromRule({}, launch, { allowSupplyFallback: false });
 
 return {
 ...stats,
@@ -617,6 +897,14 @@ total_supply: totalSupply,
 circulating_supply: circulatingSupply,
 
 sol_usd_price: marketActive ? toNumber(stats.sol_usd_price, 0) : 0,
+sol_usd_source: marketActive ? stats.sol_usd_source || null : null,
+sol_usd_price_updated_at: marketActive
+? stats.sol_usd_price_updated_at || null
+: null,
+sol_usd_block_id: marketActive ? stats.sol_usd_block_id || null : null,
+sol_usd_price_change_24h: marketActive
+? toNumber(stats.sol_usd_price_change_24h, 0)
+: 0,
 
 price: priceSol,
 price_sol: priceSol,
@@ -626,9 +914,20 @@ liquidity: liquiditySol,
 liquidity_sol: liquiditySol,
 liquidity_usd: marketActive ? toNumber(stats.liquidity_usd, 0) : 0,
 
+total_lp_liquidity_sol: marketActive
+? toNumber(stats.total_lp_liquidity_sol, 0)
+: 0,
+total_lp_liquidity_usd: marketActive
+? toNumber(stats.total_lp_liquidity_usd, 0)
+: 0,
+
 market_cap: marketCapSol,
 market_cap_sol: marketCapSol,
 market_cap_usd: marketActive ? toNumber(stats.market_cap_usd, 0) : 0,
+
+fdv: marketActive ? toNumber(stats.fdv ?? stats.fdv_sol, 0) : 0,
+fdv_sol: marketActive ? toNumber(stats.fdv_sol ?? stats.fdv, 0) : 0,
+fdv_usd: marketActive ? toNumber(stats.fdv_usd, 0) : 0,
 
 volume_24h: volume24hSol,
 volume_24h_sol: volume24hSol,
@@ -638,6 +937,9 @@ buys_24h: marketActive ? toInt(stats.buys_24h, 0) : 0,
 sells_24h: marketActive ? toInt(stats.sells_24h, 0) : 0,
 trades_24h: trades24h,
 tx_count_24h: trades24h,
+trade_count_24h: trades24h,
+trade_count_total: marketActive ? toInt(stats.trade_count_total, 0) : 0,
+trades_total: marketActive ? toInt(stats.trades_total, 0) : 0,
 
 price_change_pct: marketActive ? toNumber(stats.price_change_pct, 0) : 0,
 high_24h: marketActive ? toNumber(stats.high_24h, 0) : 0,
@@ -648,6 +950,11 @@ high_24h_sol: marketActive
 low_24h_sol: marketActive
 ? toNumber(stats.low_24h_sol ?? stats.low_24h, 0)
 : 0,
+high_24h_usd: marketActive ? toNumber(stats.high_24h_usd, 0) : 0,
+low_24h_usd: marketActive ? toNumber(stats.low_24h_usd, 0) : 0,
+
+pool_sol_reserve: marketActive ? toNumber(stats.pool_sol_reserve, 0) : 0,
+pool_token_reserve: marketActive ? toInt(stats.pool_token_reserve, 0) : 0,
 
 wallet_token_balance: walletTokenBalance,
 wallet_balance_tokens: walletTokenBalance,
@@ -655,9 +962,8 @@ wallet_balance_tokens: walletTokenBalance,
 wallet_total_balance: walletTotalBalance,
 wallet_visible_total_balance: walletVisibleTotalBalance,
 
-wallet_position_value_usd: marketActive
-? toNumber(stats.wallet_position_value_usd, 0)
-: 0,
+wallet_position_value_sol: walletPositionValueSol,
+wallet_position_value_usd: walletPositionValueUsd,
 
 wallet_sol_balance: walletSolBalance,
 wallet_sol_delta: walletSolDelta,
@@ -672,28 +978,86 @@ wallet_locked_token_balance: walletLockedBalance,
 wallet_unlocked_balance: walletUnlockedBalance,
 wallet_unlocked_token_balance: walletUnlockedBalance,
 
-wallet_is_builder: marketActive ? Boolean(stats.wallet_is_builder) : false,
+wallet_is_builder: walletIsBuilder,
 wallet_vesting_active: marketActive ? Boolean(stats.wallet_vesting_active) : false,
 
-is_builder_wallet: marketActive ? Boolean(stats.is_builder_wallet) : false,
-builder_total_allocation_tokens: marketActive
-? toInt(stats.builder_total_allocation_tokens, 0)
+is_builder_wallet: walletIsBuilder,
+is_participant_wallet: marketActive
+? Boolean(stats.is_participant_wallet)
+: false,
+is_team_wallet: marketActive ? Boolean(stats.is_team_wallet) : false,
+
+participant_total_allocation_tokens: marketActive
+? toInt(stats.participant_total_allocation_tokens, 0)
 : 0,
-builder_unlocked_tokens: marketActive ? toInt(stats.builder_unlocked_tokens, 0) : 0,
-builder_locked_tokens: marketActive ? toInt(stats.builder_locked_tokens, 0) : 0,
-builder_sellable_tokens: marketActive ? toInt(stats.builder_sellable_tokens, 0) : 0,
+participant_unlocked_tokens: marketActive
+? toInt(stats.participant_unlocked_tokens, 0)
+: 0,
+participant_locked_tokens: marketActive
+? toInt(stats.participant_locked_tokens, 0)
+: 0,
+participant_sellable_tokens: marketActive
+? toInt(stats.participant_sellable_tokens, 0)
+: 0,
+participant_vesting_percent_unlocked: marketActive
+? toNumber(stats.participant_vesting_percent_unlocked, 0)
+: 0,
+participant_vesting_days_live: marketActive
+? toInt(stats.participant_vesting_days_live, 0)
+: 0,
+participant_vesting_days: marketActive
+? toInt(stats.participant_vesting_days, 0)
+: 0,
+participant_vesting_label: marketActive
+? cleanText(stats.participant_vesting_label, 200)
+: "",
+
+team_total_allocation_tokens: marketActive
+? toInt(stats.team_total_allocation_tokens, 0)
+: 0,
+team_unlocked_tokens: marketActive ? toInt(stats.team_unlocked_tokens, 0) : 0,
+team_locked_tokens: marketActive ? toInt(stats.team_locked_tokens, 0) : 0,
+team_sellable_tokens: marketActive ? toInt(stats.team_sellable_tokens, 0) : 0,
+team_vesting_percent_unlocked: marketActive
+? toNumber(stats.team_vesting_percent_unlocked, 0)
+: 0,
+
+builder_total_allocation_tokens: marketActive
+? builderStatsVesting.total_allocation
+: 0,
+builder_unlocked_tokens: marketActive ? builderStatsVesting.unlocked_amount : 0,
+builder_locked_tokens: marketActive ? builderStatsVesting.locked_amount : 0,
+builder_sellable_tokens: marketActive
+? toInt(stats.builder_sellable_tokens ?? builderStatsVesting.unlocked_amount, 0)
+: 0,
 builder_visible_total_tokens: marketActive
-? toInt(stats.builder_visible_total_tokens, 0)
+? toInt(stats.builder_visible_total_tokens ?? builderStatsVesting.total_allocation, 0)
+: 0,
+builder_unlocked_allocation_tokens: marketActive
+? builderStatsVesting.unlocked_amount
+: 0,
+builder_locked_allocation_tokens: marketActive
+? builderStatsVesting.locked_amount
 : 0,
 builder_vesting_percent_unlocked: marketActive
-? toNumber(stats.builder_vesting_percent_unlocked, 0)
+? builderStatsVesting.percent_unlocked
 : 0,
 builder_vesting_days_live: marketActive
-? toInt(stats.builder_vesting_days_live, 0)
+? builderStatsVesting.vesting_days_live
 : 0,
+builder_vested_days: marketActive ? builderStatsVesting.vested_days : 0,
 builder_daily_unlock_tokens: marketActive
-? toInt(stats.builder_daily_unlock_tokens, 0)
+? builderStatsVesting.daily_unlock
 : 0,
+builder_cliff_days: BUILDER_CLIFF_DAYS,
+builder_vesting_days: BUILDER_VESTING_DAYS,
+builder_unlock_days: BUILDER_UNLOCK_DAYS,
+builder_daily_unlock_pct: BUILDER_DAILY_UNLOCK_PCT,
+builder_total_allocation_pct: BUILDER_TOTAL_ALLOCATION_PCT,
+builder_vesting_start_at: marketActive
+? builderStatsVesting.vesting_start_at || null
+: null,
+builder_vesting_rule: marketActive ? BUILDER_VESTING_RULE : "",
 };
 }
 
@@ -706,6 +1070,8 @@ const phase = buildPhaseMeta(launch);
 if (!raw || typeof raw !== "object" || !phase.market_enabled) {
 return null;
 }
+
+const graduated = lifecycleGraduated(raw);
 
 return {
 internal_sol_reserve: toNumber(
@@ -723,12 +1089,12 @@ raw.implied_marketcap_sol ?? raw.impliedMarketcapSol,
 
 graduation_status:
 cleanText(raw.graduation_status ?? raw.graduationStatus, 120) ||
-"internal_live",
+(graduated ? "graduated" : "internal_live"),
 surge_status:
 cleanText(raw.surge_status ?? raw.surgeStatus ?? raw.graduation_status, 120) ||
-"internal_live",
+(graduated ? "surged" : "internal_live"),
 
-graduated: Boolean(raw.graduated),
+graduated,
 graduation_reason:
 cleanText(raw.graduation_reason ?? raw.graduationReason, 200) || null,
 graduated_at: raw.graduated_at ?? raw.graduatedAt ?? null,
@@ -755,7 +1121,8 @@ raw.raydium_token_migrated ?? raw.raydiumTokenMigrated,
 raydium_lp_tokens:
 cleanText(raw.raydium_lp_tokens ?? raw.raydiumLpTokens, 200) || null,
 raydium_migration_tx:
-cleanText(raw.raydium_migration_tx ?? raw.raydiumMigrationTx, 300) || null,
+cleanText(raw.raydium_migration_tx ?? raw.raydiumMigrationTx, 300) ||
+null,
 
 mss_locked_sol: toNumber(raw.mss_locked_sol ?? raw.mssLockedSol, 0),
 mss_locked_token: toInt(raw.mss_locked_token ?? raw.mssLockedToken, 0),
@@ -788,38 +1155,95 @@ reason: cleanText(readiness.reason, 500) || "",
 thresholds:
 readiness.thresholds && typeof readiness.thresholds === "object"
 ? {
-marketcapSol: toNumber(readiness.thresholds.marketcapSol, 0),
-volume24hSol: toNumber(readiness.thresholds.volume24hSol, 0),
-minHolders: toInt(readiness.thresholds.minHolders, 0),
-minLiveMinutes: toInt(readiness.thresholds.minLiveMinutes, 0),
-lockDays: toInt(readiness.thresholds.lockDays, 0),
+marketcapSol: toNumber(
+readiness.thresholds.marketcapSol ??
+readiness.thresholds.marketcap_sol,
+0
+),
+volume24hSol: toNumber(
+readiness.thresholds.volume24hSol ??
+readiness.thresholds.volume24h_sol,
+0
+),
+minHolders: toInt(
+readiness.thresholds.minHolders ?? readiness.thresholds.min_holders,
+0
+),
+minLiveMinutes: toInt(
+readiness.thresholds.minLiveMinutes ??
+readiness.thresholds.min_live_minutes,
+0
+),
+lockDays: toInt(
+readiness.thresholds.lockDays ?? readiness.thresholds.lock_days,
+0
+),
 }
 : null,
 metrics:
 readiness.metrics && typeof readiness.metrics === "object"
 ? {
-marketcapSol: toNumber(readiness.metrics.marketcapSol, 0),
-volume24hSol: toNumber(readiness.metrics.volume24hSol, 0),
-holderCount: toInt(readiness.metrics.holderCount, 0),
-liveMinutes: toInt(readiness.metrics.liveMinutes, 0),
-solReserve: toNumber(readiness.metrics.solReserve, 0),
-tokenReserve: toInt(readiness.metrics.tokenReserve, 0),
-priceSol: toNumber(readiness.metrics.priceSol, 0),
-totalSupply: toInt(readiness.metrics.totalSupply, 0),
+marketcapSol: toNumber(
+readiness.metrics.marketcapSol ?? readiness.metrics.marketcap_sol,
+0
+),
+volume24hSol: toNumber(
+readiness.metrics.volume24hSol ?? readiness.metrics.volume24h_sol,
+0
+),
+holderCount: toInt(
+readiness.metrics.holderCount ?? readiness.metrics.holder_count,
+0
+),
+liveMinutes: toInt(
+readiness.metrics.liveMinutes ?? readiness.metrics.live_minutes,
+0
+),
+solReserve: toNumber(
+readiness.metrics.solReserve ?? readiness.metrics.sol_reserve,
+0
+),
+tokenReserve: toInt(
+readiness.metrics.tokenReserve ?? readiness.metrics.token_reserve,
+0
+),
+priceSol: toNumber(
+readiness.metrics.priceSol ?? readiness.metrics.price_sol,
+0
+),
+totalSupply: toInt(
+readiness.metrics.totalSupply ?? readiness.metrics.total_supply,
+0
+),
 }
 : null,
 checks:
 readiness.checks && typeof readiness.checks === "object"
 ? {
-liveStatus: Boolean(readiness.checks.liveStatus),
-marketcapReached: Boolean(readiness.checks.marketcapReached),
-volumeReached: Boolean(readiness.checks.volumeReached),
-holdersReached: Boolean(readiness.checks.holdersReached),
-minimumLiveWindowReached: Boolean(
-readiness.checks.minimumLiveWindowReached
+liveStatus: Boolean(
+readiness.checks.liveStatus ?? readiness.checks.live_status
 ),
-hasReserves: Boolean(readiness.checks.hasReserves),
-alreadyGraduated: Boolean(readiness.checks.alreadyGraduated),
+marketcapReached: Boolean(
+readiness.checks.marketcapReached ??
+readiness.checks.marketcap_reached
+),
+volumeReached: Boolean(
+readiness.checks.volumeReached ?? readiness.checks.volume_reached
+),
+holdersReached: Boolean(
+readiness.checks.holdersReached ?? readiness.checks.holders_reached
+),
+minimumLiveWindowReached: Boolean(
+readiness.checks.minimumLiveWindowReached ??
+readiness.checks.minimum_live_window_reached
+),
+hasReserves: Boolean(
+readiness.checks.hasReserves ?? readiness.checks.has_reserves
+),
+alreadyGraduated: Boolean(
+readiness.checks.alreadyGraduated ??
+readiness.checks.already_graduated
+),
 }
 : null,
 };
@@ -831,17 +1255,54 @@ if (!raw || typeof raw !== "object" || !phase.market_enabled) {
 return null;
 }
 
+const fixed = computeBuilderVestingFromRule(raw, launch, {
+allowSupplyFallback: true,
+});
+
 return {
 builder_wallet:
 cleanText(raw.builder_wallet ?? raw.builderWallet, 120) || null,
-total_allocation: toInt(raw.total_allocation ?? raw.totalAllocation, 0),
-daily_unlock: toInt(raw.daily_unlock ?? raw.dailyUnlock, 0),
-unlocked_amount: toInt(raw.unlocked_amount ?? raw.unlockedAmount, 0),
-locked_amount: toInt(raw.locked_amount ?? raw.lockedAmount, 0),
-vesting_start_at: raw.vesting_start_at ?? raw.vestingStartAt ?? null,
+builderWallet:
+cleanText(raw.builderWallet ?? raw.builder_wallet, 120) || null,
+
+total_allocation: fixed.total_allocation,
+totalAllocation: fixed.totalAllocation,
+daily_unlock: fixed.daily_unlock,
+dailyUnlock: fixed.dailyUnlock,
+unlocked_amount: fixed.unlocked_amount,
+unlockedAmount: fixed.unlockedAmount,
+locked_amount: fixed.locked_amount,
+lockedAmount: fixed.lockedAmount,
+
+vesting_start_at: fixed.vesting_start_at,
+vestingStartAt: fixed.vestingStartAt,
 created_at: raw.created_at ?? raw.createdAt ?? null,
+createdAt: raw.createdAt ?? raw.created_at ?? null,
 updated_at: raw.updated_at ?? raw.updatedAt ?? null,
-vested_days: toInt(raw.vested_days ?? raw.vestedDays, 0),
+updatedAt: raw.updatedAt ?? raw.updated_at ?? null,
+
+vested_days: fixed.vested_days,
+vestedDays: fixed.vestedDays,
+vesting_days_live: fixed.vesting_days_live,
+vestingDaysLive: fixed.vestingDaysLive,
+
+cliff_days: BUILDER_CLIFF_DAYS,
+cliffDays: BUILDER_CLIFF_DAYS,
+vesting_days: BUILDER_VESTING_DAYS,
+vestingDays: BUILDER_VESTING_DAYS,
+unlock_days: BUILDER_UNLOCK_DAYS,
+unlockDays: BUILDER_UNLOCK_DAYS,
+
+daily_unlock_pct: BUILDER_DAILY_UNLOCK_PCT,
+dailyUnlockPct: BUILDER_DAILY_UNLOCK_PCT,
+total_allocation_pct: BUILDER_TOTAL_ALLOCATION_PCT,
+totalAllocationPct: BUILDER_TOTAL_ALLOCATION_PCT,
+
+percent_unlocked: fixed.percent_unlocked,
+percentUnlocked: fixed.percentUnlocked,
+
+rule: BUILDER_VESTING_RULE,
+builder_vesting_rule: BUILDER_VESTING_RULE,
 };
 }
 
@@ -899,7 +1360,7 @@ participants_count: toInt(row.participants_count, 0),
 hard_cap_sol: toNumber(row.hard_cap_sol, 0),
 min_raise_sol: toNumber(row.min_raise_sol, 0),
 
-builder_pct: toNumber(row.builder_pct, 0),
+builder_pct: toNumber(row.builder_pct, BUILDER_TOTAL_ALLOCATION_PCT),
 team_allocation_pct: toNumber(row.team_allocation_pct, 0),
 
 countdown_started_at: row.countdown_started_at || null,
@@ -947,10 +1408,7 @@ return null;
 }
 }
 
-function buildWalletPayload(snapshotWallet = {}, stats = {}, launch = null) {
-const phase = buildPhaseMeta(launch);
-
-if (!phase.market_enabled) {
+function buildEmptyWalletPayload(phase) {
 return {
 token_balance: 0,
 tokenBalance: 0,
@@ -977,6 +1435,8 @@ lockedBalance: 0,
 locked_token_balance: 0,
 lockedTokenBalance: 0,
 
+position_value_sol: 0,
+positionValueSol: 0,
 position_value_usd: 0,
 positionValueUsd: 0,
 
@@ -988,22 +1448,58 @@ walletSolDelta: 0,
 
 wallet_is_builder: false,
 is_builder_wallet: false,
+is_participant_wallet: false,
+is_team_wallet: false,
 vesting_active: false,
 wallet_vesting_active: false,
+
+participant_total_allocation_tokens: 0,
+participant_unlocked_tokens: 0,
+participant_locked_tokens: 0,
+participant_sellable_tokens: 0,
+participant_vesting_percent_unlocked: 0,
+participant_vesting_days_live: 0,
+participant_vesting_days: 0,
+participant_vesting_label: "",
+
+team_total_allocation_tokens: 0,
+team_unlocked_tokens: 0,
+team_locked_tokens: 0,
+team_sellable_tokens: 0,
+team_vesting_percent_unlocked: 0,
+team_cliff_days: TEAM_CLIFF_DAYS,
+team_vesting_days: TEAM_VESTING_DAYS,
 
 builder_total_allocation_tokens: 0,
 builder_unlocked_tokens: 0,
 builder_locked_tokens: 0,
 builder_sellable_tokens: 0,
 builder_visible_total_tokens: 0,
+builder_unlocked_allocation_tokens: 0,
+builder_locked_allocation_tokens: 0,
 builder_vesting_percent_unlocked: 0,
 builder_vesting_days_live: 0,
+builder_vested_days: 0,
 builder_daily_unlock_tokens: 0,
+builder_cliff_days: BUILDER_CLIFF_DAYS,
+builder_vesting_days: BUILDER_VESTING_DAYS,
+builder_unlock_days: BUILDER_UNLOCK_DAYS,
+builder_daily_unlock_pct: BUILDER_DAILY_UNLOCK_PCT,
+builder_total_allocation_pct: BUILDER_TOTAL_ALLOCATION_PCT,
+builder_vesting_start_at: null,
+builder_vesting_rule: BUILDER_VESTING_RULE,
 
 phase,
 market_enabled: false,
 can_trade: false,
 };
+}
+
+function buildWalletPayload(snapshotWallet = {}, stats = {}, launch = null, builderVesting = null) {
+const phase = buildPhaseMeta(launch);
+
+if (!phase.market_enabled) {
+return buildEmptyWalletPayload(phase);
 }
 
 const walletTokenBalance = toInt(
@@ -1065,6 +1561,18 @@ Math.max(0, walletVisibleTotalBalance - walletUnlockedBalance),
 Math.max(0, walletVisibleTotalBalance - walletUnlockedBalance)
 );
 
+const walletPositionValueSol = toNumber(
+chooseFirstFinite(
+snapshotWallet.position_value_sol,
+snapshotWallet.positionValueSol,
+stats.wallet_position_value_sol,
+stats.price_sol && walletVisibleTotalBalance > 0
+? Number(stats.price_sol) * walletVisibleTotalBalance
+: 0
+),
+0
+);
+
 const walletPositionValueUsd = toNumber(
 chooseFirstFinite(
 snapshotWallet.position_value_usd,
@@ -1095,25 +1603,92 @@ walletSolBalance
 );
 
 const walletIsBuilder = Boolean(
-snapshotWallet.wallet_is_builder ??
-snapshotWallet.is_builder_wallet ??
-stats.wallet_is_builder ??
-stats.is_builder_wallet ??
-false
+snapshotWallet.wallet_is_builder ||
+snapshotWallet.is_builder_wallet ||
+stats.wallet_is_builder ||
+stats.is_builder_wallet
+);
+
+const walletIsParticipant = Boolean(
+snapshotWallet.is_participant_wallet || stats.is_participant_wallet
+);
+
+const walletIsTeam = Boolean(
+snapshotWallet.is_team_wallet || stats.is_team_wallet
 );
 
 const walletVestingActive = Boolean(
-snapshotWallet.wallet_vesting_active ??
-snapshotWallet.vesting_active ??
-stats.wallet_vesting_active ??
-false
+snapshotWallet.wallet_vesting_active ||
+snapshotWallet.vesting_active ||
+stats.wallet_vesting_active ||
+stats.vesting_active
 );
+
+const fixedBuilderVesting =
+builderVesting ||
+(walletIsBuilder
+? computeBuilderVestingFromRule(
+{
+total_allocation:
+snapshotWallet.builder_total_allocation_tokens ??
+stats.builder_total_allocation_tokens,
+daily_unlock:
+snapshotWallet.builder_daily_unlock_tokens ??
+stats.builder_daily_unlock_tokens,
+unlocked_amount:
+snapshotWallet.builder_unlocked_allocation_tokens ??
+stats.builder_unlocked_allocation_tokens ??
+snapshotWallet.builder_unlocked_tokens ??
+stats.builder_unlocked_tokens,
+locked_amount:
+snapshotWallet.builder_locked_allocation_tokens ??
+stats.builder_locked_allocation_tokens ??
+snapshotWallet.builder_locked_tokens ??
+stats.builder_locked_tokens,
+vesting_start_at:
+snapshotWallet.builder_vesting_start_at ??
+stats.builder_vesting_start_at,
+vested_days:
+snapshotWallet.builder_vested_days ?? stats.builder_vested_days,
+vesting_days_live:
+snapshotWallet.builder_vesting_days_live ??
+stats.builder_vesting_days_live,
+},
+launch,
+{ allowSupplyFallback: true }
+)
+: computeBuilderVestingFromRule({}, launch, { allowSupplyFallback: false }));
 
 const builderVisibleTotalTokens = toInt(
 snapshotWallet.builder_visible_total_tokens ??
 stats.builder_visible_total_tokens ??
+fixedBuilderVesting?.total_allocation ??
 walletVisibleTotalBalance,
 walletVisibleTotalBalance
+);
+
+const builderTotalAllocationTokens = toInt(
+fixedBuilderVesting?.total_allocation ??
+fixedBuilderVesting?.totalAllocation ??
+snapshotWallet.builder_total_allocation_tokens ??
+stats.builder_total_allocation_tokens,
+0
+);
+
+const builderUnlockedAllocationTokens = toInt(
+fixedBuilderVesting?.unlocked_amount ??
+fixedBuilderVesting?.unlockedAmount ??
+snapshotWallet.builder_unlocked_allocation_tokens ??
+stats.builder_unlocked_allocation_tokens,
+0
+);
+
+const builderLockedAllocationTokens = toInt(
+fixedBuilderVesting?.locked_amount ??
+fixedBuilderVesting?.lockedAmount ??
+snapshotWallet.builder_locked_allocation_tokens ??
+stats.builder_locked_allocation_tokens,
+0
 );
 
 return {
@@ -1144,6 +1719,8 @@ lockedBalance: walletLockedBalance,
 locked_token_balance: walletLockedBalance,
 lockedTokenBalance: walletLockedBalance,
 
+position_value_sol: walletPositionValueSol,
+positionValueSol: walletPositionValueSol,
 position_value_usd: walletPositionValueUsd,
 positionValueUsd: walletPositionValueUsd,
 
@@ -1155,45 +1732,126 @@ walletSolDelta: walletSolDelta,
 
 wallet_is_builder: walletIsBuilder,
 is_builder_wallet: walletIsBuilder,
+is_participant_wallet: walletIsParticipant,
+is_team_wallet: walletIsTeam,
 vesting_active: walletVestingActive,
 wallet_vesting_active: walletVestingActive,
 
-builder_total_allocation_tokens: toInt(
-snapshotWallet.builder_total_allocation_tokens ??
-stats.builder_total_allocation_tokens,
+participant_total_allocation_tokens: toInt(
+snapshotWallet.participant_total_allocation_tokens ??
+stats.participant_total_allocation_tokens,
 0
 ),
-builder_unlocked_tokens: toInt(
-snapshotWallet.builder_unlocked_tokens ??
-stats.builder_unlocked_tokens,
+participant_unlocked_tokens: toInt(
+snapshotWallet.participant_unlocked_tokens ??
+stats.participant_unlocked_tokens,
 0
 ),
-builder_locked_tokens: toInt(
-snapshotWallet.builder_locked_tokens ??
-stats.builder_locked_tokens,
+participant_locked_tokens: toInt(
+snapshotWallet.participant_locked_tokens ?? stats.participant_locked_tokens,
 0
 ),
+participant_sellable_tokens: toInt(
+snapshotWallet.participant_sellable_tokens ??
+stats.participant_sellable_tokens,
+0
+),
+participant_vesting_percent_unlocked: toNumber(
+snapshotWallet.participant_vesting_percent_unlocked ??
+stats.participant_vesting_percent_unlocked,
+0
+),
+participant_vesting_days_live: toInt(
+snapshotWallet.participant_vesting_days_live ??
+stats.participant_vesting_days_live,
+0
+),
+participant_vesting_days: toInt(
+snapshotWallet.participant_vesting_days ?? stats.participant_vesting_days,
+0
+),
+participant_vesting_label: cleanText(
+snapshotWallet.participant_vesting_label ?? stats.participant_vesting_label,
+200
+),
+
+team_total_allocation_tokens: toInt(
+snapshotWallet.team_total_allocation_tokens ??
+stats.team_total_allocation_tokens,
+0
+),
+team_unlocked_tokens: toInt(
+snapshotWallet.team_unlocked_tokens ?? stats.team_unlocked_tokens,
+0
+),
+team_locked_tokens: toInt(
+snapshotWallet.team_locked_tokens ?? stats.team_locked_tokens,
+0
+),
+team_sellable_tokens: toInt(
+snapshotWallet.team_sellable_tokens ?? stats.team_sellable_tokens,
+0
+),
+team_vesting_percent_unlocked: toNumber(
+snapshotWallet.team_vesting_percent_unlocked ??
+stats.team_vesting_percent_unlocked,
+0
+),
+team_cliff_days: TEAM_CLIFF_DAYS,
+team_vesting_days: TEAM_VESTING_DAYS,
+
+builder_total_allocation_tokens: builderTotalAllocationTokens,
+builder_unlocked_tokens: builderUnlockedAllocationTokens,
+builder_locked_tokens: builderLockedAllocationTokens,
 builder_sellable_tokens: toInt(
 snapshotWallet.builder_sellable_tokens ??
-stats.builder_sellable_tokens,
+stats.builder_sellable_tokens ??
+walletSellableBalance,
 0
 ),
 builder_visible_total_tokens: builderVisibleTotalTokens,
+builder_unlocked_allocation_tokens: builderUnlockedAllocationTokens,
+builder_locked_allocation_tokens: builderLockedAllocationTokens,
 builder_vesting_percent_unlocked: toNumber(
+fixedBuilderVesting?.percent_unlocked ??
+fixedBuilderVesting?.percentUnlocked ??
 snapshotWallet.builder_vesting_percent_unlocked ??
 stats.builder_vesting_percent_unlocked,
 0
 ),
 builder_vesting_days_live: toInt(
+fixedBuilderVesting?.vesting_days_live ??
+fixedBuilderVesting?.vestingDaysLive ??
 snapshotWallet.builder_vesting_days_live ??
 stats.builder_vesting_days_live,
 0
 ),
+builder_vested_days: toInt(
+fixedBuilderVesting?.vested_days ??
+fixedBuilderVesting?.vestedDays ??
+snapshotWallet.builder_vested_days ??
+stats.builder_vested_days,
+0
+),
 builder_daily_unlock_tokens: toInt(
+fixedBuilderVesting?.daily_unlock ??
+fixedBuilderVesting?.dailyUnlock ??
 snapshotWallet.builder_daily_unlock_tokens ??
 stats.builder_daily_unlock_tokens,
 0
 ),
+builder_cliff_days: BUILDER_CLIFF_DAYS,
+builder_vesting_days: BUILDER_VESTING_DAYS,
+builder_unlock_days: BUILDER_UNLOCK_DAYS,
+builder_daily_unlock_pct: BUILDER_DAILY_UNLOCK_PCT,
+builder_total_allocation_pct: BUILDER_TOTAL_ALLOCATION_PCT,
+builder_vesting_start_at:
+fixedBuilderVesting?.vesting_start_at ??
+fixedBuilderVesting?.vestingStartAt ??
+snapshotWallet.builder_vesting_start_at ??
+stats.builder_vesting_start_at ??
+null,
+builder_vesting_rule: BUILDER_VESTING_RULE,
 
 phase,
 market_enabled: true,
@@ -1407,13 +2065,28 @@ can_trade: false,
 
 const snapshotStats = sanitizeStatsForResponse(snapshot?.stats || {}, rawLaunch);
 const snapshotLaunch = sanitizeLaunchForResponse(rawLaunch, snapshotStats);
-const lifecycle = normalizeLifecycle(lifecycleRaw, rawLaunch);
+
+const lifecycleSource =
+lifecycleRaw ||
+rawLaunch?.lifecycle ||
+snapshotLaunch?.lifecycle ||
+null;
+
+const lifecycle = normalizeLifecycle(lifecycleSource, rawLaunch);
 const graduationReadiness = normalizeGraduationReadiness(
-extractGraduationReadiness(lifecycleRaw),
+extractGraduationReadiness(lifecycleSource),
 rawLaunch
 );
+
+const builderVestingSource =
+lifecycleSource?.builderVesting ||
+lifecycleSource?.builder_vesting ||
+rawLaunch?.builder_vesting ||
+snapshotLaunch?.builder_vesting ||
+{};
+
 const builderVesting = normalizeBuilderVestingSummary(
-lifecycleRaw?.builderVesting || lifecycleRaw?.builder_vesting || {},
+builderVestingSource,
 rawLaunch
 );
 
@@ -1434,7 +2107,8 @@ snapshotLaunch?.mint_address,
 const walletPayload = buildWalletPayload(
 snapshot?.wallet || {},
 snapshotStats,
-rawLaunch
+rawLaunch,
+builderVesting
 );
 
 const tokenPayload = sanitizeTokenForResponse(
@@ -1512,7 +2186,7 @@ wallet: walletPayload,
 
 lifecycle,
 graduationPlan,
-graduationReadiness: graduationReadiness,
+graduationReadiness,
 graduation_readiness: graduationReadiness,
 
 builderVesting,

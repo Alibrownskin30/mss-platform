@@ -8,6 +8,8 @@ const INTERVAL_TO_MS = {
 "1d": 24 * 60 * 60_000,
 };
 
+const MAX_SYNTHETIC_FILL_MULTIPLIER = 2;
+
 function toNumber(value, fallback = 0) {
 if (value === null || value === undefined || value === "") return fallback;
 const num = Number(value);
@@ -21,7 +23,8 @@ return Number(num.toFixed(decimals));
 }
 
 function normalizeInterval(interval = "1m") {
-return INTERVAL_TO_MS[interval] ? interval : "1m";
+const key = String(interval || "1m").trim().toLowerCase();
+return INTERVAL_TO_MS[key] ? key : "1m";
 }
 
 function toTimestampMs(value) {
@@ -69,6 +72,18 @@ function normalizeSide(value) {
 return String(value || "buy").toLowerCase() === "sell" ? "sell" : "buy";
 }
 
+function getTradeBaseAmount(trade = {}) {
+return Math.abs(
+toNumber(trade.base_amount ?? trade.sol_amount ?? trade.amount_base, 0)
+);
+}
+
+function getTradeTokenAmount(trade = {}) {
+return Math.abs(
+toNumber(trade.token_amount ?? trade.amount_token ?? trade.amount, 0)
+);
+}
+
 function derivePrice(trade = {}) {
 const directPrice = toNumber(
 trade.price_sol ?? trade.price ?? trade.execution_price,
@@ -79,14 +94,8 @@ if (directPrice > 0) {
 return directPrice;
 }
 
-const baseAmount = toNumber(
-trade.base_amount ?? trade.sol_amount ?? trade.amount_base,
-0
-);
-const tokenAmount = toNumber(
-trade.token_amount ?? trade.amount_token ?? trade.amount,
-0
-);
+const baseAmount = getTradeBaseAmount(trade);
+const tokenAmount = getTradeTokenAmount(trade);
 
 if (baseAmount > 0 && tokenAmount > 0) {
 return baseAmount / tokenAmount;
@@ -105,14 +114,8 @@ null;
 
 const timestampMs = toTimestampMs(timestampRaw);
 const price = derivePrice(trade);
-const tokenAmount = toNumber(
-trade.token_amount ?? trade.amount_token ?? trade.amount,
-0
-);
-const baseAmount = toNumber(
-trade.base_amount ?? trade.sol_amount ?? trade.amount_base,
-0
-);
+const tokenAmount = getTradeTokenAmount(trade);
+const baseAmount = getTradeBaseAmount(trade);
 
 return {
 id: trade.id ?? null,
@@ -129,7 +132,9 @@ function getBucketStart(timestamp, interval) {
 const normalizedInterval = normalizeInterval(interval);
 const ms = INTERVAL_TO_MS[normalizedInterval];
 const time = toTimestampMs(timestamp);
+
 if (!Number.isFinite(time)) return null;
+
 return Math.floor(time / ms) * ms;
 }
 
@@ -153,11 +158,22 @@ lastTradeAt = null,
 isSynthetic = false,
 }) {
 const safeOpen = round(open);
-const safeHigh = round(high);
-const safeLow = round(low);
+const safeHigh = round(Math.max(toNumber(high, safeOpen), safeOpen));
+const safeLow = round(
+toNumber(low, safeOpen) > 0
+? Math.min(toNumber(low, safeOpen), safeOpen)
+: safeOpen
+);
 const safeClose = round(close);
-const safeVolumeBase = round(volumeBase);
-const safeVolumeToken = round(volumeToken);
+const safeVolumeBase = round(Math.abs(toNumber(volumeBase, 0)));
+const safeVolumeToken = round(Math.abs(toNumber(volumeToken, 0)));
+
+const safeBuys = Math.max(0, Math.floor(toNumber(buys, 0)));
+const safeSells = Math.max(0, Math.floor(toNumber(sells, 0)));
+const safeTradeCount = Math.max(
+0,
+Math.floor(toNumber(tradeCount, safeBuys + safeSells))
+);
 
 const vwap =
 safeVolumeToken > 0 ? round(safeVolumeBase / safeVolumeToken) : safeClose;
@@ -166,8 +182,14 @@ const change = round(safeClose - safeOpen);
 const changePct =
 safeOpen > 0 ? round(((safeClose - safeOpen) / safeOpen) * 100, 8) : 0;
 
+const bucketStartIso = toIsoString(bucketStart);
+
 return {
-bucket_start: toIsoString(bucketStart),
+bucket_start: bucketStartIso,
+bucket_start_ms: Number.isFinite(bucketStart) ? bucketStart : null,
+timestamp: bucketStartIso,
+time: bucketStartIso,
+
 open: safeOpen,
 high: safeHigh,
 low: safeLow,
@@ -177,16 +199,16 @@ volume_base: safeVolumeBase,
 volume_sol: safeVolumeBase,
 volume_token: safeVolumeToken,
 
-buys,
-sells,
-trade_count: tradeCount,
+buys: safeBuys,
+sells: safeSells,
+trade_count: safeTradeCount,
 
-buy_volume_base: round(buyVolumeBase),
-buy_volume_sol: round(buyVolumeBase),
-sell_volume_base: round(sellVolumeBase),
-sell_volume_sol: round(sellVolumeBase),
-buy_volume_token: round(buyVolumeToken),
-sell_volume_token: round(sellVolumeToken),
+buy_volume_base: round(Math.abs(toNumber(buyVolumeBase, 0))),
+buy_volume_sol: round(Math.abs(toNumber(buyVolumeBase, 0))),
+sell_volume_base: round(Math.abs(toNumber(sellVolumeBase, 0))),
+sell_volume_sol: round(Math.abs(toNumber(sellVolumeBase, 0))),
+buy_volume_token: round(Math.abs(toNumber(buyVolumeToken, 0))),
+sell_volume_token: round(Math.abs(toNumber(sellVolumeToken, 0))),
 
 vwap,
 first_trade_at: firstTradeAt,
@@ -269,17 +291,20 @@ isSynthetic: false,
 }
 
 function normalizeExistingCandle(candle = {}) {
-const bucketStartMs = toTimestampMs(candle.bucket_start);
+const bucketStartMs = toTimestampMs(
+candle.bucket_start ?? candle.timestamp ?? candle.time
+);
+
 const open = toNumber(candle.open, 0);
 const high = toNumber(candle.high, open);
 const low = toNumber(candle.low, open);
 const close = toNumber(candle.close, open);
 
-const volumeBase = toNumber(
-candle.volume_base ?? candle.volume_sol,
-0
+const volumeBase = Math.abs(
+toNumber(candle.volume_base ?? candle.volume_sol, 0)
 );
-const volumeToken = toNumber(candle.volume_token, 0);
+
+const volumeToken = Math.abs(toNumber(candle.volume_token, 0));
 
 const buys = Math.max(0, Math.floor(toNumber(candle.buys, 0)));
 const sells = Math.max(0, Math.floor(toNumber(candle.sells, 0)));
@@ -298,16 +323,14 @@ tradeCount: Math.max(
 0,
 Math.floor(toNumber(candle.trade_count, buys + sells))
 ),
-buyVolumeBase: toNumber(
-candle.buy_volume_base ?? candle.buy_volume_sol,
-0
+buyVolumeBase: Math.abs(
+toNumber(candle.buy_volume_base ?? candle.buy_volume_sol, 0)
 ),
-sellVolumeBase: toNumber(
-candle.sell_volume_base ?? candle.sell_volume_sol,
-0
+sellVolumeBase: Math.abs(
+toNumber(candle.sell_volume_base ?? candle.sell_volume_sol, 0)
 ),
-buyVolumeToken: toNumber(candle.buy_volume_token, 0),
-sellVolumeToken: toNumber(candle.sell_volume_token, 0),
+buyVolumeToken: Math.abs(toNumber(candle.buy_volume_token, 0)),
+sellVolumeToken: Math.abs(toNumber(candle.sell_volume_token, 0)),
 firstTradeAt: candle.first_trade_at || null,
 lastTradeAt: candle.last_trade_at || null,
 isSynthetic: Boolean(candle.is_synthetic),
@@ -338,20 +361,35 @@ isSynthetic: true,
 });
 }
 
+function sortTradesForCandles(a, b) {
+if (a.timestampMs !== b.timestampMs) {
+return a.timestampMs - b.timestampMs;
+}
+
+const aId = Number(a.id);
+const bId = Number(b.id);
+
+if (Number.isFinite(aId) && Number.isFinite(bId) && aId !== bId) {
+return aId - bId;
+}
+
+return String(a.id || "").localeCompare(String(b.id || ""));
+}
+
 export function buildCandlesFromTrades(trades = [], interval = "1m") {
 const normalizedInterval = normalizeInterval(interval);
 const bucketMap = new Map();
 
 const normalizedTrades = (Array.isArray(trades) ? trades : [])
 .map(normalizeTrade)
-.filter((trade) => Number.isFinite(trade.timestampMs) && trade.price > 0)
-.sort((a, b) => {
-if (a.timestampMs !== b.timestampMs) {
-return a.timestampMs - b.timestampMs;
-}
-
-return String(a.id || "").localeCompare(String(b.id || ""));
-});
+.filter(
+(trade) =>
+Number.isFinite(trade.timestampMs) &&
+trade.price > 0 &&
+trade.tokenAmount >= 0 &&
+trade.baseAmount >= 0
+)
+.sort(sortTradesForCandles);
 
 for (const trade of normalizedTrades) {
 const bucketStart = getBucketStart(trade.timestampMs, normalizedInterval);
@@ -379,8 +417,13 @@ if (!Array.isArray(candles) || !candles.length) return [];
 const normalizedInterval = normalizeInterval(interval);
 const ms = INTERVAL_TO_MS[normalizedInterval];
 const safeLimit = Math.max(1, Math.floor(toNumber(limit, 120)));
+const syntheticCap = Math.max(
+1,
+Math.floor(safeLimit * MAX_SYNTHETIC_FILL_MULTIPLIER)
+);
 
-const sorted = [...candles]
+const sorted = candles
+.map(normalizeExistingCandle)
 .filter((candle) => Number.isFinite(toTimestampMs(candle?.bucket_start)))
 .sort((a, b) => toTimestampMs(a.bucket_start) - toTimestampMs(b.bucket_start));
 
@@ -390,31 +433,37 @@ const out = [];
 let prev = null;
 
 for (const candle of sorted) {
-const normalizedCandle = normalizeExistingCandle(candle);
-const currentTs = toTimestampMs(normalizedCandle.bucket_start);
+const currentTs = toTimestampMs(candle.bucket_start);
 
 if (prev) {
 const prevTs = toTimestampMs(prev.bucket_start);
-let nextTs = prevTs + ms;
+const gapCount = Math.max(0, Math.floor((currentTs - prevTs) / ms) - 1);
 
-while (nextTs < currentTs) {
+if (gapCount > 0) {
+const fillCount = Math.min(gapCount, syntheticCap);
+
+/*
+Large inactive gaps are capped so old launches cannot generate
+thousands of synthetic candles and stall API responses.
+For very large gaps, we only fill the latest portion before the
+next real candle.
+*/
+const firstSyntheticTs = currentTs - fillCount * ms;
+
+for (let nextTs = firstSyntheticTs; nextTs < currentTs; nextTs += ms) {
+if (nextTs <= prevTs) continue;
 out.push(createSyntheticCandle(nextTs, prev.close));
-
-if (out.length > safeLimit * 2) {
-out.splice(0, out.length - safeLimit * 2);
 }
-
-nextTs += ms;
 }
 }
 
-out.push(normalizedCandle);
+out.push(candle);
 
-if (out.length > safeLimit * 2) {
-out.splice(0, out.length - safeLimit * 2);
+if (out.length > safeLimit + syntheticCap) {
+out.splice(0, out.length - (safeLimit + syntheticCap));
 }
 
-prev = normalizedCandle;
+prev = candle;
 }
 
 return out.slice(-safeLimit);

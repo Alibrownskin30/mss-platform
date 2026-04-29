@@ -1,8 +1,51 @@
 import db from "../../db/index.js";
 
 const DEFAULT_PARTICIPANT_PCT = 45;
-const BONUS_PARTICIPANT_PCT = 3;
 const DEFAULT_LIQUIDITY_PCT = 20;
+const DEFAULT_MAX_WALLET_ALLOCATION_PCT = 0.5;
+const DEFAULT_LAUNCH_FEE_PCT = 5;
+
+const TEMPLATE_BONUS_PCT = {
+degen: 20,
+degen_zone: 20,
+meme_lite: 25,
+meme_pro: 30,
+community: 25,
+builder: 25,
+};
+
+const TEMPLATE_PARTICIPANT_VESTING = {
+degen: {
+unlockPctAtLaunch: 40,
+vestingDays: 7,
+label: "40% unlocked at launch, 60% over 7 days",
+},
+degen_zone: {
+unlockPctAtLaunch: 40,
+vestingDays: 7,
+label: "40% unlocked at launch, 60% over 7 days",
+},
+meme_lite: {
+unlockPctAtLaunch: 35,
+vestingDays: 14,
+label: "35% unlocked at launch, 65% over 14 days",
+},
+meme_pro: {
+unlockPctAtLaunch: 25,
+vestingDays: 21,
+label: "25% unlocked at launch, 75% over 21 days",
+},
+community: {
+unlockPctAtLaunch: 25,
+vestingDays: 21,
+label: "25% unlocked at launch, 75% over 21 days",
+},
+builder: {
+unlockPctAtLaunch: 25,
+vestingDays: 21,
+label: "25% unlocked at launch, 75% over 21 days",
+},
+};
 
 function floorBig(n) {
 return Math.floor(Number(n || 0));
@@ -21,6 +64,10 @@ function cleanWallet(value) {
 return String(value || "").trim();
 }
 
+function cleanText(value, max = 5000) {
+return String(value ?? "").trim().slice(0, max);
+}
+
 function normalizeWalletKey(value) {
 return cleanWallet(value).toLowerCase();
 }
@@ -28,6 +75,7 @@ return cleanWallet(value).toLowerCase();
 function parseJsonArray(value) {
 if (Array.isArray(value)) return value;
 if (value == null || value === "") return [];
+
 try {
 const parsed = JSON.parse(String(value));
 return Array.isArray(parsed) ? parsed : [];
@@ -38,6 +86,7 @@ return [];
 
 function parseDbTime(value) {
 if (!value) return null;
+
 const raw = String(value).trim();
 if (!raw) return null;
 
@@ -61,20 +110,13 @@ function sum(items, fn) {
 return items.reduce((acc, item) => acc + Number(fn(item) || 0), 0);
 }
 
-function getBonusPctByFillRatio(fillRatio) {
-const pctFilled = Number(fillRatio || 0) * 100;
-
-if (pctFilled < 10) return 8;
-if (pctFilled < 30) return 5;
-if (pctFilled < 60) return 3;
-return 0;
-}
-
 function normalizeSupply(value) {
 const n = Number(value);
+
 if (!Number.isFinite(n) || n <= 0) {
 throw new Error("invalid total supply");
 }
+
 return Math.floor(n);
 }
 
@@ -100,6 +142,7 @@ const merged = {
 wallet: row.wallet,
 sol_amount: roundSol(row.sol_amount),
 };
+
 byWallet.set(key, merged);
 ordered.push(merged);
 continue;
@@ -112,6 +155,30 @@ existing.sol_amount = roundSol(existing.sol_amount + row.sol_amount);
 return ordered.filter((row) => row.wallet && row.sol_amount > 0);
 }
 
+function normalizeTemplate(value) {
+return cleanText(value, 80).toLowerCase() || "meme_lite";
+}
+
+function getTemplateBonusPct(launch) {
+const template = normalizeTemplate(launch?.template || launch?.launch_type);
+return safeNum(
+launch?.participant_bonus_pct,
+TEMPLATE_BONUS_PCT[template] ?? 25
+);
+}
+
+function getParticipantVestingProfile(launch) {
+const template = normalizeTemplate(launch?.template || launch?.launch_type);
+
+return (
+TEMPLATE_PARTICIPANT_VESTING[template] || {
+unlockPctAtLaunch: 25,
+vestingDays: 21,
+label: "25% unlocked at launch, 75% over 21 days",
+}
+);
+}
+
 function normalizeLaunch(row) {
 if (!row) return null;
 
@@ -121,7 +188,7 @@ committed_sol: safeNum(row.committed_sol, 0),
 participants_count: safeNum(row.participants_count, 0),
 min_raise_sol: safeNum(row.min_raise_sol, 0),
 hard_cap_sol: safeNum(row.hard_cap_sol, 0),
-launch_fee_pct: safeNum(row.launch_fee_pct, 5),
+launch_fee_pct: safeNum(row.launch_fee_pct, DEFAULT_LAUNCH_FEE_PCT),
 participants_pct: safeNum(row.participants_pct, DEFAULT_PARTICIPANT_PCT),
 liquidity_pct: safeNum(row.liquidity_pct, DEFAULT_LIQUIDITY_PCT),
 reserve_pct: safeNum(row.reserve_pct, 0),
@@ -129,11 +196,21 @@ builder_pct: safeNum(row.builder_pct, 0),
 team_allocation_pct: safeNum(row.team_allocation_pct, 0),
 builder_bond_sol: safeNum(row.builder_bond_sol, 0),
 builder_bond_paid: safeNum(row.builder_bond_paid, 0),
+max_wallet_allocation_pct: safeNum(
+row.max_wallet_allocation_pct,
+DEFAULT_MAX_WALLET_ALLOCATION_PCT
+),
+participant_bonus_pct: safeNum(
+row.participant_bonus_pct,
+TEMPLATE_BONUS_PCT[normalizeTemplate(row.template || row.launch_type)] ?? 25
+),
 team_wallet_breakdown: parseJsonArray(row.team_wallet_breakdown),
 countdown_ends_at: row.countdown_ends_at || null,
 live_at: row.live_at || null,
 team_wallets: parseJsonArray(row.team_wallets),
 builder_wallet: cleanWallet(row.builder_wallet),
+template: normalizeTemplate(row.template),
+launch_type: normalizeTemplate(row.launch_type),
 };
 }
 
@@ -168,6 +245,7 @@ const out = new Set();
 
 const normalizedBuilderWallet =
 normalizeWalletKey(builderWallet) || normalizeWalletKey(launch?.builder_wallet);
+
 if (normalizedBuilderWallet) {
 out.add(normalizedBuilderWallet);
 }
@@ -187,100 +265,6 @@ if (normalized) out.add(normalized);
 return out;
 }
 
-function buildParticipantBaseAllocations(commits, totalCommitted, baseParticipantTokens) {
-if (!commits.length || totalCommitted <= 0 || baseParticipantTokens <= 0) {
-return commits.map((row) => ({
-wallet: row.wallet,
-committed_sol: row.sol_amount,
-base_tokens: 0,
-}));
-}
-
-let distributed = 0;
-
-return commits.map((row, index) => {
-let baseTokens;
-
-if (index === commits.length - 1) {
-baseTokens = Math.max(0, baseParticipantTokens - distributed);
-} else {
-const share = row.sol_amount / totalCommitted;
-baseTokens = floorBig(baseParticipantTokens * share);
-distributed += baseTokens;
-}
-
-return {
-wallet: row.wallet,
-committed_sol: row.sol_amount,
-base_tokens: baseTokens,
-};
-});
-}
-
-function buildBonusAllocations({
-commits,
-hardCap,
-bonusPoolTokens,
-}) {
-if (!commits.length || bonusPoolTokens <= 0 || hardCap <= 0) {
-return commits.map((row) => ({
-wallet: row.wallet,
-committed_sol: row.sol_amount,
-bonus_pct: 0,
-bonus_tokens_raw: 0,
-bonus_tokens: 0,
-fill_before: 0,
-fill_after: 0,
-}));
-}
-
-let runningCommitted = 0;
-
-const raw = commits.map((row) => {
-const fillBefore = runningCommitted / hardCap;
-const fillAfter = (runningCommitted + row.sol_amount) / hardCap;
-const bonusPct = getBonusPctByFillRatio(fillBefore);
-
-runningCommitted += row.sol_amount;
-
-return {
-wallet: row.wallet,
-committed_sol: row.sol_amount,
-bonus_pct: bonusPct,
-bonus_tokens_raw: row.sol_amount * (bonusPct / 100),
-fill_before: fillBefore,
-fill_after: fillAfter,
-};
-});
-
-const totalRawWeight = sum(raw, (x) => x.bonus_tokens_raw);
-
-if (totalRawWeight <= 0) {
-return raw.map((x) => ({
-...x,
-bonus_tokens: 0,
-}));
-}
-
-let distributed = 0;
-
-return raw.map((row, index) => {
-let bonusTokens;
-
-if (index === raw.length - 1) {
-bonusTokens = Math.max(0, bonusPoolTokens - distributed);
-} else {
-bonusTokens = floorBig((row.bonus_tokens_raw / totalRawWeight) * bonusPoolTokens);
-distributed += bonusTokens;
-}
-
-return {
-...row,
-bonus_tokens: bonusTokens,
-};
-});
-}
-
 function buildTeamAllocations({
 isBuilderLaunch,
 totalSupply,
@@ -293,6 +277,8 @@ teamTokens: 0,
 rows: [],
 };
 }
+
+const cappedTeamAllocationPct = Math.min(Math.max(teamAllocationPct, 0), 15);
 
 const validRows = teamWalletBreakdown
 .map((item) => ({
@@ -316,7 +302,7 @@ rows: [],
 };
 }
 
-const teamTokens = toTokenAmount(totalSupply, teamAllocationPct);
+const teamTokens = toTokenAmount(totalSupply, cappedTeamAllocationPct);
 
 let distributed = 0;
 const rows = [];
@@ -325,6 +311,7 @@ for (let i = 0; i < validRows.length; i += 1) {
 const item = validRows[i];
 
 let tokenAmount;
+
 if (i === validRows.length - 1) {
 tokenAmount = Math.max(0, teamTokens - distributed);
 } else {
@@ -337,6 +324,12 @@ wallet: item.wallet,
 allocation_type: "team",
 token_amount: tokenAmount,
 sol_amount: 0,
+vesting: {
+unlockPctAtLaunch: 0,
+cliffDays: 14,
+vestingDays: 180,
+label: "0% unlocked at launch, 14 day cliff, linear vesting over 180 days",
+},
 });
 }
 
@@ -344,6 +337,123 @@ return {
 teamTokens,
 rows,
 };
+}
+
+function buildParticipantAllocations({
+commits,
+hardCap,
+internalPoolSol,
+internalPoolTokens,
+participantMaxTokens,
+maxWalletAllocationTokens,
+bonusPct,
+vestingProfile,
+}) {
+if (!commits.length) return [];
+
+if (internalPoolSol <= 0 || internalPoolTokens <= 0) {
+throw new Error("invalid internal pool seed for participant allocation");
+}
+
+const openingPriceSol = internalPoolSol / internalPoolTokens;
+
+if (!Number.isFinite(openingPriceSol) || openingPriceSol <= 0) {
+throw new Error("invalid opening price for participant allocation");
+}
+
+let runningCommitted = 0;
+
+const rows = commits.map((row) => {
+const fillBefore = hardCap > 0 ? runningCommitted / hardCap : 0;
+const fillAfter = hardCap > 0 ? (runningCommitted + row.sol_amount) / hardCap : 0;
+
+runningCommitted += row.sol_amount;
+
+const baseTokensRaw = row.sol_amount / openingPriceSol;
+const bonusTokensRaw = baseTokensRaw * (bonusPct / 100);
+const wantedTotalRaw = baseTokensRaw + bonusTokensRaw;
+
+const wantedBaseTokens = floorBig(baseTokensRaw);
+const wantedBonusTokens = floorBig(bonusTokensRaw);
+const wantedTotalTokens = floorBig(wantedTotalRaw);
+
+const cappedTotalTokens = Math.max(
+0,
+Math.min(wantedTotalTokens, maxWalletAllocationTokens)
+);
+
+const baseTokens = Math.min(wantedBaseTokens, cappedTotalTokens);
+const bonusTokens = Math.max(0, cappedTotalTokens - baseTokens);
+
+const unlockedAtLaunch = floorBig(
+(cappedTotalTokens * vestingProfile.unlockPctAtLaunch) / 100
+);
+
+const lockedTokens = Math.max(0, cappedTotalTokens - unlockedAtLaunch);
+
+return {
+wallet: row.wallet,
+allocation_type: "participant",
+committed_sol: row.sol_amount,
+opening_price_sol: openingPriceSol,
+bonus_pct: bonusPct,
+fill_before: fillBefore,
+fill_after: fillAfter,
+
+wanted_base_tokens: wantedBaseTokens,
+wanted_bonus_tokens: wantedBonusTokens,
+wanted_total_tokens: wantedTotalTokens,
+
+base_tokens: baseTokens,
+bonus_tokens: bonusTokens,
+token_amount: cappedTotalTokens,
+
+wallet_cap_tokens: maxWalletAllocationTokens,
+capped_by_wallet_limit: wantedTotalTokens > maxWalletAllocationTokens,
+
+unlocked_at_launch_tokens: unlockedAtLaunch,
+locked_tokens: lockedTokens,
+vesting_unlock_pct_at_launch: vestingProfile.unlockPctAtLaunch,
+vesting_days: vestingProfile.vestingDays,
+vesting_label: vestingProfile.label,
+};
+});
+
+const wantedTotal = sum(rows, (x) => x.token_amount);
+
+if (wantedTotal <= participantMaxTokens) {
+return rows;
+}
+
+let distributed = 0;
+
+return rows.map((row, index) => {
+let tokenAmount;
+
+if (index === rows.length - 1) {
+tokenAmount = Math.max(0, participantMaxTokens - distributed);
+} else {
+tokenAmount = floorBig((row.token_amount / wantedTotal) * participantMaxTokens);
+distributed += tokenAmount;
+}
+
+const baseTokens = Math.min(row.base_tokens, tokenAmount);
+const bonusTokens = Math.max(0, tokenAmount - baseTokens);
+
+const unlockedAtLaunch = floorBig(
+(tokenAmount * vestingProfile.unlockPctAtLaunch) / 100
+);
+
+return {
+...row,
+base_tokens: baseTokens,
+bonus_tokens: bonusTokens,
+token_amount: tokenAmount,
+capped_by_participant_pool: true,
+unlocked_at_launch_tokens: unlockedAtLaunch,
+locked_tokens: Math.max(0, tokenAmount - unlockedAtLaunch),
+};
+});
 }
 
 function buildSystemAllocations({
@@ -355,8 +465,7 @@ reserveTokens,
 internalPoolTokens,
 internalPoolSol,
 raydiumLiquidityTokensReserved,
-unsoldParticipantTokensBurned,
-unusedBonusTokensBurned,
+unusedParticipantTokensBurned,
 }) {
 const rows = [];
 
@@ -366,6 +475,12 @@ wallet: builderWallet || `BUILDER_LAUNCH_${launchId}`,
 allocation_type: "builder",
 token_amount: builderTokens,
 sol_amount: 0,
+vesting: {
+unlockPctAtLaunch: 0,
+cliffDays: 7,
+vestingDays: 90,
+label: "0% unlocked at launch, 7 day cliff, linear vesting over 90 days",
+},
 });
 }
 
@@ -379,6 +494,8 @@ wallet: `RESERVE_LAUNCH_${launchId}`,
 allocation_type: "reserve",
 token_amount: reserveTokens,
 sol_amount: 0,
+locked: true,
+note: "Protocol-controlled locked reserve. Not counted as circulating supply.",
 });
 }
 
@@ -400,20 +517,11 @@ sol_amount: 0,
 });
 }
 
-if (unsoldParticipantTokensBurned > 0) {
+if (unusedParticipantTokensBurned > 0) {
 rows.push({
 wallet: "11111111111111111111111111111111",
-allocation_type: "burn_unsold_participants",
-token_amount: unsoldParticipantTokensBurned,
-sol_amount: 0,
-});
-}
-
-if (unusedBonusTokensBurned > 0) {
-rows.push({
-wallet: "11111111111111111111111111111111",
-allocation_type: "burn_unused_bonus",
-token_amount: unusedBonusTokensBurned,
+allocation_type: "burn_unused_participants",
+token_amount: unusedParticipantTokensBurned,
 sol_amount: 0,
 });
 }
@@ -424,8 +532,7 @@ return rows;
 function assertAllocationMath({
 totalSupply,
 participantDistributedTotal,
-unsoldParticipantTokensBurned,
-unusedBonusTokensBurned,
+unusedParticipantTokensBurned,
 internalPoolTokens,
 raydiumLiquidityTokensReserved,
 reserveTokens,
@@ -434,8 +541,7 @@ teamTokens,
 }) {
 const totalAccounted =
 participantDistributedTotal +
-unsoldParticipantTokensBurned +
-unusedBonusTokensBurned +
+unusedParticipantTokensBurned +
 internalPoolTokens +
 raydiumLiquidityTokensReserved +
 reserveTokens +
@@ -493,11 +599,7 @@ return normalizeCommitRows(rows);
 }
 
 export async function buildLaunchAllocations(launchId) {
-let launch = await db.get(
-`SELECT * FROM launches WHERE id = ?`,
-[launchId]
-);
-
+let launch = await db.get(`SELECT * FROM launches WHERE id = ?`, [launchId]);
 launch = normalizeLaunch(launch);
 
 if (!launch) {
@@ -549,7 +651,7 @@ throw new Error(
 
 const totalSupply = normalizeSupply(launch.final_supply || launch.supply);
 const totalCommitted = safeNum(launch.committed_sol, 0);
-const launchFeePct = safeNum(launch.launch_fee_pct, 5);
+const launchFeePct = safeNum(launch.launch_fee_pct, DEFAULT_LAUNCH_FEE_PCT);
 const hardCap = safeNum(launch.hard_cap_sol, 0);
 
 if (totalCommitted <= 0) {
@@ -557,46 +659,69 @@ throw new Error("invalid committed total");
 }
 
 const summedCommitSol = roundSol(sum(commits, (x) => x.sol_amount));
+
 if (Math.abs(summedCommitSol - roundSol(totalCommitted)) > 0.000001) {
 throw new Error("commit rows do not match launch committed total");
 }
 
 const launchFeeSol = roundSol((totalCommitted * launchFeePct) / 100);
-const netCommittedAfterLaunchFee = roundSol(totalCommitted - launchFeeSol);
+const netRaiseAfterFee = roundSol(totalCommitted - launchFeeSol);
+
+if (netRaiseAfterFee <= 0) {
+throw new Error("net raise after fee must be greater than zero");
+}
 
 const isBuilderLaunch = String(launch.template || "") === "builder";
 const teamAllocationPct = safeNum(launch.team_allocation_pct, 0);
 const rawReservePct = safeNum(launch.reserve_pct, 0);
 const builderPct = safeNum(launch.builder_pct, 0);
 const liquidityPct = safeNum(launch.liquidity_pct, DEFAULT_LIQUIDITY_PCT);
+const participantMaxPct = safeNum(launch.participants_pct, DEFAULT_PARTICIPANT_PCT);
+const maxWalletAllocationPct = safeNum(
+launch.max_wallet_allocation_pct,
+DEFAULT_MAX_WALLET_ALLOCATION_PCT
+);
+
+if (liquidityPct <= 0) {
+throw new Error("liquidity pct must be greater than zero");
+}
+
+if (participantMaxPct <= 0) {
+throw new Error("participant max pct must be greater than zero");
+}
 
 const effectiveReservePct =
 isBuilderLaunch && teamAllocationPct > 0
 ? Math.max(0, rawReservePct - teamAllocationPct)
 : rawReservePct;
 
-const participantTotalPct = safeNum(launch.participants_pct, DEFAULT_PARTICIPANT_PCT);
-const participantBonusPct = Math.min(BONUS_PARTICIPANT_PCT, participantTotalPct);
-const participantBasePct = Math.max(0, participantTotalPct - participantBonusPct);
+const participantMaxTokens = toTokenAmount(totalSupply, participantMaxPct);
+const maxWalletAllocationTokens = toTokenAmount(totalSupply, maxWalletAllocationPct);
 
-const participantTotalTokens = toTokenAmount(totalSupply, participantTotalPct);
-const participantBaseTokens = toTokenAmount(totalSupply, participantBasePct);
-const participantBonusPoolTokens = toTokenAmount(totalSupply, participantBonusPct);
-
-if (participantBaseTokens + participantBonusPoolTokens > participantTotalTokens) {
-throw new Error("participant allocation math exceeds configured participant pct");
+if (maxWalletAllocationTokens <= 0) {
+throw new Error("max wallet allocation token cap is invalid");
 }
 
 const liquidityTokenAllocation = toTokenAmount(totalSupply, liquidityPct);
+
+if (liquidityTokenAllocation <= 0) {
+throw new Error("liquidity token allocation is invalid");
+}
+
 const internalPoolTokens = liquidityTokenAllocation;
 const raydiumLiquidityTokensReserved = 0;
 
-const liquiditySolAllocation = roundSol(
-(netCommittedAfterLaunchFee * liquidityPct) / 100
-);
-const netRaiseRetainedOutsidePool = roundSol(
-Math.max(0, netCommittedAfterLaunchFee - liquiditySolAllocation)
-);
+/*
+MSS V1 target model:
+- 5% launch fee is removed first.
+- 95% of raised SOL goes into the internal LP.
+- 20% of supply goes into the internal LP.
+- Opening price is derived from that LP truth.
+*/
+const liquiditySolAllocation = netRaiseAfterFee;
+const netRaiseRetainedOutsidePool = 0;
+const openingPriceSol = liquiditySolAllocation / internalPoolTokens;
+const openingFdvSol = openingPriceSol * totalSupply;
 
 const reserveTokens = toTokenAmount(totalSupply, effectiveReservePct);
 const builderTokens = toTokenAmount(totalSupply, builderPct);
@@ -608,60 +733,35 @@ teamAllocationPct,
 teamWalletBreakdown: launch.team_wallet_breakdown,
 });
 
-const baseAllocs = buildParticipantBaseAllocations(
-commits,
-totalCommitted,
-participantBaseTokens
-);
+const participantBonusPct = getTemplateBonusPct(launch);
+const participantVesting = getParticipantVestingProfile(launch);
 
-const bonusAllocs = buildBonusAllocations({
+const participantRows = buildParticipantAllocations({
 commits,
 hardCap,
-bonusPoolTokens: participantBonusPoolTokens,
-});
-
-const bonusByWallet = new Map(
-bonusAllocs.map((row) => [row.wallet, row])
-);
-
-const participantRows = baseAllocs.map((row) => {
-const bonus = bonusByWallet.get(row.wallet);
-
-return {
-wallet: row.wallet,
-allocation_type: "participant",
-committed_sol: row.sol_amount,
-base_tokens: row.base_tokens,
-bonus_tokens: safeNum(bonus?.bonus_tokens, 0),
-bonus_pct: safeNum(bonus?.bonus_pct, 0),
-fill_before: safeNum(bonus?.fill_before, 0),
-fill_after: safeNum(bonus?.fill_after, 0),
-token_amount: row.base_tokens + safeNum(bonus?.bonus_tokens, 0),
-};
+internalPoolSol: liquiditySolAllocation,
+internalPoolTokens,
+participantMaxTokens,
+maxWalletAllocationTokens,
+bonusPct: participantBonusPct,
+vestingProfile: participantVesting,
 });
 
 const participantDistributedBase = sum(participantRows, (x) => x.base_tokens);
 const participantDistributedBonus = sum(participantRows, (x) => x.bonus_tokens);
 const participantDistributedTotal = sum(participantRows, (x) => x.token_amount);
 
-const unsoldParticipantTokensBurned = Math.max(
+const unusedParticipantTokensBurned = Math.max(
 0,
-participantBaseTokens - participantDistributedBase
+participantMaxTokens - participantDistributedTotal
 );
 
-const unusedBonusTokensBurned = Math.max(
-0,
-participantBonusPoolTokens - participantDistributedBonus
-);
-
-const totalBurned =
-unsoldParticipantTokensBurned + unusedBonusTokensBurned;
+const totalBurned = unusedParticipantTokensBurned;
 
 const totalAccounted = assertAllocationMath({
 totalSupply,
 participantDistributedTotal,
-unsoldParticipantTokensBurned,
-unusedBonusTokensBurned,
+unusedParticipantTokensBurned,
 internalPoolTokens,
 raydiumLiquidityTokensReserved,
 reserveTokens,
@@ -670,7 +770,7 @@ teamTokens,
 });
 
 const unallocatedRemainder = Math.max(0, totalSupply - totalAccounted);
-const finalSupply = Math.max(0, totalSupply - totalBurned);
+const finalSupply = Math.max(0, totalSupply - totalBurned - unallocatedRemainder);
 
 const systemAllocationRows = buildSystemAllocations({
 launchId,
@@ -681,8 +781,7 @@ reserveTokens,
 internalPoolTokens,
 internalPoolSol: liquiditySolAllocation,
 raydiumLiquidityTokensReserved,
-unsoldParticipantTokensBurned,
-unusedBonusTokensBurned,
+unusedParticipantTokensBurned: unusedParticipantTokensBurned + unallocatedRemainder,
 });
 
 const allocationRows = [
@@ -718,37 +817,70 @@ Number(row.sol_amount || 0),
 
 return {
 launchId,
+
 totalSupply,
 finalSupply,
+
 totalCommitted,
 launchFeePct,
 launchFeeSol,
-netRaiseAfterFee: netCommittedAfterLaunchFee,
+netRaiseAfterFee,
+
 liquidityPct,
 liquiditySolAllocation,
 netRaiseRetainedOutsidePool,
-participantTotalPct,
-participantBasePct,
-participantBonusPct,
-participantTotalTokens,
-participantBaseTokens,
-participantBonusPoolTokens,
-participantDistributedBase,
-participantDistributedBonus,
-participantDistributedTotal,
-unsoldParticipantTokensBurned,
-unusedBonusTokensBurned,
-totalBurned,
-totalAccounted,
-unallocatedRemainder,
 internalPoolSol: liquiditySolAllocation,
 internalPoolTokens,
 liquidityTokenAllocation,
 raydiumLiquidityTokensReserved,
+
+openingPriceSol,
+openingFdvSol,
+
+participantMaxPct,
+participantMaxTokens,
+maxWalletAllocationPct,
+maxWalletAllocationTokens,
+participantBonusPct,
+participantVesting,
+
+participantDistributedBase,
+participantDistributedBonus,
+participantDistributedTotal,
+unusedParticipantTokensBurned,
+totalBurned,
+
 reserveTokens,
 builderTokens,
 teamTokens,
 effectiveReservePct,
+
+totalAccounted,
+unallocatedRemainder,
+
+builderVesting: {
+totalAllocation: builderTokens,
+unlockPctAtLaunch: 0,
+cliffDays: 7,
+vestingDays: 90,
+label: "0% unlocked at launch, 7 day cliff, linear vesting over 90 days",
+},
+
+teamVesting: {
+totalAllocation: teamTokens,
+unlockPctAtLaunch: 0,
+cliffDays: 14,
+vestingDays: 180,
+label: "0% unlocked at launch, 14 day cliff, linear vesting over 180 days",
+},
+
+reservePolicy: {
+totalReserveTokens: reserveTokens,
+locked: true,
+countedAsCirculating: false,
+label: "Protocol-controlled locked reserve. Any movement should require visible records/proof.",
+},
+
 allocations: participantRows,
 systemAllocations: systemAllocationRows,
 };
