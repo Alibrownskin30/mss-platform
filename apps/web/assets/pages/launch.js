@@ -460,9 +460,15 @@ return {
 status: effectiveStatus,
 
 contract_address: contractAddress,
-mint_address: exposeCa ? choosePreferredString(launchLike?.mint_address, contractAddress) : "",
-token_mint: exposeCa ? choosePreferredString(launchLike?.token_mint, contractAddress) : "",
-mint: exposeCa ? choosePreferredString(launchLike?.mint, contractAddress) : "",
+mint_address: exposeCa
+? choosePreferredString(launchLike?.mint_address, contractAddress)
+: "",
+token_mint: exposeCa
+? choosePreferredString(launchLike?.token_mint, contractAddress)
+: "",
+mint: exposeCa
+? choosePreferredString(launchLike?.mint, contractAddress)
+: "",
 
 reserved_mint_address: "",
 reserved_mint_secret: "",
@@ -471,7 +477,9 @@ reserved_mint_private_key: "",
 reserved_mint_keypair: "",
 
 mint_reservation_status: mintStatus,
-mint_finalized_at: exposeCa ? cleanString(launchLike?.mint_finalized_at, 200) : "",
+mint_finalized_at: exposeCa
+? cleanString(launchLike?.mint_finalized_at, 200)
+: "",
 };
 }
 
@@ -946,20 +954,44 @@ if (type === "warn") el.classList.add("warn");
 el.textContent = message;
 }
 
+function getLaunchBondLabel(launch) {
+return String(launch?.template || "").toLowerCase() === "builder"
+? "Builder bond"
+: "Launch bond";
+}
+
 function getBuilderBondState(launch, stats) {
 const builderBondSol = safeNum(
 stats?.builderBondSol,
-safeNum(launch?.builder_bond_sol, 0)
+safeNum(
+stats?.launchBondSol,
+safeNum(
+launch?.builder_bond_sol,
+safeNum(launch?.launch_bond_sol, 0)
+)
+)
 );
 const builderBondRefunded =
 safeNum(
 stats?.builderBondRefunded,
-safeNum(launch?.builder_bond_refunded, 0)
+safeNum(
+stats?.launchBondRefunded,
+safeNum(
+launch?.builder_bond_refunded,
+safeNum(launch?.launch_bond_refunded, 0)
+)
+)
 ) === 1;
 const builderBondPaid =
 safeNum(
 stats?.builderBondPaid,
-safeNum(launch?.builder_bond_paid, 0)
+safeNum(
+stats?.launchBondPaid,
+safeNum(
+launch?.builder_bond_paid,
+safeNum(launch?.launch_bond_paid, 0)
+)
+)
 ) === 1;
 
 return {
@@ -989,11 +1021,12 @@ function getLaunchStateMessage(launch, stats, lifecycle = null) {
 const status = getDisplayPhaseStatus(launch, stats, lifecycle);
 const bondState = getBuilderBondState(launch, stats);
 const readiness = lifecycle?.graduationReadiness || null;
+const bondLabel = getLaunchBondLabel(launch);
 
 if (status === "commit") {
 return {
 kind: "warn",
-message: "Commit phase is open.",
+message: "Commit phase is open. Max commit is 1 SOL per wallet.",
 };
 }
 
@@ -1028,7 +1061,7 @@ const readinessLine = readiness
 
 return {
 kind: "good",
-message: `Launch is now live. Commit and refund actions are closed.${readinessLine}`,
+message: `Launch is now live. Participant allocations are fully unlocked and commit/refund actions are closed.${readinessLine}`,
 };
 }
 
@@ -1043,7 +1076,7 @@ message:
 if (status === "failed_refunded") {
 const bondLine =
 bondState.refunded && bondState.amount > 0
-? ` Builder bond of ${fmtSol(bondState.amount)} was refunded as well.`
+? ` ${bondLabel} of ${fmtSol(bondState.amount)} was refunded as well.`
 : "";
 
 return {
@@ -1055,7 +1088,7 @@ message: `This launch failed and all tracked commits were refunded. This launch 
 if (status === "failed") {
 const bondLine =
 bondState.paid && !bondState.refunded && bondState.amount > 0
-? ` Builder bond of ${fmtSol(bondState.amount)} is still awaiting failed-launch handling.`
+? ` ${bondLabel} of ${fmtSol(bondState.amount)} is still awaiting failed-launch handling.`
 : "";
 
 return {
@@ -1252,76 +1285,101 @@ if (Number.isFinite(n)) return n;
 return safeNum(fallback, 0);
 }
 
+function formatAllocationStatText(value, fallbackText = "—") {
+const numeric = Number(value);
+return Number.isFinite(numeric) && numeric > 0 ? fmtPct(numeric) : fallbackText;
+}
+
 function renderAllocationStructure(launch, stats) {
 const isBuilderLaunch =
 String(launch.template || "").toLowerCase() === "builder";
 
-const participantPct = resolveAllocationPct(
+const participantPct = pickFiniteNumber(
 stats?.participantAllocationPct,
-launch.participant_allocation_pct ??
-launch.participants_allocation_pct ??
-45
+launch.participant_allocation_pct,
+launch.participants_allocation_pct,
+launch.participants_pct
 );
-const liquidityPct = resolveAllocationPct(
+const liquidityPct = pickFiniteNumber(
 stats?.liquidityAllocationPct,
-launch.liquidity_allocation_pct ?? 20
+launch.liquidity_allocation_pct,
+launch.liquidity_pct,
+20
 );
-const reservePct = resolveAllocationPct(
+const reservePct = pickFiniteNumber(
 stats?.reserveAllocationPct,
-launch.reserve_allocation_pct ?? 30
+launch.reserve_allocation_pct,
+launch.reserve_pct
 );
 const builderPct = isBuilderLaunch
-? resolveAllocationPct(
+? pickFiniteNumber(
 stats?.builderAllocationPct,
-launch.builder_allocation_pct ?? 5
+launch.builder_allocation_pct,
+launch.builder_pct,
+5
 )
-: 0;
+: null;
 
-setTextByIds(["participantAllocationPctStat"], fmtPct(participantPct));
-setTextByIds(["liquidityAllocationPctStat"], fmtPct(liquidityPct));
-setTextByIds(["reserveAllocationPctStat"], fmtPct(reservePct));
-setTextByIds(["builderAllocationPctStat"], fmtPct(builderPct));
+const participantText = Number.isFinite(participantPct)
+? fmtPct(participantPct)
+: "LP Based";
+const liquidityText = Number.isFinite(liquidityPct)
+? fmtPct(liquidityPct)
+: "20%";
+const reserveText = Number.isFinite(reservePct)
+? fmtPct(reservePct)
+: "Managed";
+const builderText = isBuilderLaunch
+? formatAllocationStatText(builderPct, "5%")
+: "—";
+
+setTextByIds(["participantAllocationPctStat"], participantText);
+setTextByIds(["liquidityAllocationPctStat"], liquidityText);
+setTextByIds(["reserveAllocationPctStat"], reserveText);
+setTextByIds(["builderAllocationPctStat"], builderText);
 
 setHiddenByIds(["builderAllocationStatWrap"], !isBuilderLaunch);
 
 setTextByIds(["launchOverviewTemplateText"], humanizeTemplate(launch.template));
 
-const raiseStructureText = `${fmtPct(participantPct)} Participants • ${fmtPct(liquidityPct)} Liquidity • ${fmtPct(reservePct)} Reserve`;
-setTextByIds(["launchRaiseStructureText"], raiseStructureText);
+const raiseStructureParts = [
+"Participants priced from final raise",
+`${liquidityText} LP`,
+Number.isFinite(reservePct) && reservePct > 0
+? `${reserveText} Reserve`
+: "Reserve custody active",
+];
+setTextByIds(["launchRaiseStructureText"], raiseStructureParts.join(" • "));
 
 const bondState = getBuilderBondState(launch, stats);
 const teamAllocationPct = safeNum(
 stats?.teamAllocationPct,
 safeNum(launch?.team_allocation_pct, 0)
 );
+const bondLabel = getLaunchBondLabel(launch);
 
-let builderControlText = "Public Builder";
-
-if (isBuilderLaunch) {
 const parts = [];
 
-parts.push(
-builderPct > 0 ? `${fmtPct(builderPct)} Builder` : "Builder Launch"
-);
-
+if (isBuilderLaunch) {
+parts.push(builderText !== "—" ? `${builderText} Builder` : "Builder Launch");
 if (teamAllocationPct > 0) {
 parts.push(`${fmtPct(teamAllocationPct)} Team`);
+}
+} else {
+parts.push("Public Launch");
 }
 
 if (bondState.amount > 0) {
 if (bondState.refunded) {
-parts.push(`Bond ${fmtSol(bondState.amount)} Refunded`);
+parts.push(`${bondLabel} ${fmtSol(bondState.amount)} Refunded`);
 } else if (bondState.paid) {
-parts.push(`Bond ${fmtSol(bondState.amount)} Collected`);
+parts.push(`${bondLabel} ${fmtSol(bondState.amount)} Collected`);
 } else {
-parts.push(`Bond ${fmtSol(bondState.amount)} Pending`);
+parts.push(`${bondLabel} ${fmtSol(bondState.amount)} Pending`);
 }
 }
 
-builderControlText = parts.join(" • ");
-}
-
-setTextByIds(["launchBuilderControlsText"], builderControlText);
+setTextByIds(["launchBuilderControlsText"], parts.join(" • "));
 }
 
 function renderTeamWalletBreakdown(launch, stats) {
@@ -1340,8 +1398,9 @@ return;
 }
 
 const isBuilder = String(launch.template || "") === "builder";
+const bondState = getBuilderBondState(launch, stats);
 
-if (!isBuilder) {
+if (!isBuilder && bondState.amount <= 0) {
 wrap.classList.add("hidden");
 return;
 }
@@ -1357,7 +1416,6 @@ const breakdown = Array.isArray(stats.teamWalletBreakdown)
 : Array.isArray(launch.team_wallet_breakdown)
 ? launch.team_wallet_breakdown
 : [];
-const bondState = getBuilderBondState(launch, stats);
 
 teamAllocationPctStat.textContent = `${teamAllocationPct}%`;
 
@@ -1372,6 +1430,12 @@ builderBondStat.innerHTML =
 `${fmtSol(bondState.amount)}<div style="margin-top:6px;font-size:12px;color:rgba(255,255,255,.62);font-weight:600;">Pending</div>`;
 } else {
 builderBondStat.textContent = fmtSol(bondState.amount);
+}
+
+if (!isBuilder) {
+teamWalletBreakdownList.innerHTML =
+`<div class="recent-item"><div class="recent-meta">No visible team wallet breakdown for this template.</div></div>`;
+return;
 }
 
 if (!breakdown.length) {
@@ -1474,7 +1538,7 @@ setTextByIds(["launchOverviewTemplateText"], templateText);
 setTextByIds(
 ["launchLifecycleSummaryText"],
 (() => {
-if (status === "commit") return "Commit → Countdown → Live";
+if (status === "commit") return "Commit → Countdown → Building → Live";
 if (status === "countdown") return "Countdown Locked";
 if (status === "building") return "Bootstrapping";
 if (status === "live") return "Live Market";
@@ -1502,7 +1566,7 @@ return `${base} MSS is finalizing mint assignment, internal liquidity bootstrap,
 }
 
 if (status === "live" || status === "graduated") {
-return `${base} Live market state is active and downstream lifecycle visibility remains attached to the same terminal.`;
+return `${base} Live market state is active, participant allocations are fully unlocked, and downstream lifecycle visibility remains attached to the same terminal.`;
 }
 
 if (status === "failed_refunded") {
@@ -1745,7 +1809,7 @@ if (lifecycle?.graduationReadiness?.ready) {
 return "Graduation threshold is currently satisfied.";
 }
 
-return lifecycle?.graduationReadiness?.reason || "Live market is active.";
+return lifecycle?.graduationReadiness?.reason || "Live market is active and participant allocations are fully unlocked.";
 }
 
 if (status === "graduated") {
@@ -2200,6 +2264,7 @@ const launch = currentLaunch;
 const stats = currentCommitStats;
 const lifecycle = currentLifecycle;
 const bondState = getBuilderBondState(launch, stats);
+const bondLabel = getLaunchBondLabel(launch);
 
 const committed = safeNum(
 stats.totalCommitted,
@@ -2256,24 +2321,21 @@ renderActionPanelState(launch, stats, lifecycle);
 if (displayStatus === "failed_refunded") {
 setClosureNote(
 bondState.refunded
-? `This launch failed, all tracked commitments were automatically refunded, the builder bond of ${fmtSol(bondState.amount)} was refunded, and the launch is now closed.`
+? `This launch failed, all tracked commitments were automatically refunded, the ${bondLabel.toLowerCase()} of ${fmtSol(bondState.amount)} was refunded, and the launch is now closed.`
 : bondState.paid
-? `This launch failed, all tracked commitments were automatically refunded, and the launch is now closed. A builder bond of ${fmtSol(bondState.amount)} was collected earlier but is not marked refunded.`
+? `This launch failed, all tracked commitments were automatically refunded, and the launch is now closed. A collected ${bondLabel.toLowerCase()} of ${fmtSol(bondState.amount)} is not marked refunded.`
 : "This launch failed, all tracked commitments were automatically refunded, and the launch is now closed.",
 "warn"
 );
-} else if (
-displayStatus === "failed" &&
-String(launch.template || "") === "builder"
-) {
+} else if (displayStatus === "failed") {
 if (bondState.paid && !bondState.refunded) {
 setClosureNote(
-`This builder launch failed. Commit refunds are available and the collected builder bond of ${fmtSol(bondState.amount)} should be handled by the failed-launch refund flow.`,
+`This launch failed. Commit refunds are available and the collected ${bondLabel.toLowerCase()} of ${fmtSol(bondState.amount)} should be handled by the failed-launch refund flow.`,
 "warn"
 );
 } else if (bondState.pending) {
 setClosureNote(
-"This builder launch failed. No collected builder bond is recorded on this launch.",
+`This launch failed. No collected ${bondLabel.toLowerCase()} is recorded on this launch.`,
 "warn"
 );
 } else {
@@ -2616,8 +2678,8 @@ wallet,
 });
 
 const bondLine =
-safeNum(data.builderBondRefunded, 0) > 0
-? `\nBuilder bond refunded: ${data.builderBondRefunded} SOL`
+safeNum(data.builderBondRefunded, safeNum(data.launchBondRefunded, 0)) > 0
+? `\n${getLaunchBondLabel(launch)} refunded: ${safeNum(data.builderBondRefunded, safeNum(data.launchBondRefunded, 0))} SOL`
 : "";
 
 setStatus(

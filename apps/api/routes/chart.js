@@ -26,7 +26,9 @@ const BUILDER_CLIFF_DAYS = 0;
 const BUILDER_VESTING_DAYS = BUILDER_UNLOCK_DAYS;
 
 const BUILDER_VESTING_RULE =
-"Builder allocation unlocks at 0.5% of total supply per day until the full 5% builder allocation is unlocked.";
+"0% unlocked at live. Builder allocation then unlocks at 0.5% of total supply per day for 10 days until the full 5% allocation is unlocked.";
+
+const PARTICIPANT_UNLOCK_LABEL = "100% unlocked at live.";
 
 function clampInt(value, fallback, min, max) {
 const num = Number.parseInt(value, 10);
@@ -285,7 +287,8 @@ return normalized === "live" || normalized === "graduated";
 }
 
 function buildPhaseMeta(launch = null) {
-const status = inferRevealStatus(launch);
+const servicePhaseStatus = normalizeLaunchStatus(launch?.phase?.status);
+const status = servicePhaseStatus || inferRevealStatus(launch);
 const marketEnabled = shouldRevealContractAddress(status);
 
 return {
@@ -680,6 +683,28 @@ walletSolBalance
 )
 : 0;
 
+const participantTotalAllocationTokens = marketActive
+? toInt(stats.participant_total_allocation_tokens, 0)
+: 0;
+
+const participantUnlockedTokens = marketActive
+? toInt(
+stats.participant_unlocked_tokens,
+participantTotalAllocationTokens > 0 ? participantTotalAllocationTokens : 0
+)
+: 0;
+
+const participantLockedTokens = marketActive
+? toInt(stats.participant_locked_tokens, 0)
+: 0;
+
+const participantSellableTokens = marketActive
+? toInt(
+stats.participant_sellable_tokens,
+participantTotalAllocationTokens > 0 ? participantUnlockedTokens : 0
+)
+: 0;
+
 const revealedMintAddress = marketActive
 ? cleanText(
 stats.mint_address ||
@@ -815,20 +840,15 @@ is_participant_wallet: marketActive
 : false,
 is_team_wallet: marketActive ? Boolean(stats.is_team_wallet) : false,
 
-participant_total_allocation_tokens: marketActive
-? toInt(stats.participant_total_allocation_tokens, 0)
-: 0,
-participant_unlocked_tokens: marketActive
-? toInt(stats.participant_unlocked_tokens, 0)
-: 0,
-participant_locked_tokens: marketActive
-? toInt(stats.participant_locked_tokens, 0)
-: 0,
-participant_sellable_tokens: marketActive
-? toInt(stats.participant_sellable_tokens, 0)
-: 0,
+participant_total_allocation_tokens: participantTotalAllocationTokens,
+participant_unlocked_tokens: participantUnlockedTokens,
+participant_locked_tokens: participantLockedTokens,
+participant_sellable_tokens: participantSellableTokens,
 participant_vesting_percent_unlocked: marketActive
-? toNumber(stats.participant_vesting_percent_unlocked, 0)
+? toNumber(
+stats.participant_vesting_percent_unlocked,
+participantTotalAllocationTokens > 0 ? 100 : 0
+)
 : 0,
 participant_vesting_days_live: marketActive
 ? toInt(stats.participant_vesting_days_live, 0)
@@ -837,7 +857,11 @@ participant_vesting_days: marketActive
 ? toInt(stats.participant_vesting_days, 0)
 : 0,
 participant_vesting_label: marketActive
-? cleanText(stats.participant_vesting_label, 200)
+? cleanText(
+stats.participant_vesting_label ||
+(participantTotalAllocationTokens > 0 ? PARTICIPANT_UNLOCK_LABEL : ""),
+200
+)
 : "",
 
 team_total_allocation_tokens: marketActive
@@ -1102,6 +1126,33 @@ stats.vesting_active ||
 lockedBalance > 0
 );
 
+const participantTotalAllocationTokens = toInt(
+wallet.participant_total_allocation_tokens ??
+stats.participant_total_allocation_tokens,
+0
+);
+
+const participantUnlockedTokens = toInt(
+wallet.participant_unlocked_tokens ??
+stats.participant_unlocked_tokens ??
+(participantTotalAllocationTokens > 0
+? participantTotalAllocationTokens
+: 0),
+participantTotalAllocationTokens > 0 ? participantTotalAllocationTokens : 0
+);
+
+const participantLockedTokens = toInt(
+wallet.participant_locked_tokens ?? stats.participant_locked_tokens,
+0
+);
+
+const participantSellableTokens = toInt(
+wallet.participant_sellable_tokens ??
+stats.participant_sellable_tokens ??
+participantUnlockedTokens,
+participantUnlockedTokens
+);
+
 const builderVisibleTotalTokens = toInt(
 wallet.builder_visible_total_tokens ??
 stats.builder_visible_total_tokens ??
@@ -1155,27 +1206,15 @@ is_team_wallet: walletIsTeam,
 vesting_active: walletVestingActive,
 wallet_vesting_active: walletVestingActive,
 
-participant_total_allocation_tokens: toInt(
-wallet.participant_total_allocation_tokens ??
-stats.participant_total_allocation_tokens,
-0
-),
-participant_unlocked_tokens: toInt(
-wallet.participant_unlocked_tokens ?? stats.participant_unlocked_tokens,
-0
-),
-participant_locked_tokens: toInt(
-wallet.participant_locked_tokens ?? stats.participant_locked_tokens,
-0
-),
-participant_sellable_tokens: toInt(
-wallet.participant_sellable_tokens ?? stats.participant_sellable_tokens,
-0
-),
+participant_total_allocation_tokens: participantTotalAllocationTokens,
+participant_unlocked_tokens: participantUnlockedTokens,
+participant_locked_tokens: participantLockedTokens,
+participant_sellable_tokens: participantSellableTokens,
 participant_vesting_percent_unlocked: toNumber(
 wallet.participant_vesting_percent_unlocked ??
-stats.participant_vesting_percent_unlocked,
-0
+stats.participant_vesting_percent_unlocked ??
+(participantTotalAllocationTokens > 0 ? 100 : 0),
+participantTotalAllocationTokens > 0 ? 100 : 0
 ),
 participant_vesting_days_live: toInt(
 wallet.participant_vesting_days_live ??
@@ -1187,7 +1226,9 @@ wallet.participant_vesting_days ?? stats.participant_vesting_days,
 0
 ),
 participant_vesting_label: cleanText(
-wallet.participant_vesting_label ?? stats.participant_vesting_label,
+wallet.participant_vesting_label ??
+stats.participant_vesting_label ??
+(participantTotalAllocationTokens > 0 ? PARTICIPANT_UNLOCK_LABEL : ""),
 200
 ),
 

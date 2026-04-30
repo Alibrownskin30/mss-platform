@@ -8,45 +8,14 @@ const BUILDER_CLIFF_DAYS = 0;
 const BUILDER_VESTING_DAYS = BUILDER_UNLOCK_DAYS;
 
 const BUILDER_VESTING_RULE =
-"Builder allocation unlocks at 0.5% of total supply per day until the full 5% builder allocation is unlocked.";
+"0% unlocked at live. Builder allocation then unlocks at 0.5% of total supply per day for 10 days until the full 5% allocation is unlocked.";
 
 const TEAM_CLIFF_DAYS = 14;
 const TEAM_VESTING_DAYS = 180;
 
-const MS_PER_DAY = 86_400_000;
+const PARTICIPANT_UNLOCK_LABEL = "100% unlocked at live.";
 
-const PARTICIPANT_VESTING_BY_TEMPLATE = {
-degen: {
-unlockPctAtLaunch: 40,
-vestingDays: 7,
-label: "40% unlocked at launch, 60% over 7 days",
-},
-degen_zone: {
-unlockPctAtLaunch: 40,
-vestingDays: 7,
-label: "40% unlocked at launch, 60% over 7 days",
-},
-meme_lite: {
-unlockPctAtLaunch: 35,
-vestingDays: 14,
-label: "35% unlocked at launch, 65% over 14 days",
-},
-meme_pro: {
-unlockPctAtLaunch: 25,
-vestingDays: 21,
-label: "25% unlocked at launch, 75% over 21 days",
-},
-community: {
-unlockPctAtLaunch: 25,
-vestingDays: 21,
-label: "25% unlocked at launch, 75% over 21 days",
-},
-builder: {
-unlockPctAtLaunch: 25,
-vestingDays: 21,
-label: "25% unlocked at launch, 75% over 21 days",
-},
-};
+const MS_PER_DAY = 86_400_000;
 
 let walletBalanceColumnsCache = null;
 const tableExistsCache = new Map();
@@ -479,9 +448,26 @@ builder_tokens: builderTokens,
 team_allocation_pct: toNumber(row.team_allocation_pct, 0),
 team_tokens: teamTokens,
 
-participant_vesting: result.participantVesting || null,
-builder_vesting: result.builderVesting || null,
-team_vesting: result.teamVesting || null,
+participant_vesting: {
+unlockPctAtLaunch: 100,
+vestingDays: 0,
+label: PARTICIPANT_UNLOCK_LABEL,
+},
+builder_vesting: {
+unlockPctAtLaunch: 0,
+cliffDays: BUILDER_CLIFF_DAYS,
+vestingDays: BUILDER_VESTING_DAYS,
+unlockDays: BUILDER_UNLOCK_DAYS,
+totalAllocationPct: BUILDER_MAX_ALLOCATION_PERCENT,
+dailyUnlockPct: BUILDER_DAILY_UNLOCK_PERCENT,
+label: BUILDER_VESTING_RULE,
+},
+team_vesting: {
+unlockPctAtLaunch: 0,
+cliffDays: TEAM_CLIFF_DAYS,
+vestingDays: TEAM_VESTING_DAYS,
+label: "0% unlocked at live, 14 day cliff, then linear vesting over 180 days.",
+},
 reserve_policy: result.reservePolicy || null,
 };
 }
@@ -1071,22 +1057,6 @@ ORDER BY id ASC
 return rows.map((row) => hydrateAllocationWithLaunchResult(launch, row));
 }
 
-function getParticipantVestingProfile(launch = {}, allocation = {}) {
-const template = normalizeTemplate(launch?.template || launch?.launch_type);
-const fallback =
-PARTICIPANT_VESTING_BY_TEMPLATE[template] ||
-PARTICIPANT_VESTING_BY_TEMPLATE.meme_lite;
-
-return {
-unlockPctAtLaunch: toNumber(
-allocation?.vesting_unlock_pct_at_launch,
-fallback.unlockPctAtLaunch
-),
-vestingDays: toNumber(allocation?.vesting_days, fallback.vestingDays),
-label: cleanText(allocation?.vesting_label, 200) || fallback.label,
-};
-}
-
 function computeLinearVesting({
 totalAllocation,
 launch,
@@ -1149,7 +1119,7 @@ elapsedDays,
 };
 }
 
-function computeParticipantWalletVesting({ launch, allocation, visibleTotalBalance }) {
+function computeParticipantWalletVesting({ allocation, visibleTotalBalance }) {
 const totalAllocation = toInt(allocation?.token_amount, 0);
 const visibleTotal = toInt(visibleTotalBalance, 0);
 
@@ -1157,55 +1127,23 @@ if (totalAllocation <= 0 || visibleTotal <= 0) {
 return null;
 }
 
-const profile = getParticipantVestingProfile(launch, allocation);
-
-const explicitLaunchUnlock = chooseFirstFinite(
-allocation?.unlocked_at_launch_tokens,
-allocation?.unlockedAtLaunchTokens
-);
-
-const unlockPctAtLaunch =
-explicitLaunchUnlock != null && totalAllocation > 0
-? (toNumber(explicitLaunchUnlock, 0) / totalAllocation) * 100
-: profile.unlockPctAtLaunch;
-
-const vesting = computeLinearVesting({
-totalAllocation,
-launch,
-unlockPctAtLaunch,
-cliffDays: 0,
-vestingDays: profile.vestingDays,
-});
-
-const visibleLocked = Math.max(
-0,
-Math.min(visibleTotal, vesting.lockedAllocation)
-);
-const sellable = Math.max(0, visibleTotal - visibleLocked);
-
 return {
 is_participant_wallet: true,
-participant_vesting_active: visibleLocked > 0,
+participant_vesting_active: false,
 participant_total_allocation_tokens: totalAllocation,
-participant_unlocked_tokens: Math.max(
-0,
-Math.min(visibleTotal, vesting.unlockedAllocation)
-),
-participant_locked_tokens: visibleLocked,
-participant_sellable_tokens: sellable,
-participant_vesting_percent_unlocked: vesting.percentUnlocked,
-participant_vesting_days_live: vesting.elapsedDays,
-participant_vesting_days: profile.vestingDays,
-participant_vesting_label: profile.label,
+participant_unlocked_tokens: visibleTotal,
+participant_locked_tokens: 0,
+participant_sellable_tokens: visibleTotal,
+participant_vesting_percent_unlocked: 100,
+participant_vesting_days_live: 0,
+participant_vesting_days: 0,
+participant_vesting_label: PARTICIPANT_UNLOCK_LABEL,
 
 visible_total_tokens: visibleTotal,
-unlocked_tokens: Math.max(
-0,
-Math.min(visibleTotal, vesting.unlockedAllocation)
-),
-locked_tokens: visibleLocked,
-sellable_tokens: sellable,
-vesting_active: visibleLocked > 0,
+unlocked_tokens: visibleTotal,
+locked_tokens: 0,
+sellable_tokens: visibleTotal,
+vesting_active: false,
 };
 }
 
@@ -1325,7 +1263,7 @@ vestedDays: 0,
 
 const elapsedMs = Math.max(0, Date.now() - startMs);
 const elapsedDays = Math.floor(elapsedMs / MS_PER_DAY);
-const vestedDays = Math.min(BUILDER_UNLOCK_DAYS, elapsedDays + 1);
+const vestedDays = Math.min(BUILDER_UNLOCK_DAYS, elapsedDays);
 
 const unlockedAllocation =
 vestedDays >= BUILDER_UNLOCK_DAYS
@@ -1846,7 +1784,6 @@ if (tokenAmount <= 0) continue;
 
 if (type === "participant") {
 const summary = computeParticipantWalletVesting({
-launch,
 allocation,
 visibleTotalBalance: tokenAmount,
 });
@@ -2246,7 +2183,6 @@ visibleTotalBalance,
 });
 } else if (participantAllocation) {
 vestingSummary = computeParticipantWalletVesting({
-launch,
 allocation: participantAllocation,
 visibleTotalBalance,
 });

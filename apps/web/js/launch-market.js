@@ -5,6 +5,7 @@ COMMIT: "commit",
 COUNTDOWN: "countdown",
 BUILDING: "building",
 LIVE: "live",
+FAILED: "failed",
 };
 
 const TRADE_MODES = {
@@ -477,7 +478,9 @@ totalAllocationPct: toNumber(
 raw.totalAllocationPct ?? raw.total_allocation_pct,
 BUILDER_TOTAL_ALLOCATION_PCT
 ),
-rule: cleanString(raw.rule ?? raw.builder_vesting_rule, 300) || BUILDER_VESTING_RULE,
+rule:
+cleanString(raw.rule ?? raw.builder_vesting_rule, 300) ||
+BUILDER_VESTING_RULE,
 };
 }
 
@@ -938,6 +941,7 @@ Number.isFinite(mintFinalizedAtMs)
 );
 
 if (explicit === "graduated") return PHASES.LIVE;
+if (explicit === "failed" || explicit === "failed_refunded") return PHASES.FAILED;
 
 if (explicit === "live") {
 if (truth.market_bootstrapped === false) return PHASES.BUILDING;
@@ -949,10 +953,6 @@ if (explicit === "building") return PHASES.BUILDING;
 if (explicit === "countdown") {
 if (!countdownEndMs || now < countdownEndMs) return PHASES.COUNTDOWN;
 return PHASES.BUILDING;
-}
-
-if (explicit === "failed" || explicit === "failed_refunded") {
-return PHASES.COMMIT;
 }
 
 if (explicit === "commit") {
@@ -1036,7 +1036,11 @@ return resolveCanonicalPhase(canonicalizeLaunchTruth(launch, commitStats));
 }
 
 function getVisualPhase(phase) {
-return phase === PHASES.BUILDING ? PHASES.COUNTDOWN : phase;
+return phase === PHASES.BUILDING
+? PHASES.COUNTDOWN
+: phase === PHASES.FAILED
+? PHASES.COMMIT
+: phase;
 }
 
 function getPhaseLabel(phase) {
@@ -1047,6 +1051,8 @@ case PHASES.BUILDING:
 return "Building";
 case PHASES.LIVE:
 return "Live";
+case PHASES.FAILED:
+return "Failed";
 case PHASES.COMMIT:
 default:
 return "Commit";
@@ -1061,6 +1067,8 @@ case PHASES.BUILDING:
 return "Bootstrapping";
 case PHASES.LIVE:
 return "Live Access";
+case PHASES.FAILED:
+return "Closed";
 case PHASES.COMMIT:
 default:
 return "Pre-Live";
@@ -1080,10 +1088,14 @@ return "Countdown reached zero. MSS is finalizing mint, liquidity, and live mark
 }
 
 if (phase === PHASES.LIVE) {
-return "Live market access is active.";
+return "Live market access is active. Participant allocations are fully unlocked.";
 }
 
-return "Commit phase is active and accepting structured commitments.";
+if (phase === PHASES.FAILED) {
+return "Launch did not meet requirements. Trading is closed and refund handling remains on the launch page.";
+}
+
+return "Commit phase is active with a 1 SOL max commit per wallet before countdown lock begins.";
 }
 
 function getPhaseMeta(phase) {
@@ -1121,6 +1133,18 @@ overlayTitle: "Live Trading",
 overlayText: "Market is now open.",
 overlaySubtext: "",
 marketTitle: "Live Market",
+};
+case PHASES.FAILED:
+return {
+badgeText: "FAILED",
+statusText: "Failed",
+marketModeText: "Closed",
+overlayEyebrow: "LAUNCH CLOSED",
+overlayTitle: "Launch Closed",
+overlayText:
+"This launch did not reach its required conditions. Trading is not available.",
+overlaySubtext: "Refund handling remains on the main launch page.",
+marketTitle: "Launch Closed",
 };
 case PHASES.COMMIT:
 default:
@@ -1190,6 +1214,14 @@ structureSignal = "Finalizing";
 marketSignal = "Building Market";
 note =
 "CassIE is tracking final mint assignment, pool bootstrap, and post-countdown launch state while the market is being brought live.";
+} else if (phase === PHASES.FAILED) {
+state = "Closed";
+badge = "CLOSED REVIEW";
+riskState = "Closed";
+structureSignal = "Launch Closed";
+marketSignal = "Trading Disabled";
+note =
+"CassIE retains builder and structure context for this closed launch, while refund handling remains outside the live market terminal.";
 } else if (phase === PHASES.LIVE) {
 state = cassie?.monitoring_active ? "Monitoring" : "Live";
 
@@ -1388,6 +1420,8 @@ phase === PHASES.LIVE
 ? "live"
 : phase === PHASES.COUNTDOWN || phase === PHASES.BUILDING
 ? "countdown"
+: phase === PHASES.FAILED
+? "failed"
 : "commit";
 
 const phasePillMirror = $("phasePillMirror");
@@ -1417,6 +1451,8 @@ phase === PHASES.LIVE
 ? "MSS is finalizing launch infrastructure"
 : phase === PHASES.COUNTDOWN
 ? "Launch has entered countdown lock"
+: phase === PHASES.FAILED
+? "Launch is closed"
 : "Commit window is open";
 }
 
@@ -1506,7 +1542,7 @@ tokenPayload?.mint
 if (phase !== PHASES.LIVE) {
 return {
 value: "",
-state: "Hidden",
+state: phase === PHASES.FAILED ? "Closed" : "Hidden",
 };
 }
 
@@ -1707,6 +1743,25 @@ setText("stat3Value", liq > 0 ? "Preparing" : "Pending");
 
 setText("stat4Label", "Execution");
 setText("stat4Value", "Bootstrapping");
+}
+
+function updateStatsForFailed(launch, commitStats = {}) {
+const { committedSol, participantCount, hardCapSol, minRaiseSol } = getCommitMetrics(
+launch,
+commitStats
+);
+
+setText("stat1Label", "Committed Capital");
+setText("stat1Value", formatSol(committedSol, 2));
+
+setText("stat2Label", "Participant Count");
+setText("stat2Value", formatNumber(participantCount, { maximumFractionDigits: 0 }));
+
+setText("stat3Label", "Minimum Raise");
+setText("stat3Value", minRaiseSol > 0 ? formatSol(minRaiseSol, 2) : "—");
+
+setText("stat4Label", "Hard Cap");
+setText("stat4Value", hardCapSol > 0 ? formatSol(hardCapSol, 2) : "—");
 }
 
 function getLiveStats(tokenPayload = {}, chartStats = {}, launch = {}, lifecycle = null) {
@@ -2053,6 +2108,8 @@ phase === PHASES.LIVE
 ? "Building"
 : phase === PHASES.COUNTDOWN
 ? "Countdown"
+: phase === PHASES.FAILED
+? "Closed"
 : "Market Locked";
 
 if (tradeSubmitBtn) {
@@ -2141,6 +2198,10 @@ volumeCanvas.style.height = "84px";
 chartShell.style.minHeight = "370px";
 chartCanvas.style.height = "245px";
 volumeCanvas.style.height = "80px";
+} else if (phase === PHASES.FAILED) {
+chartShell.style.minHeight = "345px";
+chartCanvas.style.height = "225px";
+volumeCanvas.style.height = "72px";
 } else {
 chartShell.style.minHeight = "345px";
 chartCanvas.style.height = "225px";
@@ -2165,7 +2226,9 @@ launch?.builder_score ?? tokenPayload?.launch?.builder_score,
 );
 
 const tone =
-phase !== PHASES.LIVE
+phase === PHASES.FAILED
+? "closed"
+: phase !== PHASES.LIVE
 ? "prelive"
 : Math.abs(priceChangePct) >= 25 || flowImbalance >= 10
 ? "elevated"
@@ -2659,7 +2722,7 @@ setText("marketAccessLimitValue", "—");
 setText("marketAccessHoldingValue", "—");
 setText("marketAccessRemainingValue", "—");
 setText("marketTotalSupplyValue", "—");
-setText("marketAccessSchedule", "Allocation controls active.");
+setText("marketAccessSchedule", "Allocation controls activate once the launch is live.");
 
 const recentTradesList = $("recentTradesList");
 if (recentTradesList) {
@@ -3345,6 +3408,10 @@ console.error("launch-market building refresh failed:", error);
 return;
 }
 
+if (this.phase === PHASES.FAILED) {
+return;
+}
+
 if (this.phase !== PHASES.LIVE) {
 this.refreshTimer = setInterval(async () => {
 try {
@@ -3646,6 +3713,10 @@ renderCassiePanel(this.phase, this.launch, this.tokenPayload, this.chartStats);
 } else if (this.phase === PHASES.BUILDING) {
 clearLiveOnlyUi();
 updateStatsForBuilding(this.launch, this.lifecycle);
+renderCassiePanel(this.phase, this.launch, this.tokenPayload, this.chartStats);
+} else if (this.phase === PHASES.FAILED) {
+clearLiveOnlyUi();
+updateStatsForFailed(this.launch, this.commitStats);
 renderCassiePanel(this.phase, this.launch, this.tokenPayload, this.chartStats);
 } else {
 updateStatsForLive(this.tokenPayload, this.chartStats, this.launch, this.lifecycle);

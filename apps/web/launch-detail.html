@@ -6,7 +6,7 @@
 <title>MSS Protocol — Launch Terminal</title>
 <meta
 name="description"
-content="MSS Protocol Launch Terminal — builder identity, launch intelligence, structured commit flow, countdown integrity, and live market transition."
+content="MSS Protocol Launch Terminal — builder identity, protected phase truth, structured commit flow, countdown integrity, failed / live state handling, and market transition."
 />
 
 <link rel="stylesheet" href="./assets/app.css?v=6" />
@@ -1124,7 +1124,7 @@ data-shell-subtitle="Launch Terminal"
 </span>
 <span class="page-pill">
 <span class="page-pill-dot good"></span>
-<span id="launchTerminalModeLabel">Structured Terminal</span>
+<span id="launchTerminalModeLabel">Protected Phase Truth</span>
 </span>
 </div>
 </div>
@@ -1137,7 +1137,7 @@ data-shell-subtitle="Launch Terminal"
 <div class="launch-command-kicker">Market Command Surface</div>
 <h1 id="launchCommandTitle" class="launch-command-title">Pending Launch</h1>
 <div id="launchCommandText" class="launch-command-text">
-Launch data is loading. Lifecycle, access posture, and market state will populate from backend truth.
+Launch data is loading. Lifecycle, access posture, wallet limits, and market state will populate from backend truth.
 </div>
 </div>
 
@@ -1184,7 +1184,7 @@ Launch data is loading. Lifecycle, access posture, and market state will populat
 </div>
 
 <div id="launchStatusBoardNote" class="launch-status-board-note">
-Launch lifecycle, access posture, and market transition signals are reflected here as backend truth updates.
+Launch lifecycle, access posture, wallet cap state, and market transition signals are reflected here as backend truth updates.
 </div>
 
 <div class="launch-status-board-grid">
@@ -1514,7 +1514,7 @@ Commit phase closed. Market activation is imminent.
 </div>
 </div>
 
-<div id="marketAccessSchedule" class="market-access-note">Allocation controls active.</div>
+<div id="marketAccessSchedule" class="market-access-note">Allocation controls activate once the launch is live.</div>
 </section>
 </div>
 </section>
@@ -1546,7 +1546,7 @@ Commit phase closed. Market activation is imminent.
 
 <div class="compact-note" style="margin-top:12px;">
 <div style="font-weight:850;margin-bottom:8px;color:#fff;">Lifecycle Summary</div>
-<div id="launchLifecycleSummaryText">Commit → Countdown → Building → Live</div>
+<div id="launchLifecycleSummaryText">Commit → Countdown → Building → Live → Graduated / Failed</div>
 <div id="launchOverviewCopy" style="margin-top:8px;font-size:12px;color:rgba(220,230,245,.68);line-height:1.55;">
 Awaiting launch overview state.
 </div>
@@ -1618,7 +1618,7 @@ Awaiting launch overview state.
 <div class="progress-card-title"><span id="totalCommittedStat">0 SOL</span> committed</div>
 <div class="progress-card-sub">
 <div><span id="progressCountdownLabel">Commit ends in</span>: <span id="progressCountdownValue">—</span></div>
-<div><span id="progressSecondaryLabel">Fill duration</span>: <span id="progressSecondaryValue">—</span></div>
+<div><span id="phaseMetaLabel">Fill duration</span>: <span id="phaseMetaValue">—</span></div>
 </div>
 </div>
 <div id="phaseBadge" class="status-pill commit">Commit</div>
@@ -1627,6 +1627,7 @@ Awaiting launch overview state.
 <div class="progress-wrap">
 <div class="progress-top">
 <span id="remainingToMinRaiseStat">0 SOL to minimum</span>
+<span id="remainingToHardCapStat">0 SOL to hard cap</span>
 <strong id="progressPercentStat">0%</strong>
 </div>
 <div class="progress">
@@ -1659,7 +1660,7 @@ Awaiting launch overview state.
 <div class="terminal-section-header">
 <div>
 <div class="terminal-section-title">Allocation Structure</div>
-<div class="terminal-section-sub">Launch distribution and reserve posture.</div>
+<div class="terminal-section-sub">Launch distribution, reserve posture, and builder / team controls.</div>
 </div>
 </div>
 
@@ -1795,15 +1796,16 @@ Graduation conditions are still being evaluated.
 <div class="terminal-section-header">
 <div>
 <div class="terminal-section-title">Launch Notes</div>
-<div class="terminal-section-sub">Lifecycle logic and execution protections.</div>
+<div class="terminal-section-sub">Lifecycle logic, current launch rules, and execution protections.</div>
 </div>
 </div>
 
 <div class="compact-note">
-MSS launches enforce structured commit logic, capped wallet participation, minimum raise checks,
-countdown-based go-live transitions, automatic lifecycle transitions, internal pool reserve truth,
-builder vesting tracking, and refund protection that disables the moment countdown begins.
-Builder allocation remains 5% total, unlocking 0.5% of total supply per day until fully unlocked after 10 days.
+MSS launches run through commit → countdown → building → live → graduated / failed lifecycle truth.
+Participant allocations are fully unlocked once the launch goes live.
+Protected wallet caps start at 0.5% and increase by 0.5% daily for 5 days.
+Builder allocation remains 5% total supply, unlocking 0.5% of total supply per day until fully unlocked after 10 days.
+Builder bond and team controls remain visible on builder launches, while contract address and live market data stay protected until true live state.
 </div>
 
 <div class="allocation-grid">
@@ -1843,7 +1845,7 @@ Pattern monitoring inactive.
 </div>
 
 <div class="action-panel-topline">
-Commit, refund, and manage live execution from one side terminal. Wallet state, access controls, and trade flow stay in sync with the market surface above.
+Commit and refund controls stay available through the launch flow, while live wallet, access, and trade execution stay in sync with the market surface above once the launch reaches true live state.
 </div>
 
 <div class="terminal-wallet-block">
@@ -2036,8 +2038,6 @@ data-role="wallet-input"
 <div id="participantsTotalStat"></div>
 <div id="phaseTimerLabel"></div>
 <div id="phaseTimerValue"></div>
-<div id="phaseMetaLabel"></div>
-<div id="phaseMetaValue"></div>
 <div id="commitProgressFill"></div>
 <div id="heroProgressFill"></div>
 <div id="minRaiseStateStat"></div>
@@ -2153,6 +2153,46 @@ await mountSharedShell();
 </script>
 
 <script type="module" src="./assets/pages/launch.js?v=6"></script>
+
+<script>
+(function () {
+const mirrorMap = [
+["phaseValueMirror", "launchStatusBoardStatus"],
+];
+
+function syncMirrors() {
+for (const [sourceId, targetId] of mirrorMap) {
+const source = document.getElementById(sourceId);
+const target = document.getElementById(targetId);
+if (!source || !target) continue;
+target.textContent = source.textContent || "—";
+}
+}
+
+function attachObservers() {
+syncMirrors();
+
+const observer = new MutationObserver(syncMirrors);
+
+for (const [sourceId] of mirrorMap) {
+const source = document.getElementById(sourceId);
+if (!source) continue;
+observer.observe(source, {
+childList: true,
+subtree: true,
+characterData: true,
+});
+}
+}
+
+if (document.readyState === "loading") {
+document.addEventListener("DOMContentLoaded", attachObservers, { once: true });
+} else {
+attachObservers();
+}
+})();
+</script>
+
 <script src="/assets/devnet-access-gate.js?v=6"></script>
 </body>
 </html>

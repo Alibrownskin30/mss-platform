@@ -22,13 +22,15 @@ hostname === "www.devnet.mssprotocol.com"
 return "https://api.devnet.mssprotocol.com";
 }
 
-
 if (port === "3000") {
 return `${protocol}//${hostname}:8787`;
 }
 
 if (hostname.includes("-3000.app.github.dev")) {
-return `${protocol}//${hostname.replace("-3000.app.github.dev", "-8787.app.github.dev")}`;
+return `${protocol}//${hostname.replace(
+"-3000.app.github.dev",
+"-8787.app.github.dev"
+)}`;
 }
 
 return `${protocol}//${hostname}${port ? `:${port}` : ""}`;
@@ -127,17 +129,40 @@ let cachedBuilderBond = null;
 let currentLogoPreviewObjectUrl = "";
 
 function getPhantomProvider() {
-return window.getPhantomProvider?.() || window.phantom?.solana || window.solana || null;
+return (
+window.getPhantomProvider?.() ||
+window.phantom?.solana ||
+window.solana ||
+null
+);
 }
 
 function clearBuilderBondCache() {
 cachedBuilderBond = null;
 }
 
+function getBuilderBondCacheKey(values) {
+return JSON.stringify({
+wallet: values.wallet || "",
+template: values.template || "",
+tokenName: values.tokenName || "",
+symbol: values.symbol || "",
+supply: Number(values.supply || 0),
+minRaiseSol: Number(values.minRaiseSol || 0),
+hardCapSol: Number(values.hardCapSol || 0),
+builderBond: Number(values.builderBond || 0),
+teamAllocation: Number(values.teamAllocation || 0),
+teamWalletCount: Number(values.teamWalletCount || 0),
+teamWallets: Array.isArray(values.teamWallets) ? values.teamWallets : [],
+teamWalletBreakdown: Array.isArray(values.teamWalletBreakdown)
+? values.teamWalletBreakdown
+: [],
+});
+}
+
 function getCachedBuilderBondSignature(values) {
 if (!cachedBuilderBond) return "";
-if (cachedBuilderBond.wallet !== values.wallet) return "";
-if (Number(cachedBuilderBond.builderBond) !== Number(values.builderBond)) return "";
+if (cachedBuilderBond.key !== getBuilderBondCacheKey(values)) return "";
 return cachedBuilderBond.txSignature || "";
 }
 
@@ -160,34 +185,41 @@ return data;
 }
 
 const BUILDER_ALLOWED_HARD_CAPS = [250, 500, 750, 1000];
-const BUILDER_MIN_SOFT_CAP_SOL = 200;
+const BUILDER_SOFT_CAP_BY_HARD_CAP = {
+250: 200,
+500: 300,
+750: 400,
+1000: 500,
+};
 const DEFAULT_BUILDER_HARD_CAP_SOL = 250;
+const MIN_LAUNCH_BOND_SOL = 3;
+const MAX_LAUNCH_BOND_SOL = 25;
 
 const TEMPLATE_CONFIG = {
 meme_lite: {
 supply: 1000000000,
-minRaiseSol: 20,
+minRaiseSol: 60,
 hardCapSol: 100,
 },
 meme_pro: {
 supply: 1000000000,
-minRaiseSol: 50,
+minRaiseSol: 75,
 hardCapSol: 200,
 },
 builder: {
 supply: 1000000000,
-minRaiseSol: BUILDER_MIN_SOFT_CAP_SOL,
+minRaiseSol: BUILDER_SOFT_CAP_BY_HARD_CAP[DEFAULT_BUILDER_HARD_CAP_SOL],
 hardCapSol: DEFAULT_BUILDER_HARD_CAP_SOL,
 },
 community: {
 supply: 1000000000,
-minRaiseSol: 40,
+minRaiseSol: 75,
 hardCapSol: 200,
 },
 degen_zone: {
 supply: 1000000000,
-minRaiseSol: 1,
-hardCapSol: 1.1,
+minRaiseSol: 55,
+hardCapSol: 75,
 },
 };
 
@@ -214,30 +246,21 @@ return parsed;
 return DEFAULT_BUILDER_HARD_CAP_SOL;
 }
 
-function normalizeBuilderMinRaise(raw, hardCap) {
-const parsed = Number(raw);
-const effectiveHardCap = Number(hardCap);
-
-if (!Number.isFinite(effectiveHardCap) || effectiveHardCap <= BUILDER_MIN_SOFT_CAP_SOL) {
-return BUILDER_MIN_SOFT_CAP_SOL;
+function normalizeBuilderMinRaise(_raw, hardCap) {
+const normalizedHardCap = normalizeBuilderHardCap(hardCap);
+return BUILDER_SOFT_CAP_BY_HARD_CAP[normalizedHardCap] || BUILDER_SOFT_CAP_BY_HARD_CAP[DEFAULT_BUILDER_HARD_CAP_SOL];
 }
 
-const maxAllowed = Math.max(BUILDER_MIN_SOFT_CAP_SOL, effectiveHardCap - 1);
-
-if (!Number.isFinite(parsed)) {
-return Math.min(BUILDER_MIN_SOFT_CAP_SOL, maxAllowed);
+function getRequiredLaunchBondSol({ minRaiseSol }) {
+const softCap = Number(minRaiseSol);
+if (!Number.isFinite(softCap) || softCap <= 0) {
+return MIN_LAUNCH_BOND_SOL;
 }
 
-const rounded = Math.floor(parsed);
-if (rounded < BUILDER_MIN_SOFT_CAP_SOL) {
-return BUILDER_MIN_SOFT_CAP_SOL;
-}
-
-if (rounded >= effectiveHardCap) {
-return maxAllowed;
-}
-
-return rounded;
+return Math.min(
+MAX_LAUNCH_BOND_SOL,
+Math.max(MIN_LAUNCH_BOND_SOL, Math.ceil(softCap * 0.05))
+);
 }
 
 function updateBuilderResolvedInputs() {
@@ -245,21 +268,21 @@ const builderHardCapInput = $("builderHardCapSol");
 const builderMinRaiseInput = $("builderMinRaiseSol");
 
 if (!builderHardCapInput || !builderMinRaiseInput) {
+const fallbackHardCap = DEFAULT_BUILDER_HARD_CAP_SOL;
 return {
-hardCapSol: DEFAULT_BUILDER_HARD_CAP_SOL,
-minRaiseSol: BUILDER_MIN_SOFT_CAP_SOL,
+hardCapSol: fallbackHardCap,
+minRaiseSol: BUILDER_SOFT_CAP_BY_HARD_CAP[fallbackHardCap],
 };
 }
 
 const hardCapSol = normalizeBuilderHardCap(builderHardCapInput.value);
 builderHardCapInput.value = String(hardCapSol);
 
-const maxMinRaise = Math.max(BUILDER_MIN_SOFT_CAP_SOL, hardCapSol - 1);
-builderMinRaiseInput.min = String(BUILDER_MIN_SOFT_CAP_SOL);
-builderMinRaiseInput.max = String(maxMinRaise);
-
 const minRaiseSol = normalizeBuilderMinRaise(builderMinRaiseInput.value, hardCapSol);
+builderMinRaiseInput.min = String(minRaiseSol);
+builderMinRaiseInput.max = String(minRaiseSol);
 builderMinRaiseInput.value = String(minRaiseSol);
+builderMinRaiseInput.readOnly = true;
 
 return {
 hardCapSol,
@@ -267,24 +290,44 @@ minRaiseSol,
 };
 }
 
+function syncLaunchBondField(values) {
+const builderBondInput = $("builderBond");
+if (!builderBondInput) return;
+
+builderBondInput.value = String(values.builderBond);
+builderBondInput.min = String(values.builderBond);
+builderBondInput.max = String(values.builderBond);
+builderBondInput.readOnly = true;
+}
+
 function getSelectedTemplate() {
 const key = $("template")?.value || "meme_lite";
 const base = TEMPLATE_CONFIG[key] || TEMPLATE_CONFIG.meme_lite;
 
 if (key !== "builder") {
-return {
+const templateValues = {
 key,
 ...base,
+};
+
+return {
+...templateValues,
+builderBond: getRequiredLaunchBondSol(templateValues),
 };
 }
 
 const resolvedBuilder = updateBuilderResolvedInputs();
 
-return {
+const templateValues = {
 key,
 ...base,
 hardCapSol: resolvedBuilder.hardCapSol,
 minRaiseSol: resolvedBuilder.minRaiseSol,
+};
+
+return {
+...templateValues,
+builderBond: getRequiredLaunchBondSol(templateValues),
 };
 }
 
@@ -325,6 +368,8 @@ if (builderHighlight) builderHighlight.classList.remove("show");
 if ($("minRaiseSol")) $("minRaiseSol").value = String(tpl.minRaiseSol);
 if ($("hardCapSol")) $("hardCapSol").value = String(tpl.hardCapSol);
 
+syncLaunchBondField(tpl);
+
 const allocationChip = $("previewAllocationChip");
 const templateChip = $("previewTemplateChip");
 
@@ -333,7 +378,9 @@ templateChip.textContent = builderMode ? "Builder Template" : "Template Locked";
 }
 
 if (allocationChip) {
-allocationChip.textContent = builderMode ? "Reserve Adjusts For Team" : "Fixed Allocation";
+allocationChip.textContent = builderMode
+? "Reserve Adjusts For Team"
+: "1 SOL Max Commit";
 }
 
 updateTeamAllocationTotal();
@@ -418,6 +465,10 @@ const supplyValue = builderMode
 ? Number($("supplyPreset")?.value || tpl.supply)
 : tpl.supply;
 
+const teamWalletBreakdown = builderMode ? getTeamWalletBreakdown() : [];
+const teamWallets = builderMode ? getTeamWallets() : [];
+const teamAllocationTotal = builderMode ? getTeamAllocationTotalValue() : 0;
+
 return {
 wallet: getWalletValue(),
 template: tpl.key,
@@ -428,12 +479,12 @@ imageUrl: $("imageUrl")?.value.trim() || "",
 supply: supplyValue,
 minRaiseSol: tpl.minRaiseSol,
 hardCapSol: tpl.hardCapSol,
+builderBond: tpl.builderBond,
 teamWalletCount: builderMode ? Number($("teamWalletCount")?.value || 0) : 0,
 teamAllocation: builderMode ? Number($("teamAllocation")?.value || 0) : 0,
-builderBond: builderMode ? Number($("builderBond")?.value || 0) : 0,
-teamWallets: builderMode ? getTeamWallets() : [],
-teamWalletBreakdown: builderMode ? getTeamWalletBreakdown() : [],
-teamAllocationTotal: builderMode ? getTeamAllocationTotalValue() : 0,
+teamWallets,
+teamWalletBreakdown,
+teamAllocationTotal,
 };
 }
 
@@ -479,20 +530,25 @@ throw new Error("Template hard cap is invalid.");
 }
 
 if (Number(values.minRaiseSol) >= Number(values.hardCapSol)) {
-throw new Error("Template configuration is invalid: minimum raise must stay below hard cap.");
+throw new Error(
+"Template configuration is invalid: minimum raise must stay below hard cap."
+);
 }
 
 if (values.template === "builder") {
 if (!BUILDER_ALLOWED_HARD_CAPS.includes(Number(values.hardCapSol))) {
-throw new Error(`Builder hard cap must be one of ${BUILDER_ALLOWED_HARD_CAPS.join(", ")} SOL.`);
+throw new Error(
+`Builder hard cap must be one of ${BUILDER_ALLOWED_HARD_CAPS.join(", ")} SOL.`
+);
 }
 
-if (Number(values.minRaiseSol) < BUILDER_MIN_SOFT_CAP_SOL) {
-throw new Error(`Builder minimum raise must be at least ${BUILDER_MIN_SOFT_CAP_SOL} SOL.`);
-}
+const expectedBuilderSoftCap =
+BUILDER_SOFT_CAP_BY_HARD_CAP[Number(values.hardCapSol)] || 0;
 
-if (Number(values.minRaiseSol) >= Number(values.hardCapSol)) {
-throw new Error("Builder minimum raise must stay below the selected hard cap.");
+if (Number(values.minRaiseSol) !== expectedBuilderSoftCap) {
+throw new Error(
+`Builder minimum raise must match the locked soft cap for ${values.hardCapSol} SOL.`
+);
 }
 
 if (!Number.isFinite(values.teamAllocation) || values.teamAllocation < 0) {
@@ -503,7 +559,11 @@ if (values.teamAllocation > 15) {
 throw new Error("Team allocation limit cannot exceed 15%.");
 }
 
-if (!Number.isFinite(values.teamWalletCount) || values.teamWalletCount < 0 || values.teamWalletCount > 5) {
+if (
+!Number.isFinite(values.teamWalletCount) ||
+values.teamWalletCount < 0 ||
+values.teamWalletCount > 5
+) {
 throw new Error("Team wallet count must be between 0 and 5.");
 }
 
@@ -523,17 +583,23 @@ throw new Error(`Team wallet ${row.index + 1} needs an address.`);
 }
 
 if (!Number.isFinite(row.pct) || row.pct <= 0) {
-throw new Error(`Team wallet ${row.index + 1} allocation must be greater than 0.`);
+throw new Error(
+`Team wallet ${row.index + 1} allocation must be greater than 0.`
+);
 }
 
 if (seenWallets.has(row.wallet)) {
-throw new Error(`Team wallet ${row.index + 1} duplicates another team wallet.`);
+throw new Error(
+`Team wallet ${row.index + 1} duplicates another team wallet.`
+);
 }
 seenWallets.add(row.wallet);
 }
 
 if (values.teamAllocation === 0 && values.teamWalletCount > 0) {
-throw new Error("Set a team allocation limit above 0 if team wallets are being used.");
+throw new Error(
+"Set a team allocation limit above 0 if team wallets are being used."
+);
 }
 
 if (values.teamAllocation > 0 && values.teamWalletCount === 0) {
@@ -544,17 +610,28 @@ if (values.teamAllocationTotal > 15) {
 throw new Error("Combined team wallet allocation cannot exceed 15%.");
 }
 
-if (values.teamAllocation > 0 && values.teamAllocationTotal > values.teamAllocation) {
-throw new Error("Combined team wallet allocation exceeds the team allocation limit.");
+if (
+values.teamAllocation > 0 &&
+values.teamAllocationTotal > values.teamAllocation
+) {
+throw new Error(
+"Combined team wallet allocation exceeds the team allocation limit."
+);
 }
 
-if (values.teamAllocation > 0 && Math.abs(values.teamAllocationTotal - values.teamAllocation) > 0.000001) {
-throw new Error("Combined team wallet allocation must match the team allocation limit exactly.");
+if (
+values.teamAllocation > 0 &&
+Math.abs(values.teamAllocationTotal - values.teamAllocation) > 0.000001
+) {
+throw new Error(
+"Combined team wallet allocation must match the team allocation limit exactly."
+);
+}
 }
 
-if (!Number.isFinite(values.builderBond) || values.builderBond < 5) {
-throw new Error("Builder bond must be at least 5 SOL.");
-}
+const expectedLaunchBond = getRequiredLaunchBondSol(values);
+if (!Number.isFinite(values.builderBond) || Number(values.builderBond) !== expectedLaunchBond) {
+throw new Error(`Launch bond must be exactly ${expectedLaunchBond} SOL for this template.`);
 }
 
 const logoFile = $("logoInput")?.files?.[0];
@@ -597,7 +674,9 @@ walletInput.readOnly = true;
 connectBtn.style.display = "none";
 disconnectBtn.style.display = "inline-flex";
 if (walletHint) {
-walletHint.textContent = `Connected via ${String(walletState.walletName || "wallet").replace(/\b\w/g, (m) => m.toUpperCase())}.`;
+walletHint.textContent = `Connected via ${String(
+walletState.walletName || "wallet"
+).replace(/\b\w/g, (m) => m.toUpperCase())}.`;
 }
 } else {
 walletInput.value = "";
@@ -606,7 +685,8 @@ walletInput.readOnly = true;
 connectBtn.style.display = "inline-flex";
 disconnectBtn.style.display = "none";
 if (walletHint) {
-walletHint.textContent = "Use Connect Wallet to choose Phantom, Solflare, or Backpack.";
+walletHint.textContent =
+"Use Connect Wallet to choose Phantom, Solflare, or Backpack.";
 }
 }
 }
@@ -628,7 +708,9 @@ container.innerHTML = "";
 
 for (let i = 0; i < count; i++) {
 const prev = existing[i] || { label: "Team", wallet: "", pct: 0 };
-const selectedLabel = TEAM_LABEL_OPTIONS.includes(prev.label) ? prev.label : "Custom";
+const selectedLabel = TEAM_LABEL_OPTIONS.includes(prev.label)
+? prev.label
+: "Custom";
 const customLabel = selectedLabel === "Custom" ? prev.label : "";
 
 const row = document.createElement("div");
@@ -694,10 +776,14 @@ return;
 }
 
 block.classList.add("show");
-allocationEl.textContent = `${Number(values.teamAllocation || 0).toFixed(values.teamAllocation % 1 ? 1 : 0)}%`;
+allocationEl.textContent = `${Number(values.teamAllocation || 0).toFixed(
+values.teamAllocation % 1 ? 1 : 0
+)}%`;
 bondEl.textContent = formatSol(values.builderBond);
 
-const rows = values.teamWalletBreakdown.filter((row) => row.wallet || row.label || row.pct);
+const rows = values.teamWalletBreakdown.filter(
+(row) => row.wallet || row.label || row.pct
+);
 
 if (!rows.length) {
 list.innerHTML = `<div class="preview-builder-row"><span>No visible team wallets set</span><strong>—</strong></div>`;
@@ -730,7 +816,9 @@ function updatePreview() {
 const values = getFormValues();
 
 $("previewName").textContent = values.tokenName || "Untitled Launch";
-$("previewSub").textContent = `${values.symbol || "TICK"} • ${normalizeTemplateLabel(values.template)}`;
+$("previewSub").textContent = `${values.symbol || "TICK"} • ${normalizeTemplateLabel(
+values.template
+)}`;
 $("previewMinRaise").textContent = formatSol(values.minRaiseSol);
 $("previewHardCap").textContent = formatSol(values.hardCapSol);
 $("previewSupply").textContent = formatSupply(values.supply);
@@ -744,18 +832,23 @@ const templateChip = $("previewTemplateChip");
 const allocationChip = $("previewAllocationChip");
 
 if (flowChip) {
-flowChip.textContent = "Commit → Countdown → Live";
+flowChip.textContent = "Commit → Countdown → Building → Live";
 }
 
 if (templateChip) {
-templateChip.textContent = values.template === "builder" ? "Builder Template" : "Template Locked";
+templateChip.textContent =
+values.template === "builder" ? "Builder Template" : "Template Locked";
 }
 
 if (allocationChip) {
-allocationChip.textContent = values.template === "builder" ? "Reserve Adjusts For Team" : "Fixed Allocation";
+allocationChip.textContent =
+values.template === "builder"
+? "Reserve Adjusts For Team"
+: "1 SOL Max Commit";
 }
 
 renderPreviewBuilderBlock(values);
+syncLaunchBondField(values);
 
 const file = $("logoInput")?.files?.[0];
 const existingUrl = values.imageUrl;
@@ -801,7 +894,10 @@ return;
 setStatus("warn", "Wallet connection cancelled.");
 } catch (err) {
 const msg = err?.message || "Wallet connection failed.";
-setStatus("bad", msg.includes("No supported wallet") ? getMobileWalletHelpText() : msg);
+setStatus(
+"bad",
+msg.includes("No supported wallet") ? getMobileWalletHelpText() : msg
+);
 }
 }
 
@@ -949,7 +1045,10 @@ if (!isBuilderNotFoundMessage(err?.message)) {
 throw err;
 }
 
-setStatus("warn", "Builder profile was missing during launch creation. Rebuilding profile and retrying...");
+setStatus(
+"warn",
+"Builder profile was missing during launch creation. Rebuilding profile and retrying..."
+);
 await ensureBuilderProfile(payload.wallet, { forceCreate: true });
 await sleep(300);
 
@@ -958,7 +1057,7 @@ return createLaunch(payload);
 }
 
 async function collectBuilderBond(values) {
-if (values.template !== "builder" || Number(values.builderBond) <= 0) {
+if (Number(values.builderBond) <= 0) {
 return "";
 }
 
@@ -969,14 +1068,14 @@ return cachedSignature;
 
 const provider = getPhantomProvider();
 if (!provider?.signTransaction) {
-throw new Error("Wallet signing is not available for builder bond.");
+throw new Error("Wallet signing is not available for launch bond.");
 }
 
 if (!window.solanaWeb3?.Transaction?.from) {
 throw new Error("solanaWeb3 is not available on this page.");
 }
 
-setStatus("warn", "Preparing builder bond approval...");
+setStatus("warn", "Preparing launch bond approval...");
 
 const prepare = await fetchJson(`/api/launcher/prepare-builder-bond`, {
 method: "POST",
@@ -990,26 +1089,25 @@ builderBondSol: Number(values.builderBond),
 });
 
 const transactionBase64 =
-prepare.transaction ||
-prepare.serializedTransaction ||
-prepare.tx ||
-"";
+prepare.transaction || prepare.serializedTransaction || prepare.tx || "";
 
 if (!transactionBase64) {
-throw new Error("Prepared builder bond transaction was not returned by the server.");
+throw new Error(
+"Prepared launch bond transaction was not returned by the server."
+);
 }
 
-const txBytes = Uint8Array.from(atob(transactionBase64), (c) => c.charCodeAt(0));
+const txBytes = Uint8Array.from(atob(transactionBase64), (c) =>
+c.charCodeAt(0)
+);
 const transaction = window.solanaWeb3.Transaction.from(txBytes);
 
-setStatus("warn", "Awaiting builder bond wallet approval...");
+setStatus("warn", "Awaiting launch bond wallet approval...");
 const signedTransaction = await provider.signTransaction(transaction);
 
-const signedBase64 = btoa(
-String.fromCharCode(...signedTransaction.serialize())
-);
+const signedBase64 = btoa(String.fromCharCode(...signedTransaction.serialize()));
 
-setStatus("warn", "Confirming builder bond...");
+setStatus("warn", "Confirming launch bond...");
 const confirm = await fetchJson(`/api/launcher/confirm-builder-bond`, {
 method: "POST",
 headers: {
@@ -1023,8 +1121,7 @@ signedTransaction: signedBase64,
 });
 
 cachedBuilderBond = {
-wallet: values.wallet,
-builderBond: Number(values.builderBond),
+key: getBuilderBondCacheKey(values),
 txSignature: confirm.txSignature,
 };
 
@@ -1050,8 +1147,7 @@ setStatus("warn", "Preparing builder profile...");
 await ensureBuilderProfile(values.wallet);
 
 let builderBondTxSignature = "";
-
-if (values.template === "builder" && Number(values.builderBond) > 0) {
+if (Number(values.builderBond) > 0) {
 builderBondTxSignature = await collectBuilderBond(values);
 }
 
@@ -1073,10 +1169,12 @@ image_url: finalImageUrl,
 supply: Number(values.supply),
 min_raise_sol: Number(values.minRaiseSol),
 hard_cap_sol: Number(values.hardCapSol),
-team_allocation_pct: values.template === "builder" ? Number(values.teamAllocation) : 0,
+team_allocation_pct:
+values.template === "builder" ? Number(values.teamAllocation) : 0,
 team_wallets: values.template === "builder" ? values.teamWallets : [],
-team_wallet_breakdown: values.template === "builder" ? values.teamWalletBreakdown : [],
-builder_bond_sol: values.template === "builder" ? Number(values.builderBond) : 0,
+team_wallet_breakdown:
+values.template === "builder" ? values.teamWalletBreakdown : [],
+builder_bond_sol: Number(values.builderBond),
 builder_bond_tx_signature: builderBondTxSignature,
 };
 
@@ -1085,19 +1183,22 @@ const launch = result?.launch || null;
 const mintReservation = result?.mintReservation || null;
 
 const builderBondNotice =
-values.template === "builder" && Number(values.builderBond) > 0
-? ` Builder bond confirmed: ${values.builderBond} SOL.`
+Number(values.builderBond) > 0
+? ` Launch bond confirmed: ${values.builderBond} SOL.`
 : "";
 
-const mintNotice =
-mintReservation?.reservedMintAddress
+const mintNotice = mintReservation?.reservedMintAddress
 ? ` Reserved mint: ${mintReservation.reservedMintAddress}.`
 : "";
 
 setStatus(
 "good",
-`Launch created successfully. Redirecting to launch #${launch?.id || "—"}...${builderBondNotice}${mintNotice}`
+`Launch created successfully. Redirecting to launch #${
+launch?.id || "—"
+}...${builderBondNotice}${mintNotice}`
 );
+
+clearBuilderBondCache();
 
 window.setTimeout(() => {
 window.location.href = `./launch.html?id=${encodeURIComponent(launch.id)}`;
@@ -1133,22 +1234,48 @@ const el = $(id);
 if (!el) continue;
 
 el.addEventListener("input", () => {
-if (id === "template" || id === "supplyPreset" || id === "builderHardCapSol" || id === "builderMinRaiseSol") {
+if (
+id === "template" ||
+id === "supplyPreset" ||
+id === "builderHardCapSol" ||
+id === "builderMinRaiseSol"
+) {
 applyTemplateValues();
 }
 if (id === "teamWalletCount") {
 renderTeamWalletInputs();
+}
+if (
+id === "template" ||
+id === "builderHardCapSol" ||
+id === "builderMinRaiseSol" ||
+id === "builderBond"
+) {
+clearBuilderBondCache();
 }
 updatePreview();
 updateTeamAllocationTotal();
 });
 
 el.addEventListener("change", () => {
-if (id === "template" || id === "supplyPreset" || id === "builderHardCapSol" || id === "builderMinRaiseSol") {
+if (
+id === "template" ||
+id === "supplyPreset" ||
+id === "builderHardCapSol" ||
+id === "builderMinRaiseSol"
+) {
 applyTemplateValues();
 }
 if (id === "teamWalletCount") {
 renderTeamWalletInputs();
+}
+if (
+id === "template" ||
+id === "builderHardCapSol" ||
+id === "builderMinRaiseSol" ||
+id === "builderBond"
+) {
+clearBuilderBondCache();
 }
 updatePreview();
 updateTeamAllocationTotal();
@@ -1240,11 +1367,13 @@ updatePreview();
 });
 
 $("builderHardCapSol")?.addEventListener("change", () => {
+clearBuilderBondCache();
 applyTemplateValues();
 updatePreview();
 });
 
 $("builderMinRaiseSol")?.addEventListener("input", () => {
+clearBuilderBondCache();
 applyTemplateValues();
 updatePreview();
 });

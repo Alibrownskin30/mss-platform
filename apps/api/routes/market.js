@@ -24,40 +24,12 @@ const BUILDER_VESTING_DAYS = BUILDER_UNLOCK_DAYS;
 const TEAM_CLIFF_DAYS = 14;
 const TEAM_VESTING_DAYS = 180;
 
-const MS_PER_DAY = 24 * 60 * 60 * 1000;
+const PARTICIPANT_UNLOCK_LABEL = "100% unlocked at live.";
 
-const PARTICIPANT_VESTING_BY_TEMPLATE = {
-degen: {
-unlockPctAtLaunch: 40,
-vestingDays: 7,
-label: "40% unlocked at launch, 60% over 7 days",
-},
-degen_zone: {
-unlockPctAtLaunch: 40,
-vestingDays: 7,
-label: "40% unlocked at launch, 60% over 7 days",
-},
-meme_lite: {
-unlockPctAtLaunch: 35,
-vestingDays: 14,
-label: "35% unlocked at launch, 65% over 14 days",
-},
-meme_pro: {
-unlockPctAtLaunch: 25,
-vestingDays: 21,
-label: "25% unlocked at launch, 75% over 21 days",
-},
-community: {
-unlockPctAtLaunch: 25,
-vestingDays: 21,
-label: "25% unlocked at launch, 75% over 21 days",
-},
-builder: {
-unlockPctAtLaunch: 25,
-vestingDays: 21,
-label: "25% unlocked at launch, 75% over 21 days",
-},
-};
+const BUILDER_VESTING_RULE =
+"0% unlocked at live. Builder allocation then unlocks at 0.5% of total supply per day for 10 days until the full 5% allocation is unlocked.";
+
+const MS_PER_DAY = 24 * 60 * 60 * 1000;
 
 const WALLET_BALANCE_ALIAS_GROUPS = {
 token_amount: [
@@ -874,7 +846,11 @@ floorToken
 );
 
 if (solBalance != null) {
-setAliasGroup(WALLET_BALANCE_ALIAS_GROUPS.sol_balance, roundSol(solBalance), roundSol);
+setAliasGroup(
+WALLET_BALANCE_ALIAS_GROUPS.sol_balance,
+roundSol(solBalance),
+roundSol
+);
 }
 
 if (columns.has("updated_at")) {
@@ -1142,23 +1118,6 @@ async function getBuilderAllocationForWallet(launchId, launch, wallet) {
 return getAllocationForWallet(launchId, launch, wallet, "builder");
 }
 
-function getParticipantVestingProfile(launch = {}, allocation = {}) {
-const template = cleanText(launch?.template || launch?.launch_type, 80).toLowerCase();
-
-const fallback =
-PARTICIPANT_VESTING_BY_TEMPLATE[template] ||
-PARTICIPANT_VESTING_BY_TEMPLATE.meme_lite;
-
-return {
-unlockPctAtLaunch: safeNum(
-allocation?.vesting_unlock_pct_at_launch,
-fallback.unlockPctAtLaunch
-),
-vestingDays: safeNum(allocation?.vesting_days, fallback.vestingDays),
-label: cleanText(allocation?.vesting_label, 200) || fallback.label,
-};
-}
-
 function computeLinearVesting({
 totalAllocation,
 launch,
@@ -1224,7 +1183,6 @@ elapsedDays,
 }
 
 function computeParticipantSellability({
-launch,
 allocation,
 totalBalance,
 trustStoredTotalBalance = false,
@@ -1236,26 +1194,6 @@ if (totalAllocation <= 0 && storedVisibleTotalBalance <= 0) {
 return null;
 }
 
-const vestingProfile = getParticipantVestingProfile(launch, allocation);
-
-const explicitLaunchUnlock = chooseFirstFinite(
-allocation?.unlocked_at_launch_tokens,
-allocation?.unlockedAtLaunchTokens
-);
-
-const launchUnlockPct =
-explicitLaunchUnlock != null && totalAllocation > 0
-? (safeNum(explicitLaunchUnlock, 0) / totalAllocation) * 100
-: Math.max(0, Math.min(100, safeNum(vestingProfile.unlockPctAtLaunch, 25)));
-
-const vesting = computeLinearVesting({
-totalAllocation,
-launch,
-unlockPctAtLaunch: launchUnlockPct,
-cliffDays: 0,
-vestingDays: Math.max(0, safeNum(vestingProfile.vestingDays, 21)),
-});
-
 const visibleTotalBalance = trustStoredTotalBalance
 ? storedVisibleTotalBalance
 : Math.max(storedVisibleTotalBalance, totalAllocation);
@@ -1264,31 +1202,23 @@ if (visibleTotalBalance <= 0) {
 return null;
 }
 
-const visibleLocked = Math.max(
-0,
-Math.min(visibleTotalBalance, vesting.lockedAllocation)
-);
-
-const visibleUnlocked = Math.max(0, visibleTotalBalance - visibleLocked);
-const sellableBalance = visibleUnlocked;
-
 return {
 isParticipantWallet: true,
-participantVestingActive: visibleLocked > 0,
+participantVestingActive: false,
 
 totalBalance: visibleTotalBalance,
 visibleTotalBalance,
-unlockedBalance: visibleUnlocked,
-lockedBalance: visibleLocked,
-sellableBalance,
+unlockedBalance: visibleTotalBalance,
+lockedBalance: 0,
+sellableBalance: visibleTotalBalance,
 
 participantTotalAllocationTokens: totalAllocation,
-participantUnlockedAllocationTokens: vesting.unlockedAllocation,
-participantLockedAllocationTokens: vesting.lockedAllocation,
-participantVestingPercentUnlocked: vesting.percentUnlocked,
-participantVestingDaysLive: vesting.elapsedDays,
-participantVestingDays: vestingProfile.vestingDays,
-participantVestingLabel: vestingProfile.label,
+participantUnlockedAllocationTokens: totalAllocation,
+participantLockedAllocationTokens: 0,
+participantVestingPercentUnlocked: 100,
+participantVestingDaysLive: 0,
+participantVestingDays: 0,
+participantVestingLabel: PARTICIPANT_UNLOCK_LABEL,
 };
 }
 
@@ -1407,7 +1337,7 @@ vestedDays: 0,
 
 const elapsedMs = Math.max(0, Date.now() - startMs);
 const elapsedDays = Math.floor(elapsedMs / MS_PER_DAY);
-const vestedDays = Math.min(BUILDER_UNLOCK_DAYS, elapsedDays + 1);
+const vestedDays = Math.min(BUILDER_UNLOCK_DAYS, elapsedDays);
 
 const unlockedAllocation =
 vestedDays >= BUILDER_UNLOCK_DAYS
@@ -1491,6 +1421,7 @@ builderUnlockDays: BUILDER_UNLOCK_DAYS,
 builderDailyUnlockPct: BUILDER_DAILY_UNLOCK_PCT,
 builderTotalAllocationPct: BUILDER_ALLOCATION_PCT,
 builderVestingStartAt: vestingStartAt,
+builderVestingRule: BUILDER_VESTING_RULE,
 };
 }
 
@@ -1527,8 +1458,7 @@ builderUnlockDays: BUILDER_UNLOCK_DAYS,
 builderDailyUnlockPct: BUILDER_DAILY_UNLOCK_PCT,
 builderTotalAllocationPct: BUILDER_ALLOCATION_PCT,
 builderVestingStartAt: vestingStartAt,
-builderVestingRule:
-"Builder allocation unlocks at 0.5% of total supply per day until the full 5% builder allocation is unlocked.",
+builderVestingRule: BUILDER_VESTING_RULE,
 };
 }
 
@@ -1598,8 +1528,8 @@ isBuilderWallet: false,
 isParticipantWallet: false,
 isTeamWallet: true,
 vestingActive: teamSellability.teamVestingActive,
-builderVestingPercentUnlocked: 100,
-builderVestingDaysLive: getDaysSinceLaunch(launch),
+builderVestingPercentUnlocked: 0,
+builderVestingDaysLive: 0,
 ...teamSellability,
 };
 }
@@ -1611,7 +1541,6 @@ walletStr
 );
 
 const participantSellability = computeParticipantSellability({
-launch,
 allocation: participantAllocation,
 totalBalance,
 trustStoredTotalBalance,
@@ -1621,9 +1550,9 @@ if (participantSellability) {
 return {
 isBuilderWallet: false,
 isTeamWallet: false,
-vestingActive: participantSellability.participantVestingActive,
-builderVestingPercentUnlocked: 100,
-builderVestingDaysLive: getDaysSinceLaunch(launch),
+vestingActive: false,
+builderVestingPercentUnlocked: 0,
+builderVestingDaysLive: 0,
 ...participantSellability,
 };
 }
@@ -1638,8 +1567,8 @@ visibleTotalBalance: totalBalance,
 unlockedBalance: totalBalance,
 lockedBalance: 0,
 sellableBalance: totalBalance,
-builderVestingPercentUnlocked: 100,
-builderVestingDaysLive: getDaysSinceLaunch(launch),
+builderVestingPercentUnlocked: 0,
+builderVestingDaysLive: 0,
 };
 }
 
@@ -1959,8 +1888,10 @@ sellability?.participantVestingDaysLive,
 ),
 participantVestingDays: safeNum(sellability?.participantVestingDays, 0),
 participant_vesting_days: safeNum(sellability?.participantVestingDays, 0),
-participantVestingLabel: sellability?.participantVestingLabel || "",
-participant_vesting_label: sellability?.participantVestingLabel || "",
+participantVestingLabel:
+sellability?.participantVestingLabel || PARTICIPANT_UNLOCK_LABEL,
+participant_vesting_label:
+sellability?.participantVestingLabel || PARTICIPANT_UNLOCK_LABEL,
 
 teamTotalAllocationTokens: teamTotal,
 team_total_allocation_tokens: teamTotal,
@@ -2046,11 +1977,9 @@ BUILDER_ALLOCATION_PCT
 builderVestingStartAt: sellability?.builderVestingStartAt || null,
 builder_vesting_start_at: sellability?.builderVestingStartAt || null,
 builderVestingRule:
-sellability?.builderVestingRule ||
-"Builder allocation unlocks at 0.5% of total supply per day until the full 5% builder allocation is unlocked.",
+sellability?.builderVestingRule || BUILDER_VESTING_RULE,
 builder_vesting_rule:
-sellability?.builderVestingRule ||
-"Builder allocation unlocks at 0.5% of total supply per day until the full 5% builder allocation is unlocked.",
+sellability?.builderVestingRule || BUILDER_VESTING_RULE,
 };
 }
 
@@ -2060,7 +1989,9 @@ const sellability = await getWalletSellability(
 launchId,
 launch,
 wallet,
-walletBalance.visible_total_balance || walletBalance.total_balance || walletBalance.token_amount,
+walletBalance.visible_total_balance ||
+walletBalance.total_balance ||
+walletBalance.token_amount,
 walletBalance
 );
 
@@ -2170,7 +2101,9 @@ walletBalance
 );
 
 walletSellableBalanceBefore = floorToken(
-sellability?.sellableBalance ?? walletBalance.sellable_balance ?? walletBalanceBefore
+sellability?.sellableBalance ??
+walletBalance.sellable_balance ??
+walletBalanceBefore
 );
 }
 

@@ -8,8 +8,16 @@
 name="description"
 content="MSS Protocol Launchpad — security-first launch command for commit flow, countdown integrity, public builder identity, structured live market transition, and historical launch archive."
 />
-<link rel="stylesheet" href="./assets/app.css" />
+
+<link rel="stylesheet" href="./assets/app.css?v=7" />
+<link rel="modulepreload" href="./assets/layout-shell.js" />
+<link rel="modulepreload" href="./assets/pages/launches.js?v=7" />
+
 <style>
+.launchpad-page .hidden{
+display:none !important;
+}
+
 .launchpad-page .wrap{
 max-width:1320px;
 margin:0 auto;
@@ -191,6 +199,7 @@ text-transform:uppercase;
 cursor:pointer;
 transition:.18s ease;
 box-shadow:inset 0 1px 0 rgba(255,255,255,.04);
+text-decoration:none;
 }
 
 .launchpad-page .hero-cta.primary{
@@ -351,8 +360,36 @@ align-items:center;
 min-width:0;
 }
 
+.launchpad-page .input,
+.launchpad-page .select{
+width:100%;
+min-height:44px;
+padding:0 14px;
+border-radius:14px;
+border:1px solid rgba(255,255,255,.10);
+background:rgba(255,255,255,.04);
+color:#fff;
+font:inherit;
+outline:none;
+box-shadow:inset 0 1px 0 rgba(255,255,255,.04);
+}
+
+.launchpad-page .select{
+min-width:0;
+appearance:none;
+-webkit-appearance:none;
+-moz-appearance:none;
+background-color:#0f141c;
+}
+
+.launchpad-page .select option{
+background:#0f141c;
+color:#fff;
+}
+
 .launchpad-page .search-shell input:focus,
-.launchpad-page .input:focus{
+.launchpad-page .input:focus,
+.launchpad-page .select:focus{
 border-color:rgba(79,195,255,.28);
 box-shadow:
 0 0 0 4px rgba(79,195,255,.09),
@@ -413,6 +450,69 @@ background:linear-gradient(180deg, rgba(79,195,255,.12), rgba(18,140,255,.055));
 box-shadow:0 0 14px rgba(79,195,255,.045);
 }
 
+.launchpad-page .rail-btn,
+.launchpad-page .btn{
+display:inline-flex;
+align-items:center;
+justify-content:center;
+gap:8px;
+min-height:42px;
+padding:0 14px;
+border-radius:14px;
+border:1px solid rgba(255,255,255,.12);
+background:rgba(255,255,255,.05);
+color:#fff;
+cursor:pointer;
+font-weight:850;
+font-size:12px;
+letter-spacing:.08em;
+text-transform:uppercase;
+text-decoration:none;
+transition:.18s ease;
+box-shadow:inset 0 1px 0 rgba(255,255,255,.04);
+white-space:nowrap;
+}
+
+.launchpad-page .rail-btn:hover,
+.launchpad-page .btn:hover{
+transform:translateY(-1px);
+border-color:rgba(79,195,255,.20);
+background:rgba(79,195,255,.07);
+}
+
+.launchpad-page .btn.primary,
+.launchpad-page .rail-btn.primary{
+border-color:rgba(79,195,255,.24);
+background:
+linear-gradient(135deg, rgba(79,195,255,.18), rgba(18,140,255,.12) 58%, rgba(235,215,171,.07));
+box-shadow:
+0 0 18px rgba(79,195,255,.075),
+inset 0 1px 0 rgba(255,255,255,.05);
+}
+
+.launchpad-page .rail-btn:disabled,
+.launchpad-page .btn:disabled{
+opacity:.55;
+cursor:not-allowed;
+transform:none;
+}
+
+.launchpad-page .wallet-pill{
+display:inline-flex;
+align-items:center;
+gap:8px;
+min-height:42px;
+padding:0 14px;
+border-radius:999px;
+border:1px solid rgba(255,255,255,.10);
+background:rgba(255,255,255,.04);
+color:rgba(255,255,255,.84);
+font-size:12px;
+font-weight:800;
+max-width:100%;
+overflow-wrap:anywhere;
+}
+
 .launchpad-page .status-banner{
 display:none;
 margin-bottom:14px;
@@ -454,6 +554,21 @@ gap:12px;
 align-items:flex-start;
 flex-wrap:wrap;
 margin-bottom:14px;
+}
+
+.launchpad-page .section-title{
+font-size:12px;
+letter-spacing:.16em;
+text-transform:uppercase;
+color:var(--muted2);
+font-weight:800;
+}
+
+.launchpad-page .section-note,
+.launchpad-page .terminal-note{
+font-size:12px;
+color:var(--muted2);
+line-height:1.5;
 }
 
 .launchpad-page .featured-placeholder{
@@ -540,7 +655,9 @@ position:relative;
 z-index:1;
 }
 
-.launchpad-page .featured-stat-card .k{
+.launchpad-page .featured-stat-card .k,
+.launchpad-page .token-card .k,
+.launchpad-page .list-row .k{
 font-size:10px;
 letter-spacing:.14em;
 text-transform:uppercase;
@@ -548,12 +665,15 @@ color:var(--muted2);
 font-weight:800;
 }
 
-.launchpad-page .featured-stat-card .v{
+.launchpad-page .featured-stat-card .v,
+.launchpad-page .token-card .v,
+.launchpad-page .list-row .v{
 margin-top:10px;
 font-size:16px;
 font-weight:900;
 color:#fff;
 word-break:break-word;
+overflow-wrap:anywhere;
 }
 
 .launchpad-page .featured-quick-shell{
@@ -586,11 +706,6 @@ color:var(--muted2);
 font-weight:800;
 }
 
-.launchpad-page .terminal-note{
-font-size:12px;
-color:var(--muted2);
-}
-
 .launchpad-page .token-grid,
 .launchpad-page .launch-list{
 align-content:start;
@@ -621,6 +736,7 @@ font-weight:800;
 padding:2px 4px;
 }
 
+.launchpad-page .token-card,
 .launchpad-page .list-row{
 position:relative;
 border:1px solid rgba(255,255,255,.08);
@@ -636,6 +752,7 @@ box-shadow:inset 0 1px 0 rgba(255,255,255,.03);
 overflow:hidden;
 }
 
+.launchpad-page .token-card::before,
 .launchpad-page .list-row::before{
 content:"";
 position:absolute;
@@ -646,17 +763,294 @@ linear-gradient(180deg, rgba(255,255,255,.018), transparent 34%),
 radial-gradient(220px 80px at 100% 0%, rgba(235,215,171,.030), transparent 58%);
 }
 
+.launchpad-page .token-card > *,
 .launchpad-page .list-row > *{
 position:relative;
 z-index:1;
 }
 
+.launchpad-page .token-card:hover,
 .launchpad-page .list-row:hover{
 border-color:rgba(79,195,255,.18);
 box-shadow:
 0 22px 58px rgba(0,0,0,.40),
 0 0 18px rgba(79,195,255,.055);
 transform:translateY(-1px);
+}
+
+.launchpad-page .token-head{
+display:flex;
+justify-content:space-between;
+gap:12px;
+align-items:flex-start;
+flex-wrap:wrap;
+}
+
+.launchpad-page .logo-box{
+width:54px;
+height:54px;
+min-width:54px;
+border-radius:16px;
+border:1px solid rgba(255,255,255,.10);
+background:
+linear-gradient(180deg, rgba(255,255,255,.05), rgba(255,255,255,.02)),
+radial-gradient(circle at 30% 20%, rgba(79,195,255,.16), transparent 45%);
+display:grid;
+place-items:center;
+color:rgba(255,255,255,.62);
+font-size:11px;
+font-weight:900;
+letter-spacing:.10em;
+text-transform:uppercase;
+overflow:hidden;
+box-shadow:inset 0 1px 0 rgba(255,255,255,.04);
+}
+
+.launchpad-page .logo-box img{
+width:100%;
+height:100%;
+object-fit:cover;
+display:block;
+}
+
+.launchpad-page .token-name{
+font-size:22px;
+font-weight:950;
+line-height:1.03;
+letter-spacing:-.03em;
+color:#fff;
+word-break:break-word;
+overflow-wrap:anywhere;
+}
+
+.launchpad-page .token-symbol,
+.launchpad-page .list-sub{
+margin-top:6px;
+color:rgba(255,255,255,.60);
+font-size:12px;
+letter-spacing:.12em;
+text-transform:uppercase;
+word-break:break-word;
+overflow-wrap:anywhere;
+}
+
+.launchpad-page .badge{
+display:inline-flex;
+align-items:center;
+justify-content:center;
+min-height:34px;
+padding:0 12px;
+border-radius:999px;
+font-size:11px;
+font-weight:900;
+letter-spacing:.14em;
+text-transform:uppercase;
+border:1px solid rgba(255,255,255,.10);
+background:rgba(255,255,255,.05);
+color:#fff;
+white-space:nowrap;
+box-shadow:inset 0 1px 0 rgba(255,255,255,.04);
+}
+
+.launchpad-page .badge.commit{
+border-color:rgba(229,193,115,.22);
+background:rgba(229,193,115,.10);
+}
+
+.launchpad-page .badge.countdown{
+border-color:rgba(255,209,102,.20);
+background:rgba(255,209,102,.10);
+}
+
+.launchpad-page .badge.live{
+border-color:rgba(53,245,163,.20);
+background:rgba(53,245,163,.10);
+}
+
+.launchpad-page .badge.failed{
+border-color:rgba(255,91,107,.20);
+background:rgba(255,91,107,.08);
+}
+
+.launchpad-page .meta-line{
+display:flex;
+gap:8px;
+flex-wrap:wrap;
+align-items:center;
+color:rgba(255,255,255,.68);
+font-size:12px;
+line-height:1.55;
+min-width:0;
+word-break:break-word;
+overflow-wrap:anywhere;
+}
+
+.launchpad-page .kv{
+display:grid;
+grid-template-columns:repeat(2, minmax(0,1fr));
+gap:12px;
+min-width:0;
+}
+
+.launchpad-page .builder-badges,
+.launchpad-page .safeguards{
+display:flex;
+gap:8px;
+flex-wrap:wrap;
+min-width:0;
+}
+
+.launchpad-page .small-chip,
+.launchpad-page .safe-chip{
+display:inline-flex;
+align-items:center;
+gap:8px;
+min-height:28px;
+padding:0 10px;
+border-radius:999px;
+border:1px solid rgba(255,255,255,.09);
+background:rgba(255,255,255,.035);
+color:rgba(255,255,255,.82);
+font-size:11px;
+font-weight:800;
+white-space:nowrap;
+max-width:100%;
+}
+
+.launchpad-page .safe-chip{
+color:rgba(220,245,255,.86);
+}
+
+.launchpad-page .progress-wrap{
+display:grid;
+gap:8px;
+min-width:0;
+}
+
+.launchpad-page .progress-top{
+display:flex;
+justify-content:space-between;
+align-items:center;
+gap:10px;
+flex-wrap:wrap;
+font-size:12px;
+color:rgba(255,255,255,.72);
+}
+
+.launchpad-page .progress{
+width:100%;
+height:12px;
+background:rgba(255,255,255,.06);
+border-radius:999px;
+overflow:hidden;
+border:1px solid rgba(255,255,255,.08);
+}
+
+.launchpad-page .progress-fill{
+height:100%;
+width:0%;
+background:linear-gradient(90deg, rgba(229,193,115,.96), rgba(79,195,255,.96), rgba(54,215,255,.86));
+box-shadow:
+0 0 18px rgba(79,195,255,.18),
+0 0 12px rgba(229,193,115,.08);
+transition:width .25s ease;
+}
+
+.launchpad-page .progress-fill.hot{
+box-shadow:
+0 0 24px rgba(79,195,255,.28),
+0 0 16px rgba(229,193,115,.16);
+}
+
+.launchpad-page .live-feed{
+display:grid;
+gap:8px;
+min-width:0;
+}
+
+.launchpad-page .feed-line{
+display:flex;
+justify-content:space-between;
+gap:10px;
+align-items:center;
+flex-wrap:wrap;
+padding:10px 12px;
+border-radius:14px;
+border:1px solid rgba(255,255,255,.08);
+background:rgba(255,255,255,.025);
+color:rgba(255,255,255,.78);
+font-size:12px;
+min-width:0;
+word-break:break-word;
+overflow-wrap:anywhere;
+}
+
+.launchpad-page .quick-commit,
+.launchpad-page .featured-quick-shell{
+display:grid;
+gap:10px;
+}
+
+.launchpad-page .quick-title{
+font-size:11px;
+letter-spacing:.14em;
+text-transform:uppercase;
+color:var(--muted2);
+font-weight:800;
+}
+
+.launchpad-page .quick-row{
+display:grid;
+grid-template-columns:repeat(2, minmax(0,1fr));
+gap:10px;
+}
+
+.launchpad-page .quick-commit-btn{
+display:inline-flex;
+align-items:center;
+justify-content:center;
+min-height:40px;
+padding:0 12px;
+border-radius:12px;
+border:1px solid rgba(255,255,255,.12);
+background:rgba(255,255,255,.05);
+color:#fff;
+cursor:pointer;
+font-size:12px;
+font-weight:850;
+letter-spacing:.08em;
+text-transform:uppercase;
+transition:.18s ease;
+box-shadow:inset 0 1px 0 rgba(255,255,255,.04);
+min-width:0;
+white-space:nowrap;
+}
+
+.launchpad-page .quick-commit-btn:hover{
+transform:translateY(-1px);
+border-color:rgba(79,195,255,.20);
+background:rgba(79,195,255,.07);
+}
+
+.launchpad-page .quick-commit-btn:disabled,
+.launchpad-page .quick-commit-btn.is-loading{
+opacity:.55;
+cursor:not-allowed;
+transform:none;
+}
+
+.launchpad-page .quick-commit-btn.is-success{
+border-color:rgba(53,245,163,.20);
+background:rgba(53,245,163,.10);
+}
+
+.launchpad-page .token-footer{
+display:flex;
+justify-content:space-between;
+align-items:center;
+gap:12px;
+flex-wrap:wrap;
+min-width:0;
 }
 
 .launchpad-page .list-row-top{
@@ -700,22 +1094,6 @@ border-radius:16px;
 background:rgba(255,255,255,.025);
 padding:12px 14px;
 min-width:0;
-}
-
-.launchpad-page .list-stat .k{
-font-size:10px;
-letter-spacing:.14em;
-text-transform:uppercase;
-color:var(--muted2);
-font-weight:800;
-}
-
-.launchpad-page .list-stat .v{
-margin-top:10px;
-font-size:15px;
-font-weight:900;
-color:#fff;
-word-break:break-word;
 }
 
 .launchpad-page .list-footer{
@@ -766,7 +1144,8 @@ grid-template-columns:1fr;
 
 .launchpad-page .ops-stack.two,
 .launchpad-page .featured-side-grid,
-.launchpad-page .list-stats{
+.launchpad-page .list-stats,
+.launchpad-page .kv{
 grid-template-columns:1fr 1fr;
 }
 }
@@ -779,7 +1158,8 @@ font-size:34px;
 .launchpad-page .token-grid,
 .launchpad-page .list-stats,
 .launchpad-page .featured-side-grid,
-.launchpad-page .featured-quick-shell .quick-row{
+.launchpad-page .featured-quick-shell .quick-row,
+.launchpad-page .kv{
 grid-template-columns:1fr;
 }
 
@@ -845,10 +1225,45 @@ padding:16px;
 .launchpad-page .list-actions .quick-row{
 grid-template-columns:1fr;
 }
+
+.launchpad-page .quick-row{
+grid-template-columns:1fr 1fr;
+}
+}
+
+@media (max-width:520px){
+.launchpad-page .token-grid,
+.launchpad-page .list-stats,
+.launchpad-page .featured-side-grid,
+.launchpad-page .featured-quick-shell .quick-row,
+.launchpad-page .kv,
+.launchpad-page .quick-row{
+grid-template-columns:1fr;
+}
+
+.launchpad-page .token-card,
+.launchpad-page .list-row{
+padding:16px;
+border-radius:18px;
+}
+
+.launchpad-page .token-footer{
+flex-direction:column;
+align-items:stretch;
+}
+
+.launchpad-page .token-footer .btn,
+.launchpad-page .list-actions .btn{
+width:100%;
+}
 }
 </style>
 </head>
-<body class="launchpad-page">
+<body
+class="launchpad-page"
+data-shell-active="launchpad"
+data-shell-subtitle="Launchpad"
+>
 <div id="layoutShellHeader"></div>
 
 <div class="wrap">
@@ -940,7 +1355,12 @@ Connected wallets can jump directly into their builder profile, while public use
 
 <section class="command-rail">
 <div class="search-shell">
-<input id="lSearch" class="input" type="text" placeholder="Search token name, symbol, builder, or archive" />
+<input
+id="lSearch"
+class="input"
+type="text"
+placeholder="Search token name, symbol, builder, or archive"
+/>
 </div>
 
 <div class="wallet-access">
@@ -1002,31 +1422,10 @@ Featured launch coverage will surface the strongest active opportunity here, whi
 
 <script src="https://unpkg.com/@solana/web3.js@latest/lib/index.iife.js"></script>
 
-<script>
-window.getPhantomProvider = function () {
-if ("phantom" in window && window.phantom?.solana?.isPhantom) {
-return window.phantom.solana;
-}
-if (window.solana?.isPhantom) {
-return window.solana;
-}
-return null;
-};
-
-window.getConnectedWallet = function () {
-const provider = window.getPhantomProvider();
-return (
-provider?.publicKey?.toString?.() ||
-window.phantom?.solana?.publicKey?.toString?.() ||
-window.solana?.publicKey?.toString?.() ||
-""
-);
-};
-</script>
-
 <script type="module">
 import { bindSessionUi } from "./assets/auth.js";
-import "./assets/pages/launches.js";
+import { onWalletChange, getConnectedPublicKey } from "./assets/wallet.js";
+import "./assets/pages/launches.js?v=7";
 
 async function mountSharedShell() {
 try {
@@ -1057,11 +1456,12 @@ const btn = document.getElementById("myBuilderProfileBtn");
 const note = document.getElementById("builderNote");
 if (!btn) return;
 
-const connectedWallet = window.getConnectedWallet();
+const connectedWallet = getConnectedPublicKey();
 
 if (connectedWallet) {
 btn.href = `./builder.html?wallet=${encodeURIComponent(connectedWallet)}`;
 btn.textContent = "Builder Console";
+
 if (note) {
 note.textContent =
 "Connected wallets can jump directly into their builder profile, while public users can open builder profiles from launch cards to review score, trust posture, launches, achievements, and historical outcomes.";
@@ -1069,6 +1469,7 @@ note.textContent =
 } else {
 btn.href = "./builder.html";
 btn.textContent = "Builder Console";
+
 if (note) {
 note.textContent =
 "Connect Phantom, Solflare, or Backpack to open your wallet-linked builder profile. Public builder profiles can also be opened directly from launch cards.";
@@ -1091,22 +1492,11 @@ window.location.reload();
 });
 
 setBuilderButtonState();
-
-const provider = window.getPhantomProvider();
-if (provider?.on) {
-provider.on("accountChanged", () => {
+onWalletChange(() => {
 setBuilderButtonState();
 });
-
-provider.on("connect", () => {
-setBuilderButtonState();
-});
-
-provider.on("disconnect", () => {
-setBuilderButtonState();
-});
-}
 </script>
-<script src="/assets/devnet-access-gate.js?v=5"></script>
+
+<script src="/assets/devnet-access-gate.js?v=7"></script>
 </body>
 </html>

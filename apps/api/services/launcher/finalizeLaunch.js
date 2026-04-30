@@ -24,7 +24,10 @@ if (!raw) return null;
 const hasExplicitTimezone =
 /z$/i.test(raw) || /[+-]\d{2}:\d{2}$/.test(raw);
 
-if (!hasExplicitTimezone && /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/.test(raw)) {
+if (
+!hasExplicitTimezone &&
+/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/.test(raw)
+) {
 const sqliteUtc = Date.parse(raw.replace(" ", "T") + "Z");
 return Number.isFinite(sqliteUtc) ? sqliteUtc : null;
 }
@@ -70,10 +73,7 @@ allocationResult?.totalBurned,
 
 function allocationUnusedBonusBurn(allocationResult = null) {
 return String(
-firstPresent(
-allocationResult?.unusedBonusTokensBurned,
-"0"
-) ?? "0"
+firstPresent(allocationResult?.unusedBonusTokensBurned, "0") ?? "0"
 );
 }
 
@@ -110,10 +110,22 @@ contract_address: cleanText(row.contract_address, 120),
 token_mint: cleanText(row.token_mint, 120),
 final_supply: cleanText(row.final_supply, 120),
 internal_pool_tokens: cleanText(row.internal_pool_tokens, 120),
-raydium_liquidity_tokens_reserved: cleanText(row.raydium_liquidity_tokens_reserved, 120),
-unsold_participant_tokens_burned: cleanText(row.unsold_participant_tokens_burned, 120),
-unused_bonus_tokens_burned: cleanText(row.unused_bonus_tokens_burned, 120),
-mint_reservation_status: cleanText(row.mint_reservation_status, 40).toLowerCase(),
+raydium_liquidity_tokens_reserved: cleanText(
+row.raydium_liquidity_tokens_reserved,
+120
+),
+unsold_participant_tokens_burned: cleanText(
+row.unsold_participant_tokens_burned,
+120
+),
+unused_bonus_tokens_burned: cleanText(
+row.unused_bonus_tokens_burned,
+120
+),
+mint_reservation_status: cleanText(
+row.mint_reservation_status,
+40
+).toLowerCase(),
 mint_finalized_at: row.mint_finalized_at || null,
 status: cleanText(row.status, 40).toLowerCase(),
 };
@@ -202,10 +214,7 @@ tokenRow?.mint
 
 function pickMintFromLaunch(launch) {
 return cleanText(
-firstPresent(
-launch?.contract_address,
-launch?.token_mint
-),
+firstPresent(launch?.contract_address, launch?.token_mint),
 120
 );
 }
@@ -253,10 +262,7 @@ getPoolByLaunchId(launchId),
 ]);
 
 const mint = cleanText(
-firstPresent(
-pickMintFromLaunch(launch),
-pickMintFromToken(tokenRow)
-),
+firstPresent(pickMintFromLaunch(launch), pickMintFromToken(tokenRow)),
 120
 );
 
@@ -311,7 +317,11 @@ await updateLaunchFieldsSafe(launchId, fields);
 return getLaunchById(launchId);
 }
 
-async function syncLaunchMarketArtifactsFromBootstrap(launchId, marketBootstrap, allocationResult = null) {
+async function syncLaunchMarketArtifactsFromBootstrap(
+launchId,
+marketBootstrap,
+allocationResult = null
+) {
 if (!marketBootstrap || typeof marketBootstrap !== "object") return;
 
 const mintAddress = cleanText(
@@ -347,7 +357,11 @@ const volume24h = safeNum(marketBootstrap.volume24h, 0);
 const circulatingSupply = safeNum(marketBootstrap.circulatingSupply, 0);
 
 const internalPoolSol = safeNum(
-firstPresent(marketBootstrap.internalPoolSol, liquidity, allocationResult?.internalPoolSol),
+firstPresent(
+marketBootstrap.internalPoolSol,
+liquidity,
+allocationResult?.internalPoolSol
+),
 0
 );
 
@@ -365,7 +379,9 @@ allocationResult?.raydiumLiquidityTokensReserved
 
 if (liquidity > 0) fields.liquidity = liquidity;
 if (internalPoolSol > 0) fields.internal_pool_sol = internalPoolSol;
-if (internalPoolTokens != null) fields.internal_pool_tokens = String(internalPoolTokens);
+if (internalPoolTokens != null) {
+fields.internal_pool_tokens = String(internalPoolTokens);
+}
 if (raydiumReservedTokens != null) {
 fields.raydium_liquidity_tokens_reserved = String(raydiumReservedTokens);
 }
@@ -377,10 +393,13 @@ if (volume24h >= 0) fields.volume_24h = volume24h;
 await updateLaunchFieldsSafe(launchId, fields);
 }
 
-function isBuilderLaunchPaid(launch) {
+function requiresLaunchBond(launch) {
 if (!launch) return false;
-if (String(launch.template || "") !== "builder") return true;
-if (safeNum(launch.builder_bond_sol, 0) <= 0) return false;
+return safeNum(launch.builder_bond_sol, 0) > 0;
+}
+
+function isLaunchBondSatisfied(launch) {
+if (!requiresLaunchBond(launch)) return true;
 return safeNum(launch.builder_bond_paid, 0) === 1;
 }
 
@@ -390,16 +409,27 @@ const artifacts = await getLiveBootstrapArtifacts(launchId, launch);
 return artifacts.completed;
 }
 
-async function refreshLiveMarketAfterPromotion(launchId, launch, allocationResult = null) {
+async function refreshLiveMarketAfterPromotion(
+launchId,
+launch,
+allocationResult = null
+) {
 let marketBootstrap = null;
 let refreshedLaunch = launch || (await getLaunchById(launchId));
 
 try {
 marketBootstrap = await bootstrapLiveMarket(launchId);
-await syncLaunchMarketArtifactsFromBootstrap(launchId, marketBootstrap, allocationResult);
+await syncLaunchMarketArtifactsFromBootstrap(
+launchId,
+marketBootstrap,
+allocationResult
+);
 
 refreshedLaunch = await getLaunchById(launchId);
-refreshedLaunch = await syncLaunchMarketArtifactsFromRows(launchId, refreshedLaunch || launch);
+refreshedLaunch = await syncLaunchMarketArtifactsFromRows(
+launchId,
+refreshedLaunch || launch
+);
 
 return {
 launch: refreshedLaunch || launch,
@@ -459,6 +489,11 @@ allocationResult?.totalBurned,
 )
 );
 
+const founderFee = safeNum(
+firstPresent(resolvedFeePlan.founderFee, resolvedFeePlan.coreFee),
+0
+);
+
 return {
 ok: Boolean(ok),
 alreadyFinalized: Boolean(alreadyFinalized),
@@ -478,11 +513,19 @@ stageLabel ||
 totalCommitted: safeNum(totalCommitted, safeNum(launch?.committed_sol, 0)),
 participants: safeNum(participants, safeNum(launch?.participants_count, 0)),
 launchFeePct: resolvedFeePlan.launchFeePct,
-feeTotal: resolvedFeePlan.feeTotal,
-coreFee: resolvedFeePlan.coreFee,
-buybackFee: resolvedFeePlan.buybackFee,
-treasuryFee: resolvedFeePlan.treasuryFee,
-netRaise: resolvedFeePlan.netRaiseAfterFee,
+feeTotal: safeNum(resolvedFeePlan.feeTotal, 0),
+founderFee,
+coreFee: founderFee,
+buybackFee: safeNum(resolvedFeePlan.buybackFee, 0),
+treasuryFee: safeNum(resolvedFeePlan.treasuryFee, 0),
+netRaise: safeNum(
+firstPresent(resolvedFeePlan.netRaiseAfterFee, resolvedFeePlan.netRaise),
+0
+),
+netRaiseAfterFee: safeNum(
+firstPresent(resolvedFeePlan.netRaiseAfterFee, resolvedFeePlan.netRaise),
+0
+),
 feeDistribution: launch?.fee_distribution_json || feeDistribution || null,
 feeDistributionPending: Boolean(feeDistributionPending),
 feeDistributionError: feeDistributionError || "",
@@ -509,9 +552,7 @@ launch?.internal_pool_sol,
 allocationResult?.internalPoolSol || 0
 ),
 internalPoolTokens: String(
-launch?.internal_pool_tokens ||
-allocationResult?.internalPoolTokens ||
-"0"
+launch?.internal_pool_tokens || allocationResult?.internalPoolTokens || "0"
 ),
 raydiumLiquidityTokensReserved: String(
 launch?.raydium_liquidity_tokens_reserved ||
@@ -657,7 +698,9 @@ SET status = 'live',
 live_at = CASE
 WHEN status != 'live' THEN CURRENT_TIMESTAMP
 WHEN live_at IS NULL THEN CURRENT_TIMESTAMP
-WHEN countdown_ends_at IS NOT NULL AND datetime(live_at) = datetime(countdown_ends_at) THEN CURRENT_TIMESTAMP
+WHEN countdown_ends_at IS NOT NULL
+AND datetime(live_at) = datetime(countdown_ends_at)
+THEN CURRENT_TIMESTAMP
 ELSE live_at
 END,
 updated_at = CURRENT_TIMESTAMP
@@ -681,7 +724,8 @@ return liveLaunch;
 }
 
 async function persistAllocationResult(launchId, allocationResult) {
-const unsoldParticipantTokensBurned = allocationUnusedParticipantBurn(allocationResult);
+const unsoldParticipantTokensBurned =
+allocationUnusedParticipantBurn(allocationResult);
 const unusedBonusTokensBurned = allocationUnusedBonusBurn(allocationResult);
 
 await db.run(
@@ -746,12 +790,15 @@ if (hasPersistedAllocationResult(launch)) {
 allocationsBuilt = true;
 allocationResult = launch.launch_result_json || {
 finalSupply: launch.final_supply,
-unusedParticipantTokensBurned: launch.unsold_participant_tokens_burned || "0",
-unsoldParticipantTokensBurned: launch.unsold_participant_tokens_burned || "0",
+unusedParticipantTokensBurned:
+launch.unsold_participant_tokens_burned || "0",
+unsoldParticipantTokensBurned:
+launch.unsold_participant_tokens_burned || "0",
 unusedBonusTokensBurned: launch.unused_bonus_tokens_burned || "0",
 internalPoolSol: launch.internal_pool_sol || 0,
 internalPoolTokens: launch.internal_pool_tokens || "0",
-raydiumLiquidityTokensReserved: launch.raydium_liquidity_tokens_reserved || "0",
+raydiumLiquidityTokensReserved:
+launch.raydium_liquidity_tokens_reserved || "0",
 };
 validateAllocationResult(allocationResult);
 console.log(`Allocations already persisted for launch ${launchId}, skipping`);
@@ -771,16 +818,21 @@ if (msg.includes("already")) {
 const latest = await getLaunchById(launchId);
 allocationResult = latest?.launch_result_json || {
 finalSupply: latest?.final_supply,
-unusedParticipantTokensBurned: latest?.unsold_participant_tokens_burned || "0",
-unsoldParticipantTokensBurned: latest?.unsold_participant_tokens_burned || "0",
+unusedParticipantTokensBurned:
+latest?.unsold_participant_tokens_burned || "0",
+unsoldParticipantTokensBurned:
+latest?.unsold_participant_tokens_burned || "0",
 unusedBonusTokensBurned: latest?.unused_bonus_tokens_burned || "0",
 internalPoolSol: latest?.internal_pool_sol || 0,
 internalPoolTokens: latest?.internal_pool_tokens || "0",
-raydiumLiquidityTokensReserved: latest?.raydium_liquidity_tokens_reserved || "0",
+raydiumLiquidityTokensReserved:
+latest?.raydium_liquidity_tokens_reserved || "0",
 };
 validateAllocationResult(allocationResult);
 allocationsBuilt = true;
-console.log(`Allocation service reported already built for launch ${launchId}, skipping`);
+console.log(
+`Allocation service reported already built for launch ${launchId}, skipping`
+);
 return { allocationResult, allocationsBuilt };
 }
 
@@ -799,10 +851,16 @@ console.log("Template:", launch.template);
 console.log("Total committed:", totalCommitted);
 console.log("Participants:", launch.participants_count);
 console.log("Fee total:", feePlan.feeTotal);
-console.log("Core fee:", feePlan.coreFee);
+console.log(
+"Founder fee:",
+safeNum(firstPresent(feePlan.founderFee, feePlan.coreFee), 0)
+);
 console.log("Buyback fee:", feePlan.buybackFee);
 console.log("Treasury fee:", feePlan.treasuryFee);
-console.log("Net raise:", feePlan.netRaiseAfterFee);
+console.log(
+"Net raise:",
+safeNum(firstPresent(feePlan.netRaiseAfterFee, feePlan.netRaise), 0)
+);
 
 if (safeNum(launch.fees_distributed, 0) === 1) {
 console.log(`Fees already distributed for launch ${launchId}, skipping`);
@@ -946,14 +1004,14 @@ reason: "launch is not in countdown, building, or live",
 };
 }
 
-if (!isBuilderLaunchPaid(launch)) {
+if (!isLaunchBondSatisfied(launch)) {
 if (status === "countdown") {
 await markLaunchFailed(launchId);
 }
 
 return {
 ok: false,
-reason: "builder bond not paid",
+reason: "launch bond not paid",
 };
 }
 
@@ -998,14 +1056,14 @@ if (!launch) {
 throw new Error("Launch not found after sync");
 }
 
-if (!isBuilderLaunchPaid(launch)) {
+if (!isLaunchBondSatisfied(launch)) {
 if (String(launch.status || "").toLowerCase() === "countdown") {
 await markLaunchFailed(launchId);
 }
 
 return {
 ok: false,
-reason: "builder bond not paid",
+reason: "launch bond not paid",
 };
 }
 
@@ -1020,7 +1078,9 @@ if (String(launch.status || "").toLowerCase() !== "live") {
 launch = await forcePromoteLaunchToLive(launchId);
 }
 
-console.log(`Launch ${launchId} finalized during sync window, skipping duplicate finalize`);
+console.log(
+`Launch ${launchId} finalized during sync window, skipping duplicate finalize`
+);
 
 return buildAlreadyLiveResponse({
 launchId,
@@ -1068,7 +1128,9 @@ launch.launch_result_json || null
 
 const finalLaunch = refreshed.launch || launch;
 
-console.log(`Launch ${launchId} already had persisted bootstrap artifacts, promoting to live`);
+console.log(
+`Launch ${launchId} already had persisted bootstrap artifacts, promoting to live`
+);
 
 return buildFinalizeResponse({
 ok: true,
@@ -1113,7 +1175,8 @@ participants: stats.participants,
 feePlan,
 feeDistribution: buildingLaunch?.fee_distribution_json || feeDistribution,
 feeDistributionPending,
-feeDistributionError: feeDistributionError || err?.message || "market bootstrap failed",
+feeDistributionError:
+feeDistributionError || err?.message || "market bootstrap failed",
 allocationsBuilt,
 marketBootstrap: null,
 allocationResult,
@@ -1138,7 +1201,9 @@ feePlan,
 feeDistribution: buildingLaunch?.fee_distribution_json || feeDistribution,
 feeDistributionPending,
 feeDistributionError:
-feeDistributionError || cleanText(marketBootstrap?.error, 500) || "market bootstrap failed",
+feeDistributionError ||
+cleanText(marketBootstrap?.error, 500) ||
+"market bootstrap failed",
 allocationsBuilt,
 marketBootstrap,
 allocationResult,
@@ -1150,7 +1215,11 @@ retryable: true,
 });
 }
 
-await syncLaunchMarketArtifactsFromBootstrap(launchId, marketBootstrap, allocationResult);
+await syncLaunchMarketArtifactsFromBootstrap(
+launchId,
+marketBootstrap,
+allocationResult
+);
 
 let bootstrapReadyLaunch = await getLaunchById(launchId);
 bootstrapReadyLaunch = await syncLaunchMarketArtifactsFromRows(
@@ -1188,7 +1257,10 @@ if (!finalLaunch) {
 throw new Error("Launch not found after market bootstrap");
 }
 
-if (!cleanText(finalLaunch.contract_address, 120) && !cleanText(finalLaunch.token_mint, 120)) {
+if (
+!cleanText(finalLaunch.contract_address, 120) &&
+!cleanText(finalLaunch.token_mint, 120)
+) {
 const buildingLaunch = await refreshBuildingStateAfterBootstrapFailure(launchId);
 
 return buildFinalizeResponse({
@@ -1201,7 +1273,8 @@ feePlan,
 feeDistribution: finalLaunch.fee_distribution_json || feeDistribution,
 feeDistributionPending,
 feeDistributionError:
-feeDistributionError || "launch contract address missing after market bootstrap",
+feeDistributionError ||
+"launch contract address missing after market bootstrap",
 allocationsBuilt,
 marketBootstrap,
 allocationResult,

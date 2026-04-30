@@ -11,21 +11,13 @@ const DEFAULT_POOL_TOPUP_BATCH = 5;
 const CLAIM_RETRY_LIMIT = 10;
 
 const BUILDER_TOTAL_ALLOCATION_PCT = 5;
-const BUILDER_CLIFF_DAYS = 7;
-const BUILDER_VESTING_DAYS = 90;
+const BUILDER_DAILY_UNLOCK_PCT = 0.5;
+const BUILDER_CLIFF_DAYS = 0;
+const BUILDER_VESTING_DAYS = 10;
 
 const DEFAULT_MAX_WALLET_ALLOCATION_PCT = 0.5;
 const LIQUIDITY_TOKEN_PCT = 20;
 const RAYDIUM_LIQUIDITY_SPLIT_PCT = 50;
-
-const PARTICIPANT_VESTING_BY_TEMPLATE = {
-degen: { unlockPctAtLaunch: 40, vestingDays: 7 },
-degen_zone: { unlockPctAtLaunch: 40, vestingDays: 7 },
-meme_lite: { unlockPctAtLaunch: 35, vestingDays: 14 },
-meme_pro: { unlockPctAtLaunch: 25, vestingDays: 21 },
-community: { unlockPctAtLaunch: 25, vestingDays: 21 },
-builder: { unlockPctAtLaunch: 25, vestingDays: 21 },
-};
 
 const WALLET_BALANCE_ALIAS_GROUPS = {
 tokenAmount: [
@@ -389,8 +381,7 @@ return floorToken((safeNum(totalSupply, 0) * BUILDER_TOTAL_ALLOCATION_PCT) / 100
 }
 
 function computeBuilderDailyUnlock(totalSupply) {
-const totalAllocation = computeBuilderTotalAllocation(totalSupply);
-return floorToken(totalAllocation / BUILDER_VESTING_DAYS);
+return floorToken((safeNum(totalSupply, 0) * BUILDER_DAILY_UNLOCK_PCT) / 100);
 }
 
 function computeLiquidityTokenAllocation(totalSupply) {
@@ -515,17 +506,6 @@ throw new Error("launch implied price not written during bootstrap");
 }
 }
 
-function getParticipantVestingProfile(launch) {
-const template =
-clean(launch?.template, 80).toLowerCase() ||
-clean(launch?.launch_type, 80).toLowerCase();
-
-return PARTICIPANT_VESTING_BY_TEMPLATE[template] || {
-unlockPctAtLaunch: 25,
-vestingDays: 21,
-};
-}
-
 function getAllocationMetadataByWallet(launch) {
 const result = launch?.launch_result_json || {};
 const rows = Array.isArray(result.allocations) ? result.allocations : [];
@@ -568,15 +548,7 @@ return Math.max(0, rawTotal);
 }
 
 function resolveParticipantUnlockedAtLaunch({ launch, allocationRow, metadata }) {
-const total = resolveParticipantTotalAllocation({ launch, allocationRow, metadata });
-
-const explicit = floorToken(metadata?.unlocked_at_launch_tokens);
-if (explicit > 0 || metadata?.unlocked_at_launch_tokens === 0) {
-return Math.max(0, Math.min(total, explicit));
-}
-
-const vesting = getParticipantVestingProfile(launch);
-return Math.max(0, Math.min(total, floorToken((total * vesting.unlockPctAtLaunch) / 100)));
+return resolveParticipantTotalAllocation({ launch, allocationRow, metadata });
 }
 
 function buildParticipantWalletSeed({ launch, allocationRow, metadata }) {
@@ -585,20 +557,14 @@ launch,
 allocationRow,
 metadata,
 });
-const unlockedBalance = resolveParticipantUnlockedAtLaunch({
-launch,
-allocationRow,
-metadata,
-});
-const lockedBalance = Math.max(0, totalBalance - unlockedBalance);
 
 return {
-tokenAmount: unlockedBalance,
+tokenAmount: totalBalance,
 totalBalance,
 visibleTotalBalance: totalBalance,
-unlockedBalance,
-lockedBalance,
-sellableBalance: unlockedBalance,
+unlockedBalance: totalBalance,
+lockedBalance: 0,
+sellableBalance: totalBalance,
 solBalance: null,
 };
 }

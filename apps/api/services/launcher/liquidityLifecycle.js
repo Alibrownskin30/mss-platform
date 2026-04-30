@@ -14,6 +14,9 @@ const DEFAULT_GRADUATION_MIN_HOLDERS = 25;
 const DEFAULT_GRADUATION_MIN_LIVE_MINUTES = 15;
 const DEFAULT_MSS_LOCK_DAYS = 90;
 
+const BUILDER_VESTING_RULE =
+"0% unlocked at live. Builder allocation then unlocks at 0.5% of total supply per day for 10 days until the full 5% allocation is unlocked.";
+
 function safeNum(value, fallback = 0) {
 const n = Number(value);
 return Number.isFinite(n) ? n : fallback;
@@ -169,7 +172,7 @@ dailyUnlockPct: BUILDER_DAILY_UNLOCK_PCT,
 
 const elapsedMs = Math.max(0, now - startMs);
 const elapsedDays = Math.floor(elapsedMs / 86400000);
-const vestedDays = Math.min(BUILDER_UNLOCK_DAYS, elapsedDays + 1);
+const vestedDays = Math.min(BUILDER_UNLOCK_DAYS, elapsedDays);
 
 const unlockedAmount =
 vestedDays >= BUILDER_UNLOCK_DAYS
@@ -868,8 +871,7 @@ daily_unlock_pct: computed.dailyUnlockPct,
 unlock_days: computed.unlockDays,
 cliff_days: computed.cliffDays,
 
-rule:
-"Builder allocation unlocks at 0.5% of total supply per day until the full 5% builder allocation is unlocked.",
+rule: BUILDER_VESTING_RULE,
 };
 }
 

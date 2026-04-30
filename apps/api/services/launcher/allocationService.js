@@ -2,8 +2,25 @@ import db from "../../db/index.js";
 
 const DEFAULT_PARTICIPANT_PCT = 45;
 const DEFAULT_LIQUIDITY_PCT = 20;
+const DEFAULT_RESERVE_PCT = 30;
+const DEFAULT_BUILDER_PCT = 5;
 const DEFAULT_MAX_WALLET_ALLOCATION_PCT = 0.5;
 const DEFAULT_LAUNCH_FEE_PCT = 5;
+
+const BUILDER_TOTAL_ALLOCATION_PCT = 5;
+const BUILDER_DAILY_UNLOCK_PCT = 0.5;
+const BUILDER_UNLOCK_DAYS = 10;
+const BUILDER_CLIFF_DAYS = 0;
+const BUILDER_VESTING_DAYS = BUILDER_UNLOCK_DAYS;
+
+const TEAM_CLIFF_DAYS = 14;
+const TEAM_VESTING_DAYS = 180;
+
+const PARTICIPANT_FULL_UNLOCK_LABEL = "100% unlocked at live";
+const BUILDER_VESTING_LABEL =
+"Builder allocation unlocks at 0.5% of total supply per day until the full 5% builder allocation is unlocked.";
+const TEAM_VESTING_LABEL =
+"0% unlocked at launch, 14 day cliff, linear vesting over 180 days";
 
 const TEMPLATE_BONUS_PCT = {
 degen: 20,
@@ -12,39 +29,6 @@ meme_lite: 25,
 meme_pro: 30,
 community: 25,
 builder: 25,
-};
-
-const TEMPLATE_PARTICIPANT_VESTING = {
-degen: {
-unlockPctAtLaunch: 40,
-vestingDays: 7,
-label: "40% unlocked at launch, 60% over 7 days",
-},
-degen_zone: {
-unlockPctAtLaunch: 40,
-vestingDays: 7,
-label: "40% unlocked at launch, 60% over 7 days",
-},
-meme_lite: {
-unlockPctAtLaunch: 35,
-vestingDays: 14,
-label: "35% unlocked at launch, 65% over 14 days",
-},
-meme_pro: {
-unlockPctAtLaunch: 25,
-vestingDays: 21,
-label: "25% unlocked at launch, 75% over 21 days",
-},
-community: {
-unlockPctAtLaunch: 25,
-vestingDays: 21,
-label: "25% unlocked at launch, 75% over 21 days",
-},
-builder: {
-unlockPctAtLaunch: 25,
-vestingDays: 21,
-label: "25% unlocked at launch, 75% over 21 days",
-},
 };
 
 function floorBig(n) {
@@ -93,7 +77,10 @@ if (!raw) return null;
 const hasExplicitTimezone =
 /z$/i.test(raw) || /[+-]\d{2}:\d{2}$/.test(raw);
 
-if (!hasExplicitTimezone && /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/.test(raw)) {
+if (
+!hasExplicitTimezone &&
+/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/.test(raw)
+) {
 const sqliteUtc = Date.parse(raw.replace(" ", "T") + "Z");
 return Number.isFinite(sqliteUtc) ? sqliteUtc : null;
 }
@@ -167,16 +154,12 @@ TEMPLATE_BONUS_PCT[template] ?? 25
 );
 }
 
-function getParticipantVestingProfile(launch) {
-const template = normalizeTemplate(launch?.template || launch?.launch_type);
-
-return (
-TEMPLATE_PARTICIPANT_VESTING[template] || {
-unlockPctAtLaunch: 25,
-vestingDays: 21,
-label: "25% unlocked at launch, 75% over 21 days",
-}
-);
+function getParticipantVestingProfile() {
+return {
+unlockPctAtLaunch: 100,
+vestingDays: 0,
+label: PARTICIPANT_FULL_UNLOCK_LABEL,
+};
 }
 
 function normalizeLaunch(row) {
@@ -191,8 +174,8 @@ hard_cap_sol: safeNum(row.hard_cap_sol, 0),
 launch_fee_pct: safeNum(row.launch_fee_pct, DEFAULT_LAUNCH_FEE_PCT),
 participants_pct: safeNum(row.participants_pct, DEFAULT_PARTICIPANT_PCT),
 liquidity_pct: safeNum(row.liquidity_pct, DEFAULT_LIQUIDITY_PCT),
-reserve_pct: safeNum(row.reserve_pct, 0),
-builder_pct: safeNum(row.builder_pct, 0),
+reserve_pct: safeNum(row.reserve_pct, DEFAULT_RESERVE_PCT),
+builder_pct: safeNum(row.builder_pct, DEFAULT_BUILDER_PCT),
 team_allocation_pct: safeNum(row.team_allocation_pct, 0),
 builder_bond_sol: safeNum(row.builder_bond_sol, 0),
 builder_bond_paid: safeNum(row.builder_bond_paid, 0),
@@ -214,9 +197,8 @@ launch_type: normalizeTemplate(row.launch_type),
 };
 }
 
-function isBuilderLaunchPaid(launch) {
+function isBuilderBondPaid(launch) {
 if (!launch) return false;
-if (String(launch.template || "") !== "builder") return true;
 if (safeNum(launch.builder_bond_sol, 0) <= 0) return false;
 return safeNum(launch.builder_bond_paid, 0) === 1;
 }
@@ -326,9 +308,9 @@ token_amount: tokenAmount,
 sol_amount: 0,
 vesting: {
 unlockPctAtLaunch: 0,
-cliffDays: 14,
-vestingDays: 180,
-label: "0% unlocked at launch, 14 day cliff, linear vesting over 180 days",
+cliffDays: TEAM_CLIFF_DAYS,
+vestingDays: TEAM_VESTING_DAYS,
+label: TEAM_VESTING_LABEL,
 },
 });
 }
@@ -385,12 +367,6 @@ Math.min(wantedTotalTokens, maxWalletAllocationTokens)
 const baseTokens = Math.min(wantedBaseTokens, cappedTotalTokens);
 const bonusTokens = Math.max(0, cappedTotalTokens - baseTokens);
 
-const unlockedAtLaunch = floorBig(
-(cappedTotalTokens * vestingProfile.unlockPctAtLaunch) / 100
-);
-
-const lockedTokens = Math.max(0, cappedTotalTokens - unlockedAtLaunch);
-
 return {
 wallet: row.wallet,
 allocation_type: "participant",
@@ -411,8 +387,8 @@ token_amount: cappedTotalTokens,
 wallet_cap_tokens: maxWalletAllocationTokens,
 capped_by_wallet_limit: wantedTotalTokens > maxWalletAllocationTokens,
 
-unlocked_at_launch_tokens: unlockedAtLaunch,
-locked_tokens: lockedTokens,
+unlocked_at_launch_tokens: cappedTotalTokens,
+locked_tokens: 0,
 vesting_unlock_pct_at_launch: vestingProfile.unlockPctAtLaunch,
 vesting_days: vestingProfile.vestingDays,
 vesting_label: vestingProfile.label,
@@ -440,18 +416,14 @@ distributed += tokenAmount;
 const baseTokens = Math.min(row.base_tokens, tokenAmount);
 const bonusTokens = Math.max(0, tokenAmount - baseTokens);
 
-const unlockedAtLaunch = floorBig(
-(tokenAmount * vestingProfile.unlockPctAtLaunch) / 100
-);
-
 return {
 ...row,
 base_tokens: baseTokens,
 bonus_tokens: bonusTokens,
 token_amount: tokenAmount,
 capped_by_participant_pool: true,
-unlocked_at_launch_tokens: unlockedAtLaunch,
-locked_tokens: Math.max(0, tokenAmount - unlockedAtLaunch),
+unlocked_at_launch_tokens: tokenAmount,
+locked_tokens: 0,
 };
 });
 }
@@ -460,6 +432,7 @@ function buildSystemAllocations({
 launchId,
 builderWallet,
 builderTokens,
+builderDailyUnlockTokens,
 teamRows,
 reserveTokens,
 internalPoolTokens,
@@ -477,9 +450,13 @@ token_amount: builderTokens,
 sol_amount: 0,
 vesting: {
 unlockPctAtLaunch: 0,
-cliffDays: 7,
-vestingDays: 90,
-label: "0% unlocked at launch, 7 day cliff, linear vesting over 90 days",
+cliffDays: BUILDER_CLIFF_DAYS,
+vestingDays: BUILDER_VESTING_DAYS,
+unlockDays: BUILDER_UNLOCK_DAYS,
+dailyUnlockPct: BUILDER_DAILY_UNLOCK_PCT,
+totalAllocationPct: BUILDER_TOTAL_ALLOCATION_PCT,
+dailyUnlockTokens: builderDailyUnlockTokens,
+label: BUILDER_VESTING_LABEL,
 },
 });
 }
@@ -495,7 +472,7 @@ allocation_type: "reserve",
 token_amount: reserveTokens,
 sol_amount: 0,
 locked: true,
-note: "Protocol-controlled locked reserve. Not counted as circulating supply.",
+note: "Protocol-controlled segregated reserve. Not counted as circulating supply.",
 });
 }
 
@@ -610,8 +587,8 @@ if (!canBuildAllocationsForStatus(launch)) {
 throw new Error("launch must be post-countdown before allocations can be built");
 }
 
-if (!isBuilderLaunchPaid(launch)) {
-throw new Error("builder bond not paid for builder launch");
+if (!isBuilderBondPaid(launch)) {
+throw new Error("builder bond not paid for launch");
 }
 
 const existing = await db.get(
@@ -673,8 +650,8 @@ throw new Error("net raise after fee must be greater than zero");
 
 const isBuilderLaunch = String(launch.template || "") === "builder";
 const teamAllocationPct = safeNum(launch.team_allocation_pct, 0);
-const rawReservePct = safeNum(launch.reserve_pct, 0);
-const builderPct = safeNum(launch.builder_pct, 0);
+const rawReservePct = safeNum(launch.reserve_pct, DEFAULT_RESERVE_PCT);
+const builderPct = safeNum(launch.builder_pct, DEFAULT_BUILDER_PCT);
 const liquidityPct = safeNum(launch.liquidity_pct, DEFAULT_LIQUIDITY_PCT);
 const participantMaxPct = safeNum(launch.participants_pct, DEFAULT_PARTICIPANT_PCT);
 const maxWalletAllocationPct = safeNum(
@@ -712,11 +689,11 @@ const internalPoolTokens = liquidityTokenAllocation;
 const raydiumLiquidityTokensReserved = 0;
 
 /*
-MSS V1 target model:
-- 5% launch fee is removed first.
-- 95% of raised SOL goes into the internal LP.
-- 20% of supply goes into the internal LP.
-- Opening price is derived from that LP truth.
+MSS Option B target model:
+- launch fee is removed first
+- net raised SOL goes into internal LP
+- 20% of supply goes into internal LP
+- opening price is derived from internal LP truth
 */
 const liquiditySolAllocation = netRaiseAfterFee;
 const netRaiseRetainedOutsidePool = 0;
@@ -725,6 +702,10 @@ const openingFdvSol = openingPriceSol * totalSupply;
 
 const reserveTokens = toTokenAmount(totalSupply, effectiveReservePct);
 const builderTokens = toTokenAmount(totalSupply, builderPct);
+const builderDailyUnlockTokens = toTokenAmount(
+totalSupply,
+BUILDER_DAILY_UNLOCK_PCT
+);
 
 const { teamTokens, rows: teamRows } = buildTeamAllocations({
 isBuilderLaunch,
@@ -776,12 +757,14 @@ const systemAllocationRows = buildSystemAllocations({
 launchId,
 builderWallet,
 builderTokens,
+builderDailyUnlockTokens,
 teamRows,
 reserveTokens,
 internalPoolTokens,
 internalPoolSol: liquiditySolAllocation,
 raydiumLiquidityTokensReserved,
-unusedParticipantTokensBurned: unusedParticipantTokensBurned + unallocatedRemainder,
+unusedParticipantTokensBurned:
+unusedParticipantTokensBurned + unallocatedRemainder,
 });
 
 const allocationRows = [
@@ -861,24 +844,29 @@ unallocatedRemainder,
 builderVesting: {
 totalAllocation: builderTokens,
 unlockPctAtLaunch: 0,
-cliffDays: 7,
-vestingDays: 90,
-label: "0% unlocked at launch, 7 day cliff, linear vesting over 90 days",
+cliffDays: BUILDER_CLIFF_DAYS,
+vestingDays: BUILDER_VESTING_DAYS,
+unlockDays: BUILDER_UNLOCK_DAYS,
+dailyUnlockPct: BUILDER_DAILY_UNLOCK_PCT,
+totalAllocationPct: BUILDER_TOTAL_ALLOCATION_PCT,
+dailyUnlockTokens: builderDailyUnlockTokens,
+label: BUILDER_VESTING_LABEL,
 },
 
 teamVesting: {
 totalAllocation: teamTokens,
 unlockPctAtLaunch: 0,
-cliffDays: 14,
-vestingDays: 180,
-label: "0% unlocked at launch, 14 day cliff, linear vesting over 180 days",
+cliffDays: TEAM_CLIFF_DAYS,
+vestingDays: TEAM_VESTING_DAYS,
+label: TEAM_VESTING_LABEL,
 },
 
 reservePolicy: {
 totalReserveTokens: reserveTokens,
 locked: true,
 countedAsCirculating: false,
-label: "Protocol-controlled locked reserve. Any movement should require visible records/proof.",
+label:
+"Protocol-controlled segregated reserve. Any movement should require visible policy checks, audit logs, and proof.",
 },
 
 allocations: participantRows,

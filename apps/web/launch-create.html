@@ -756,47 +756,47 @@ width:100%;
 <section class="create-hero-main">
 <div class="eyebrow">
 <span class="eyebrow-dot"></span>
-<span>Builder Launch Flow</span>
+<span>MSS Launch Creation</span>
 </div>
 
 <h1>Create a Security-First MSS Launch</h1>
 
 <div class="hero-copy">
-Template economics are fixed by MSS by default. The Builder template unlocks more structured project controls, including approved hard-cap tiers up to 1000 SOL, builder minimum raise controls from 200 SOL upward, labeled team wallets, capped team allocation, and a builder bond.
+Template economics are fixed by MSS. All launches use a required launch bond. Builder launches unlock structured project controls, approved hard-cap tiers up to 1000 SOL, fixed soft-cap mapping by tier, visible team wallet breakdowns, capped team allocation, and the same locked MSS launch flow used across the platform.
 </div>
 
 <div class="pill-row">
-<span class="chip">Fixed Template Supply</span>
-<span class="chip">Builder Controls</span>
-<span class="chip">Max Team Allocation 15%</span>
-<span class="chip">Connect Wallet</span>
+<span class="chip">1 SOL Max Commit</span>
+<span class="chip">0.5% Max Wallet Starts</span>
+<span class="chip">Participant Tokens Unlock At Live</span>
+<span class="chip">Launch Bond Required</span>
 </div>
 
 <div id="builderModeHighlight" class="builder-highlight">
 <div class="builder-highlight-title">Builder Template Active</div>
 <div class="builder-highlight-copy">
-Builder launches use MSS-approved supply presets, visible team wallet breakdowns, capped team allocation, selectable hard-cap tiers of 250 / 500 / 750 / 1000 SOL, builder minimum raise controls starting from 200 SOL, and a minimum builder bond. Reserve adjusts automatically against team allocation.
+Builder launches use MSS-approved 1B supply, visible team wallet breakdowns, capped team allocation, selectable hard-cap tiers of 250 / 500 / 750 / 1000 SOL, and locked soft-cap mapping of 200 / 300 / 400 / 500 SOL. Reserve adjusts automatically against team allocation.
 </div>
 <div class="builder-bond-note">
-Builder bond is required for builder launches and is collected during launch creation. Bond state is tracked across the launch lifecycle.
+Every template uses a required launch bond. Builder launches also expose additional structured controls while staying inside the locked MSS template system.
 </div>
 </div>
 </section>
 
 <aside class="create-hero-side">
 <div class="hero-stat">
-<div class="k">Builder Identity</div>
-<div class="v">Connect Phantom, Solflare, or Backpack to create as your builder wallet.</div>
+<div class="k">Wallet & Identity</div>
+<div class="v">Connect Phantom, Solflare, or Backpack to create from your builder wallet.</div>
 </div>
 
 <div class="hero-stat">
-<div class="k">Builder Template</div>
-<div class="v">Preset supply, selectable cap tiers, configurable minimum raise floor, labeled wallets, capped allocation, and tracked builder bond state.</div>
+<div class="k">Template Rules</div>
+<div class="v">Degen 55/75, Meme Lite 60/100, Meme Pro 75/200, Community 75/200, Builder 250/500/750/1000 with locked soft-cap mapping.</div>
 </div>
 
 <div class="hero-stat">
 <div class="k">After Create</div>
-<div class="v">Redirects directly into the launch detail page for commit, countdown, and live tracking.</div>
+<div class="v">Redirects into the launch detail page for commit, countdown, building, live, and lifecycle tracking.</div>
 </div>
 </aside>
 </section>
@@ -827,7 +827,7 @@ Builder bond is required for builder launches and is collected during launch cre
 <option value="community">Community</option>
 <option value="degen_zone">Degen Zone</option>
 </select>
-<div class="hint">Selecting a template locks the launch economics below unless Builder controls apply.</div>
+<div class="hint">Template selection locks MSS launch economics and bond requirements.</div>
 </div>
 
 <div class="field">
@@ -867,25 +867,33 @@ Builder bond is required for builder launches and is collected during launch cre
 <div class="field template-builder-only" id="builderSupplyField">
 <label for="supplyPreset">Builder Supply Preset</label>
 <select id="supplyPreset" name="supplyPreset">
-<option value="1000000">1,000,000</option>
-<option value="10000000">10,000,000</option>
-<option value="100000000">100,000,000</option>
 <option value="1000000000" selected>1,000,000,000</option>
-<option value="1000000000000">1,000,000,000,000</option>
 </select>
-<div class="hint">Builder template uses MSS-approved supply presets only.</div>
+<div class="hint">Builder template currently uses the locked MSS 1B supply model.</div>
 </div>
 
 <div class="field">
 <label for="minRaiseSol">Minimum Raise (SOL)</label>
 <input id="minRaiseSol" name="minRaiseSol" type="number" readonly />
-<div class="hint">Synced from selected template or builder controls.</div>
+<div class="hint">Synced from the selected template or builder tier mapping.</div>
 </div>
 
 <div class="field">
 <label for="hardCapSol">Hard Cap (SOL)</label>
 <input id="hardCapSol" name="hardCapSol" type="number" readonly />
-<div class="hint">Synced from selected template or builder controls.</div>
+<div class="hint">Synced from the selected template or builder controls.</div>
+</div>
+
+<div class="field">
+<label for="builderBond">Launch Bond (SOL)</label>
+<input id="builderBond" name="builderBond" type="number" min="3" step="1" readonly />
+<div class="hint">Required on every template. Calculated from the locked MSS bond rule for the selected soft cap.</div>
+</div>
+
+<div class="field">
+<label>Participant Access</label>
+<input type="text" value="1 SOL max commit • participant tokens unlock 100% at live" readonly />
+<div class="hint">Wallet cap starts at 0.5% and increases by 0.5% daily for 5 days after live.</div>
 </div>
 
 <div class="field template-builder-only" id="builderHardCapField">
@@ -900,9 +908,9 @@ Builder bond is required for builder launches and is collected during launch cre
 </div>
 
 <div class="field template-builder-only" id="builderMinRaiseField">
-<label for="builderMinRaiseSol">Builder Minimum Raise (SOL)</label>
-<input id="builderMinRaiseSol" name="builderMinRaiseSol" type="number" min="200" step="1" value="200" placeholder="200" />
-<div class="hint">Minimum 200 SOL and must remain below the selected builder hard cap.</div>
+<label for="builderMinRaiseSol">Builder Soft Cap / Minimum Raise (SOL)</label>
+<input id="builderMinRaiseSol" name="builderMinRaiseSol" type="number" min="200" step="1" value="200" readonly />
+<div class="hint">Auto-mapped from the selected builder hard-cap tier: 250→200, 500→300, 750→400, 1000→500.</div>
 </div>
 
 <div class="field full template-builder-only" id="builderExtras">
@@ -926,12 +934,6 @@ Builder bond is required for builder launches and is collected during launch cre
 <input id="teamAllocation" name="teamAllocation" type="number" min="0" max="15" step="0.1" placeholder="Max 15%" />
 <div class="hint">Combined wallet allocations cannot exceed this amount or 15%, whichever is lower.</div>
 </div>
-
-<div class="field">
-<label for="builderBond">Builder Bond (SOL)</label>
-<input id="builderBond" name="builderBond" type="number" min="5" step="1" placeholder="Minimum 5 SOL" />
-<div class="hint">Minimum 5 SOL. Bond is collected during creation and tracked across the launch lifecycle.</div>
-</div>
 </div>
 
 <div class="field full">
@@ -954,6 +956,7 @@ Builder bond is required for builder launches and is collected during launch cre
 </div>
 
 <div id="createStatus" class="status" aria-live="polite"></div>
+</div>
 </form>
 </section>
 
@@ -996,8 +999,8 @@ Builder bond is required for builder launches and is collected during launch cre
 
 <div class="preview-badges">
 <span class="preview-chip" id="previewTemplateChip">Template Locked</span>
-<span class="preview-chip" id="previewAllocationChip">Fixed Allocation</span>
-<span class="preview-chip" id="previewFlowChip">Commit → Countdown → Live</span>
+<span class="preview-chip" id="previewAllocationChip">1 SOL Max Commit</span>
+<span class="preview-chip" id="previewFlowChip">Commit → Countdown → Building → Live</span>
 </div>
 
 <div id="previewDesc" class="preview-desc">Launch description preview will appear here.</div>
@@ -1009,7 +1012,7 @@ Builder bond is required for builder launches and is collected during launch cre
 <div id="previewTeamAllocation" class="v">0%</div>
 </div>
 <div class="kv-box">
-<div class="k">Builder Bond</div>
+<div class="k">Launch Bond</div>
 <div id="previewBuilderBond" class="v">0 SOL</div>
 </div>
 </div>
@@ -1027,19 +1030,19 @@ Builder bond is required for builder launches and is collected during launch cre
 <div class="mini-list">
 <div class="mini-item">
 <div class="title">Flow</div>
-<div class="copy">Commit → Countdown → Live → Allocations → Graduation.</div>
+<div class="copy">Commit → Countdown → Building → Live → Graduated / Failed.</div>
 </div>
 <div class="mini-item">
 <div class="title">Economics</div>
-<div class="copy">Template defines launch supply and cap settings. Builder template unlocks structured flexibility, approved cap tiers, and minimum raise control.</div>
+<div class="copy">Templates lock MSS supply and cap settings. Participant commits are capped at 1 SOL and participant allocations unlock fully at live.</div>
 </div>
 <div class="mini-item">
 <div class="title">Builder Controls</div>
-<div class="copy">Builder template supports supply presets, hard-cap tiers up to 1000 SOL, minimum raise floor from 200 SOL, labeled team wallets, capped wallet allocation, and tracked builder bond state.</div>
+<div class="copy">Builder template supports the locked 1B supply model, hard-cap tiers up to 1000 SOL, fixed tier-based soft caps, labeled team wallets, and capped team allocation.</div>
 </div>
 <div class="mini-item">
-<div class="title">Builder Bond State</div>
-<div class="copy">Builder bond is collected during launch creation and tracked across the launch lifecycle.</div>
+<div class="title">Launch Bond</div>
+<div class="copy">Every launch uses a required bond based on template soft cap. Builder launches keep the same bond rule while adding structured controls.</div>
 </div>
 </div>
 </section>
