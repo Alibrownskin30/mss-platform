@@ -605,6 +605,16 @@ const direct = Date.parse(raw);
 return Number.isFinite(direct) ? direct : null;
 }
 
+function isExplicitFalseish(value) {
+if (value === false || value === 0) return true;
+const raw = String(value ?? "").trim().toLowerCase();
+return raw === "0" || raw === "false" || raw === "no";
+}
+
+function isMarketBootstrapPending(row = {}) {
+return isExplicitFalseish(row?.market_bootstrapped);
+}
+
 function parseLaunchJsonFields(row) {
 const parsedTeamWallets = Array.isArray(row?.team_wallets)
 ? row.team_wallets
@@ -613,6 +623,17 @@ const parsedTeamWallets = Array.isArray(row?.team_wallets)
 const parsedTeamWalletBreakdown = Array.isArray(row?.team_wallet_breakdown)
 ? row.team_wallet_breakdown
 : safeJsonParseArray(row?.team_wallet_breakdown);
+
+const contractAddress = cleanText(row?.contract_address, 120);
+const mintAddress = cleanText(row?.mint_address ?? row?.contract_address, 120);
+const tokenMint = cleanText(
+row?.token_mint ?? row?.mint_address ?? row?.contract_address,
+120
+);
+const mint = cleanText(
+row?.mint ?? row?.token_mint ?? row?.mint_address ?? row?.contract_address,
+120
+);
 
 return {
 ...row,
@@ -623,7 +644,10 @@ builder_bond_paid: Number(row?.builder_bond_paid || 0),
 builder_bond_tx_signature: cleanText(row?.builder_bond_tx_signature, 140),
 team_wallets: parsedTeamWallets,
 team_wallet_breakdown: parsedTeamWalletBreakdown,
-contract_address: cleanText(row?.contract_address, 120),
+contract_address: contractAddress,
+mint_address: mintAddress,
+token_mint: tokenMint,
+mint,
 reserved_mint_address: cleanText(row?.reserved_mint_address, 120),
 mint_reservation_status: cleanText(row?.mint_reservation_status, 40),
 mint_required_tag: cleanText(row?.mint_required_tag, 32) || REQUIRED_MINT_TAG,
@@ -637,6 +661,7 @@ discord_url: cleanText(row?.discord_url, 500),
 builder_wallet: cleanText(row?.builder_wallet, 120),
 builder_alias: cleanText(row?.builder_alias, 120),
 builder_score: Number(row?.builder_score || 0),
+market_bootstrapped: row?.market_bootstrapped,
 };
 }
 
@@ -684,12 +709,19 @@ const countdownEndsMs = parseDbTime(launch.countdown_ends_at || launch.live_at);
 const hasCountdownWindow =
 Number.isFinite(countdownStartedMs) || Number.isFinite(countdownEndsMs);
 
-const contractAddress = cleanText(launch.contract_address, 120);
+const contractAddress = cleanText(
+launch.contract_address ||
+launch.mint_address ||
+launch.token_mint ||
+launch.mint,
+120
+);
 const mintReservationStatus = cleanText(
 launch.mint_reservation_status,
 40
 ).toLowerCase();
 const mintFinalizedAtMs = parseDbTime(launch.mint_finalized_at);
+const marketBootstrapPending = isMarketBootstrapPending(launch);
 
 const hasLiveSignal = Boolean(
 contractAddress ||
@@ -706,7 +738,7 @@ return "graduated";
 }
 
 if (rawStatus === "live") {
-return "live";
+return marketBootstrapPending ? "building" : "live";
 }
 
 if (rawStatus === "building") {
@@ -738,7 +770,7 @@ return "countdown";
 }
 
 if (hasLiveSignal) {
-return "live";
+return marketBootstrapPending ? "building" : "live";
 }
 
 return rawStatus || "commit";
@@ -763,9 +795,36 @@ function sanitizeLaunchForPublic(row, { includeMintMeta = false } = {}) {
 const parsed = applyCanonicalLaunchTruth(row);
 const revealCa = shouldRevealContractAddress(parsed?.status);
 
+const publicContractAddress = revealCa
+? cleanText(
+parsed?.contract_address ||
+parsed?.mint_address ||
+parsed?.token_mint ||
+parsed?.mint,
+120
+) || null
+: null;
+
+const publicMintAddress = revealCa
+? cleanText(parsed?.mint_address || publicContractAddress, 120) || publicContractAddress
+: null;
+
+const publicTokenMint = revealCa
+? cleanText(parsed?.token_mint || publicMintAddress || publicContractAddress, 120) ||
+publicContractAddress
+: null;
+
+const publicMint = revealCa
+? cleanText(parsed?.mint || publicTokenMint || publicMintAddress || publicContractAddress, 120) ||
+publicContractAddress
+: null;
+
 return {
 ...parsed,
-contract_address: revealCa ? cleanText(parsed?.contract_address, 120) || null : null,
+contract_address: publicContractAddress,
+mint_address: publicMintAddress,
+token_mint: publicTokenMint,
+mint: publicMint,
 reserved_mint_address: null,
 reserved_mint_secret: null,
 mint_reservation_status: revealCa
@@ -874,6 +933,7 @@ function shapeLaunchForList(row) {
 const parsed = sanitizeLaunchForPublic(row);
 const totalCommitted = Number(parsed.committed_sol || 0);
 const hardCap = Number(parsed.hard_cap_sol || 0);
+const rawStatus = cleanText(row?.status || parsed?.status, 40).toLowerCase();
 
 return {
 id: parsed.id,
@@ -883,6 +943,7 @@ description: parsed.description,
 image_url: parsed.image_url,
 template: parsed.template,
 launch_type: parsed.launch_type,
+raw_status: rawStatus,
 status: parsed.status,
 min_raise_sol: Number(parsed.min_raise_sol || 0),
 hard_cap_sol: hardCap,
@@ -899,7 +960,11 @@ team_wallet_breakdown: parsed.team_wallet_breakdown,
 builder_bond_sol: Number(parsed.builder_bond_sol || 0),
 builder_bond_refunded: Number(parsed.builder_bond_refunded || 0),
 builder_bond_paid: Number(parsed.builder_bond_paid || 0),
+market_bootstrapped: parsed.market_bootstrapped,
 contract_address: parsed.contract_address || null,
+mint_address: parsed.mint_address || null,
+token_mint: parsed.token_mint || null,
+mint: parsed.mint || null,
 reserved_mint_address: null,
 mint_reservation_status: null,
 mint_required_tag: parsed.mint_required_tag || REQUIRED_MINT_TAG,
@@ -2751,19 +2816,20 @@ return res.status(404).json({ ok: false, error: "launch not found" });
 }
 
 const hydratedLaunch = await getLaunchWithBuilderById(launchId);
+const publicLaunch = sanitizeLaunchForPublic(hydratedLaunch || launch);
 const stats = await getCommitStats(launchId);
 const lifecycle = await safeSyncLifecycle(launchId);
 const graduationPlan = await safeGetGraduationPlan(launchId);
 
 return res.json({
 ok: true,
-launch: sanitizeLaunchForPublic(hydratedLaunch || launch),
-status: computeCanonicalLaunchStatus(hydratedLaunch || launch),
+launch: publicLaunch,
+status: publicLaunch.status,
 totalCommitted: stats.totalCommitted,
 participants: stats.participants,
 commitPercent: buildCommitPercent(
 stats.totalCommitted,
-launch.hard_cap_sol
+publicLaunch.hard_cap_sol
 ),
 lifecycle,
 graduationPlan,
@@ -3072,6 +3138,15 @@ commitPercent: buildCommitPercent(
 stats.totalCommitted,
 parsedLaunch.hard_cap_sol
 ),
+marketBootstrapped: parsedLaunch.market_bootstrapped,
+market_bootstrapped: parsedLaunch.market_bootstrapped,
+contractAddress: parsedLaunch.contract_address || null,
+contract_address: parsedLaunch.contract_address || null,
+mintAddress: parsedLaunch.mint_address || null,
+mint_address: parsedLaunch.mint_address || null,
+tokenMint: parsedLaunch.token_mint || null,
+token_mint: parsedLaunch.token_mint || null,
+mint: parsedLaunch.mint || null,
 reservedMintAddress: null,
 mintReservationStatus: null,
 mintRequiredTag: parsedLaunch.mint_required_tag || REQUIRED_MINT_TAG,

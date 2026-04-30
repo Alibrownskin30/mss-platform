@@ -20,9 +20,7 @@
 --silver:#dce7f3;
 --gold:#e5c173;
 --gold-soft:rgba(229,193,115,.14);
---blue-soft:rgba(21,156,255,.16);
 --line:rgba(120,178,235,.16);
---line-strong:rgba(94,185,255,.28);
 --shadow:0 34px 110px rgba(0,0,0,.58);
 }
 
@@ -123,7 +121,13 @@ right:0;
 top:0;
 height:1px;
 pointer-events:none;
-background:linear-gradient(90deg, transparent, rgba(54,215,255,.76), rgba(229,193,115,.44), transparent);
+background:linear-gradient(
+90deg,
+transparent,
+rgba(54,215,255,.76),
+rgba(229,193,115,.44),
+transparent
+);
 }
 
 .card-inner{
@@ -325,8 +329,9 @@ gap:8px;
 
 <script>
 (function () {
-const targetPath = "./launch-detail.html";
-const target = `${targetPath}${window.location.search || ""}${window.location.hash || ""}`;
+const ACTIVE_LAUNCH_PAGE = "./launch-detail.html";
+const target = `${ACTIVE_LAUNCH_PAGE}${window.location.search || ""}${window.location.hash || ""}`;
+window.__MSS_ACTIVE_LAUNCH_PAGE__ = ACTIVE_LAUNCH_PAGE;
 window.location.replace(target);
 })();
 </script>
@@ -339,11 +344,11 @@ window.location.replace(target);
 <div class="brand-mark" aria-hidden="true"></div>
 <div class="brand-copy">
 <div class="kicker">MSS Protocol</div>
-<div class="brand-sub">Launch Terminal</div>
+<div class="brand-sub">Launch Terminal Redirect</div>
 </div>
 </div>
 
-<h1>Redirecting to Launch Terminal</h1>
+<h1>Redirecting to Active Launch Terminal</h1>
 
 <p>
 If you are not redirected automatically,
@@ -353,13 +358,19 @@ If you are not redirected automatically,
 <div class="status-row" aria-label="Redirect status">
 <span class="status-pill">
 <span class="status-dot"></span>
-Terminal Route
+Canonical Route
 </span>
 <span class="status-pill gold">
 <span class="status-dot"></span>
-Secure Redirect
+Redirect Active
 </span>
 </div>
+
+<noscript>
+<p style="margin-top:16px;">
+JavaScript is required for automatic redirect. Use the link above to continue.
+</p>
+</noscript>
 </div>
 </div>
 

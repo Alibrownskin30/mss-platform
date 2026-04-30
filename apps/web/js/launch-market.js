@@ -553,6 +553,10 @@ raw.contract_address ?? raw.contractAddress,
 ),
 builderWallet: cleanString(raw.builderWallet ?? raw.builder_wallet, 240),
 builder_wallet: cleanString(raw.builder_wallet ?? raw.builderWallet, 240),
+marketBootstrapped:
+raw.marketBootstrapped ?? raw.market_bootstrapped ?? null,
+market_bootstrapped:
+raw.market_bootstrapped ?? raw.marketBootstrapped ?? null,
 internalSolReserve: toNumber(
 raw.internalSolReserve ?? raw.internal_sol_reserve,
 0
@@ -610,6 +614,13 @@ raw.graduationReadiness || raw.graduation_readiness || null
 ),
 builderVesting,
 };
+}
+
+function lifecycleShowsGraduated(lifecycle = null) {
+const normalized = normalizeLifecyclePayload(lifecycle || null);
+if (!normalized) return false;
+if (normalized.graduated === true) return true;
+return normalizeLaunchStatusValue(normalized.graduationStatus) === "graduated";
 }
 
 function normalizeGraduationPlanPayload(raw = {}) {
@@ -704,6 +715,7 @@ function buildLaunchPatchFromTokenPayload(tokenPayload = {}) {
 const token = tokenPayload?.token || {};
 const launch = tokenPayload?.launch || {};
 const stats = tokenPayload?.stats || {};
+const lifecycle = tokenPayload?.lifecycle || null;
 
 return normalizeLaunchTruth({
 token_name: choosePreferredNonEmpty(launch?.token_name, launch?.name, token?.name),
@@ -770,9 +782,15 @@ firstPositive(launch?.volume_24h, stats?.volume_24h, stats?.volume_24h_sol) ??
 status: choosePreferredNonEmpty(
 launch?.status,
 tokenPayload?.phase?.status,
-tokenPayload?.status
+tokenPayload?.status,
+lifecycle?.launchStatus,
+lifecycle?.launch_status
 ),
-market_bootstrapped: tokenPayload?.market_bootstrapped ?? launch?.market_bootstrapped,
+market_bootstrapped:
+tokenPayload?.market_bootstrapped ??
+launch?.market_bootstrapped ??
+lifecycle?.market_bootstrapped ??
+lifecycle?.marketBootstrapped,
 live_at: choosePreferredNonEmpty(launch?.live_at),
 countdown_started_at: choosePreferredNonEmpty(launch?.countdown_started_at),
 countdown_ends_at: choosePreferredNonEmpty(launch?.countdown_ends_at),
@@ -785,7 +803,8 @@ template: cleanString(launch?.template, 80),
 function buildLaunchPatchFromCommitStats(commitStats = {}) {
 return normalizeLaunchTruth({
 status: choosePreferredNonEmpty(commitStats?.status),
-committed_sol: firstFinite(commitStats?.totalCommitted, commitStats?.committed_sol) ?? 0,
+committed_sol:
+firstFinite(commitStats?.totalCommitted, commitStats?.committed_sol) ?? 0,
 participants_count:
 firstFinite(commitStats?.participants, commitStats?.participants_count) ?? 0,
 hard_cap_sol:
@@ -859,6 +878,10 @@ builder_wallet: choosePreferredNonEmpty(
 normalizedLifecycle.builderWallet,
 normalizedLifecycle.builder_wallet
 ),
+market_bootstrapped:
+normalizedLifecycle.market_bootstrapped ??
+normalizedLifecycle.marketBootstrapped ??
+null,
 updated_at: choosePreferredNonEmpty(
 normalizedLifecycle.updatedAt,
 normalizedLifecycle.updated_at
@@ -1012,6 +1035,7 @@ const explicit = normalizeLaunchStatusValue(truth?.status || truth?.raw_status);
 const lifecycleStatus = normalizeLaunchStatusValue(
 lifecycleTruth?.launchStatus || lifecycleTruth?.status
 );
+const lifecycleGraduated = lifecycleShowsGraduated(lifecycleTruth);
 const now = getNowMs();
 
 const countdownStartMs = parseDateMs(truth?.countdown_started_at);
@@ -1038,7 +1062,10 @@ reservationStatus === "finalized" ||
 Number.isFinite(mintFinalizedAtMs)
 );
 
-if (explicit === "graduated" || lifecycleStatus === "graduated") return PHASES.LIVE;
+if (explicit === "graduated" || lifecycleStatus === "graduated" || lifecycleGraduated) {
+return PHASES.LIVE;
+}
+
 if (
 explicit === "failed" ||
 explicit === "failed_refunded" ||
@@ -1049,7 +1076,12 @@ return PHASES.FAILED;
 }
 
 if (explicit === "live" || lifecycleStatus === "live") {
-if (truth.market_bootstrapped === false) return PHASES.BUILDING;
+const marketBootstrapped =
+truth.market_bootstrapped ??
+lifecycleTruth?.market_bootstrapped ??
+lifecycleTruth?.marketBootstrapped;
+
+if (marketBootstrapped === false) return PHASES.BUILDING;
 return PHASES.LIVE;
 }
 
@@ -1090,15 +1122,25 @@ merged,
 buildLaunchPatchFromLifecycle(lifecycle)
 );
 
+const lifecycleTruth = normalizeLifecyclePayload(lifecycle || null);
 const lifecycleStatus = normalizeLaunchStatusValue(
-lifecycle?.launchStatus || lifecycle?.status
+lifecycleTruth?.launchStatus || lifecycleTruth?.status
 );
+const lifecycleGraduationStatus = normalizeLaunchStatusValue(
+lifecycleTruth?.graduationStatus
+);
+const lifecycleGraduated = lifecycleShowsGraduated(lifecycleTruth);
 const explicit = normalizeLaunchStatusValue(
 mergedWithLifecycle.status || mergedWithLifecycle.raw_status
 );
 const phase = resolveCanonicalPhase(mergedWithLifecycle, lifecycle);
 
-if (explicit === "graduated" || lifecycleStatus === "graduated") {
+if (
+explicit === "graduated" ||
+lifecycleStatus === "graduated" ||
+lifecycleGraduationStatus === "graduated" ||
+lifecycleGraduated
+) {
 mergedWithLifecycle.status = "graduated";
 return normalizeLaunchTruth(mergedWithLifecycle);
 }
@@ -1186,12 +1228,20 @@ return "Commit";
 
 function getResolvedStatusValue(launch = {}, lifecycle = null) {
 const lifecycleTruth = normalizeLifecyclePayload(lifecycle || null);
+const lifecycleGraduated = lifecycleShowsGraduated(lifecycleTruth);
+const lifecycleGraduationStatus = normalizeLaunchStatusValue(
+lifecycleTruth?.graduationStatus
+);
 const lifecycleStatus = normalizeLaunchStatusValue(
 lifecycleTruth?.launchStatus || lifecycleTruth?.status
 );
 const launchStatus = normalizeLaunchStatusValue(
 launch?.status || launch?.raw_status
 );
+
+if (lifecycleGraduated || lifecycleGraduationStatus === "graduated") {
+return "graduated";
+}
 
 return lifecycleStatus || launchStatus || "";
 }
@@ -1934,7 +1984,7 @@ setText("stat2Value", "Protected");
 
 setText("stat3Label", "Bootstrap Liquidity");
 const liq = toNumber(lifecycle?.internalSolReserve, 0);
-setText("stat3Value", liq > 0 ? "Preparing" : "Pending");
+setText("stat3Value", liq > 0 ? formatSol(liq, 4) : "Pending");
 
 setText("stat4Label", "Execution");
 setText("stat4Value", "Bootstrapping");
@@ -1995,7 +2045,7 @@ stats?.market_cap_sol ??
 stats?.market_cap ??
 tokenPayload?.launch?.market_cap ??
 launch?.market_cap ??
-lifecycle?.marketcapSol,
+lifecycle?.impliedMarketcapSol,
 0
 );
 
@@ -2772,6 +2822,7 @@ const show = phase === PHASES.LIVE;
 card.classList.toggle("hidden", !show);
 if (!show) return;
 
+const graduatedLike = isGraduatedLike(launch);
 const walletSummary = getWalletSummaryData(tokenPayload, chartStats, fallbackTokenBalance);
 const totalSupply = toInt(
 firstFinite(
@@ -2811,6 +2862,24 @@ const effectiveHolding = walletSummary.isBuilderWallet
 ? walletSummary.sellableBalance
 : walletSummary.tokenBalance;
 const remaining = maxWalletTokens > 0 ? Math.max(0, maxWalletTokens - effectiveHolding) : 0;
+
+if (graduatedLike) {
+statePill.classList.remove("is-open", "is-restricted");
+statePill.classList.add("is-open");
+statePill.textContent = "Graduated";
+
+tierLabel.textContent = "Graduated Market";
+limitValue.textContent = "Externalized";
+holdingValue.textContent = `${formatTokenAmount(effectiveHolding, 0)} tokens`;
+remainingValue.textContent = "No longer enforced here";
+totalSupplyValue.textContent =
+totalSupply > 0 ? `${formatTokenAmount(totalSupply, 0)} tokens` : "Pending";
+schedule.textContent =
+"This launch has graduated. Internal protected-access controls are no longer the active market regime.";
+
+setText("launchAccessModeText", "Graduated");
+return;
+}
 
 const hasRestriction = walletSummary.isBuilderWallet || !capOpen;
 
@@ -2962,6 +3031,8 @@ mssLockedLpAmount: "",
 lockStatus: "not_locked",
 lockTx: "",
 lockExpiresAt: null,
+marketBootstrapped: phase === PHASES.LIVE ? null : false,
+market_bootstrapped: phase === PHASES.LIVE ? null : false,
 builderVesting: normalizeBuilderVestingPayload({}),
 graduationReadiness: null,
 graduated: false,
@@ -2995,7 +3066,9 @@ const graduationProof = $("graduationProofList");
 const readiness = lifecycleSafe?.graduationReadiness || null;
 const statusText =
 cleanString(
-lifecycleSafe?.graduationStatus || (phase === PHASES.LIVE ? "internal_live" : "pending"),
+lifecycleSafe?.graduated
+? "graduated"
+: lifecycleSafe?.graduationStatus || (phase === PHASES.LIVE ? "internal_live" : "pending"),
 80
 ) || "pending";
 
@@ -3089,7 +3162,8 @@ const vest = lifecycleSafe?.builderVesting || normalizeBuilderVestingPayload({})
 const unlockedAmount = phase === PHASES.LIVE ? toInt(vest?.unlockedAmount, 0) : 0;
 const lockedAmount = phase === PHASES.LIVE ? toInt(vest?.lockedAmount, 0) : 0;
 const vestedDays = phase === PHASES.LIVE ? toInt(vest?.vestedDays, 0) : 0;
-const unlockDays = phase === PHASES.LIVE ? toInt(vest?.unlockDays, BUILDER_UNLOCK_DAYS) : BUILDER_UNLOCK_DAYS;
+const unlockDays =
+phase === PHASES.LIVE ? toInt(vest?.unlockDays, BUILDER_UNLOCK_DAYS) : BUILDER_UNLOCK_DAYS;
 const totalAllocation = phase === PHASES.LIVE ? toInt(vest?.totalAllocation, 0) : 0;
 const percentUnlocked =
 totalAllocation > 0 ? (unlockedAmount / totalAllocation) * 100 : 0;
@@ -3729,13 +3803,31 @@ if (payload?.chartLaunch) {
 this.launch = mergeLaunchTruth(this.launch || {}, payload.chartLaunch);
 }
 
-this.lifecycle = normalizeLifecyclePayload(
-payload?.snapshotPayload?.lifecycle ||
-this.tokenPayload?.lifecycle ||
-this.tokenPayload?.launch?.lifecycle ||
-this.lifecycle ||
-null
-);
+const lifecycleSeed = {
+...(this.lifecycle || {}),
+...(payload?.snapshotPayload?.lifecycle || {}),
+...(incomingTokenPayload?.lifecycle || {}),
+graduationReadiness:
+payload?.snapshotPayload?.graduationReadiness ||
+payload?.snapshotPayload?.graduation_readiness ||
+incomingTokenPayload?.graduationReadiness ||
+incomingTokenPayload?.graduation_readiness ||
+incomingTokenPayload?.lifecycle?.graduationReadiness ||
+incomingTokenPayload?.lifecycle?.graduation_readiness ||
+this.lifecycle?.graduationReadiness ||
+null,
+builderVesting:
+payload?.snapshotPayload?.builderVesting ||
+payload?.snapshotPayload?.builder_vesting ||
+incomingTokenPayload?.builderVesting ||
+incomingTokenPayload?.builder_vesting ||
+incomingTokenPayload?.lifecycle?.builderVesting ||
+incomingTokenPayload?.lifecycle?.builder_vesting ||
+this.lifecycle?.builderVesting ||
+null,
+};
+
+this.lifecycle = normalizeLifecyclePayload(lifecycleSeed || null);
 
 this.graduationPlan = normalizeGraduationPlanPayload(
 payload?.snapshotPayload?.graduationPlan ||
@@ -3768,7 +3860,26 @@ async refreshLifecycleOnly() {
 if (!this.launchId) return;
 
 const payload = await this.fetchLifecycle(this.launchId);
-this.lifecycle = normalizeLifecyclePayload(payload?.lifecycle || payload || null);
+const lifecycleSeed = {
+...(this.lifecycle || {}),
+...(payload?.lifecycle || {}),
+graduationReadiness:
+payload?.graduationReadiness ||
+payload?.graduation_readiness ||
+payload?.lifecycle?.graduationReadiness ||
+payload?.lifecycle?.graduation_readiness ||
+this.lifecycle?.graduationReadiness ||
+null,
+builderVesting:
+payload?.builderVesting ||
+payload?.builder_vesting ||
+payload?.lifecycle?.builderVesting ||
+payload?.lifecycle?.builder_vesting ||
+this.lifecycle?.builderVesting ||
+null,
+};
+
+this.lifecycle = normalizeLifecyclePayload(lifecycleSeed || null);
 this.graduationPlan = normalizeGraduationPlanPayload(
 payload?.graduationPlan || payload?.graduation_plan || null
 );
@@ -3859,13 +3970,36 @@ const tokenLaunchPatch = buildLaunchPatchFromTokenPayload(tokenPayload || {});
 this.tokenPayload = tokenPayload || this.tokenPayload || {};
 this.commitStats = commitStatsPayload || {};
 
-this.lifecycle = normalizeLifecyclePayload(
-lifecyclePayload?.lifecycle ||
-tokenPayload?.lifecycle ||
-tokenPayload?.launch?.lifecycle ||
-this.lifecycle ||
-null
-);
+const lifecycleSeed = {
+...(this.lifecycle || {}),
+...(lifecyclePayload?.lifecycle || {}),
+...(tokenPayload?.lifecycle || {}),
+...(tokenPayload?.launch?.lifecycle || {}),
+graduationReadiness:
+lifecyclePayload?.graduationReadiness ||
+lifecyclePayload?.graduation_readiness ||
+lifecyclePayload?.lifecycle?.graduationReadiness ||
+lifecyclePayload?.lifecycle?.graduation_readiness ||
+tokenPayload?.graduationReadiness ||
+tokenPayload?.graduation_readiness ||
+tokenPayload?.lifecycle?.graduationReadiness ||
+tokenPayload?.lifecycle?.graduation_readiness ||
+this.lifecycle?.graduationReadiness ||
+null,
+builderVesting:
+lifecyclePayload?.builderVesting ||
+lifecyclePayload?.builder_vesting ||
+lifecyclePayload?.lifecycle?.builderVesting ||
+lifecyclePayload?.lifecycle?.builder_vesting ||
+tokenPayload?.builderVesting ||
+tokenPayload?.builder_vesting ||
+tokenPayload?.lifecycle?.builderVesting ||
+tokenPayload?.lifecycle?.builder_vesting ||
+this.lifecycle?.builderVesting ||
+null,
+};
+
+this.lifecycle = normalizeLifecyclePayload(lifecycleSeed || null);
 this.graduationPlan = normalizeGraduationPlanPayload(
 lifecyclePayload?.graduationPlan ||
 lifecyclePayload?.graduation_plan ||

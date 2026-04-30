@@ -180,6 +180,17 @@ return "commit";
 return status;
 }
 
+function isExplicitFalseish(value) {
+if (value === false || value === 0) return true;
+const raw = String(value ?? "").trim().toLowerCase();
+return raw === "0" || raw === "false" || raw === "no";
+}
+
+function isMarketBootstrapPending(launch = null) {
+if (!launch) return false;
+return isExplicitFalseish(launch.market_bootstrapped);
+}
+
 function getContractCandidateFromLaunch(launch = null) {
 if (!launch) return "";
 
@@ -225,11 +236,15 @@ const countdownStillRunning =
 Number.isFinite(countdownEndsMs) && now < countdownEndsMs;
 
 const liveMintSignal = hasLiveMintSignal(launch);
+const marketBootstrapPending = isMarketBootstrapPending(launch);
 
 if (rawStatus === "failed_refunded") return "failed_refunded";
 if (rawStatus === "failed") return "failed";
 if (rawStatus === "graduated") return "graduated";
-if (rawStatus === "live") return "live";
+
+if (rawStatus === "live") {
+return marketBootstrapPending ? "building" : "live";
+}
 
 /*
 Protected phase rule:
@@ -271,11 +286,11 @@ Legacy fallback only. This is intentionally after countdown/building checks
 so old rows can be rescued without breaking protected pre-live phases.
 */
 if (!rawStatus && Number.isFinite(liveAtMs) && now >= liveAtMs && liveMintSignal) {
-return "live";
+return marketBootstrapPending ? "building" : "live";
 }
 
 if (!rawStatus && liveMintSignal) {
-return "live";
+return marketBootstrapPending ? "building" : "live";
 }
 
 return rawStatus || "commit";
@@ -287,8 +302,11 @@ return normalized === "live" || normalized === "graduated";
 }
 
 function buildPhaseMeta(launch = null) {
-const servicePhaseStatus = normalizeLaunchStatus(launch?.phase?.status);
-const status = servicePhaseStatus || inferRevealStatus(launch);
+const phaseStatusFromService = normalizeLaunchStatus(launch?.phase?.status);
+const phaseSource = phaseStatusFromService
+? { ...(launch || {}), status: phaseStatusFromService }
+: launch;
+const status = inferRevealStatus(phaseSource);
 const marketEnabled = shouldRevealContractAddress(status);
 
 return {
@@ -660,8 +678,8 @@ const walletPositionValueSol = marketActive
 ? toNumber(
 chooseFirstFinite(
 stats.wallet_position_value_sol,
-priceSol > 0 && walletVisibleTotalBalance > 0
-? priceSol * walletVisibleTotalBalance
+stats.price_sol && walletVisibleTotalBalance > 0
+? Number(stats.price_sol) * walletVisibleTotalBalance
 : 0
 ),
 0

@@ -389,7 +389,11 @@ normalized === "finalising"
 return "building";
 }
 
-if (normalized === "countdown" || normalized === "pre_live" || normalized === "prelive") {
+if (
+normalized === "countdown" ||
+normalized === "pre_live" ||
+normalized === "prelive"
+) {
 return "countdown";
 }
 
@@ -397,7 +401,11 @@ if (normalized === "failed_refunded" || normalized === "refunded") {
 return "failed_refunded";
 }
 
-if (normalized === "failed" || normalized === "cancelled" || normalized === "canceled") {
+if (
+normalized === "failed" ||
+normalized === "cancelled" ||
+normalized === "canceled"
+) {
 return "failed";
 }
 
@@ -413,6 +421,18 @@ return "commit";
 }
 
 return "";
+}
+
+function isFalseLike(value) {
+return value === false || value === 0 || value === "0";
+}
+
+function isMarketBootstrappedFalse(launchLike = {}, lifecycleLike = null) {
+return isFalseLike(
+launchLike?.market_bootstrapped ??
+lifecycleLike?.market_bootstrapped ??
+lifecycleLike?.marketBootstrapped
+);
 }
 
 function resolveCanonicalLaunchStatus(
@@ -480,7 +500,9 @@ return "failed";
 }
 
 if (rawStatus === "live" || lifecycleStatus === "live") {
-return "live";
+return isMarketBootstrappedFalse(launchLike, lifecycleLike)
+? "building"
+: "live";
 }
 
 /*
@@ -585,6 +607,11 @@ mint_reservation_status: mintStatus,
 mint_finalized_at: exposeCa
 ? cleanString(launchLike?.mint_finalized_at, 200)
 : "",
+market_bootstrapped:
+launchLike?.market_bootstrapped ??
+lifecycleLike?.market_bootstrapped ??
+lifecycleLike?.marketBootstrapped ??
+null,
 };
 }
 
@@ -617,6 +644,8 @@ raw?.mint_reservation_status,
 64
 ).toLowerCase(),
 mint_finalized_at: cleanString(raw?.mint_finalized_at, 200),
+
+market_bootstrapped: raw?.market_bootstrapped ?? null,
 
 commit_started_at: cleanString(raw?.commit_started_at, 200),
 commit_ends_at: cleanString(raw?.commit_ends_at, 200),
@@ -726,6 +755,12 @@ merged.mint_finalized_at = choosePreferredString(
 nextSanitized?.mint_finalized_at,
 prevSanitized?.mint_finalized_at
 );
+merged.market_bootstrapped =
+nextSanitized?.market_bootstrapped ??
+prevSanitized?.market_bootstrapped ??
+lifecycleLike?.market_bootstrapped ??
+lifecycleLike?.marketBootstrapped ??
+null;
 
 const strongestContract = choosePreferredString(
 nextSanitized?.contract_address,
@@ -846,6 +881,10 @@ raw.contract_address ?? raw.contractAddress,
 ),
 builderWallet: cleanString(raw.builderWallet ?? raw.builder_wallet, 200),
 builder_wallet: cleanString(raw.builder_wallet ?? raw.builderWallet, 200),
+marketBootstrapped:
+raw.marketBootstrapped ?? raw.market_bootstrapped ?? null,
+market_bootstrapped:
+raw.market_bootstrapped ?? raw.marketBootstrapped ?? null,
 internalSolReserve: safeNum(
 raw.internalSolReserve ?? raw.internal_sol_reserve,
 0
@@ -1061,10 +1100,8 @@ if (type === "warn") el.classList.add("warn");
 el.textContent = message;
 }
 
-function getLaunchBondLabel(launch) {
-return String(launch?.template || "").toLowerCase() === "builder"
-? "Builder bond"
-: "Launch bond";
+function getLaunchBondLabel() {
+return "Launch bond";
 }
 
 function getBuilderBondState(launch, stats) {
@@ -1788,7 +1825,7 @@ setTextByIds(
 minMet ? "Reached" : fmtSol(remainingToMin)
 );
 setTextByIds(
-["remainingToHardCapStat", "remainingToCapStat"],
+["remainingToCapStat"],
 hardCapMet ? "Filled" : fmtSol(remainingToHardCap)
 );
 setTextByIds(
@@ -2146,6 +2183,11 @@ currentLifecycle?.contractAddress ||
 currentLifecycle?.contract_address ||
 currentLaunch?.contract_address ||
 "",
+market_bootstrapped:
+currentLifecycle?.marketBootstrapped ??
+currentLifecycle?.market_bootstrapped ??
+currentLaunch?.market_bootstrapped ??
+null,
 },
 currentCommitStats || {},
 currentLifecycle
@@ -2463,6 +2505,11 @@ currentLifecycle?.contractAddress ||
 currentLifecycle?.contract_address ||
 currentLaunch?.contract_address ||
 "",
+market_bootstrapped:
+currentLifecycle?.marketBootstrapped ??
+currentLifecycle?.market_bootstrapped ??
+currentLaunch?.market_bootstrapped ??
+null,
 },
 currentCommitStats || {},
 currentLifecycle

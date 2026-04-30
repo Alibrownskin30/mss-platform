@@ -9,7 +9,7 @@ getMobileWalletHelpText,
 sendSolTransfer,
 } from "../wallet.js";
 
-const LAUNCHPAD_INIT_KEY = "__mssLaunchpadInit_v2";
+const LAUNCHPAD_INIT_KEY = "__mssLaunchpadInit_v3";
 const RECENT_CACHE = new Map();
 const RECENT_CACHE_TTL_MS = 15000;
 const RECENT_FETCH_LIMIT = 12;
@@ -152,7 +152,12 @@ const s = String(status || "").trim().toLowerCase();
 
 if (!s) return "";
 if (s === "failed_refunded" || s === "refunded") return "failed_refunded";
-if (s === "failed" || s === "cancelled" || s === "canceled" || s === "expired") {
+if (
+s === "failed" ||
+s === "cancelled" ||
+s === "canceled" ||
+s === "expired"
+) {
 return "failed";
 }
 if (s === "graduated" || s === "surged" || s === "surge") return "graduated";
@@ -268,7 +273,12 @@ return "building";
 Legacy fallback only:
 old rows with no protected phase may infer live from finalized mint/CA data.
 */
-if (!rawStatus && Number.isFinite(liveAtMs) && now >= liveAtMs && liveMintSignal) {
+if (
+!rawStatus &&
+Number.isFinite(liveAtMs) &&
+now >= liveAtMs &&
+liveMintSignal
+) {
 return "live";
 }
 
@@ -342,6 +352,10 @@ return { label: "Early" };
 function isBuilderTemplate(template) {
 const value = String(template || "").trim().toLowerCase();
 return value === "builder" || value.startsWith("builder_") || value.startsWith("builder-");
+}
+
+function getLaunchBondLabel(launch) {
+return isBuilderTemplate(launch?.template) ? "Builder Bond" : "Launch Bond";
 }
 
 function isCurrentFieldStatus(status) {
@@ -543,11 +557,10 @@ return "Launch reached hard cap.";
 return "Launch status is being tracked.";
 }
 
-function getBuilderBadges(launch) {
+function getLaunchControlBadges(launch) {
 const out = [];
 
-if (isBuilderTemplate(launch.template)) {
-if (safeNum(launch.team_allocation_pct) > 0) {
+if (isBuilderTemplate(launch.template) && safeNum(launch.team_allocation_pct) > 0) {
 out.push(
 `<span class="small-chip">Team ${fmtPct(launch.team_allocation_pct, 0)}</span>`
 );
@@ -556,9 +569,8 @@ out.push(
 if (safeNum(launch.builder_bond_sol) > 0) {
 const refunded = safeNum(launch.builder_bond_refunded, 0) === 1;
 out.push(
-`<span class="small-chip">Bond ${fmtSol(launch.builder_bond_sol)} SOL${refunded ? " • Refunded" : ""}</span>`
+`<span class="small-chip">${escapeHtml(getLaunchBondLabel(launch))} ${fmtSol(launch.builder_bond_sol)} SOL${refunded ? " • Refunded" : ""}</span>`
 );
-}
 }
 
 return out.join("");
@@ -579,7 +591,7 @@ safeguards.push("Refund Path");
 }
 
 if (safeNum(launch.builder_bond_sol) > 0) {
-safeguards.push("Builder Bond");
+safeguards.push("Launch Bond");
 }
 
 return `
@@ -792,7 +804,7 @@ ${getLogoHtml(launch)}
 <span>${escapeHtml(stateNote)}</span>
 </div>
 
-<div class="builder-badges">${getBuilderBadges(launch)}</div>
+<div class="builder-badges">${getLaunchControlBadges(launch)}</div>
 ${getSafeguardsHtml(launch)}
 
 <div class="kv">
@@ -900,7 +912,7 @@ ${builderHtml} • Score ${builderScore} • ${trust.label}
 <div style="margin-top:8px;font-size:12px;color:rgba(255,255,255,.62);line-height:1.5;">
 ${escapeHtml(stateNote)}
 </div>
-<div class="builder-badges" style="margin-top:10px;">${getBuilderBadges(launch)}</div>
+<div class="builder-badges" style="margin-top:10px;">${getLaunchControlBadges(launch)}</div>
 <div style="margin-top:10px;">${getSafeguardsHtml(launch)}</div>
 </div>
 </div>
@@ -1049,15 +1061,31 @@ const html = sections
 .map((section) => {
 if (!section.items.length) return "";
 return `
-<div class="list-section">
+<section class="list-section" data-section="${escapeHtml(section.key)}">
 <div class="list-section-title">${section.title}</div>
+<div class="list-section-stack">
 ${section.items.map(buildListRow).join("")}
 </div>
+</section>
 `;
 })
 .join("");
 
 return html || `<div class="launch-empty-state">No launches found.</div>`;
+}
+
+function renderListFlatRows(items = []) {
+if (!items.length) {
+return `<div class="launch-empty-state">No launches found.</div>`;
+}
+
+return `
+<section class="list-section" data-section="filtered">
+<div class="list-section-stack">
+${items.map(buildListRow).join("")}
+</div>
+</section>
+`;
 }
 
 function getFeaturedCandidate(items) {
@@ -1126,7 +1154,7 @@ ${builderHtml} • Score ${builderScore} • ${trust.label}
 ${escapeHtml(stateNote)}
 </div>
 
-<div class="builder-badges">${getBuilderBadges(featured)}</div>
+<div class="builder-badges">${getLaunchControlBadges(featured)}</div>
 ${getSafeguardsHtml(featured)}
 
 <div class="progress-wrap">
@@ -1360,11 +1388,17 @@ const gridView = CURRENT_VIEW === "grid";
 grid.classList.toggle("hidden", !gridView);
 list.classList.toggle("hidden", gridView);
 
+grid.classList.toggle("is-active-view", gridView);
+list.classList.toggle("is-active-view", !gridView);
+
 grid.style.display = gridView ? "grid" : "none";
-list.style.display = gridView ? "grid" : "none";
+list.style.display = gridView ? "none" : "block";
 
 grid.setAttribute("aria-hidden", gridView ? "false" : "true");
 list.setAttribute("aria-hidden", gridView ? "true" : "false");
+
+grid.dataset.view = "grid";
+list.dataset.view = "list";
 
 gridBtn.classList.toggle("active", gridView);
 listBtn.classList.toggle("active", !gridView);
@@ -1533,7 +1567,7 @@ return;
 }
 
 grid.innerHTML = items.map(buildCard).join("");
-list.innerHTML = items.map(buildListRow).join("");
+list.innerHTML = renderListFlatRows(items);
 
 bindQuickCommitButtons();
 updateLiveTimers();

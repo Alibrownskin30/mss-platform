@@ -312,7 +312,10 @@ minRaiseSol: BUILDER_SOFT_CAP_BY_HARD_CAP[fallbackHardCap],
 const hardCapSol = normalizeBuilderHardCap(builderHardCapInput.value);
 builderHardCapInput.value = String(hardCapSol);
 
-const minRaiseSol = normalizeBuilderMinRaise(builderMinRaiseInput.value, hardCapSol);
+const minRaiseSol = normalizeBuilderMinRaise(
+builderMinRaiseInput.value,
+hardCapSol
+);
 builderMinRaiseInput.min = String(minRaiseSol);
 builderMinRaiseInput.max = String(minRaiseSol);
 builderMinRaiseInput.value = String(minRaiseSol);
@@ -495,11 +498,17 @@ if (!Number.isFinite(Number(values.supply)) || Number(values.supply) <= 0) {
 throw new Error("Template supply is invalid.");
 }
 
-if (!Number.isFinite(Number(values.minRaiseSol)) || Number(values.minRaiseSol) <= 0) {
+if (
+!Number.isFinite(Number(values.minRaiseSol)) ||
+Number(values.minRaiseSol) <= 0
+) {
 throw new Error("Template minimum raise is invalid.");
 }
 
-if (!Number.isFinite(Number(values.hardCapSol)) || Number(values.hardCapSol) <= 0) {
+if (
+!Number.isFinite(Number(values.hardCapSol)) ||
+Number(values.hardCapSol) <= 0
+) {
 throw new Error("Template hard cap is invalid.");
 }
 
@@ -1106,7 +1115,9 @@ return cachedSignature;
 
 const provider = getInjectedWalletProvider();
 if (!provider?.signTransaction) {
-throw new Error(`${getLaunchBondLabel()} signing is not available for this wallet session.`);
+throw new Error(
+`${getLaunchBondLabel()} signing is not available for this wallet session.`
+);
 }
 
 if (!window.solanaWeb3?.Transaction?.from) {

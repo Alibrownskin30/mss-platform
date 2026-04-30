@@ -11,7 +11,7 @@ content="MSS Protocol Launchpad — security-first launch command for commit flo
 
 <link rel="stylesheet" href="./assets/app.css?v=7" />
 <link rel="modulepreload" href="./assets/layout-shell.js" />
-<link rel="modulepreload" href="./assets/pages/launches.js?v=7" />
+<link rel="modulepreload" href="./assets/pages/launches.js?v=8" />
 
 <style>
 .launchpad-page .hidden{
@@ -761,11 +761,19 @@ grid-column:1 / -1;
 }
 
 .launchpad-page .launch-list{
+display:block;
+}
+
+.launchpad-page .launch-list.is-active-view{
+display:block;
+}
+
+.launchpad-page .list-section{
 display:grid;
 gap:14px;
 }
 
-.launchpad-page .list-section{
+.launchpad-page .list-section-stack{
 display:grid;
 gap:14px;
 }
@@ -1487,7 +1495,7 @@ Commit, countdown, building, live markets, and historical archive rendered from 
 <script type="module">
 import { bindSessionUi } from "./assets/auth.js";
 import { onWalletChange, getConnectedPublicKey } from "./assets/wallet.js";
-import "./assets/pages/launches.js?v=7";
+import "./assets/pages/launches.js?v=8";
 
 async function mountSharedShell() {
 try {

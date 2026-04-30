@@ -8,7 +8,7 @@ buildGraduationPlanForLaunch,
 
 const router = express.Router();
 
-const ALLOWED_INTERVALS = new Set(["1m", "5m", "15m", "1h", "4h", "1d"]);
+const ALLOWED_INTERVALS = new Set(["1m", "5m", "15m", "30m", "1h", "4h", "1d"]);
 
 const BUILDER_TOTAL_ALLOCATION_PCT = 5;
 const BUILDER_DAILY_UNLOCK_PCT = 0.5;
@@ -20,10 +20,10 @@ const TEAM_CLIFF_DAYS = 14;
 const TEAM_VESTING_DAYS = 180;
 
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
-const PARTICIPANT_UNLOCKED_LABEL = "100% unlocked at live";
+const PARTICIPANT_UNLOCKED_LABEL = "100% unlocked at live.";
 
 const BUILDER_VESTING_RULE =
-"Builder allocation unlocks at 0.5% of total supply per day until the full 5% builder allocation is unlocked.";
+"0% unlocked at live. Builder allocation then unlocks at 0.5% of total supply per day for 10 days until the full 5% allocation is unlocked.";
 
 function toNumber(value, fallback = 0) {
 if (value === null || value === undefined || value === "") return fallback;
@@ -65,7 +65,7 @@ return null;
 }
 
 function normalizeInterval(raw) {
-const interval = String(raw || "1m").trim();
+const interval = String(raw || "1m").trim().toLowerCase();
 return ALLOWED_INTERVALS.has(interval) ? interval : "1m";
 }
 
@@ -447,7 +447,7 @@ const elapsedMs = Math.max(0, Date.now() - startMs);
 elapsedDays = Math.floor(elapsedMs / MS_PER_DAY);
 
 if (Date.now() >= startMs) {
-vestedDays = Math.min(BUILDER_UNLOCK_DAYS, elapsedDays + 1);
+vestedDays = Math.min(BUILDER_UNLOCK_DAYS, elapsedDays);
 unlockedAmount =
 vestedDays >= BUILDER_UNLOCK_DAYS
 ? totalAllocation
@@ -1240,10 +1240,22 @@ price_change_pct: marketActive
 high_24h: marketActive ? toNumber(stats.high_24h ?? stats.high24h, 0) : 0,
 low_24h: marketActive ? toNumber(stats.low_24h ?? stats.low24h, 0) : 0,
 high_24h_sol: marketActive
-? toNumber(stats.high_24h_sol ?? stats.high24hSol ?? stats.high_24h ?? stats.high24h, 0)
+? toNumber(
+stats.high_24h_sol ??
+stats.high24hSol ??
+stats.high_24h ??
+stats.high24h,
+0
+)
 : 0,
 low_24h_sol: marketActive
-? toNumber(stats.low_24h_sol ?? stats.low24hSol ?? stats.low_24h ?? stats.low24h, 0)
+? toNumber(
+stats.low_24h_sol ??
+stats.low24hSol ??
+stats.low_24h ??
+stats.low24h,
+0
+)
 : 0,
 high_24h_usd: marketActive ? toNumber(stats.high_24h_usd, 0) : 0,
 low_24h_usd: marketActive ? toNumber(stats.low_24h_usd, 0) : 0,
@@ -1347,7 +1359,8 @@ null,
 contract_address:
 cleanText(raw.contract_address ?? raw.contractAddress, 120) || null,
 builder_wallet:
-cleanText(raw.builder_wallet ?? raw.builderWallet, 120) || null,
+cleanText(raw.builder_wallet ?? raw.builderWallet ?? launch?.builder_wallet, 120) ||
+null,
 market_bootstrapped:
 raw.market_bootstrapped ?? raw.marketBootstrapped ?? null,
 
@@ -1553,9 +1566,11 @@ allowSupplyFallback: true,
 
 return {
 builder_wallet:
-cleanText(raw.builder_wallet ?? raw.builderWallet, 120) || null,
+cleanText(raw.builder_wallet ?? raw.builderWallet ?? launch?.builder_wallet, 120) ||
+null,
 builderWallet:
-cleanText(raw.builderWallet ?? raw.builder_wallet, 120) || null,
+cleanText(raw.builderWallet ?? raw.builder_wallet ?? launch?.builder_wallet, 120) ||
+null,
 
 total_allocation: fixed.total_allocation,
 totalAllocation: fixed.totalAllocation,
@@ -2327,7 +2342,6 @@ l.token_mint,
 l.mint_reservation_status,
 l.mint_finalized_at,
 l.market_bootstrapped,
-l.builder_wallet,
 l.description,
 l.image_url,
 l.website_url,
@@ -2360,6 +2374,7 @@ l.price_usd,
 l.market_cap_usd,
 l.volume_24h_usd,
 l.sol_usd_price,
+b.wallet AS builder_wallet,
 b.alias AS builder_alias,
 b.builder_score AS builder_score
 FROM launches l
@@ -2410,7 +2425,11 @@ error: "Launch not found for token",
 }
 
 const preliminaryPhase = buildPhaseMeta(rawLaunch, lifecycleRaw);
-const lifecycle = normalizeLifecycle(rawLaunch?.lifecycle || lifecycleRaw || null, rawLaunch, preliminaryPhase);
+const lifecycle = normalizeLifecycle(
+rawLaunch?.lifecycle || lifecycleRaw || null,
+rawLaunch,
+preliminaryPhase
+);
 const phase = buildPhaseMeta(rawLaunch, lifecycle);
 
 if (!phase.market_enabled) {
@@ -2424,8 +2443,16 @@ can_trade: false,
 });
 }
 
-const snapshotStats = sanitizeStatsForResponse(snapshot?.stats || {}, rawLaunch, lifecycle);
-const snapshotLaunch = sanitizeLaunchForResponse(rawLaunch, snapshotStats, lifecycle);
+const snapshotStats = sanitizeStatsForResponse(
+snapshot?.stats || {},
+rawLaunch,
+lifecycle
+);
+const snapshotLaunch = sanitizeLaunchForResponse(
+rawLaunch,
+snapshotStats,
+lifecycle
+);
 
 const lifecycleSource =
 rawLaunch?.lifecycle ||
