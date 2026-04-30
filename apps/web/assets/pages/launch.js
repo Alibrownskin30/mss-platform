@@ -20,6 +20,111 @@ const LIVE_LIFECYCLE_REFRESH_INTERVAL_MS = 20000;
 const LAUNCH_PAGE_INIT_KEY = "__mssLaunchPageInit_v3";
 const COMMIT_DEDUP_WINDOW_MS = 2000;
 
+/*
+launch-market.js owns the live terminal and market shell.
+launch.js must not write to these IDs or it will create UI ownership drift.
+*/
+const MARKET_OWNED_TEXT_IDS = new Set([
+"launchStatusText",
+"launchStatusText2",
+"launchMarketModeText",
+"marketStatusLabel",
+"marketOverlayEyebrow",
+"marketOverlayTitle",
+"phaseValueMirror",
+"launchStatusBoardValue",
+"launchCommandPhase",
+"launchCommandStatus",
+"phaseNoteMirror",
+"launchStatusBoardNote",
+"launchCommandText",
+"launchStatusBoardAccess",
+"launchCommandMarket",
+"launchTerminalModeLabel",
+"launchTerminalPhaseLabel",
+"launchOverviewAccessText",
+"phasePillMirror",
+"launchStatusBadge",
+"launchStatusPill",
+"phaseHeadline",
+"phaseSummary",
+"launchTokenName",
+"launchTokenNameMirror",
+"launchCommandTitle",
+"launchTokenSymbol",
+"launchBuilderLabel",
+"launchBuilderWalletShort",
+"launchBuilderTierText",
+"launchTokenLogo",
+"builderAlias",
+"builderScoreStat",
+"launchCommandBuilder",
+"launchCommandScore",
+"launchStatusBoardBuilderWallet",
+"launchSubline",
+"launchCaText",
+"chartCaChipText",
+"contractAddressText",
+"contractAddressValue",
+"launchContractAddress",
+"contractAddressStat",
+"launchStatusBoardCa",
+"launchCaState",
+"walletTokenBalanceValue",
+"walletPositionValueValue",
+"walletSolBalanceValue",
+"launchWalletSummaryText",
+"launchWalletPositionText",
+"launchWalletLimitText",
+"marketAccessTierLabel",
+"marketAccessStatePill",
+"marketAccessLimitValue",
+"marketAccessHoldingValue",
+"marketAccessRemainingValue",
+"marketTotalSupplyValue",
+"marketAccessSchedule",
+"launchAccessModeText",
+"lifecycleStatusValue",
+"lifecycleStatusPill",
+"lifecycleReservesValue",
+"lifecycleSplitValue",
+"lifecycleLockValue",
+"lifecycleRaydiumValue",
+"builderVestValue",
+"graduationReadinessValue",
+"graduationReadinessNote",
+"launchGraduationReadinessText",
+"launchLpInternalText",
+"launchLockedLpText",
+"launchMigrationStateText",
+"launchCassieVerdictText",
+"launchCassiePrimaryText",
+"launchCassiePatternText",
+]);
+
+const MARKET_OWNED_HIDDEN_IDS = new Set([
+"contractAddressRow",
+]);
+
+const MARKET_OWNED_CLASS_IDS = new Set([
+"launchPhaseBadge",
+"launchStatusBadge",
+"launchStatusPill",
+"phasePillMirror",
+]);
+
+function isMarketOwnedTextId(id) {
+return MARKET_OWNED_TEXT_IDS.has(String(id || ""));
+}
+
+function isMarketOwnedHiddenId(id) {
+return MARKET_OWNED_HIDDEN_IDS.has(String(id || ""));
+}
+
+function isMarketOwnedClassId(id) {
+return MARKET_OWNED_CLASS_IDS.has(String(id || ""));
+}
+
 function $(id) {
 return document.getElementById(id);
 }
@@ -816,6 +921,7 @@ incoming?.builderVesting || prev?.builderVesting || null,
 
 function setTextByIds(ids, value) {
 for (const id of ids) {
+if (isMarketOwnedTextId(id)) continue;
 const el = $(id);
 if (el) el.textContent = value;
 }
@@ -837,6 +943,7 @@ if (el) el.style.width = value;
 
 function setHiddenByIds(ids, hidden) {
 for (const id of ids) {
+if (isMarketOwnedHiddenId(id)) continue;
 const el = $(id);
 if (el) el.classList.toggle("hidden", Boolean(hidden));
 }
@@ -850,13 +957,13 @@ if (el) el.setAttribute("href", value);
 }
 
 function setStatusPillClasses(el, status) {
-if (!el) return;
+if (!el || isMarketOwnedTextId(el.id) || isMarketOwnedClassId(el.id)) return;
 el.classList.remove("commit", "countdown", "live", "graduated", "failed");
 el.classList.add(pillClass(status));
 }
 
 function setLaunchPhaseBadgeClass(el, status) {
-if (!el) return;
+if (!el || isMarketOwnedClassId(el.id)) return;
 
 el.classList.remove(
 "phase-commit",
@@ -1269,14 +1376,11 @@ const builderProfileHref = wallet
 : "./builder.html";
 setHrefByIds(["launchBuilderProfileBtn2"], builderProfileHref);
 
-const launchCommandBuilder = $("launchCommandBuilder");
-if (launchCommandBuilder) launchCommandBuilder.textContent = alias;
-
-const launchCommandScore = $("launchCommandScore");
-if (launchCommandScore) {
-launchCommandScore.textContent =
-trustScore > 0 ? String(Math.round(trustScore)) : "—";
-}
+setTextByIds(["launchCommandBuilder"], alias);
+setTextByIds(
+["launchCommandScore"],
+trustScore > 0 ? String(Math.round(trustScore)) : "—"
+);
 }
 
 function resolveAllocationPct(primary, fallback) {
@@ -1581,20 +1685,18 @@ return base;
 })();
 
 setTextByIds(["launchOverviewCopy"], overviewCopy);
-
-if ($("launchSubline")) {
-$("launchSubline").textContent =
-`${getDisplaySymbol(launch.symbol)} • ${templateText} • ${phaseDisplayText(status)}${lifecycleSummary ? ` • ${lifecycleSummary}` : ""}`;
-}
+setTextByIds(
+["launchSubline"],
+`${getDisplaySymbol(launch.symbol)} • ${templateText} • ${phaseDisplayText(status)}${lifecycleSummary ? ` • ${lifecycleSummary}` : ""}`
+);
 
 if ($("launchDesc")) {
 $("launchDesc").textContent =
 launch.description || "No description provided.";
 }
 
-const overviewAccess = $("launchOverviewAccessText");
-if (overviewAccess) {
-overviewAccess.textContent =
+setTextByIds(
+["launchOverviewAccessText"],
 status === "live"
 ? "Live Access"
 : status === "graduated"
@@ -1603,8 +1705,8 @@ status === "live"
 ? "Bootstrapping"
 : status === "countdown"
 ? "Countdown Locked"
-: "Pre-Live";
-}
+: "Pre-Live"
+);
 
 const builderProfileHref = choosePreferredString(
 launch.builder_wallet,
@@ -1621,19 +1723,6 @@ lifecycle?.builder_wallet
 : "./builder.html";
 
 setHrefByIds(["launchBuilderProfileBtn"], builderProfileHref);
-
-const builderAliasChip = $("builderAlias");
-if (builderAliasChip && !builderAliasChip.textContent.trim()) {
-builderAliasChip.textContent = builderAlias;
-}
-
-const builderScoreChip = $("builderScoreStat");
-if (builderScoreChip && !builderScoreChip.textContent.trim()) {
-builderScoreChip.textContent =
-trustScore != null && trustScore > 0
-? String(Math.round(trustScore))
-: "—";
-}
 }
 
 function renderProgressCard(
@@ -1845,15 +1934,8 @@ if (phaseBadgeEl) {
 setLaunchPhaseBadgeClass(phaseBadgeEl, status);
 }
 
-const contractRow = $("contractAddressRow");
-if (contractRow) {
-contractRow.classList.toggle("hidden", !caVisible);
-}
-
-const phasePillMirror = $("phasePillMirror");
-if (phasePillMirror) {
-phasePillMirror.textContent = phaseDisplayText(status);
-}
+setHiddenByIds(["contractAddressRow"], !caVisible);
+setTextByIds(["phasePillMirror"], phaseDisplayText(status));
 }
 
 function renderCommandSurfaceMeta(launch) {
@@ -1868,14 +1950,11 @@ launch.builder_score,
 launch.trust_score
 );
 
-const builderEl = $("launchCommandBuilder");
-if (builderEl) builderEl.textContent = builderAlias;
-
-const scoreEl = $("launchCommandScore");
-if (scoreEl) {
-scoreEl.textContent =
-trustScore > 0 ? String(Math.round(trustScore)) : "—";
-}
+setTextByIds(["launchCommandBuilder"], builderAlias);
+setTextByIds(
+["launchCommandScore"],
+trustScore > 0 ? String(Math.round(trustScore)) : "—"
+);
 }
 
 let currentLaunch = null;

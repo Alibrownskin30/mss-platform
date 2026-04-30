@@ -144,26 +144,28 @@ return "commit";
 return status;
 }
 
-function getContractCandidateFromLaunch(launch = null) {
-if (!launch) return "";
+function getContractCandidateFromLaunch(launch = null, lifecycle = null) {
+if (!launch && !lifecycle) return "";
 
 return choosePreferredString(
-launch.contract_address,
-launch.mint_address,
-launch.token_mint,
-launch.mint
+launch?.contract_address,
+launch?.mint_address,
+launch?.token_mint,
+launch?.mint,
+lifecycle?.contract_address,
+lifecycle?.contractAddress
 );
 }
 
-function hasLiveMintSignal(launch = null) {
-if (!launch) return false;
+function hasLiveMintSignal(launch = null, lifecycle = null) {
+if (!launch && !lifecycle) return false;
 
-const contractAddress = getContractCandidateFromLaunch(launch);
+const contractAddress = getContractCandidateFromLaunch(launch, lifecycle);
 const reservationStatus = cleanText(
-launch.mint_reservation_status,
+launch?.mint_reservation_status,
 64
 ).toLowerCase();
-const mintFinalizedAtMs = parseDbTime(launch.mint_finalized_at);
+const mintFinalizedAtMs = parseDbTime(launch?.mint_finalized_at);
 
 return Boolean(
 contractAddress ||
@@ -172,15 +174,40 @@ Number.isFinite(mintFinalizedAtMs)
 );
 }
 
-function inferRevealStatus(launch = null) {
-if (!launch) return "commit";
+function lifecycleGraduated(raw = {}) {
+return raw?.graduated === true || toNumber(raw?.graduated, 0) === 1;
+}
 
-const rawStatus = normalizeLaunchStatus(launch.status);
+function isFalseLike(value) {
+return value === false || value === 0 || value === "0";
+}
+
+function isMarketBootstrappedFalse(launch = null, lifecycle = null) {
+return isFalseLike(
+launch?.market_bootstrapped ??
+lifecycle?.market_bootstrapped ??
+lifecycle?.marketBootstrapped
+);
+}
+
+function computeCanonicalLaunchStatus(launch = null, lifecycle = null) {
+if (!launch && !lifecycle) return "commit";
+
+const rawStatus = normalizeLaunchStatus(launch?.status);
+const lifecycleLaunchStatus = normalizeLaunchStatus(
+lifecycle?.launch_status ?? lifecycle?.launchStatus ?? lifecycle?.status
+);
+const lifecycleGraduationStatus = normalizeLaunchStatus(
+lifecycle?.graduation_status ??
+lifecycle?.graduationStatus ??
+lifecycle?.surge_status ??
+lifecycle?.surgeStatus
+);
+
+const countdownStartedMs = parseDbTime(launch?.countdown_started_at);
+const countdownEndsMs = parseDbTime(launch?.countdown_ends_at);
+const liveAtMs = parseDbTime(launch?.live_at);
 const now = Date.now();
-
-const countdownStartedMs = parseDbTime(launch.countdown_started_at);
-const countdownEndsMs = parseDbTime(launch.countdown_ends_at);
-const liveAtMs = parseDbTime(launch.live_at);
 
 const hasCountdownWindow =
 Number.isFinite(countdownStartedMs) || Number.isFinite(countdownEndsMs);
@@ -188,14 +215,30 @@ Number.isFinite(countdownStartedMs) || Number.isFinite(countdownEndsMs);
 const countdownStillRunning =
 Number.isFinite(countdownEndsMs) && now < countdownEndsMs;
 
-const liveMintSignal = hasLiveMintSignal(launch);
+const liveMintSignal = hasLiveMintSignal(launch, lifecycle);
 
-if (rawStatus === "failed_refunded") return "failed_refunded";
-if (rawStatus === "failed") return "failed";
-if (rawStatus === "graduated") return "graduated";
+if (
+rawStatus === "failed_refunded" ||
+lifecycleLaunchStatus === "failed_refunded"
+) {
+return "failed_refunded";
+}
 
-if (rawStatus === "live") {
-return launch.market_bootstrapped === false ? "building" : "live";
+if (rawStatus === "failed" || lifecycleLaunchStatus === "failed") {
+return "failed";
+}
+
+if (
+rawStatus === "graduated" ||
+lifecycleLaunchStatus === "graduated" ||
+lifecycleGraduationStatus === "graduated" ||
+lifecycleGraduated(lifecycle)
+) {
+return "graduated";
+}
+
+if (rawStatus === "live" || lifecycleLaunchStatus === "live") {
+return isMarketBootstrappedFalse(launch, lifecycle) ? "building" : "live";
 }
 
 /*
@@ -203,9 +246,11 @@ Protected phase rule:
 countdown/building must not auto-promote to live from CA/mint/finalized signals.
 finalizeLaunch.js owns true live promotion.
 */
-if (rawStatus === "building") return "building";
+if (rawStatus === "building" || lifecycleLaunchStatus === "building") {
+return "building";
+}
 
-if (rawStatus === "countdown") {
+if (rawStatus === "countdown" || lifecycleLaunchStatus === "countdown") {
 if (!Number.isFinite(countdownEndsMs) || countdownStillRunning) {
 return "countdown";
 }
@@ -213,7 +258,7 @@ return "countdown";
 return "building";
 }
 
-if (rawStatus === "commit") {
+if (rawStatus === "commit" || lifecycleLaunchStatus === "commit") {
 if (hasCountdownWindow) {
 if (!Number.isFinite(countdownEndsMs) || countdownStillRunning) {
 return "countdown";
@@ -225,7 +270,7 @@ return "building";
 return "commit";
 }
 
-if (!rawStatus && hasCountdownWindow) {
+if (!rawStatus && !lifecycleLaunchStatus && hasCountdownWindow) {
 if (!Number.isFinite(countdownEndsMs) || countdownStillRunning) {
 return "countdown";
 }
@@ -237,15 +282,21 @@ return "building";
 Legacy fallback only:
 old rows with no protected phase may infer live from finalized mint/CA data.
 */
-if (!rawStatus && Number.isFinite(liveAtMs) && now >= liveAtMs && liveMintSignal) {
+if (
+!rawStatus &&
+!lifecycleLaunchStatus &&
+Number.isFinite(liveAtMs) &&
+now >= liveAtMs &&
+liveMintSignal
+) {
 return "live";
 }
 
-if (!rawStatus && liveMintSignal) {
+if (!rawStatus && !lifecycleLaunchStatus && liveMintSignal) {
 return "live";
 }
 
-return rawStatus || "commit";
+return rawStatus || lifecycleLaunchStatus || "commit";
 }
 
 function shouldRevealContractAddress(status) {
@@ -253,8 +304,8 @@ const normalized = normalizeLaunchStatus(status);
 return normalized === "live" || normalized === "graduated";
 }
 
-function buildPhaseMeta(launch = null) {
-const status = inferRevealStatus(launch);
+function buildPhaseMeta(launch = null, lifecycle = null) {
+const status = computeCanonicalLaunchStatus(launch, lifecycle);
 const marketEnabled = shouldRevealContractAddress(status);
 
 return {
@@ -268,10 +319,6 @@ is_live: status === "live",
 is_graduated: status === "graduated",
 is_failed: status === "failed" || status === "failed_refunded",
 };
-}
-
-function lifecycleGraduated(raw = {}) {
-return raw?.graduated === true || toNumber(raw?.graduated, 0) === 1;
 }
 
 function getLaunchTotalSupply(launch = null) {
@@ -466,33 +513,44 @@ builder_vesting_rule: BUILDER_VESTING_RULE,
 };
 }
 
-function sanitizeLaunchForResponse(launch = null, stats = {}) {
+function sanitizeLaunchForResponse(launch = null, stats = {}, lifecycle = null) {
 if (!launch) return null;
 
-const phase = buildPhaseMeta(launch);
+const phase = buildPhaseMeta(launch, lifecycle);
 const revealContract = phase.market_enabled;
 
 const revealedMintAddress = revealContract
-? cleanText(
-launch.mint_address ||
-launch.contract_address ||
-launch.token_mint ||
+? choosePreferredString(
+launch.mint_address,
+launch.contract_address,
+launch.token_mint,
 launch.mint,
-120
+lifecycle?.contract_address,
+lifecycle?.contractAddress
 ) || null
 : null;
 
 const priceSol = revealContract
-? toNumber(chooseFirstFinite(stats.price_sol, stats.price, launch.price), 0)
+? toNumber(
+chooseFirstFinite(
+stats.price_sol,
+stats.priceSol,
+stats.price,
+launch.price
+),
+0
+)
 : 0;
 
 const liquiditySol = revealContract
 ? toNumber(
 chooseFirstFinite(
 stats.liquidity_sol,
+stats.liquiditySol,
 stats.liquidity,
 launch.liquidity_sol,
-launch.liquidity
+launch.liquidity,
+lifecycle?.internal_sol_reserve
 ),
 0
 )
@@ -502,8 +560,11 @@ const marketCapSol = revealContract
 ? toNumber(
 chooseFirstFinite(
 stats.market_cap_sol,
+stats.marketCapSol,
 stats.market_cap,
-launch.market_cap
+stats.marketCap,
+launch.market_cap,
+lifecycle?.implied_marketcap_sol
 ),
 0
 )
@@ -513,7 +574,9 @@ const volume24hSol = revealContract
 ? toNumber(
 chooseFirstFinite(
 stats.volume_24h_sol,
+stats.volume24hSol,
 stats.volume_24h,
+stats.volume24h,
 launch.volume_24h
 ),
 0
@@ -543,14 +606,22 @@ reserved_mint_private_key: null,
 reserved_mint_keypair: null,
 
 mint_reservation_status: revealContract
-? cleanText(launch.mint_reservation_status, 64) || null
+? cleanText(launch.mint_reservation_status, 64).toLowerCase() || null
 : null,
 mint_finalized_at: revealContract ? launch.mint_finalized_at || null : null,
+market_bootstrapped:
+launch.market_bootstrapped ??
+lifecycle?.market_bootstrapped ??
+lifecycle?.marketBootstrapped ??
+null,
 
 price: priceSol,
 price_sol: priceSol,
 price_usd: revealContract
-? toNumber(chooseFirstFinite(stats.price_usd, launch.price_usd), 0)
+? toNumber(
+chooseFirstFinite(stats.price_usd, stats.priceUsd, launch.price_usd),
+0
+)
 : 0,
 
 liquidity: liquiditySol,
@@ -559,6 +630,7 @@ liquidity_usd: revealContract
 ? toNumber(
 chooseFirstFinite(
 stats.liquidity_usd,
+stats.liquidityUsd,
 launch.liquidity_usd,
 launch.current_liquidity_usd
 ),
@@ -569,6 +641,7 @@ current_liquidity_usd: revealContract
 ? toNumber(
 chooseFirstFinite(
 stats.liquidity_usd,
+stats.liquidityUsd,
 launch.current_liquidity_usd,
 launch.liquidity_usd
 ),
@@ -579,25 +652,42 @@ launch.liquidity_usd
 market_cap: marketCapSol,
 market_cap_sol: marketCapSol,
 market_cap_usd: revealContract
-? toNumber(chooseFirstFinite(stats.market_cap_usd, launch.market_cap_usd), 0)
+? toNumber(
+chooseFirstFinite(
+stats.market_cap_usd,
+stats.marketCapUsd,
+launch.market_cap_usd
+),
+0
+)
 : 0,
 
 volume_24h: volume24hSol,
 volume_24h_sol: volume24hSol,
 volume_24h_usd: revealContract
-? toNumber(chooseFirstFinite(stats.volume_24h_usd, launch.volume_24h_usd), 0)
+? toNumber(
+chooseFirstFinite(
+stats.volume_24h_usd,
+stats.volume24hUsd,
+launch.volume_24h_usd
+),
+0
+)
 : 0,
 
 sol_usd_price: revealContract
-? toNumber(chooseFirstFinite(stats.sol_usd_price, launch.sol_usd_price), 0)
+? toNumber(
+chooseFirstFinite(stats.sol_usd_price, stats.solUsdPrice, launch.sol_usd_price),
+0
+)
 : 0,
 };
 }
 
-function sanitizeTokenForResponse(token = null, launch = null) {
+function sanitizeTokenForResponse(token = null, launch = null, lifecycle = null) {
 if (!token) return null;
 
-const phase = buildPhaseMeta(launch);
+const phase = buildPhaseMeta(launch, lifecycle);
 const revealContract = phase.market_enabled;
 
 const revealedMintAddress = revealContract
@@ -608,7 +698,8 @@ token.token_mint ||
 token.contract_address ||
 launch?.mint_address ||
 launch?.contract_address ||
-launch?.token_mint,
+launch?.token_mint ||
+lifecycle?.contract_address,
 120
 ) || null
 : null;
@@ -629,8 +720,8 @@ reserved_mint_keypair: null,
 };
 }
 
-function sanitizePoolForResponse(pool = null, launch = null) {
-const phase = buildPhaseMeta(launch);
+function sanitizePoolForResponse(pool = null, launch = null, lifecycle = null) {
+const phase = buildPhaseMeta(launch, lifecycle);
 if (!pool || !phase.market_enabled) return null;
 
 return {
@@ -642,8 +733,8 @@ initial_token_reserve: toNumber(pool.initial_token_reserve, 0),
 };
 }
 
-function sanitizeCandlesForResponse(candles = [], launch = null) {
-const phase = buildPhaseMeta(launch);
+function sanitizeCandlesForResponse(candles = [], launch = null, lifecycle = null) {
+const phase = buildPhaseMeta(launch, lifecycle);
 if (!phase.market_enabled) return [];
 
 return Array.isArray(candles)
@@ -693,8 +784,8 @@ is_synthetic: Boolean(candle.is_synthetic),
 : [];
 }
 
-function sanitizeTradesForResponse(trades = [], launch = null) {
-const phase = buildPhaseMeta(launch);
+function sanitizeTradesForResponse(trades = [], launch = null, lifecycle = null) {
+const phase = buildPhaseMeta(launch, lifecycle);
 if (!phase.market_enabled) return [];
 
 return Array.isArray(trades)
@@ -715,12 +806,17 @@ created_at: trade.created_at || trade.timestamp || null,
 : [];
 }
 
-function sanitizeStatsForResponse(stats = {}, launch = null) {
-const phase = buildPhaseMeta(launch);
+function sanitizeStatsForResponse(stats = {}, launch = null, lifecycle = null) {
+const phase = buildPhaseMeta(launch, lifecycle);
 const marketActive = phase.market_enabled;
 
 const totalSupply = toNumber(
-chooseFirstFinite(stats.total_supply, launch?.total_supply, launch?.supply),
+chooseFirstFinite(
+stats.total_supply,
+stats.totalSupply,
+launch?.total_supply,
+launch?.supply
+),
 0
 );
 
@@ -728,6 +824,7 @@ const circulatingSupply = marketActive
 ? toNumber(
 chooseFirstFinite(
 stats.circulating_supply,
+stats.circulatingSupply,
 launch?.circulating_supply,
 totalSupply
 ),
@@ -736,23 +833,64 @@ totalSupply
 : 0;
 
 const priceSol = marketActive
-? toNumber(chooseFirstFinite(stats.price_sol, stats.price), 0)
+? toNumber(
+chooseFirstFinite(
+stats.price_sol,
+stats.priceSol,
+stats.price,
+launch?.price
+),
+0
+)
 : 0;
 
 const liquiditySol = marketActive
-? toNumber(chooseFirstFinite(stats.liquidity_sol, stats.liquidity), 0)
+? toNumber(
+chooseFirstFinite(
+stats.liquidity_sol,
+stats.liquiditySol,
+stats.liquidity,
+launch?.liquidity,
+lifecycle?.internal_sol_reserve
+),
+0
+)
 : 0;
 
 const marketCapSol = marketActive
-? toNumber(chooseFirstFinite(stats.market_cap_sol, stats.market_cap), 0)
+? toNumber(
+chooseFirstFinite(
+stats.market_cap_sol,
+stats.marketCapSol,
+stats.market_cap,
+stats.marketCap,
+launch?.market_cap,
+lifecycle?.implied_marketcap_sol
+),
+0
+)
 : 0;
 
 const volume24hSol = marketActive
-? toNumber(chooseFirstFinite(stats.volume_24h_sol, stats.volume_24h), 0)
+? toNumber(
+chooseFirstFinite(
+stats.volume_24h_sol,
+stats.volume24hSol,
+stats.volume_24h,
+stats.volume24h
+),
+0
+)
 : 0;
 
 const trades24h = marketActive
-? toInt(stats.trades_24h ?? stats.tx_count_24h, 0)
+? toInt(
+stats.trades_24h ??
+stats.trades24h ??
+stats.tx_count_24h ??
+stats.txCount24h,
+0
+)
 : 0;
 
 const walletTokenBalance = marketActive
@@ -818,7 +956,7 @@ const walletPositionValueSol = marketActive
 chooseFirstFinite(
 stats.wallet_position_value_sol,
 priceSol > 0 && walletVisibleTotalBalance > 0
-? priceSol * walletVisibleTotalBalance
+? Number(priceSol) * walletVisibleTotalBalance
 : 0
 ),
 0
@@ -834,7 +972,7 @@ const revealedMintAddress = marketActive
 stats.mint_address ||
 stats.contract_address ||
 stats.token_mint ||
-getContractCandidateFromLaunch(launch),
+getContractCandidateFromLaunch(launch, lifecycle),
 120
 ) || null
 : null;
@@ -975,9 +1113,11 @@ const builderStatsVesting = hasBuilderStats
 total_allocation: stats.builder_total_allocation_tokens,
 daily_unlock: stats.builder_daily_unlock_tokens,
 unlocked_amount:
-stats.builder_unlocked_allocation_tokens ?? stats.builder_unlocked_tokens,
+stats.builder_unlocked_allocation_tokens ??
+stats.builder_unlocked_tokens,
 locked_amount:
-stats.builder_locked_allocation_tokens ?? stats.builder_locked_tokens,
+stats.builder_locked_allocation_tokens ??
+stats.builder_locked_tokens,
 vesting_start_at: stats.builder_vesting_start_at,
 vested_days: stats.builder_vested_days,
 vesting_days_live: stats.builder_vesting_days_live,
@@ -985,7 +1125,9 @@ vesting_days_live: stats.builder_vesting_days_live,
 launch,
 { allowSupplyFallback: walletIsBuilder }
 )
-: computeBuilderVestingFromRule({}, launch, { allowSupplyFallback: false });
+: computeBuilderVestingFromRule({}, launch, {
+allowSupplyFallback: false,
+});
 
 const builderVisibleTotalTokens = marketActive
 ? Math.max(
@@ -1037,7 +1179,9 @@ mint_finalized_at: marketActive
 total_supply: totalSupply,
 circulating_supply: circulatingSupply,
 
-sol_usd_price: marketActive ? toNumber(stats.sol_usd_price, 0) : 0,
+sol_usd_price: marketActive
+? toNumber(stats.sol_usd_price ?? stats.solUsdPrice, 0)
+: 0,
 sol_usd_source: marketActive ? stats.sol_usd_source || null : null,
 sol_usd_price_updated_at: marketActive
 ? stats.sol_usd_price_updated_at || null
@@ -1049,22 +1193,28 @@ sol_usd_price_change_24h: marketActive
 
 price: priceSol,
 price_sol: priceSol,
-price_usd: marketActive ? toNumber(stats.price_usd, 0) : 0,
+price_usd: marketActive
+? toNumber(stats.price_usd ?? stats.priceUsd, 0)
+: 0,
 
 liquidity: liquiditySol,
 liquidity_sol: liquiditySol,
-liquidity_usd: marketActive ? toNumber(stats.liquidity_usd, 0) : 0,
+liquidity_usd: marketActive
+? toNumber(stats.liquidity_usd ?? stats.liquidityUsd, 0)
+: 0,
 
 total_lp_liquidity_sol: marketActive
-? toNumber(stats.total_lp_liquidity_sol, 0)
+? toNumber(stats.total_lp_liquidity_sol ?? stats.totalLpLiquiditySol, 0)
 : 0,
 total_lp_liquidity_usd: marketActive
-? toNumber(stats.total_lp_liquidity_usd, 0)
+? toNumber(stats.total_lp_liquidity_usd ?? stats.totalLpLiquidityUsd, 0)
 : 0,
 
 market_cap: marketCapSol,
 market_cap_sol: marketCapSol,
-market_cap_usd: marketActive ? toNumber(stats.market_cap_usd, 0) : 0,
+market_cap_usd: marketActive
+? toNumber(stats.market_cap_usd ?? stats.marketCapUsd, 0)
+: 0,
 
 fdv: marketActive ? toNumber(stats.fdv ?? stats.fdv_sol, 0) : 0,
 fdv_sol: marketActive ? toNumber(stats.fdv_sol ?? stats.fdv, 0) : 0,
@@ -1072,24 +1222,28 @@ fdv_usd: marketActive ? toNumber(stats.fdv_usd, 0) : 0,
 
 volume_24h: volume24hSol,
 volume_24h_sol: volume24hSol,
-volume_24h_usd: marketActive ? toNumber(stats.volume_24h_usd, 0) : 0,
+volume_24h_usd: marketActive
+? toNumber(stats.volume_24h_usd ?? stats.volume24hUsd, 0)
+: 0,
 
-buys_24h: marketActive ? toInt(stats.buys_24h, 0) : 0,
-sells_24h: marketActive ? toInt(stats.sells_24h, 0) : 0,
+buys_24h: marketActive ? toInt(stats.buys_24h ?? stats.buys24h, 0) : 0,
+sells_24h: marketActive ? toInt(stats.sells_24h ?? stats.sells24h, 0) : 0,
 trades_24h: trades24h,
 tx_count_24h: trades24h,
 trade_count_24h: trades24h,
 trade_count_total: marketActive ? toInt(stats.trade_count_total, 0) : 0,
 trades_total: marketActive ? toInt(stats.trades_total, 0) : 0,
 
-price_change_pct: marketActive ? toNumber(stats.price_change_pct, 0) : 0,
-high_24h: marketActive ? toNumber(stats.high_24h, 0) : 0,
-low_24h: marketActive ? toNumber(stats.low_24h, 0) : 0,
+price_change_pct: marketActive
+? toNumber(stats.price_change_pct ?? stats.priceChangePct, 0)
+: 0,
+high_24h: marketActive ? toNumber(stats.high_24h ?? stats.high24h, 0) : 0,
+low_24h: marketActive ? toNumber(stats.low_24h ?? stats.low24h, 0) : 0,
 high_24h_sol: marketActive
-? toNumber(stats.high_24h_sol ?? stats.high_24h, 0)
+? toNumber(stats.high_24h_sol ?? stats.high24hSol ?? stats.high_24h ?? stats.high24h, 0)
 : 0,
 low_24h_sol: marketActive
-? toNumber(stats.low_24h_sol ?? stats.low_24h, 0)
+? toNumber(stats.low_24h_sol ?? stats.low24hSol ?? stats.low_24h ?? stats.low24h, 0)
 : 0,
 high_24h_usd: marketActive ? toNumber(stats.high_24h_usd, 0) : 0,
 low_24h_usd: marketActive ? toNumber(stats.low_24h_usd, 0) : 0,
@@ -1178,8 +1332,8 @@ function extractGraduationReadiness(lifecycle) {
 return lifecycle?.graduationReadiness || lifecycle?.graduation_readiness || null;
 }
 
-function normalizeLifecycle(raw = {}, launch = null) {
-const phase = buildPhaseMeta(launch);
+function normalizeLifecycle(raw = {}, launch = null, phaseOverride = null) {
+const phase = phaseOverride || buildPhaseMeta(launch, raw);
 if (!raw || typeof raw !== "object" || !phase.market_enabled) {
 return null;
 }
@@ -1194,6 +1348,8 @@ contract_address:
 cleanText(raw.contract_address ?? raw.contractAddress, 120) || null,
 builder_wallet:
 cleanText(raw.builder_wallet ?? raw.builderWallet, 120) || null,
+market_bootstrapped:
+raw.market_bootstrapped ?? raw.marketBootstrapped ?? null,
 
 internal_sol_reserve: toNumber(
 raw.internal_sol_reserve ?? raw.internalSolReserve,
@@ -1264,8 +1420,8 @@ builder_vesting: raw.builder_vesting ?? raw.builderVesting ?? null,
 };
 }
 
-function normalizeGraduationReadiness(readiness = {}, launch = null) {
-const phase = buildPhaseMeta(launch);
+function normalizeGraduationReadiness(readiness = {}, launch = null, phaseOverride = null) {
+const phase = phaseOverride || buildPhaseMeta(launch);
 if (!readiness || typeof readiness !== "object" || !phase.market_enabled) {
 return null;
 }
@@ -1287,7 +1443,8 @@ readiness.thresholds.volume24h_sol,
 0
 ),
 minHolders: toInt(
-readiness.thresholds.minHolders ?? readiness.thresholds.min_holders,
+readiness.thresholds.minHolders ??
+readiness.thresholds.min_holders,
 0
 ),
 minLiveMinutes: toInt(
@@ -1296,7 +1453,8 @@ readiness.thresholds.min_live_minutes,
 0
 ),
 lockDays: toInt(
-readiness.thresholds.lockDays ?? readiness.thresholds.lock_days,
+readiness.thresholds.lockDays ??
+readiness.thresholds.lock_days,
 0
 ),
 }
@@ -1305,35 +1463,44 @@ metrics:
 readiness.metrics && typeof readiness.metrics === "object"
 ? {
 marketcapSol: toNumber(
-readiness.metrics.marketcapSol ?? readiness.metrics.marketcap_sol,
+readiness.metrics.marketcapSol ??
+readiness.metrics.marketcap_sol,
 0
 ),
 volume24hSol: toNumber(
-readiness.metrics.volume24hSol ?? readiness.metrics.volume24h_sol,
+readiness.metrics.volume24hSol ??
+readiness.metrics.volume_24h_sol ??
+readiness.metrics.volume24h_sol,
 0
 ),
 holderCount: toInt(
-readiness.metrics.holderCount ?? readiness.metrics.holder_count,
+readiness.metrics.holderCount ??
+readiness.metrics.holder_count,
 0
 ),
 liveMinutes: toInt(
-readiness.metrics.liveMinutes ?? readiness.metrics.live_minutes,
+readiness.metrics.liveMinutes ??
+readiness.metrics.live_minutes,
 0
 ),
 solReserve: toNumber(
-readiness.metrics.solReserve ?? readiness.metrics.sol_reserve,
+readiness.metrics.solReserve ??
+readiness.metrics.sol_reserve,
 0
 ),
 tokenReserve: toInt(
-readiness.metrics.tokenReserve ?? readiness.metrics.token_reserve,
+readiness.metrics.tokenReserve ??
+readiness.metrics.token_reserve,
 0
 ),
 priceSol: toNumber(
-readiness.metrics.priceSol ?? readiness.metrics.price_sol,
+readiness.metrics.priceSol ??
+readiness.metrics.price_sol,
 0
 ),
 totalSupply: toInt(
-readiness.metrics.totalSupply ?? readiness.metrics.total_supply,
+readiness.metrics.totalSupply ??
+readiness.metrics.total_supply,
 0
 ),
 }
@@ -1342,24 +1509,28 @@ checks:
 readiness.checks && typeof readiness.checks === "object"
 ? {
 liveStatus: Boolean(
-readiness.checks.liveStatus ?? readiness.checks.live_status
+readiness.checks.liveStatus ??
+readiness.checks.live_status
 ),
 marketcapReached: Boolean(
 readiness.checks.marketcapReached ??
 readiness.checks.marketcap_reached
 ),
 volumeReached: Boolean(
-readiness.checks.volumeReached ?? readiness.checks.volume_reached
+readiness.checks.volumeReached ??
+readiness.checks.volume_reached
 ),
 holdersReached: Boolean(
-readiness.checks.holdersReached ?? readiness.checks.holders_reached
+readiness.checks.holdersReached ??
+readiness.checks.holders_reached
 ),
 minimumLiveWindowReached: Boolean(
 readiness.checks.minimumLiveWindowReached ??
 readiness.checks.minimum_live_window_reached
 ),
 hasReserves: Boolean(
-readiness.checks.hasReserves ?? readiness.checks.has_reserves
+readiness.checks.hasReserves ??
+readiness.checks.has_reserves
 ),
 alreadyGraduated: Boolean(
 readiness.checks.alreadyGraduated ??
@@ -1370,8 +1541,8 @@ readiness.checks.already_graduated
 };
 }
 
-function normalizeBuilderVestingSummary(raw = {}, launch = null) {
-const phase = buildPhaseMeta(launch);
+function normalizeBuilderVestingSummary(raw = {}, launch = null, phaseOverride = null) {
+const phase = phaseOverride || buildPhaseMeta(launch);
 if (!raw || typeof raw !== "object" || !phase.market_enabled) {
 return null;
 }
@@ -1430,31 +1601,20 @@ builder_vesting_rule: BUILDER_VESTING_RULE,
 function pickLaunchRow(row) {
 if (!row) return null;
 
-const phase = buildPhaseMeta(row);
-const revealContract = phase.market_enabled;
-
-const revealedMintAddress = revealContract
-? cleanText(row.mint_address || row.contract_address || row.token_mint, 120) ||
-null
-: null;
-
 return {
 id: row.id,
 token_name: row.token_name,
 symbol: row.symbol,
-status: phase.status || row.status,
+status: row.status,
 raw_status: cleanText(row.status, 80) || null,
-phase,
 template: row.template,
 description: cleanText(row.description, 5000),
 image_url: cleanText(row.image_url, 1000),
 
-contract_address: revealContract
-? cleanText(row.contract_address, 120) || revealedMintAddress
-: null,
-mint_address: revealedMintAddress,
-token_mint: revealedMintAddress,
-mint: revealedMintAddress,
+contract_address: cleanText(row.contract_address, 120) || null,
+mint_address: cleanText(row.mint_address, 120) || null,
+token_mint: cleanText(row.token_mint, 120) || null,
+mint: cleanText(row.mint_address || row.contract_address || row.token_mint, 120) || null,
 
 reserved_mint_address: null,
 reserved_mint_public_key: null,
@@ -1462,10 +1622,10 @@ reserved_mint_secret: null,
 reserved_mint_private_key: null,
 reserved_mint_keypair: null,
 
-mint_reservation_status: revealContract
-? cleanText(row.mint_reservation_status, 64).toLowerCase() || null
-: null,
-mint_finalized_at: revealContract ? row.mint_finalized_at || null : null,
+mint_reservation_status:
+cleanText(row.mint_reservation_status, 64).toLowerCase() || null,
+mint_finalized_at: row.mint_finalized_at || null,
+market_bootstrapped: row.market_bootstrapped ?? null,
 
 builder_wallet: cleanText(row.builder_wallet, 120) || null,
 builder_alias: cleanText(row.builder_alias, 120) || null,
@@ -1492,24 +1652,23 @@ commit_ends_at: row.commit_ends_at || null,
 
 supply: toInt(row.supply, 0),
 final_supply: toInt(row.final_supply || row.supply, 0),
-circulating_supply: revealContract ? toInt(row.circulating_supply, 0) : 0,
+total_supply: toInt(row.final_supply || row.supply, 0),
+circulating_supply: toInt(row.circulating_supply, 0),
 
-liquidity: revealContract ? toNumber(row.liquidity, 0) : 0,
-liquidity_sol: revealContract ? toNumber(row.liquidity, 0) : 0,
-liquidity_usd: revealContract ? toNumber(row.liquidity_usd, 0) : 0,
-current_liquidity_usd: revealContract
-? toNumber(row.current_liquidity_usd, 0)
-: 0,
-price: revealContract ? toNumber(row.price, 0) : 0,
-price_sol: revealContract ? toNumber(row.price, 0) : 0,
-price_usd: revealContract ? toNumber(row.price_usd, 0) : 0,
-market_cap: revealContract ? toNumber(row.market_cap, 0) : 0,
-market_cap_sol: revealContract ? toNumber(row.market_cap, 0) : 0,
-market_cap_usd: revealContract ? toNumber(row.market_cap_usd, 0) : 0,
-volume_24h: revealContract ? toNumber(row.volume_24h, 0) : 0,
-volume_24h_sol: revealContract ? toNumber(row.volume_24h, 0) : 0,
-volume_24h_usd: revealContract ? toNumber(row.volume_24h_usd, 0) : 0,
-sol_usd_price: revealContract ? toNumber(row.sol_usd_price, 0) : 0,
+liquidity: toNumber(row.liquidity, 0),
+liquidity_sol: toNumber(row.liquidity, 0),
+liquidity_usd: toNumber(row.liquidity_usd, 0),
+current_liquidity_usd: toNumber(row.current_liquidity_usd, 0),
+price: toNumber(row.price, 0),
+price_sol: toNumber(row.price, 0),
+price_usd: toNumber(row.price_usd, 0),
+market_cap: toNumber(row.market_cap, 0),
+market_cap_sol: toNumber(row.market_cap, 0),
+market_cap_usd: toNumber(row.market_cap_usd, 0),
+volume_24h: toNumber(row.volume_24h, 0),
+volume_24h_sol: toNumber(row.volume_24h, 0),
+volume_24h_usd: toNumber(row.volume_24h_usd, 0),
+sol_usd_price: toNumber(row.sol_usd_price, 0),
 };
 }
 
@@ -1621,9 +1780,10 @@ snapshotWallet = {},
 stats = {},
 launch = null,
 builderVesting = null,
-requestWalletIsBuilder = false
+requestWalletIsBuilder = false,
+lifecycle = null
 ) {
-const phase = buildPhaseMeta(launch);
+const phase = buildPhaseMeta(launch, lifecycle);
 
 if (!phase.market_enabled) {
 return buildEmptyWalletPayload(phase);
@@ -1704,10 +1864,7 @@ const walletPositionValueUsd = toNumber(
 chooseFirstFinite(
 snapshotWallet.position_value_usd,
 snapshotWallet.positionValueUsd,
-stats.wallet_position_value_usd,
-stats.price_usd && walletVisibleTotalBalance > 0
-? Number(stats.price_usd) * walletVisibleTotalBalance
-: 0
+stats.wallet_position_value_usd
 ),
 0
 );
@@ -1896,7 +2053,9 @@ stats.builder_vesting_days_live,
 launch,
 { allowSupplyFallback: true }
 )
-: computeBuilderVestingFromRule({}, launch, { allowSupplyFallback: false }));
+: computeBuilderVestingFromRule({}, launch, {
+allowSupplyFallback: false,
+}));
 
 const builderVisibleTotalTokens = Math.max(
 toInt(snapshotWallet.builder_visible_total_tokens, 0),
@@ -2056,8 +2215,8 @@ can_trade: true,
 };
 }
 
-function buildCassiePayload(cassie = null, launch = null) {
-const phase = buildPhaseMeta(launch);
+function buildCassiePayload(cassie = null, launch = null, lifecycle = null) {
+const phase = buildPhaseMeta(launch, lifecycle);
 
 return {
 ...(cassie || {}),
@@ -2098,8 +2257,10 @@ SELECT
 l.id AS launch_id,
 l.token_name,
 l.symbol,
-l.supply,
-l.final_supply,
+l.status,
+l.contract_address,
+l.mint_address,
+l.token_mint,
 l.live_at,
 l.created_at
 FROM launches l
@@ -2121,7 +2282,7 @@ id: null,
 launch_id: launchFallback.launch_id,
 name: launchFallback.token_name,
 symbol: launchFallback.symbol,
-supply: launchFallback.final_supply || launchFallback.supply || 0,
+supply: 0,
 mint_address: mint,
 created_at: launchFallback.live_at || launchFallback.created_at || null,
 },
@@ -2165,6 +2326,7 @@ l.mint_address,
 l.token_mint,
 l.mint_reservation_status,
 l.mint_finalized_at,
+l.market_bootstrapped,
 l.builder_wallet,
 l.description,
 l.image_url,
@@ -2247,7 +2409,9 @@ error: "Launch not found for token",
 });
 }
 
-const phase = buildPhaseMeta(rawLaunch);
+const preliminaryPhase = buildPhaseMeta(rawLaunch, lifecycleRaw);
+const lifecycle = normalizeLifecycle(rawLaunch?.lifecycle || lifecycleRaw || null, rawLaunch, preliminaryPhase);
+const phase = buildPhaseMeta(rawLaunch, lifecycle);
 
 if (!phase.market_enabled) {
 return res.status(404).json({
@@ -2260,19 +2424,19 @@ can_trade: false,
 });
 }
 
-const snapshotStats = sanitizeStatsForResponse(snapshot?.stats || {}, rawLaunch);
-const snapshotLaunch = sanitizeLaunchForResponse(rawLaunch, snapshotStats);
+const snapshotStats = sanitizeStatsForResponse(snapshot?.stats || {}, rawLaunch, lifecycle);
+const snapshotLaunch = sanitizeLaunchForResponse(rawLaunch, snapshotStats, lifecycle);
 
 const lifecycleSource =
-lifecycleRaw ||
 rawLaunch?.lifecycle ||
+lifecycleRaw ||
 snapshotLaunch?.lifecycle ||
 null;
 
-const lifecycle = normalizeLifecycle(lifecycleSource, rawLaunch);
 const graduationReadiness = normalizeGraduationReadiness(
 extractGraduationReadiness(lifecycleSource),
-rawLaunch
+rawLaunch,
+phase
 );
 
 const builderVestingSource =
@@ -2284,7 +2448,8 @@ snapshotLaunch?.builder_vesting ||
 
 const builderVesting = normalizeBuilderVestingSummary(
 builderVestingSource,
-rawLaunch
+rawLaunch,
+phase
 );
 
 const graduationPlan =
@@ -2320,7 +2485,8 @@ snapshot?.wallet || {},
 snapshotStats,
 rawLaunch,
 builderVesting,
-requestWalletIsBuilder
+requestWalletIsBuilder,
+lifecycle
 );
 
 const tokenPayload = sanitizeTokenForResponse(
@@ -2345,7 +2511,8 @@ token_mint: resolvedMintAddress,
 contract_address: resolvedMintAddress,
 created_at: tokenRow.created_at,
 },
-rawLaunch
+rawLaunch,
+lifecycle
 );
 
 const normalizedLaunch = snapshotLaunch
@@ -2361,13 +2528,19 @@ builderVesting,
 
 const sanitizedCandles = sanitizeCandlesForResponse(
 snapshot?.candles || [],
-rawLaunch
+rawLaunch,
+lifecycle
 );
 const sanitizedTrades = sanitizeTradesForResponse(
 snapshot?.trades || [],
-rawLaunch
+rawLaunch,
+lifecycle
 );
-const sanitizedPool = sanitizePoolForResponse(snapshot?.pool || null, rawLaunch);
+const sanitizedPool = sanitizePoolForResponse(
+snapshot?.pool || null,
+rawLaunch,
+lifecycle
+);
 
 return res.json({
 ok: true,
@@ -2404,7 +2577,7 @@ graduation_readiness: graduationReadiness,
 builderVesting,
 builder_vesting: builderVesting,
 
-cassie: buildCassiePayload(snapshot?.cassie || null, rawLaunch),
+cassie: buildCassiePayload(snapshot?.cassie || null, rawLaunch, lifecycle),
 });
 } catch (error) {
 console.error("GET /api/token-market/:mint failed", error);

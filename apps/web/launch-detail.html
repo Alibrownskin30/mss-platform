@@ -9,10 +9,10 @@ name="description"
 content="MSS Protocol Launch Terminal — builder identity, protected phase truth, structured commit flow, countdown integrity, failed / live state handling, and market transition."
 />
 
-<link rel="stylesheet" href="./assets/app.css?v=6" />
-<link rel="stylesheet" href="./assets/chart.css?v=6" />
+<link rel="stylesheet" href="./assets/app.css?v=7" />
+<link rel="stylesheet" href="./assets/chart.css?v=7" />
 <link rel="modulepreload" href="./assets/layout-shell.js" />
-<link rel="modulepreload" href="./assets/pages/launch.js?v=6" />
+<link rel="modulepreload" href="./assets/pages/launch.js?v=7" />
 
 <style>
 #layoutShellHeader{
@@ -2152,20 +2152,57 @@ console.error("Shared shell mount failed:", err);
 await mountSharedShell();
 </script>
 
-<script type="module" src="./assets/pages/launch.js?v=6"></script>
+<script type="module" src="./assets/pages/launch.js?v=7"></script>
 
 <script>
 (function () {
 const mirrorMap = [
-["phaseValueMirror", "launchStatusBoardStatus"],
+{
+targets: ["launchStatusBoardValue", "launchStatusBoardStatus"],
+sources: ["phaseValueMirror", "launchStatusText2", "launchStatusText"],
+fallback: "—",
+},
+{
+targets: ["launchStatusBoardAccess"],
+sources: ["launchAccessModeText", "launchOverviewAccessText"],
+fallback: "Pre-Live",
+},
+{
+targets: ["launchStatusBoardBuilderWallet"],
+sources: ["launchBuilderWalletShort", "builderWalletStat", "builderWallet"],
+fallback: "Pending",
+},
+{
+targets: ["launchStatusBoardCa"],
+sources: ["launchCaState", "chartCaChipText", "launchCaText"],
+fallback: "Pending",
+},
+{
+targets: ["launchStatusBoardNote"],
+sources: ["phaseNoteMirror", "phaseSummary", "launchCommandText"],
+fallback:
+"Launch lifecycle, access posture, wallet cap state, and market transition signals are reflected here as backend truth updates.",
+},
 ];
 
+function readFirstMeaningfulText(sourceIds) {
+for (const id of sourceIds) {
+const el = document.getElementById(id);
+if (!el) continue;
+const text = (el.textContent || "").trim();
+if (text) return text;
+}
+return "";
+}
+
 function syncMirrors() {
-for (const [sourceId, targetId] of mirrorMap) {
-const source = document.getElementById(sourceId);
+for (const entry of mirrorMap) {
+const value = readFirstMeaningfulText(entry.sources) || entry.fallback || "—";
+for (const targetId of entry.targets) {
 const target = document.getElementById(targetId);
-if (!source || !target) continue;
-target.textContent = source.textContent || "—";
+if (!target) continue;
+target.textContent = value;
+}
 }
 }
 
@@ -2173,15 +2210,20 @@ function attachObservers() {
 syncMirrors();
 
 const observer = new MutationObserver(syncMirrors);
+const observed = new Set();
 
-for (const [sourceId] of mirrorMap) {
+for (const entry of mirrorMap) {
+for (const sourceId of entry.sources) {
+if (observed.has(sourceId)) continue;
 const source = document.getElementById(sourceId);
 if (!source) continue;
+observed.add(sourceId);
 observer.observe(source, {
 childList: true,
 subtree: true,
 characterData: true,
 });
+}
 }
 }
 
@@ -2193,6 +2235,6 @@ attachObservers();
 })();
 </script>
 
-<script src="/assets/devnet-access-gate.js?v=6"></script>
+<script src="/assets/devnet-access-gate.js?v=7"></script>
 </body>
 </html>

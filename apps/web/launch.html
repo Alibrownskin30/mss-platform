@@ -5,7 +5,6 @@
 <meta name="viewport" content="width=device-width,initial-scale=1" />
 <title>MSS Protocol — Launch</title>
 <meta name="description" content="MSS Protocol Launch Terminal" />
-<meta http-equiv="refresh" content="0; url=./launch-detail.html" />
 
 <style>
 :root{
@@ -304,7 +303,7 @@ border-radius:22px;
 padding:22px;
 }
 
-brand-row{
+.brand-row{
 gap:11px;
 }
 
@@ -326,7 +325,8 @@ gap:8px;
 
 <script>
 (function () {
-const target = `./launch-detail.html${window.location.search || ""}${window.location.hash || ""}`;
+const targetPath = "./launch-detail.html";
+const target = `${targetPath}${window.location.search || ""}${window.location.hash || ""}`;
 window.location.replace(target);
 })();
 </script>
@@ -364,10 +364,13 @@ Secure Redirect
 </div>
 
 <script>
-document.getElementById("fallbackLink").href =
-`./launch-detail.html${window.location.search || ""}${window.location.hash || ""}`;
+(function () {
+const target = `./launch-detail.html${window.location.search || ""}${window.location.hash || ""}`;
+const fallbackLink = document.getElementById("fallbackLink");
+if (fallbackLink) fallbackLink.href = target;
+})();
 </script>
 
-<script src="/assets/devnet-access-gate.js?v=5"></script>
+<script src="/assets/devnet-access-gate.js?v=6"></script>
 </body>
 </html>

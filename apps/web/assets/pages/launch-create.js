@@ -15,6 +15,7 @@ return document.getElementById(id);
 
 function getApiBase() {
 const { protocol, hostname, port } = window.location;
+
 if (
 hostname === "devnet.mssprotocol.com" ||
 hostname === "www.devnet.mssprotocol.com"
@@ -40,15 +41,15 @@ function sleep(ms) {
 return new Promise((resolve) => window.setTimeout(resolve, ms));
 }
 
-function normalizeSymbol(v) {
-return String(v || "")
+function normalizeSymbol(value) {
+return String(value || "")
 .toUpperCase()
 .replace(/[^A-Z0-9]/g, "")
 .slice(0, 12);
 }
 
-function normalizeTemplateLabel(v) {
-return String(v || "")
+function normalizeTemplateLabel(value) {
+return String(value || "")
 .replaceAll("_", " ")
 .replace(/\b\w/g, (m) => m.toUpperCase());
 }
@@ -57,16 +58,20 @@ function normalizeWallet(value) {
 return String(value || "").trim();
 }
 
-function formatSupply(v) {
-const n = Number(v);
-if (!Number.isFinite(n) || n <= 0) return "—";
-return n.toLocaleString("en-AU");
+function formatSupply(value) {
+const num = Number(value);
+if (!Number.isFinite(num) || num <= 0) return "—";
+return num.toLocaleString("en-AU");
 }
 
-function formatSol(v) {
-const n = Number(v);
-if (!Number.isFinite(n) || n <= 0) return "— SOL";
-return `${n} SOL`;
+function formatSol(value, maxDecimals = 2) {
+const num = Number(value);
+if (!Number.isFinite(num) || num <= 0) return "— SOL";
+
+return `${num.toLocaleString("en-AU", {
+minimumFractionDigits: 0,
+maximumFractionDigits: maxDecimals,
+})} SOL`;
 }
 
 function shortenWallet(wallet) {
@@ -79,7 +84,6 @@ return `${w.slice(0, 4)}...${w.slice(-4)}`;
 function defaultBuilderAlias(wallet) {
 const w = String(wallet || "").trim();
 if (!w) return "New Builder";
-
 return `Builder ${w.slice(0, 4)}${w.slice(-4)}`;
 }
 
@@ -101,6 +105,21 @@ defaultBuilderAlias(wallet),
 ].map((value) => String(value).trim().slice(0, 60))
 )
 ).filter(Boolean);
+}
+
+function escapeHtmlAttr(str) {
+return String(str ?? "")
+.replaceAll("&", "&amp;")
+.replaceAll('"', "&quot;")
+.replaceAll("<", "&lt;")
+.replaceAll(">", "&gt;");
+}
+
+function escapeHtmlText(str) {
+return String(str ?? "")
+.replaceAll("&", "&amp;")
+.replaceAll("<", "&lt;")
+.replaceAll(">", "&gt;");
 }
 
 function setStatus(kind, message) {
@@ -125,17 +144,33 @@ text.includes("builder profile not found")
 );
 }
 
-let cachedBuilderBond = null;
-let currentLogoPreviewObjectUrl = "";
+function getLaunchBondLabel() {
+return "Launch bond";
+}
 
-function getPhantomProvider() {
+function getInjectedWalletProvider() {
+const walletState = getConnectedWallet?.() || {};
+
+const candidates = [
+walletState?.provider,
+walletState?.wallet,
+walletState?.adapter,
+window.getPhantomProvider?.(),
+window.phantom?.solana,
+window.backpack?.solana,
+window.solflare,
+window.solana,
+];
+
 return (
-window.getPhantomProvider?.() ||
-window.phantom?.solana ||
-window.solana ||
-null
+candidates.find(
+(provider) => provider && typeof provider.signTransaction === "function"
+) || null
 );
 }
+
+let cachedBuilderBond = null;
+let currentLogoPreviewObjectUrl = "";
 
 function clearBuilderBondCache() {
 cachedBuilderBond = null;
@@ -196,6 +231,11 @@ const MIN_LAUNCH_BOND_SOL = 3;
 const MAX_LAUNCH_BOND_SOL = 25;
 
 const TEMPLATE_CONFIG = {
+degen_zone: {
+supply: 1000000000,
+minRaiseSol: 55,
+hardCapSol: 75,
+},
 meme_lite: {
 supply: 1000000000,
 minRaiseSol: 60,
@@ -206,20 +246,15 @@ supply: 1000000000,
 minRaiseSol: 75,
 hardCapSol: 200,
 },
-builder: {
-supply: 1000000000,
-minRaiseSol: BUILDER_SOFT_CAP_BY_HARD_CAP[DEFAULT_BUILDER_HARD_CAP_SOL],
-hardCapSol: DEFAULT_BUILDER_HARD_CAP_SOL,
-},
 community: {
 supply: 1000000000,
 minRaiseSol: 75,
 hardCapSol: 200,
 },
-degen_zone: {
+builder: {
 supply: 1000000000,
-minRaiseSol: 55,
-hardCapSol: 75,
+minRaiseSol: BUILDER_SOFT_CAP_BY_HARD_CAP[DEFAULT_BUILDER_HARD_CAP_SOL],
+hardCapSol: DEFAULT_BUILDER_HARD_CAP_SOL,
 },
 };
 
@@ -234,10 +269,6 @@ const TEAM_LABEL_OPTIONS = [
 "Custom",
 ];
 
-function isBuilderTemplate() {
-return ($("template")?.value || "meme_lite") === "builder";
-}
-
 function normalizeBuilderHardCap(raw) {
 const parsed = Number(raw);
 if (BUILDER_ALLOWED_HARD_CAPS.includes(parsed)) {
@@ -248,7 +279,10 @@ return DEFAULT_BUILDER_HARD_CAP_SOL;
 
 function normalizeBuilderMinRaise(_raw, hardCap) {
 const normalizedHardCap = normalizeBuilderHardCap(hardCap);
-return BUILDER_SOFT_CAP_BY_HARD_CAP[normalizedHardCap] || BUILDER_SOFT_CAP_BY_HARD_CAP[DEFAULT_BUILDER_HARD_CAP_SOL];
+return (
+BUILDER_SOFT_CAP_BY_HARD_CAP[normalizedHardCap] ||
+BUILDER_SOFT_CAP_BY_HARD_CAP[DEFAULT_BUILDER_HARD_CAP_SOL]
+);
 }
 
 function getRequiredLaunchBondSol({ minRaiseSol }) {
@@ -331,66 +365,6 @@ builderBond: getRequiredLaunchBondSol(templateValues),
 };
 }
 
-function applyTemplateValues() {
-const tpl = getSelectedTemplate();
-const builderMode = tpl.key === "builder";
-
-const supplyInput = $("supply");
-const supplyPreset = $("supplyPreset");
-const fixedSupplyField = $("fixedSupplyField");
-const builderSupplyField = $("builderSupplyField");
-const builderHardCapField = $("builderHardCapField");
-const builderMinRaiseField = $("builderMinRaiseField");
-const builderExtras = $("builderExtras");
-const builderHighlight = $("builderModeHighlight");
-
-if (builderMode) {
-const builderSupply = Number(supplyPreset?.value || tpl.supply);
-if (supplyInput) supplyInput.value = String(builderSupply);
-
-if (fixedSupplyField) fixedSupplyField.style.display = "none";
-if (builderSupplyField) builderSupplyField.classList.add("show");
-if (builderHardCapField) builderHardCapField.classList.add("show");
-if (builderMinRaiseField) builderMinRaiseField.classList.add("show");
-if (builderExtras) builderExtras.classList.add("show");
-if (builderHighlight) builderHighlight.classList.add("show");
-} else {
-if (supplyInput) supplyInput.value = String(tpl.supply);
-
-if (fixedSupplyField) fixedSupplyField.style.display = "grid";
-if (builderSupplyField) builderSupplyField.classList.remove("show");
-if (builderHardCapField) builderHardCapField.classList.remove("show");
-if (builderMinRaiseField) builderMinRaiseField.classList.remove("show");
-if (builderExtras) builderExtras.classList.remove("show");
-if (builderHighlight) builderHighlight.classList.remove("show");
-}
-
-if ($("minRaiseSol")) $("minRaiseSol").value = String(tpl.minRaiseSol);
-if ($("hardCapSol")) $("hardCapSol").value = String(tpl.hardCapSol);
-
-syncLaunchBondField(tpl);
-
-const allocationChip = $("previewAllocationChip");
-const templateChip = $("previewTemplateChip");
-
-if (templateChip) {
-templateChip.textContent = builderMode ? "Builder Template" : "Template Locked";
-}
-
-if (allocationChip) {
-allocationChip.textContent = builderMode
-? "Reserve Adjusts For Team"
-: "1 SOL Max Commit";
-}
-
-updateTeamAllocationTotal();
-updatePreview();
-}
-
-function getWalletValue() {
-return getConnectedPublicKey() || "";
-}
-
 function getTeamWalletRows() {
 return Array.from(document.querySelectorAll(".team-wallet-row"));
 }
@@ -470,7 +444,7 @@ const teamWallets = builderMode ? getTeamWallets() : [];
 const teamAllocationTotal = builderMode ? getTeamAllocationTotalValue() : 0;
 
 return {
-wallet: getWalletValue(),
+wallet: getConnectedPublicKey() || "",
 template: tpl.key,
 tokenName: $("tokenName")?.value.trim() || "",
 symbol: normalizeSymbol($("symbol")?.value || ""),
@@ -630,8 +604,13 @@ throw new Error(
 }
 
 const expectedLaunchBond = getRequiredLaunchBondSol(values);
-if (!Number.isFinite(values.builderBond) || Number(values.builderBond) !== expectedLaunchBond) {
-throw new Error(`Launch bond must be exactly ${expectedLaunchBond} SOL for this template.`);
+if (
+!Number.isFinite(values.builderBond) ||
+Number(values.builderBond) !== expectedLaunchBond
+) {
+throw new Error(
+`${getLaunchBondLabel()} must be exactly ${expectedLaunchBond} SOL for this template.`
+);
 }
 
 const logoFile = $("logoInput")?.files?.[0];
@@ -743,12 +722,14 @@ const isCustom = labelSelect.value === "Custom";
 if (labelCustomInput) {
 labelCustomInput.style.display = isCustom ? "" : "none";
 }
+clearBuilderBondCache();
 updatePreview();
 updateTeamAllocationTotal();
 });
 
 [labelCustomInput, walletInput, allocationInput].forEach((el) => {
 el?.addEventListener("input", () => {
+clearBuilderBondCache();
 updatePreview();
 updateTeamAllocationTotal();
 });
@@ -815,17 +796,32 @@ currentLogoPreviewObjectUrl = "";
 function updatePreview() {
 const values = getFormValues();
 
-$("previewName").textContent = values.tokenName || "Untitled Launch";
-$("previewSub").textContent = `${values.symbol || "TICK"} • ${normalizeTemplateLabel(
+const previewName = $("previewName");
+const previewSub = $("previewSub");
+const previewMinRaise = $("previewMinRaise");
+const previewHardCap = $("previewHardCap");
+const previewSupply = $("previewSupply");
+const previewWallet = $("previewWallet");
+const previewDesc = $("previewDesc");
+const previewBadge = $("previewBadge");
+
+if (previewName) previewName.textContent = values.tokenName || "Untitled Launch";
+if (previewSub) {
+previewSub.textContent = `${values.symbol || "TICK"} • ${normalizeTemplateLabel(
 values.template
 )}`;
-$("previewMinRaise").textContent = formatSol(values.minRaiseSol);
-$("previewHardCap").textContent = formatSol(values.hardCapSol);
-$("previewSupply").textContent = formatSupply(values.supply);
-$("previewWallet").textContent = values.wallet ? shortenWallet(values.wallet) : "—";
-$("previewDesc").textContent =
+}
+if (previewMinRaise) previewMinRaise.textContent = formatSol(values.minRaiseSol);
+if (previewHardCap) previewHardCap.textContent = formatSol(values.hardCapSol);
+if (previewSupply) previewSupply.textContent = formatSupply(values.supply);
+if (previewWallet) {
+previewWallet.textContent = values.wallet ? shortenWallet(values.wallet) : "—";
+}
+if (previewDesc) {
+previewDesc.textContent =
 values.description || "Launch description preview will appear here.";
-$("previewBadge").textContent = "Commit";
+}
+if (previewBadge) previewBadge.textContent = "Commit";
 
 const flowChip = $("previewFlowChip");
 const templateChip = $("previewTemplateChip");
@@ -878,6 +874,48 @@ return;
 img.removeAttribute("src");
 img.style.display = "none";
 placeholder.style.display = "grid";
+}
+
+function applyTemplateValues() {
+const tpl = getSelectedTemplate();
+const builderMode = tpl.key === "builder";
+
+const supplyInput = $("supply");
+const supplyPreset = $("supplyPreset");
+const fixedSupplyField = $("fixedSupplyField");
+const builderSupplyField = $("builderSupplyField");
+const builderHardCapField = $("builderHardCapField");
+const builderMinRaiseField = $("builderMinRaiseField");
+const builderExtras = $("builderExtras");
+const builderHighlight = $("builderModeHighlight");
+
+if (builderMode) {
+const builderSupply = Number(supplyPreset?.value || tpl.supply);
+if (supplyInput) supplyInput.value = String(builderSupply);
+
+if (fixedSupplyField) fixedSupplyField.style.display = "none";
+if (builderSupplyField) builderSupplyField.classList.add("show");
+if (builderHardCapField) builderHardCapField.classList.add("show");
+if (builderMinRaiseField) builderMinRaiseField.classList.add("show");
+if (builderExtras) builderExtras.classList.add("show");
+if (builderHighlight) builderHighlight.classList.add("show");
+} else {
+if (supplyInput) supplyInput.value = String(tpl.supply);
+
+if (fixedSupplyField) fixedSupplyField.style.display = "grid";
+if (builderSupplyField) builderSupplyField.classList.remove("show");
+if (builderHardCapField) builderHardCapField.classList.remove("show");
+if (builderMinRaiseField) builderMinRaiseField.classList.remove("show");
+if (builderExtras) builderExtras.classList.remove("show");
+if (builderHighlight) builderHighlight.classList.remove("show");
+}
+
+if ($("minRaiseSol")) $("minRaiseSol").value = String(tpl.minRaiseSol);
+if ($("hardCapSol")) $("hardCapSol").value = String(tpl.hardCapSol);
+
+syncLaunchBondField(tpl);
+updateTeamAllocationTotal();
+updatePreview();
 }
 
 async function connectWallet() {
@@ -1056,7 +1094,7 @@ return createLaunch(payload);
 }
 }
 
-async function collectBuilderBond(values) {
+async function collectLaunchBond(values) {
 if (Number(values.builderBond) <= 0) {
 return "";
 }
@@ -1066,16 +1104,16 @@ if (cachedSignature) {
 return cachedSignature;
 }
 
-const provider = getPhantomProvider();
+const provider = getInjectedWalletProvider();
 if (!provider?.signTransaction) {
-throw new Error("Wallet signing is not available for launch bond.");
+throw new Error(`${getLaunchBondLabel()} signing is not available for this wallet session.`);
 }
 
 if (!window.solanaWeb3?.Transaction?.from) {
 throw new Error("solanaWeb3 is not available on this page.");
 }
 
-setStatus("warn", "Preparing launch bond approval...");
+setStatus("warn", `Preparing ${getLaunchBondLabel().toLowerCase()} approval...`);
 
 const prepare = await fetchJson(`/api/launcher/prepare-builder-bond`, {
 method: "POST",
@@ -1093,7 +1131,7 @@ prepare.transaction || prepare.serializedTransaction || prepare.tx || "";
 
 if (!transactionBase64) {
 throw new Error(
-"Prepared launch bond transaction was not returned by the server."
+`Prepared ${getLaunchBondLabel().toLowerCase()} transaction was not returned by the server.`
 );
 }
 
@@ -1102,12 +1140,14 @@ c.charCodeAt(0)
 );
 const transaction = window.solanaWeb3.Transaction.from(txBytes);
 
-setStatus("warn", "Awaiting launch bond wallet approval...");
+setStatus("warn", `Awaiting ${getLaunchBondLabel().toLowerCase()} wallet approval...`);
 const signedTransaction = await provider.signTransaction(transaction);
 
-const signedBase64 = btoa(String.fromCharCode(...signedTransaction.serialize()));
+const signedBase64 = btoa(
+String.fromCharCode(...signedTransaction.serialize())
+);
 
-setStatus("warn", "Confirming launch bond...");
+setStatus("warn", `Confirming ${getLaunchBondLabel().toLowerCase()}...`);
 const confirm = await fetchJson(`/api/launcher/confirm-builder-bond`, {
 method: "POST",
 headers: {
@@ -1148,7 +1188,7 @@ await ensureBuilderProfile(values.wallet);
 
 let builderBondTxSignature = "";
 if (Number(values.builderBond) > 0) {
-builderBondTxSignature = await collectBuilderBond(values);
+builderBondTxSignature = await collectLaunchBond(values);
 }
 
 setStatus("warn", "Uploading logo and creating launch...");
@@ -1182,9 +1222,13 @@ const result = await createLaunchWithBuilderFallback(payload);
 const launch = result?.launch || null;
 const mintReservation = result?.mintReservation || null;
 
-const builderBondNotice =
+if (!launch?.id) {
+throw new Error("Launch was created but no launch id was returned.");
+}
+
+const launchBondNotice =
 Number(values.builderBond) > 0
-? ` Launch bond confirmed: ${values.builderBond} SOL.`
+? ` ${getLaunchBondLabel()} confirmed: ${values.builderBond} SOL.`
 : "";
 
 const mintNotice = mintReservation?.reservedMintAddress
@@ -1194,8 +1238,8 @@ const mintNotice = mintReservation?.reservedMintAddress
 setStatus(
 "good",
 `Launch created successfully. Redirecting to launch #${
-launch?.id || "—"
-}...${builderBondNotice}${mintNotice}`
+launch.id
+}...${launchBondNotice}${mintNotice}`
 );
 
 clearBuilderBondCache();
@@ -1211,6 +1255,37 @@ btn.disabled = false;
 btn.textContent = "Create Launch";
 }
 }
+}
+
+function handleTemplateLinkedChange(sourceId) {
+return () => {
+if (
+sourceId === "template" ||
+sourceId === "supplyPreset" ||
+sourceId === "builderHardCapSol" ||
+sourceId === "builderMinRaiseSol"
+) {
+applyTemplateValues();
+}
+
+if (sourceId === "teamWalletCount") {
+renderTeamWalletInputs();
+}
+
+if (
+sourceId === "template" ||
+sourceId === "builderHardCapSol" ||
+sourceId === "builderMinRaiseSol" ||
+sourceId === "builderBond" ||
+sourceId === "teamWalletCount" ||
+sourceId === "teamAllocation"
+) {
+clearBuilderBondCache();
+}
+
+updatePreview();
+updateTeamAllocationTotal();
+};
 }
 
 function bindPreview() {
@@ -1233,53 +1308,9 @@ for (const id of ids) {
 const el = $(id);
 if (!el) continue;
 
-el.addEventListener("input", () => {
-if (
-id === "template" ||
-id === "supplyPreset" ||
-id === "builderHardCapSol" ||
-id === "builderMinRaiseSol"
-) {
-applyTemplateValues();
-}
-if (id === "teamWalletCount") {
-renderTeamWalletInputs();
-}
-if (
-id === "template" ||
-id === "builderHardCapSol" ||
-id === "builderMinRaiseSol" ||
-id === "builderBond"
-) {
-clearBuilderBondCache();
-}
-updatePreview();
-updateTeamAllocationTotal();
-});
-
-el.addEventListener("change", () => {
-if (
-id === "template" ||
-id === "supplyPreset" ||
-id === "builderHardCapSol" ||
-id === "builderMinRaiseSol"
-) {
-applyTemplateValues();
-}
-if (id === "teamWalletCount") {
-renderTeamWalletInputs();
-}
-if (
-id === "template" ||
-id === "builderHardCapSol" ||
-id === "builderMinRaiseSol" ||
-id === "builderBond"
-) {
-clearBuilderBondCache();
-}
-updatePreview();
-updateTeamAllocationTotal();
-});
+const handler = handleTemplateLinkedChange(id);
+el.addEventListener("input", handler);
+el.addEventListener("change", handler);
 }
 }
 
@@ -1312,21 +1343,6 @@ updatePreview();
 });
 }
 
-function escapeHtmlAttr(str) {
-return String(str ?? "")
-.replaceAll("&", "&amp;")
-.replaceAll('"', "&quot;")
-.replaceAll("<", "&lt;")
-.replaceAll(">", "&gt;");
-}
-
-function escapeHtmlText(str) {
-return String(str ?? "")
-.replaceAll("&", "&amp;")
-.replaceAll("<", "&lt;")
-.replaceAll(">", "&gt;");
-}
-
 async function init() {
 initSessionUi();
 applyTemplateValues();
@@ -1336,6 +1352,7 @@ bindWalletEvents();
 renderTeamWalletInputs();
 updatePreview();
 updateTeamAllocationTotal();
+
 await restoreWalletIfTrusted();
 updateWalletUi();
 updatePreview();
@@ -1352,47 +1369,6 @@ symbolInput.value = normalizeSymbol(symbolInput.value);
 updatePreview();
 });
 }
-
-$("template")?.addEventListener("change", () => {
-clearBuilderBondCache();
-applyTemplateValues();
-renderTeamWalletInputs();
-updatePreview();
-updateTeamAllocationTotal();
-});
-
-$("supplyPreset")?.addEventListener("change", () => {
-applyTemplateValues();
-updatePreview();
-});
-
-$("builderHardCapSol")?.addEventListener("change", () => {
-clearBuilderBondCache();
-applyTemplateValues();
-updatePreview();
-});
-
-$("builderMinRaiseSol")?.addEventListener("input", () => {
-clearBuilderBondCache();
-applyTemplateValues();
-updatePreview();
-});
-
-$("teamWalletCount")?.addEventListener("change", () => {
-renderTeamWalletInputs();
-updatePreview();
-updateTeamAllocationTotal();
-});
-
-$("teamAllocation")?.addEventListener("input", () => {
-updateTeamAllocationTotal();
-updatePreview();
-});
-
-$("builderBond")?.addEventListener("input", () => {
-clearBuilderBondCache();
-updatePreview();
-});
 
 window.addEventListener("beforeunload", () => {
 clearLogoPreviewObjectUrl();

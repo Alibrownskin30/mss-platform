@@ -346,11 +346,37 @@ line-height:1.55;
 
 .launchpad-page .command-rail{
 display:grid;
-grid-template-columns:minmax(320px,1.2fr) auto auto auto;
+grid-template-columns:minmax(0,1fr) auto;
 gap:12px;
 align-items:center;
 padding:14px;
 margin-bottom:18px;
+}
+
+.launchpad-page .command-rail-main{
+display:grid;
+grid-template-columns:minmax(280px,1.15fr) minmax(180px,.42fr) minmax(180px,.42fr);
+gap:12px;
+align-items:center;
+min-width:0;
+}
+
+.launchpad-page .command-rail-side{
+display:flex;
+align-items:center;
+justify-content:flex-end;
+gap:10px;
+flex-wrap:wrap;
+min-width:0;
+}
+
+.launchpad-page .command-rail-main > *,
+.launchpad-page .command-rail-side > *,
+.launchpad-page .terminal-body > *,
+.launchpad-page .featured-shell > *,
+.launchpad-page .list-row-top > *,
+.launchpad-page .wallet-access > *{
+min-width:0;
 }
 
 .launchpad-page .search-shell{
@@ -358,6 +384,31 @@ display:flex;
 gap:10px;
 align-items:center;
 min-width:0;
+}
+
+.launchpad-page .wallet-access{
+display:flex;
+gap:10px;
+align-items:center;
+flex-wrap:wrap;
+justify-content:flex-end;
+min-width:0;
+}
+
+.launchpad-page .segment{
+display:flex;
+flex-direction:row !important;
+align-items:center;
+gap:8px;
+flex-wrap:nowrap;
+}
+
+.launchpad-page .segment .view-btn{
+display:inline-flex;
+align-items:center;
+justify-content:center;
+min-height:42px;
+padding:0 15px;
 }
 
 .launchpad-page .input,
@@ -394,30 +445,6 @@ border-color:rgba(79,195,255,.28);
 box-shadow:
 0 0 0 4px rgba(79,195,255,.09),
 0 0 24px rgba(18,140,255,.055);
-}
-
-.launchpad-page .wallet-access{
-display:flex;
-gap:10px;
-align-items:center;
-flex-wrap:wrap;
-justify-content:flex-end;
-}
-
-.launchpad-page .segment{
-display:flex;
-flex-direction:row !important;
-align-items:center;
-gap:8px;
-flex-wrap:nowrap;
-}
-
-.launchpad-page .segment .view-btn{
-display:inline-flex;
-align-items:center;
-justify-content:center;
-min-height:42px;
-padding:0 15px;
 }
 
 .launchpad-page .view-btn{
@@ -565,10 +592,21 @@ font-weight:800;
 }
 
 .launchpad-page .section-note,
-.launchpad-page .terminal-note{
+.launchpad-page .terminal-note,
+.launchpad-page .terminal-subtitle{
 font-size:12px;
 color:var(--muted2);
 line-height:1.5;
+}
+
+.launchpad-page .terminal-head-copy{
+display:grid;
+gap:6px;
+}
+
+.launchpad-page .terminal-body{
+display:grid;
+gap:16px;
 }
 
 .launchpad-page .featured-placeholder{
@@ -715,6 +753,11 @@ align-content:start;
 display:grid;
 grid-template-columns:repeat(3, minmax(0,1fr));
 gap:16px;
+}
+
+.launchpad-page .token-grid .list-section-title,
+.launchpad-page .token-grid .launch-empty-state{
+grid-column:1 / -1;
 }
 
 .launchpad-page .launch-list{
@@ -1123,6 +1166,11 @@ grid-template-columns:1fr;
 grid-template-columns:1fr;
 }
 
+.launchpad-page .command-rail-main{
+grid-template-columns:1fr;
+}
+
+.launchpad-page .command-rail-side,
 .launchpad-page .wallet-access{
 justify-content:flex-start;
 }
@@ -1206,7 +1254,8 @@ width:100%;
 flex:1 1 0;
 }
 
-.launchpad-page .wallet-access{
+.launchpad-page .wallet-access,
+.launchpad-page .command-rail-side{
 width:100%;
 }
 
@@ -1354,27 +1403,19 @@ Connected wallets can jump directly into their builder profile, while public use
 </section>
 
 <section class="command-rail">
+<div class="command-rail-main">
 <div class="search-shell">
 <input
 id="lSearch"
 class="input"
 type="text"
 placeholder="Search token name, symbol, builder, or archive"
+autocomplete="off"
+aria-label="Search launches"
 />
 </div>
 
-<div class="wallet-access">
-<div class="segment" aria-label="View mode">
-<button id="gridViewBtn" class="view-btn active" type="button">Grid</button>
-<button id="listViewBtn" class="view-btn" type="button">List</button>
-</div>
-
-<button id="lpConnectWalletBtn" class="rail-btn" type="button">Connect Wallet</button>
-<button id="lpDisconnectWalletBtn" class="rail-btn" type="button" style="display:none;">Disconnect</button>
-<div id="lpWalletPill" class="wallet-pill">No wallet connected</div>
-</div>
-
-<select id="lStatus" class="select">
+<select id="lStatus" class="select" aria-label="Status filter">
 <option value="all">All Field + History</option>
 <option value="commit">Commit</option>
 <option value="countdown">Countdown</option>
@@ -1385,36 +1426,57 @@ placeholder="Search token name, symbol, builder, or archive"
 <option value="history">History Only</option>
 </select>
 
-<select id="lSort" class="select">
+<select id="lSort" class="select" aria-label="Sort launches">
 <option value="trending">Trending</option>
 <option value="newest">Newest</option>
 <option value="progress">Highest Progress</option>
 <option value="participants">Most Participants</option>
 <option value="ending">Ending Soon</option>
 </select>
+</div>
+
+<div class="command-rail-side">
+<div class="wallet-access">
+<div class="segment" aria-label="View mode">
+<button id="gridViewBtn" class="view-btn active" type="button" aria-pressed="true">Grid</button>
+<button id="listViewBtn" class="view-btn" type="button" aria-pressed="false">List</button>
+</div>
+
+<button id="lpConnectWalletBtn" class="rail-btn" type="button">Connect Wallet</button>
+<button id="lpDisconnectWalletBtn" class="rail-btn" type="button" style="display:none;">Disconnect</button>
+<div id="lpWalletPill" class="wallet-pill">No wallet connected</div>
+</div>
+</div>
 </section>
 
-<div id="launchActionStatus" class="status-banner"></div>
+<div id="launchActionStatus" class="status-banner" aria-live="polite" role="status"></div>
 
-<section class="featured-launch">
+<section class="featured-launch" aria-labelledby="featuredLaunchTitle">
 <div class="featured-head">
-<div class="section-title">Featured Opportunity</div>
+<div class="section-title" id="featuredLaunchTitle">Featured Opportunity</div>
 <div class="section-note">Primary momentum launch selected from current active field activity.</div>
 </div>
 
-<div id="featuredLaunchMount" class="featured-placeholder">
+<div id="featuredLaunchMount" class="featured-placeholder" aria-live="polite">
 Featured launch coverage will surface the strongest active opportunity here, while the launch terminal below now includes both the current field and historical archive.
 </div>
 </section>
 
-<section class="launch-terminal">
+<section class="launch-terminal" aria-labelledby="launchTerminalTitle">
 <div class="terminal-head">
-<div class="terminal-title">Launch Field</div>
-<div class="terminal-note" id="listMeta">Loading launch field and archive…</div>
+<div class="terminal-head-copy">
+<div class="terminal-title" id="launchTerminalTitle">Launch Field</div>
+<div class="terminal-subtitle">
+Commit, countdown, building, live markets, and historical archive rendered from one shared launch truth layer.
+</div>
+</div>
+<div class="terminal-note" id="listMeta" aria-live="polite" role="status">Loading launch field and archive…</div>
 </div>
 
-<div id="launchGrid" class="token-grid"></div>
-<div id="launchList" class="launch-list hidden"></div>
+<div class="terminal-body">
+<div id="launchGrid" class="token-grid" aria-live="polite"></div>
+<div id="launchList" class="launch-list hidden" aria-live="polite" aria-hidden="true"></div>
+</div>
 </section>
 </div>
 

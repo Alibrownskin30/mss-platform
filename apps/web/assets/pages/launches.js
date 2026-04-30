@@ -9,8 +9,27 @@ getMobileWalletHelpText,
 sendSolTransfer,
 } from "../wallet.js";
 
+const LAUNCHPAD_INIT_KEY = "__mssLaunchpadInit_v2";
+const RECENT_CACHE = new Map();
+const RECENT_CACHE_TTL_MS = 15000;
+const RECENT_FETCH_LIMIT = 12;
+
+let ALL_LAUNCHES = [];
+let HISTORY_LAUNCHES = [];
+let CURRENT_VIEW = normalizeView(localStorage.getItem("mss_launchpad_view"));
+const PREV_PROGRESS = new Map();
+let loadLaunchesInFlight = false;
+let quickCommitInFlight = false;
+let liveTimerIntervalId = null;
+let fullRefreshIntervalId = null;
+
 function $(id) {
 return document.getElementById(id);
+}
+
+function setText(id, value) {
+const el = $(id);
+if (el) el.textContent = value;
 }
 
 function getApiBase() {
@@ -107,6 +126,11 @@ return Number.isInteger(v)
 : v.toFixed(decimals).replace(/\.?0+$/, "");
 }
 
+function fmtPct(n, decimals = 0) {
+const v = safeNum(n, 0);
+return `${v.toFixed(decimals).replace(/\.?0+$/, "")}%`;
+}
+
 function shortenWallet(wallet) {
 const w = String(wallet || "").trim();
 if (!w) return "No wallet connected";
@@ -128,7 +152,9 @@ const s = String(status || "").trim().toLowerCase();
 
 if (!s) return "";
 if (s === "failed_refunded" || s === "refunded") return "failed_refunded";
-if (s === "failed" || s === "cancelled" || s === "canceled" || s === "expired") return "failed";
+if (s === "failed" || s === "cancelled" || s === "canceled" || s === "expired") {
+return "failed";
+}
 if (s === "graduated" || s === "surged" || s === "surge") return "graduated";
 if (s === "live" || s === "trading" || s === "market_live") return "live";
 
@@ -281,6 +307,8 @@ commit_ends_at: launch.commit_ends_at || null,
 countdown_ends_at: launch.countdown_ends_at || null,
 countdown_started_at: launch.countdown_started_at || null,
 live_at: launch.live_at || null,
+updated_at: launch.updated_at || null,
+created_at: launch.created_at || null,
 };
 }
 
@@ -309,6 +337,11 @@ const n = safeNum(score, 0);
 if (n >= 80) return { label: "Strong" };
 if (n >= 55) return { label: "Moderate" };
 return { label: "Early" };
+}
+
+function isBuilderTemplate(template) {
+const value = String(template || "").trim().toLowerCase();
+return value === "builder" || value.startsWith("builder_") || value.startsWith("builder-");
 }
 
 function isCurrentFieldStatus(status) {
@@ -513,10 +546,10 @@ return "Launch status is being tracked.";
 function getBuilderBadges(launch) {
 const out = [];
 
-if (String(launch.template || "") === "builder") {
+if (isBuilderTemplate(launch.template)) {
 if (safeNum(launch.team_allocation_pct) > 0) {
 out.push(
-`<span class="small-chip">Team ${fmtSol(launch.team_allocation_pct)}%</span>`
+`<span class="small-chip">Team ${fmtPct(launch.team_allocation_pct, 0)}</span>`
 );
 }
 
@@ -1033,7 +1066,7 @@ const active = items
 .slice()
 .sort(compareTrending);
 
-return active[0] || items[0] || null;
+return active[0] || null;
 }
 
 function renderFeaturedLaunch(items) {
@@ -1043,7 +1076,7 @@ if (!mount) return;
 const featured = getFeaturedCandidate(items);
 if (!featured) {
 mount.className = "featured-placeholder";
-mount.innerHTML = `No featured launch available right now.`;
+mount.innerHTML = `No active featured launch available right now.`;
 return;
 }
 
@@ -1147,19 +1180,6 @@ ${buildQuickCommitBlock(featured, { featured: true })}
 `;
 }
 
-const RECENT_CACHE = new Map();
-const RECENT_CACHE_TTL_MS = 15000;
-const RECENT_FETCH_LIMIT = 12;
-
-let ALL_LAUNCHES = [];
-let HISTORY_LAUNCHES = [];
-let CURRENT_VIEW = normalizeView(localStorage.getItem("mss_launchpad_view"));
-const PREV_PROGRESS = new Map();
-let loadLaunchesInFlight = false;
-let quickCommitInFlight = false;
-let liveTimerIntervalId = null;
-let fullRefreshIntervalId = null;
-
 function setActionStatus(kind, message) {
 const el = $("launchActionStatus");
 if (!el) return;
@@ -1199,6 +1219,15 @@ out.push(item);
 }
 
 return out;
+}
+
+function getFirstArray(data, keys = []) {
+for (const key of keys) {
+if (Array.isArray(data?.[key])) return data[key];
+}
+
+if (Array.isArray(data)) return data;
+return [];
 }
 
 function mergeLaunchSources(primary, secondary) {
@@ -1265,8 +1294,8 @@ if (meta) meta.textContent = "Loading launch field and archive…";
 
 const data = await fetchJson(`/api/launcher/list`);
 
-const rawAll = Array.isArray(data?.all) ? data.all : [];
-const rawHistory = Array.isArray(data?.history) ? data.history : [];
+const rawAll = getFirstArray(data, ["all", "field", "active", "launches"]);
+const rawHistory = getFirstArray(data, ["history", "historical", "archive", "archived"]);
 
 const combined = mergeLaunchSources(rawAll, rawHistory).map(normalizeLaunchRecord);
 
@@ -1310,15 +1339,12 @@ return s === "countdown" || s === "building";
 }).length;
 const liveCount = items.filter((x) => normalizeLaunchStatus(x.status) === "live").length;
 
-if ($("statCommit")) $("statCommit").textContent = String(commitCount);
-if ($("statCountdown")) $("statCountdown").textContent = String(queueCount);
-if ($("statLive")) $("statLive").textContent = String(liveCount);
+setText("statCommit", String(commitCount));
+setText("statCountdown", String(queueCount));
+setText("statLive", String(liveCount));
 
 const trending = items.slice().sort(compareTrending)[0];
-
-if ($("statTrending")) {
-$("statTrending").textContent = trending?.symbol || trending?.token_name || "—";
-}
+setText("statTrending", trending?.symbol || trending?.token_name || "—");
 }
 
 function applyViewState() {
@@ -1412,13 +1438,35 @@ el.textContent = nextValue;
 });
 }
 
-function renderEmptyState() {
+function updateListMeta(filteredActive, filteredHistory, statusFilter, queryText) {
+const el = $("listMeta");
+if (!el) return;
+
+const filteredTotal = filteredActive.length + filteredHistory.length;
+
+if (statusFilter === "all" && !queryText) {
+el.textContent = `${ALL_LAUNCHES.length} active • ${HISTORY_LAUNCHES.length} history`;
+return;
+}
+
+el.textContent = `${filteredTotal} matching • ${ALL_LAUNCHES.length} active • ${HISTORY_LAUNCHES.length} history`;
+}
+
+function renderEmptyState(message = "No launches found.") {
 const grid = $("launchGrid");
 const list = $("launchList");
+const featured = $("featuredLaunchMount");
+
 if (!grid || !list) return;
 
-grid.innerHTML = `<div class="launch-empty-state" style="grid-column:1/-1;">No launches found.</div>`;
-list.innerHTML = `<div class="launch-empty-state">No launches found.</div>`;
+grid.innerHTML = `<div class="launch-empty-state" style="grid-column:1/-1;">${escapeHtml(message)}</div>`;
+list.innerHTML = `<div class="launch-empty-state">${escapeHtml(message)}</div>`;
+
+if (featured) {
+featured.className = "featured-placeholder";
+featured.innerHTML = "No active featured launch available right now.";
+}
+
 bindQuickCommitButtons();
 }
 
@@ -1459,12 +1507,13 @@ activeItems = sortItems(activeItems, sort);
 historyItems = sortItems(historyItems, sort);
 
 renderStats(ALL_LAUNCHES);
-renderFeaturedLaunch(activeItems.length ? activeItems : historyItems);
+renderFeaturedLaunch(activeItems);
 applyViewState();
+updateListMeta(activeItems, historyItems, statusFilter, q);
 
 if (statusFilter === "all") {
 if (!activeItems.length && !historyItems.length) {
-renderEmptyState();
+renderEmptyState("No launches match the current search.");
 return;
 }
 
@@ -1479,7 +1528,7 @@ const combined = [...activeItems, ...historyItems];
 const items = combined.filter((x) => matchesStatusFilter(x, statusFilter));
 
 if (!items.length) {
-renderEmptyState();
+renderEmptyState("No launches match the current filters.");
 return;
 }
 
@@ -1690,26 +1739,51 @@ setActionStatus("warn", "Wallet disconnected.");
 }
 
 function bindViewToggle() {
-$("gridViewBtn")?.addEventListener("click", () => {
-setCurrentView("grid");
-});
+const gridBtn = $("gridViewBtn");
+const listBtn = $("listViewBtn");
 
-$("listViewBtn")?.addEventListener("click", () => {
-setCurrentView("list");
+if (gridBtn && gridBtn.dataset.bound !== "1") {
+gridBtn.dataset.bound = "1";
+gridBtn.addEventListener("click", () => {
+setCurrentView("grid");
 });
 }
 
-function bindWalletControls() {
-$("lpConnectWalletBtn")?.addEventListener("click", connectWallet);
-$("lpDisconnectWalletBtn")?.addEventListener("click", disconnectWallet);
+if (listBtn && listBtn.dataset.bound !== "1") {
+listBtn.dataset.bound = "1";
+listBtn.addEventListener("click", () => {
+setCurrentView("list");
+});
+}
+}
 
+function bindWalletControls() {
+const connectBtn = $("lpConnectWalletBtn");
+const disconnectBtn = $("lpDisconnectWalletBtn");
+
+if (connectBtn && connectBtn.dataset.bound !== "1") {
+connectBtn.dataset.bound = "1";
+connectBtn.addEventListener("click", connectWallet);
+}
+
+if (disconnectBtn && disconnectBtn.dataset.bound !== "1") {
+disconnectBtn.dataset.bound = "1";
+disconnectBtn.addEventListener("click", disconnectWallet);
+}
+
+if (!window.__mssLaunchpadWalletChangeBound) {
+window.__mssLaunchpadWalletChangeBound = true;
 onWalletChange(() => {
 updateWalletUi();
 render();
 });
 }
+}
 
 async function init() {
+if (window[LAUNCHPAD_INIT_KEY]) return;
+window[LAUNCHPAD_INIT_KEY] = true;
+
 if (!$("launchGrid") || !$("launchList")) return;
 
 $("lSearch")?.addEventListener("input", render);

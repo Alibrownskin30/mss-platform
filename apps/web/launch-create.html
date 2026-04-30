@@ -4,7 +4,15 @@
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width,initial-scale=1" />
 <title>MSS Protocol — Create Launch</title>
-<link rel="stylesheet" href="./assets/app.css?v=5" />
+<meta
+name="description"
+content="Create a security-first MSS launch with locked template rules, required launch bond, builder controls, team wallet visibility, and structured lifecycle flow."
+/>
+
+<link rel="stylesheet" href="./assets/app.css?v=7" />
+<link rel="modulepreload" href="./assets/layout-shell.js" />
+<link rel="modulepreload" href="./assets/pages/launch-create.js?v=7" />
+
 <style>
 .create-launch-page{
 min-height:100vh;
@@ -28,6 +36,7 @@ font-size:13px;
 font-weight:700;
 letter-spacing:.04em;
 transition:.16s ease;
+text-decoration:none;
 }
 
 .create-launch-page .back-link:hover{
@@ -402,6 +411,19 @@ margin-top:18px;
 min-height:48px;
 border-radius:14px;
 padding:0 16px;
+display:inline-flex;
+align-items:center;
+justify-content:center;
+text-decoration:none;
+cursor:pointer;
+border:1px solid rgba(255,255,255,.12);
+background:rgba(255,255,255,.05);
+color:#fff;
+font-weight:850;
+font-size:12px;
+letter-spacing:.08em;
+text-transform:uppercase;
+transition:.16s ease;
 }
 
 .create-launch-page .btn.primary{
@@ -417,6 +439,11 @@ inset 0 1px 0 rgba(255,255,255,.04);
 border-color:rgba(74,165,255,.22);
 background:
 linear-gradient(180deg, rgba(21,156,255,.11), rgba(255,255,255,.04));
+}
+
+.create-launch-page .btn:disabled{
+opacity:.6;
+cursor:not-allowed;
 }
 
 .create-launch-page .status{
@@ -682,7 +709,7 @@ border:1px solid rgba(255,255,255,.08);
 font-size:12px;
 }
 
-@media (max-width: 1080px){
+@media (max-width:1080px){
 .create-launch-page .create-hero,
 .create-launch-page .create-layout{
 grid-template-columns:1fr;
@@ -693,7 +720,7 @@ position:static;
 }
 }
 
-@media (max-width: 820px){
+@media (max-width:820px){
 .create-launch-page h1{
 font-size:34px;
 }
@@ -706,7 +733,7 @@ grid-template-columns:1fr;
 }
 }
 
-@media (max-width: 640px){
+@media (max-width:640px){
 .create-launch-page .create-wrap{
 padding:22px 14px 80px;
 }
@@ -746,7 +773,11 @@ width:100%;
 }
 </style>
 </head>
-<body class="create-launch-page" data-shell-active="launchpad" data-shell-subtitle="Launch Creation">
+<body
+class="create-launch-page"
+data-shell-active="launchpad"
+data-shell-subtitle="Launch Creation"
+>
 <div id="layoutShellHeader"></div>
 
 <main class="create-wrap">
@@ -814,7 +845,14 @@ Every template uses a required launch bond. Builder launches also expose additio
 <button id="disconnectWalletBtn" class="btn" type="button" style="display:none;">Disconnect</button>
 <div id="walletPill" class="wallet-pill">No wallet connected</div>
 </div>
-<input id="wallet" name="wallet" type="text" placeholder="Connected wallet will appear here" autocomplete="off" readonly />
+<input
+id="wallet"
+name="wallet"
+type="text"
+placeholder="Connected wallet will appear here"
+autocomplete="off"
+readonly
+/>
 <div id="walletHint" class="hint">Use Connect Wallet to choose Phantom, Solflare, or Backpack.</div>
 </div>
 
@@ -1055,8 +1093,6 @@ Every template uses a required launch bond. Builder launches also expose additio
 <script src="https://unpkg.com/@solana/web3.js@latest/lib/index.iife.js"></script>
 
 <script type="module">
-import { bindSessionUi } from "./assets/auth.js";
-
 async function mountSharedShell() {
 try {
 const shellModule = await import("./assets/layout-shell.js");
@@ -1082,21 +1118,9 @@ console.error("Shared shell mount failed:", err);
 }
 
 await mountSharedShell();
-
-bindSessionUi({
-sessionPillId: "sessionPill",
-sessionDotId: "sessionDot",
-sessionTextId: "sessionText",
-logoutBtnId: "logoutBtn",
-loggedOutHref: "./login.html",
-loggedInHref: "./index.html#access",
-onLogout() {
-window.location.reload();
-},
-});
 </script>
 
-<script type="module" src="./assets/pages/launch-create.js"></script>
-<script src="/assets/devnet-access-gate.js?v=5"></script>
+<script type="module" src="./assets/pages/launch-create.js?v=7"></script>
+<script src="/assets/devnet-access-gate.js?v=7"></script>
 </body>
 </html>

@@ -28,17 +28,23 @@ const router = express.Router();
 
 const COMMIT_PHASE_MINUTES = 2;
 const COUNTDOWN_MINUTES = 2;
-const MAX_WALLET_COMMIT_SOL = 100;
+const MAX_WALLET_COMMIT_SOL = 1;
 const MAX_TEAM_WALLETS = 5;
 const MAX_TEAM_ALLOCATION_PCT = 15;
-const MIN_BUILDER_BOND_SOL = 5;
+const MIN_LAUNCH_BOND_SOL = 3;
+const MAX_LAUNCH_BOND_SOL = 25;
 const TEAM_PCT_PRECISION = 6;
 const RECONCILE_INTERVAL_MS = 15000;
 const REQUIRED_MINT_TAG = "MSS";
 const RESERVED_MINT_MAX_ATTEMPTS = 1000000;
 
 const BUILDER_ALLOWED_HARD_CAPS = [250, 500, 750, 1000];
-const BUILDER_MIN_SOFT_CAP_SOL = 200;
+const BUILDER_SOFT_CAP_BY_HARD_CAP = {
+250: 200,
+500: 300,
+750: 400,
+1000: 500,
+};
 
 const LAUNCH_FEE_SPLIT = {
 founder: 0.5,
@@ -243,13 +249,29 @@ reqBody.softCap
 );
 }
 
+function getExpectedBuilderSoftCap(hardCap) {
+return BUILDER_SOFT_CAP_BY_HARD_CAP[Number(hardCap)] || null;
+}
+
+function getRequiredLaunchBondSol(softCap) {
+const numericSoftCap = Number(softCap);
+if (!Number.isFinite(numericSoftCap) || numericSoftCap <= 0) {
+return MIN_LAUNCH_BOND_SOL;
+}
+
+return Math.min(
+MAX_LAUNCH_BOND_SOL,
+Math.max(MIN_LAUNCH_BOND_SOL, Math.ceil(numericSoftCap * 0.05))
+);
+}
+
 function getTemplateConfig(template, reqBody = {}) {
 const configs = {
 degen: {
 launch_type: "degen",
 supply: "1000000000",
-min_raise_sol: 1,
-hard_cap_sol: 1.1,
+min_raise_sol: 55,
+hard_cap_sol: 75,
 liquidity_pct: 20,
 participants_pct: 45,
 reserve_pct: 30,
@@ -258,8 +280,8 @@ builder_pct: 5,
 degen_zone: {
 launch_type: "degen",
 supply: "1000000000",
-min_raise_sol: 1,
-hard_cap_sol: 1.1,
+min_raise_sol: 55,
+hard_cap_sol: 75,
 liquidity_pct: 20,
 participants_pct: 45,
 reserve_pct: 30,
@@ -268,7 +290,7 @@ builder_pct: 5,
 meme_lite: {
 launch_type: "main",
 supply: "1000000000",
-min_raise_sol: 20,
+min_raise_sol: 60,
 hard_cap_sol: 100,
 liquidity_pct: 20,
 participants_pct: 45,
@@ -278,7 +300,7 @@ builder_pct: 5,
 meme_pro: {
 launch_type: "main",
 supply: "1000000000",
-min_raise_sol: 50,
+min_raise_sol: 75,
 hard_cap_sol: 200,
 liquidity_pct: 20,
 participants_pct: 45,
@@ -288,7 +310,7 @@ builder_pct: 5,
 builder: {
 launch_type: "main",
 supply: "1000000000",
-min_raise_sol: BUILDER_MIN_SOFT_CAP_SOL,
+min_raise_sol: 200,
 hard_cap_sol: 250,
 liquidity_pct: 20,
 participants_pct: 45,
@@ -298,7 +320,7 @@ builder_pct: 5,
 community: {
 launch_type: "main",
 supply: "1000000000",
-min_raise_sol: 40,
+min_raise_sol: 75,
 hard_cap_sol: 200,
 liquidity_pct: 20,
 participants_pct: 45,
@@ -328,14 +350,26 @@ if (Number.isNaN(parsedMinRaise)) {
 throw new Error("builder minimum raise must be a valid number");
 }
 
-if (parsedHardCap != null && !BUILDER_ALLOWED_HARD_CAPS.includes(parsedHardCap)) {
+if (
+parsedHardCap != null &&
+!BUILDER_ALLOWED_HARD_CAPS.includes(parsedHardCap)
+) {
 throw new Error(
 `builder hard cap must be one of ${BUILDER_ALLOWED_HARD_CAPS.join(", ")} SOL`
 );
 }
 
 const hardCap = parsedHardCap != null ? parsedHardCap : base.hard_cap_sol;
-const minRaise = parsedMinRaise != null ? parsedMinRaise : base.min_raise_sol;
+const expectedSoftCap = getExpectedBuilderSoftCap(hardCap);
+
+if (!expectedSoftCap) {
+throw new Error(
+`builder hard cap must be one of ${BUILDER_ALLOWED_HARD_CAPS.join(", ")} SOL`
+);
+}
+
+const minRaise =
+parsedMinRaise != null ? parsedMinRaise : expectedSoftCap;
 
 return {
 ...base,
@@ -370,12 +404,23 @@ netRaiseAfterFee,
 }
 
 function shapeBuilderConfig(template, reqBody) {
+const launchBondSol = safeNumber(
+chooseFirstProvided(
+reqBody.builder_bond_sol,
+reqBody.builderBond,
+reqBody.launch_bond_sol,
+reqBody.launchBondSol,
+reqBody.launchBond
+),
+0
+);
+
 if (!isBuilderTemplate(template)) {
 return {
 team_allocation_pct: 0,
 team_wallets: [],
 team_wallet_breakdown: [],
-builder_bond_sol: 0,
+builder_bond_sol: launchBondSol,
 };
 }
 
@@ -383,11 +428,6 @@ const teamAllocationPct = clamp(
 safeNumber(reqBody.team_allocation_pct, reqBody.teamAllocation),
 0,
 MAX_TEAM_ALLOCATION_PCT
-);
-
-const builderBondSol = safeNumber(
-reqBody.builder_bond_sol,
-reqBody.builderBond
 );
 
 const rawTeamWallets = parseTeamWallets(
@@ -412,7 +452,7 @@ return {
 team_allocation_pct: teamAllocationPct,
 team_wallets: teamWallets.slice(0, MAX_TEAM_WALLETS),
 team_wallet_breakdown: breakdown.slice(0, MAX_TEAM_WALLETS),
-builder_bond_sol: builderBondSol,
+builder_bond_sol: launchBondSol,
 };
 }
 
@@ -429,6 +469,17 @@ if (Number(cfg.hard_cap_sol) <= Number(cfg.min_raise_sol)) {
 throw new Error("hard cap must be greater than minimum raise");
 }
 
+const expectedLaunchBondSol = getRequiredLaunchBondSol(cfg.min_raise_sol);
+
+if (
+!Number.isFinite(builderCfg.builder_bond_sol) ||
+Number(builderCfg.builder_bond_sol) !== expectedLaunchBondSol
+) {
+throw new Error(
+`launch bond must be exactly ${expectedLaunchBondSol} SOL for this template`
+);
+}
+
 if (!isBuilderTemplate(template)) {
 return;
 }
@@ -439,9 +490,11 @@ throw new Error(
 );
 }
 
-if (Number(cfg.min_raise_sol) < BUILDER_MIN_SOFT_CAP_SOL) {
+const expectedSoftCap = getExpectedBuilderSoftCap(cfg.hard_cap_sol);
+
+if (!expectedSoftCap || Number(cfg.min_raise_sol) !== expectedSoftCap) {
 throw new Error(
-`builder minimum raise must be at least ${BUILDER_MIN_SOFT_CAP_SOL} SOL`
+`builder minimum raise must match the locked soft cap for ${cfg.hard_cap_sol} SOL`
 );
 }
 
@@ -530,13 +583,6 @@ if (!approxEqual(breakdownTotal, builderCfg.team_allocation_pct)) {
 throw new Error("team wallet breakdown must equal team allocation");
 }
 }
-
-if (
-!Number.isFinite(builderCfg.builder_bond_sol) ||
-builderCfg.builder_bond_sol < MIN_BUILDER_BOND_SOL
-) {
-throw new Error(`builder bond must be at least ${MIN_BUILDER_BOND_SOL} SOL`);
-}
 }
 
 function parseDbTime(value) {
@@ -547,7 +593,10 @@ if (!raw) return null;
 const hasExplicitTimezone =
 /z$/i.test(raw) || /[+-]\d{2}:\d{2}$/.test(raw);
 
-if (!hasExplicitTimezone && /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/.test(raw)) {
+if (
+!hasExplicitTimezone &&
+/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/.test(raw)
+) {
 const sqliteUtc = Date.parse(raw.replace(" ", "T") + "Z");
 return Number.isFinite(sqliteUtc) ? sqliteUtc : null;
 }
@@ -719,20 +768,21 @@ return {
 contract_address: revealCa ? cleanText(parsed?.contract_address, 120) || null : null,
 reserved_mint_address: null,
 reserved_mint_secret: null,
-mint_reservation_status: revealCa ? cleanText(parsed?.mint_reservation_status, 40) || null : null,
-mint_reservation_attempts: revealCa && includeMintMeta
+mint_reservation_status: revealCa
+? cleanText(parsed?.mint_reservation_status, 40) || null
+: null,
+mint_reservation_attempts:
+revealCa && includeMintMeta
 ? Number(parsed?.mint_reservation_attempts || 0)
 : 0,
-mint_reserved_at: revealCa && includeMintMeta
-? parsed?.mint_reserved_at || null
-: null,
+mint_reserved_at:
+revealCa && includeMintMeta ? parsed?.mint_reserved_at || null : null,
 mint_finalized_at: revealCa ? parsed?.mint_finalized_at || null : null,
 };
 }
 
 function hasCollectedBuilderBond(row) {
 const launch = parseLaunchJsonFields(row);
-if (!isBuilderTemplate(launch)) return false;
 
 return Boolean(
 Number(launch.builder_bond_paid || 0) === 1 ||
@@ -742,13 +792,11 @@ cleanText(launch.builder_bond_tx_signature || "", 140)
 
 function requiresBuilderBond(row) {
 const launch = parseLaunchJsonFields(row);
-if (!isBuilderTemplate(launch)) return false;
 return Number(launch.builder_bond_sol || 0) > 0;
 }
 
 function isBuilderBondSatisfied(row) {
 const launch = parseLaunchJsonFields(row);
-if (!isBuilderTemplate(launch)) return true;
 if (!requiresBuilderBond(launch)) return true;
 return Number(launch.builder_bond_paid || 0) === 1;
 }
@@ -928,8 +976,8 @@ function solToLamports(solAmount) {
 return Math.round(Number(solAmount) * 1_000_000_000);
 }
 
-function buildBuilderBondReference(wallet) {
-return `mss-builder-bond-${cleanText(wallet, 80)}`;
+function buildLaunchBondReference(wallet) {
+return `mss-launch-bond-${cleanText(wallet, 80)}`;
 }
 
 function isDevnetEnvironment() {
@@ -1183,7 +1231,10 @@ for (let suffix = 1; suffix <= 500; suffix += 1) {
 const alias = buildBuilderAliasVariant(baseAlias, suffix);
 const aliasOwner = await getBuilderByAlias(alias);
 
-if (aliasOwner && normalizeWalletKey(aliasOwner.wallet) !== normalizeWalletKey(cleanWallet)) {
+if (
+aliasOwner &&
+normalizeWalletKey(aliasOwner.wallet) !== normalizeWalletKey(cleanWallet)
+) {
 continue;
 }
 
@@ -1337,7 +1388,9 @@ const canonicalStatus = computeCanonicalLaunchStatus(launch);
 if (
 canonicalStatus &&
 canonicalStatus !== storedStatus &&
-["commit", "countdown", "building", "live", "graduated", "failed", "failed_refunded"].includes(canonicalStatus)
+["commit", "countdown", "building", "live", "graduated", "failed", "failed_refunded"].includes(
+canonicalStatus
+)
 ) {
 launch = await forceLaunchStatus(launchId, canonicalStatus);
 }
@@ -1350,7 +1403,7 @@ const launch = await getLaunchById(launchId);
 if (!launch) return null;
 
 if (!isBuilderBondSatisfied(launch)) {
-throw new Error("builder bond not satisfied");
+throw new Error("launch bond not satisfied");
 }
 
 if (launch.status === "countdown") {
@@ -1396,95 +1449,12 @@ WHERE id = ?
 return applyCanonicalLaunchTruth(await getLaunchById(launchId));
 }
 
-async function autoRefundFailedLaunch(launchId) {
-let launch = await getLaunchById(launchId);
-if (!launch || launch.status !== "failed") {
-return launch;
+async function maybeMarkLaunchFailedRefunded(launchId) {
+const stats = await getCommitStats(launchId);
+
+if (Number(stats.totalCommitted || 0) > 0) {
+return applyCanonicalLaunchTruth(await getLaunchById(launchId));
 }
-
-const parsedLaunch = parseLaunchJsonFields(launch);
-const builder = await getBuilderWalletForLaunch(launchId);
-
-const refundRows = await db.all(
-`
-SELECT wallet, COALESCE(SUM(sol_amount), 0) AS total
-FROM commits
-WHERE launch_id = ?
-GROUP BY wallet
-`,
-[launchId]
-);
-
-const refunds = refundRows.map((row) => ({
-wallet: String(row.wallet || ""),
-committedRefundSol: Number(row.total || 0),
-builderBondRefundSol: 0,
-totalRefundSol: Number(row.total || 0),
-txSignature: null,
-refundedSolActual: 0,
-}));
-
-const shouldRefundBuilderBond =
-isBuilderTemplate(parsedLaunch) &&
-Number(parsedLaunch.builder_bond_sol || 0) > 0 &&
-Number(parsedLaunch.builder_bond_refunded || 0) !== 1 &&
-hasCollectedBuilderBond(parsedLaunch) &&
-builder?.wallet;
-
-if (shouldRefundBuilderBond) {
-const builderWallet = String(builder.wallet);
-const existing = refunds.find((x) => x.wallet === builderWallet);
-
-if (existing) {
-existing.builderBondRefundSol = Number(parsedLaunch.builder_bond_sol || 0);
-existing.totalRefundSol += Number(parsedLaunch.builder_bond_sol || 0);
-} else {
-refunds.push({
-wallet: builderWallet,
-committedRefundSol: 0,
-builderBondRefundSol: Number(parsedLaunch.builder_bond_sol || 0),
-totalRefundSol: Number(parsedLaunch.builder_bond_sol || 0),
-txSignature: null,
-refundedSolActual: 0,
-});
-}
-}
-
-for (const refund of refunds) {
-if (!refund.wallet || Number(refund.totalRefundSol || 0) <= 0) continue;
-
-const refundTransfer = await sendRefundTransfer({
-destinationWallet: refund.wallet,
-solAmount: refund.totalRefundSol,
-});
-
-if (!refundTransfer) continue;
-
-refund.txSignature = refundTransfer.signature;
-refund.refundedSolActual = refundTransfer.refundedSol;
-}
-
-if (shouldRefundBuilderBond) {
-await db.run(
-`
-UPDATE launches
-SET builder_bond_refunded = 1,
-updated_at = CURRENT_TIMESTAMP
-WHERE id = ?
-`,
-[launchId]
-);
-}
-
-await db.run(
-`
-DELETE FROM commits
-WHERE launch_id = ?
-`,
-[launchId]
-);
-
-await syncLaunchStats(launchId);
 
 await db.run(
 `
@@ -1496,12 +1466,7 @@ WHERE id = ?
 [launchId]
 );
 
-launch = await getLaunchById(launchId);
-
-return {
-launch: applyCanonicalLaunchTruth(launch),
-refunds,
-};
+return applyCanonicalLaunchTruth(await getLaunchById(launchId));
 }
 
 async function runFinalizeLaunchOnce(launchId) {
@@ -1525,7 +1490,10 @@ const result = await finalizeLaunch(launchId);
 return result || { ok: false, reason: "unknown finalize result" };
 } catch (err) {
 if (isTransientFinalizeError(err)) {
-console.warn(`Finalize retry deferred for launch ${launchId}:`, err?.message || err);
+console.warn(
+`Finalize retry deferred for launch ${launchId}:`,
+err?.message || err
+);
 return { ok: false, reason: "transient finalize error", transient: true };
 }
 throw err;
@@ -1605,16 +1573,13 @@ if (result?.reason === "countdown not finished" || result?.transient) {
 return applyCanonicalLaunchTruth(latest);
 }
 
-if (result?.reason === "minimum raise not met") {
+if (
+result?.reason === "minimum raise not met" ||
+result?.reason === "launch bond not paid" ||
+result?.reason === "builder bond not paid"
+) {
 await markLaunchFailed(launchId);
-const refunded = await autoRefundFailedLaunch(launchId);
-return refunded?.launch || applyCanonicalLaunchTruth(await getLaunchById(launchId));
-}
-
-if (result?.reason === "builder bond not paid") {
-await markLaunchFailed(launchId);
-const refunded = await autoRefundFailedLaunch(launchId);
-return refunded?.launch || applyCanonicalLaunchTruth(await getLaunchById(launchId));
+return applyCanonicalLaunchTruth(await getLaunchById(launchId));
 }
 
 if (result?.stage === "building" || latestCanonical === "building") {
@@ -1637,14 +1602,12 @@ launch = await normalizeLifecycleState(launchId);
 if (!launch) return null;
 
 if (
-isBuilderTemplate(launch) &&
 ["commit", "countdown", "building"].includes(String(launch.status || "")) &&
 requiresBuilderBond(launch) &&
 !isBuilderBondSatisfied(launch)
 ) {
 await markLaunchFailed(launchId);
-const refunded = await autoRefundFailedLaunch(launchId);
-return refunded?.launch || applyCanonicalLaunchTruth(await getLaunchById(launchId));
+return applyCanonicalLaunchTruth(await getLaunchById(launchId));
 }
 
 if (launch.status === "commit") {
@@ -1678,8 +1641,7 @@ return beginCountdown(launchId);
 }
 
 await markLaunchFailed(launchId);
-const refunded = await autoRefundFailedLaunch(launchId);
-return refunded?.launch || applyCanonicalLaunchTruth(await getLaunchById(launchId));
+return applyCanonicalLaunchTruth(await getLaunchById(launchId));
 }
 
 return launch;
@@ -1694,7 +1656,7 @@ await safeSyncLifecycle(launchId);
 return applyCanonicalLaunchTruth(launch);
 }
 
-if (launch.status === "failed") {
+if (launch.status === "failed" || launch.status === "failed_refunded") {
 return applyCanonicalLaunchTruth(launch);
 }
 
@@ -1767,37 +1729,44 @@ router.post("/prepare-builder-bond", async (req, res) => {
 try {
 const wallet = cleanText(req.body.wallet, 100);
 const builderBondSol = Number(
-req.body.builderBondSol ?? req.body.builder_bond_sol
+req.body.builderBondSol ??
+req.body.builder_bond_sol ??
+req.body.launchBondSol ??
+req.body.launch_bond_sol
 );
 
 if (!wallet || !Number.isFinite(builderBondSol)) {
 return res.status(400).json({ ok: false, error: "missing or invalid fields" });
 }
 
-if (builderBondSol < MIN_BUILDER_BOND_SOL) {
+if (
+builderBondSol < MIN_LAUNCH_BOND_SOL ||
+builderBondSol > MAX_LAUNCH_BOND_SOL
+) {
 return res.status(400).json({
 ok: false,
-error: `builder bond must be at least ${MIN_BUILDER_BOND_SOL} SOL`,
+error: `launch bond must be between ${MIN_LAUNCH_BOND_SOL} and ${MAX_LAUNCH_BOND_SOL} SOL`,
 });
 }
 
 const prepared = await buildEscrowTransferTransaction({
 wallet,
 solAmount: builderBondSol,
-reference: buildBuilderBondReference(wallet),
+reference: buildLaunchBondReference(wallet),
 });
 
 return res.json({
 ok: true,
 wallet,
 builderBondSol,
+launchBondSol: builderBondSol,
 ...prepared,
 });
 } catch (err) {
 console.error("POST /api/launcher/prepare-builder-bond failed:", err);
 return res.status(500).json({
 ok: false,
-error: err.message || "failed to prepare builder bond",
+error: err.message || "failed to prepare launch bond",
 });
 }
 });
@@ -1806,7 +1775,10 @@ router.post("/confirm-builder-bond", async (req, res) => {
 try {
 const wallet = cleanText(req.body.wallet, 100);
 const builderBondSol = Number(
-req.body.builderBondSol ?? req.body.builder_bond_sol
+req.body.builderBondSol ??
+req.body.builder_bond_sol ??
+req.body.launchBondSol ??
+req.body.launch_bond_sol
 );
 const txSignatureInput = cleanText(req.body.txSignature, 140);
 const signedTransactionBase64 = cleanText(
@@ -1822,10 +1794,13 @@ if (
 return res.status(400).json({ ok: false, error: "missing or invalid fields" });
 }
 
-if (builderBondSol < MIN_BUILDER_BOND_SOL) {
+if (
+builderBondSol < MIN_LAUNCH_BOND_SOL ||
+builderBondSol > MAX_LAUNCH_BOND_SOL
+) {
 return res.status(400).json({
 ok: false,
-error: `builder bond must be at least ${MIN_BUILDER_BOND_SOL} SOL`,
+error: `launch bond must be between ${MIN_LAUNCH_BOND_SOL} and ${MAX_LAUNCH_BOND_SOL} SOL`,
 });
 }
 
@@ -1852,7 +1827,7 @@ preflightCommitment: "confirmed",
 if (isLikelyBlockhashExpiredError(sendErr)) {
 return res.status(409).json({
 ok: false,
-error: "builder bond approval expired. please prepare and approve the builder bond again",
+error: "launch bond approval expired. please prepare and approve the launch bond again",
 });
 }
 throw sendErr;
@@ -1860,7 +1835,7 @@ throw sendErr;
 
 const confirmation = await connection.confirmTransaction(txSignature, "confirmed");
 if (confirmation?.value?.err) {
-throw new Error("signed builder bond transaction confirmation failed");
+throw new Error("signed launch bond transaction confirmation failed");
 }
 }
 
@@ -1872,7 +1847,7 @@ const existingLaunch = await db.get(
 if (existingLaunch) {
 return res.status(400).json({
 ok: false,
-error: "builder bond transaction already attached to another launch",
+error: "launch bond transaction already attached to another launch",
 });
 }
 
@@ -1881,21 +1856,23 @@ txSignature,
 expectedSender: wallet,
 expectedDestination: getEscrowWallet(),
 expectedLamports: solToLamports(builderBondSol),
-reference: buildBuilderBondReference(wallet),
+reference: buildLaunchBondReference(wallet),
 });
 
 return res.json({
 ok: true,
 wallet,
 builderBondSol,
+launchBondSol: builderBondSol,
 txSignature,
 builderBondPaid: 1,
+launchBondPaid: 1,
 });
 } catch (err) {
 console.error("POST /api/launcher/confirm-builder-bond failed:", err);
 return res.status(400).json({
 ok: false,
-error: err.message || "builder bond verification failed",
+error: err.message || "launch bond verification failed",
 });
 }
 });
@@ -1963,11 +1940,10 @@ error: builderErr.message || "builder profile could not be created automatically
 let builderBondPaid = 0;
 let finalBuilderBondTxSignature = "";
 
-if (isBuilderTemplate(template)) {
 if (!builderBondTxSignature) {
 return res.status(400).json({
 ok: false,
-error: "builder bond transaction is required for builder launches",
+error: "launch bond transaction is required",
 });
 }
 
@@ -1979,7 +1955,7 @@ const existingLaunchWithBondTx = await db.get(
 if (existingLaunchWithBondTx) {
 return res.status(400).json({
 ok: false,
-error: "builder bond transaction already used by another launch",
+error: "launch bond transaction already used by another launch",
 });
 }
 
@@ -1988,12 +1964,11 @@ txSignature: builderBondTxSignature,
 expectedSender: wallet,
 expectedDestination: getEscrowWallet(),
 expectedLamports: solToLamports(builderCfg.builder_bond_sol),
-reference: buildBuilderBondReference(wallet),
+reference: buildLaunchBondReference(wallet),
 });
 
 builderBondPaid = 1;
 finalBuilderBondTxSignature = builderBondTxSignature;
-}
 
 const result = await db.run(
 `
@@ -2116,7 +2091,9 @@ mintReservation: reservation,
 });
 } catch (err) {
 console.error("POST /api/launcher/create failed:", err);
-return res.status(500).json({ ok: false, error: err.message || "internal server error" });
+return res
+.status(500)
+.json({ ok: false, error: err.message || "internal server error" });
 }
 });
 
@@ -2145,7 +2122,7 @@ return res.status(400).json({ ok: false, error: "commit phase closed" });
 }
 
 if (!isBuilderBondSatisfied(launch)) {
-return res.status(400).json({ ok: false, error: "builder bond not satisfied" });
+return res.status(400).json({ ok: false, error: "launch bond not satisfied" });
 }
 
 if (isRestrictedCommitWallet(launch, wallet)) {
@@ -2244,7 +2221,7 @@ return res.status(400).json({ ok: false, error: "commit phase closed" });
 }
 
 if (launch && !isBuilderBondSatisfied(launch) && !txWasAlreadySentByWallet) {
-return res.status(400).json({ ok: false, error: "builder bond not satisfied" });
+return res.status(400).json({ ok: false, error: "launch bond not satisfied" });
 }
 
 if (launch && isRestrictedCommitWallet(launch, wallet) && !txWasAlreadySentByWallet) {
@@ -2363,9 +2340,9 @@ const refunded = await refundRejectedCommit({
 wallet,
 solAmount,
 txSignature,
-reason: "builder bond no longer satisfied",
+reason: "launch bond no longer satisfied",
 status: launch.status,
-logLabel: "Late confirm refund failed after builder bond check",
+logLabel: "Late confirm refund failed after launch bond check",
 });
 return res.status(refunded.httpStatus).json(refunded.body);
 }
@@ -2513,35 +2490,7 @@ WHERE launch_id = ? AND wallet = ?
 [launchId, wallet]
 );
 
-let refundAmount = Number(walletCommit?.total || 0);
-let builderBondRefunded = 0;
-
-const parsedLaunch = parseLaunchJsonFields(launch);
-
-if (
-launch.status === "failed" &&
-isBuilderTemplate(parsedLaunch) &&
-Number(parsedLaunch.builder_bond_sol || 0) > 0 &&
-Number(parsedLaunch.builder_bond_refunded || 0) !== 1 &&
-hasCollectedBuilderBond(parsedLaunch)
-) {
-const builder = await getBuilderWalletForLaunch(launchId);
-
-if (builder?.wallet === wallet) {
-refundAmount += Number(parsedLaunch.builder_bond_sol || 0);
-builderBondRefunded = Number(parsedLaunch.builder_bond_sol || 0);
-
-await db.run(
-`
-UPDATE launches
-SET builder_bond_refunded = 1,
-updated_at = CURRENT_TIMESTAMP
-WHERE id = ?
-`,
-[launchId]
-);
-}
-}
+const refundAmount = Number(walletCommit?.total || 0);
 
 if (refundAmount <= 0) {
 return res.status(400).json({ ok: false, error: "nothing to refund" });
@@ -2563,13 +2512,17 @@ WHERE launch_id = ? AND wallet = ?
 const stats = await syncLaunchStats(launchId);
 launch = applyCanonicalLaunchTruth(await getLaunchById(launchId));
 
+if (launch.status === "failed" && Number(stats.totalCommitted) <= 0) {
+launch = await maybeMarkLaunchFailedRefunded(launchId);
+}
+
 return res.json({
 ok: true,
 launchId,
 wallet,
 refundedSol: refundAmount,
 refundedSolActual: refundTransfer?.refundedSol || 0,
-builderBondRefunded,
+builderBondRefunded: 0,
 refundTxSignature: refundTransfer?.signature || null,
 totalCommitted: stats.totalCommitted,
 participants: stats.participants,
@@ -2602,7 +2555,7 @@ error: "countdown can only start from commit phase",
 }
 
 if (!isBuilderBondSatisfied(launch)) {
-return res.status(400).json({ ok: false, error: "builder bond not satisfied" });
+return res.status(400).json({ ok: false, error: "launch bond not satisfied" });
 }
 
 if (Number(launch.min_raise_sol) <= 0) {
@@ -3047,7 +3000,7 @@ ORDER BY l.id DESC
 );
 
 const shaped = rows
-.filter((row) => isBuilderBondSatisfied(row) || !isBuilderTemplate(row))
+.filter((row) => isBuilderBondSatisfied(row))
 .map(shapeLaunchForList);
 
 const current = shaped.filter((x) => isCurrentListStatus(x.status));
@@ -3089,10 +3042,9 @@ return res.status(404).json({ ok: false, error: "launch not found" });
 }
 
 const hydratedLaunch = await getLaunchWithBuilderById(launchId);
-const parsedLaunch = sanitizeLaunchForPublic(
-hydratedLaunch || reconciledLaunch,
-{ includeMintMeta: false }
-);
+const parsedLaunch = sanitizeLaunchForPublic(hydratedLaunch || reconciledLaunch, {
+includeMintMeta: false,
+});
 const stats = await getCommitStats(launchId);
 const lifecycle = await safeSyncLifecycle(launchId);
 const graduationPlan = await safeGetGraduationPlan(launchId);
