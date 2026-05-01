@@ -211,7 +211,7 @@ font-size:11px;
 font-weight:800;
 letter-spacing:.16em;
 text-transform:uppercase;
-max-width:100%;
+max-width:max-content;
 box-shadow:
 0 0 14px rgba(21,156,255,.045),
 inset 0 1px 0 rgba(255,255,255,.04);
@@ -311,12 +311,6 @@ color:rgba(255,255,255,.82);
 max-width:100%;
 }
 
-.chip:nth-child(even){
-border-color:rgba(96,180,255,.12);
-background:
-linear-gradient(180deg, rgba(96,180,255,.035), rgba(255,255,255,.020));
-}
-
 .mini-dot{
 width:6px;
 height:6px;
@@ -324,11 +318,6 @@ border-radius:999px;
 background:var(--cyan-1);
 box-shadow:0 0 12px rgba(54,215,255,.50);
 flex:0 0 auto;
-}
-
-.chip:nth-child(even) .mini-dot{
-background:var(--steel-2);
-box-shadow:0 0 12px rgba(185,199,216,.32);
 }
 
 .hero-side{
