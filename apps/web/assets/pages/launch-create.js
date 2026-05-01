@@ -1256,7 +1256,7 @@ launch.id
 clearBuilderBondCache();
 
 window.setTimeout(() => {
-window.location.href = `./launch.html?id=${encodeURIComponent(launch.id)}`;
+window.location.href = `./launch-detail.html?id=${encodeURIComponent(launch.id)}`;
 }, 700);
 } catch (err) {
 setStatus("bad", err?.message || "Unable to create launch.");

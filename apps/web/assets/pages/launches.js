@@ -757,7 +757,7 @@ ${walletConnected ? "Connected wallet can quick commit from this card." : "Conne
 }
 
 function getLaunchHref(launchId) {
-return `./launch.html?id=${encodeURIComponent(launchId)}`;
+return `./launch-detail.html?id=${encodeURIComponent(launchId)}`;
 }
 
 function buildCard(launch) {
