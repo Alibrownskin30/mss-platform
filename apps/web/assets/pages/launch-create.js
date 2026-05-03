@@ -171,6 +171,10 @@ candidates.find(
 
 let cachedBuilderBond = null;
 let currentLogoPreviewObjectUrl = "";
+let builderComplianceState = {
+wallet: "",
+payload: null,
+};
 
 function clearBuilderBondCache() {
 cachedBuilderBond = null;
@@ -644,6 +648,248 @@ throw new Error("Existing image URL is invalid.");
 }
 }
 
+function buildCompliancePageUrl(wallet = "") {
+const params = new URLSearchParams();
+params.set("mode", "builder");
+if (wallet) {
+params.set("wallet", wallet);
+}
+return `./compliance.html?${params.toString()}`;
+}
+
+function getBuilderCompliancePayload() {
+return builderComplianceState?.payload || null;
+}
+
+function isBuilderComplianceApproved(payload = null) {
+const statusPayload = payload || getBuilderCompliancePayload();
+if (!statusPayload) return false;
+
+const builderGateEnabled = Boolean(
+statusPayload.builder_gate_enabled || statusPayload.requires_builder_approval
+);
+
+if (!builderGateEnabled) {
+return true;
+}
+
+if (statusPayload.restricted_jurisdiction) {
+return false;
+}
+
+if (statusPayload.profile?.manual_review_required) {
+return false;
+}
+
+return String(statusPayload.status || "").toLowerCase() === "approved";
+}
+
+function getBuilderComplianceMessage(payload = null) {
+const statusPayload = payload || getBuilderCompliancePayload();
+if (!statusPayload) {
+return "Builder verification is required before launch creation.";
+}
+
+const builderGateEnabled = Boolean(
+statusPayload.builder_gate_enabled || statusPayload.requires_builder_approval
+);
+
+if (!builderGateEnabled) {
+return "Builder verification gate is currently disabled.";
+}
+
+if (statusPayload.restricted_jurisdiction) {
+return "Builder access is restricted for the current jurisdiction.";
+}
+
+if (statusPayload.profile?.manual_review_required) {
+return (
+statusPayload.profile?.manual_review_reason ||
+"Builder profile is in manual review."
+);
+}
+
+const status = String(statusPayload.status || "").toLowerCase();
+
+if (status === "approved") {
+return "Builder profile approved. Launch creation is enabled.";
+}
+
+if (status === "pending") {
+return "Builder verification is pending review before launch creation can proceed.";
+}
+
+if (status === "rejected") {
+return "Builder verification was rejected. Review the compliance profile before trying again.";
+}
+
+if (status === "restricted") {
+return "Builder profile is currently restricted from launch creation.";
+}
+
+return "Complete builder verification before creating a launch.";
+}
+
+function renderBuilderComplianceUi(payload = null) {
+const card = $("builderComplianceCard");
+const pill = $("builderCompliancePill");
+const copy = $("builderComplianceCopy");
+const action = $("builderComplianceAction");
+const meta = $("builderComplianceMeta");
+const actionLink = buildCompliancePageUrl(getConnectedPublicKey() || "");
+
+const builderGateEnabled = Boolean(
+payload?.builder_gate_enabled || payload?.requires_builder_approval
+);
+
+const approved = isBuilderComplianceApproved(payload);
+const message = getBuilderComplianceMessage(payload);
+
+const status = String(payload?.status || "").toLowerCase();
+let pillText = "Builder Verification";
+let pillClass = "warn";
+
+if (!builderGateEnabled) {
+pillText = "Verification Optional";
+pillClass = "good";
+} else if (approved) {
+pillText = "Approved";
+pillClass = "good";
+} else if (status === "pending") {
+pillText = "Pending Review";
+pillClass = "warn";
+} else if (status === "rejected" || status === "restricted") {
+pillText = status === "restricted" ? "Restricted" : "Rejected";
+pillClass = "bad";
+} else {
+pillText = "Verification Required";
+pillClass = "warn";
+}
+
+if (card) {
+card.classList.toggle("show", Boolean(payload) || builderGateEnabled);
+}
+
+if (pill) {
+pill.className = `status-pill ${pillClass}`;
+pill.textContent = pillText;
+}
+
+if (copy) {
+copy.textContent = message;
+}
+
+if (meta) {
+const country = String(payload?.profile?.country_code || "").toUpperCase();
+const risk = String(payload?.profile?.risk_rating || "low");
+const detailParts = [];
+
+if (country) detailParts.push(`Country: ${country}`);
+if (risk) detailParts.push(`Risk: ${risk}`);
+if (builderGateEnabled) {
+detailParts.push(`Access: ${approved ? "Allowed" : "Blocked"}`);
+} else {
+detailParts.push("Access: Open");
+}
+
+meta.textContent = detailParts.join(" • ");
+}
+
+if (action) {
+if (!builderGateEnabled) {
+action.style.display = "none";
+} else {
+action.style.display = "";
+action.href = actionLink;
+action.textContent = approved
+? "Review Compliance Profile"
+: "Complete Builder Verification";
+}
+}
+}
+
+async function fetchBuilderComplianceStatus(wallet, { silent = false } = {}) {
+const normalizedWallet = normalizeWallet(wallet);
+if (!normalizedWallet) {
+builderComplianceState = {
+wallet: "",
+payload: null,
+};
+renderBuilderComplianceUi(null);
+return null;
+}
+
+const data = await fetchJson(
+`/api/compliance/status?wallet=${encodeURIComponent(
+normalizedWallet
+)}&mode=builder`
+);
+
+builderComplianceState = {
+wallet: normalizedWallet,
+payload: data,
+};
+
+renderBuilderComplianceUi(data);
+
+if (!silent) {
+if (isBuilderComplianceApproved(data)) {
+setStatus("good", getBuilderComplianceMessage(data));
+} else if (data?.builder_gate_enabled || data?.requires_builder_approval) {
+setStatus("warn", getBuilderComplianceMessage(data));
+}
+}
+
+return data;
+}
+
+async function refreshBuilderComplianceStatus({ silent = false } = {}) {
+const wallet = getConnectedPublicKey() || "";
+if (!wallet) {
+builderComplianceState = {
+wallet: "",
+payload: null,
+};
+renderBuilderComplianceUi(null);
+return null;
+}
+
+try {
+return await fetchBuilderComplianceStatus(wallet, { silent });
+} catch (err) {
+renderBuilderComplianceUi(null);
+
+if (!silent) {
+setStatus(
+"bad",
+err?.message || "Unable to load builder compliance status."
+);
+}
+
+throw err;
+}
+}
+
+async function requireApprovedBuilderCompliance(wallet, { redirect = false } = {}) {
+const payload =
+builderComplianceState.wallet === wallet && builderComplianceState.payload
+? builderComplianceState.payload
+: await fetchBuilderComplianceStatus(wallet, { silent: true });
+
+if (isBuilderComplianceApproved(payload)) {
+return payload;
+}
+
+const message = getBuilderComplianceMessage(payload);
+setStatus("warn", `${message} Open the compliance page to continue.`);
+
+if (redirect) {
+window.location.href = buildCompliancePageUrl(wallet);
+}
+
+throw new Error(message);
+}
+
 function updateWalletUi() {
 const walletInput = $("wallet");
 const walletPill = $("walletPill");
@@ -934,7 +1180,14 @@ updateWalletUi();
 updatePreview();
 
 if (wallet?.isConnected) {
+await refreshBuilderComplianceStatus({ silent: true });
+
+const compliancePayload = getBuilderCompliancePayload();
+if (isBuilderComplianceApproved(compliancePayload)) {
 setStatus("good", `Wallet connected: ${shortenWallet(wallet.publicKey)}`);
+} else {
+setStatus("warn", getBuilderComplianceMessage(compliancePayload));
+}
 return;
 }
 
@@ -956,6 +1209,11 @@ await disconnectAnyWallet();
 }
 
 clearBuilderBondCache();
+builderComplianceState = {
+wallet: "",
+payload: null,
+};
+renderBuilderComplianceUi(null);
 updateWalletUi();
 updatePreview();
 setStatus("warn", "Wallet disconnected.");
@@ -1194,6 +1452,8 @@ btn.disabled = true;
 btn.textContent = "Creating Launch...";
 }
 
+await requireApprovedBuilderCompliance(values.wallet);
+
 setStatus("warn", "Preparing builder profile...");
 await ensureBuilderProfile(values.wallet);
 
@@ -1259,7 +1519,20 @@ window.setTimeout(() => {
 window.location.href = `./launch-detail.html?id=${encodeURIComponent(launch.id)}`;
 }, 700);
 } catch (err) {
+const values = getFormValues();
+const compliancePayload = getBuilderCompliancePayload();
+const shouldRouteToCompliance =
+values.wallet &&
+compliancePayload &&
+!isBuilderComplianceApproved(compliancePayload);
+
 setStatus("bad", err?.message || "Unable to create launch.");
+
+if (shouldRouteToCompliance) {
+window.setTimeout(() => {
+window.location.href = buildCompliancePageUrl(values.wallet);
+}, 800);
+}
 } finally {
 if (btn) {
 btn.disabled = false;
@@ -1347,10 +1620,21 @@ function bindWalletEvents() {
 $("connectWalletBtn")?.addEventListener("click", connectWallet);
 $("disconnectWalletBtn")?.addEventListener("click", disconnectWallet);
 
-onWalletChange(() => {
+$("builderComplianceAction")?.addEventListener("click", (event) => {
+const wallet = getConnectedPublicKey() || "";
+event.currentTarget.href = buildCompliancePageUrl(wallet);
+});
+
+onWalletChange(async () => {
 clearBuilderBondCache();
 updateWalletUi();
 updatePreview();
+
+try {
+await refreshBuilderComplianceStatus({ silent: true });
+} catch {
+// ignore on passive wallet state changes
+}
 });
 }
 
@@ -1363,10 +1647,17 @@ bindWalletEvents();
 renderTeamWalletInputs();
 updatePreview();
 updateTeamAllocationTotal();
+renderBuilderComplianceUi(null);
 
 await restoreWalletIfTrusted();
 updateWalletUi();
 updatePreview();
+
+try {
+await refreshBuilderComplianceStatus({ silent: true });
+} catch {
+// ignore on initial passive load
+}
 
 const form = $("launchCreateForm");
 if (form) {

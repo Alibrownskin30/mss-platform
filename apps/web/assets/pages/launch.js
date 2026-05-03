@@ -817,7 +817,7 @@ raw.thresholds.marketcapSol ?? raw.thresholds.marketcap_sol,
 0
 ),
 volume24hSol: safeNum(
-raw.thresholds.volume24hSol ?? raw.thresholds.volume24h_sol,
+raw.thresholds.volume24hSol ?? raw.thresholds.volume_24h_sol,
 0
 ),
 minHolders: safeNum(
@@ -1102,6 +1102,390 @@ el.textContent = message;
 
 function getLaunchBondLabel() {
 return "Launch bond";
+}
+
+function buildCompliancePageUrl(wallet = "", mode = "participant") {
+const params = new URLSearchParams();
+params.set("mode", mode);
+if (wallet) {
+params.set("wallet", wallet);
+}
+return `./compliance.html?${params.toString()}`;
+}
+
+function toTruthyBoolean(value) {
+if (value === true || value === 1) return true;
+const raw = String(value ?? "").trim().toLowerCase();
+return raw === "true" || raw === "1" || raw === "yes";
+}
+
+function normalizeComplianceStatusPayload(
+payload = {},
+{ wallet = "", mode = "participant" } = {}
+) {
+const profile =
+payload?.profile && typeof payload.profile === "object" ? payload.profile : {};
+
+const status = cleanString(
+payload.status ?? payload.profile_status ?? profile.status,
+40
+).toLowerCase() || "not_started";
+
+const builderGateEnabled = toTruthyBoolean(
+payload.builder_gate_enabled ??
+payload.builderGateEnabled ??
+payload.requires_builder_approval ??
+payload.requiresBuilderApproval
+);
+
+const participantGateEnabled = toTruthyBoolean(
+payload.participant_gate_enabled ??
+payload.participantGateEnabled ??
+payload.requires_participant_approval ??
+payload.requiresParticipantApproval
+);
+
+const restrictedJurisdiction = toTruthyBoolean(
+payload.restricted_jurisdiction ?? payload.restrictedJurisdiction
+);
+
+const manualReviewRequired = toTruthyBoolean(
+profile.manual_review_required ??
+profile.manualReviewRequired ??
+payload.manual_review_required ??
+payload.manualReviewRequired
+);
+
+const manualReviewReason = cleanString(
+profile.manual_review_reason ??
+profile.manualReviewReason ??
+payload.manual_review_reason ??
+payload.manualReviewReason,
+500
+);
+
+const transactionalAccess = toTruthyBoolean(
+payload.transactional_access ??
+payload.transactionalAccess ??
+payload.allowed ??
+payload.is_allowed ??
+payload.can_trade ??
+payload.canTrade
+);
+
+const gateEnabled =
+mode === "builder" ? builderGateEnabled : participantGateEnabled;
+
+let allowed = !gateEnabled;
+
+if (gateEnabled) {
+if (restrictedJurisdiction || manualReviewRequired) {
+allowed = false;
+} else if (
+payload.allowed === false ||
+payload.is_allowed === false ||
+payload.transactional_access === false ||
+payload.transactionalAccess === false ||
+payload.can_trade === false ||
+payload.canTrade === false
+) {
+allowed = false;
+} else {
+allowed = transactionalAccess || status === "approved";
+}
+}
+
+return {
+...payload,
+profile,
+wallet: cleanString(payload.wallet, 120) || cleanString(wallet, 120),
+mode,
+status,
+builder_gate_enabled: builderGateEnabled,
+participant_gate_enabled: participantGateEnabled,
+restricted_jurisdiction: restrictedJurisdiction,
+transactional_access: transactionalAccess,
+allowed,
+gate_enabled: gateEnabled,
+manual_review_required: manualReviewRequired,
+manual_review_reason: manualReviewReason,
+};
+}
+
+function getCurrentParticipantCompliancePayload() {
+return currentParticipantCompliance?.payload || null;
+}
+
+function isParticipantComplianceApproved(payload = null) {
+const statusPayload = payload || getCurrentParticipantCompliancePayload();
+if (!statusPayload) return false;
+
+const gateEnabled = Boolean(
+statusPayload.participant_gate_enabled ||
+statusPayload.requires_participant_approval
+);
+
+if (!gateEnabled) {
+return true;
+}
+
+if (statusPayload.restricted_jurisdiction) {
+return false;
+}
+
+if (
+statusPayload.manual_review_required ||
+statusPayload.profile?.manual_review_required
+) {
+return false;
+}
+
+if (
+statusPayload.allowed === false ||
+statusPayload.transactional_access === false
+) {
+return false;
+}
+
+return (
+String(statusPayload.status || "").toLowerCase() === "approved" ||
+Boolean(statusPayload.allowed || statusPayload.transactional_access)
+);
+}
+
+function getParticipantComplianceMessage(payload = null) {
+const statusPayload = payload || getCurrentParticipantCompliancePayload();
+
+if (!statusPayload) {
+return "Participant verification is required before committing to launches.";
+}
+
+const gateEnabled = Boolean(
+statusPayload.participant_gate_enabled ||
+statusPayload.requires_participant_approval
+);
+
+if (!gateEnabled) {
+return "Participant verification gate is currently disabled.";
+}
+
+if (statusPayload.restricted_jurisdiction) {
+return "Participant access is restricted for the current jurisdiction.";
+}
+
+if (
+statusPayload.manual_review_required ||
+statusPayload.profile?.manual_review_required
+) {
+return (
+statusPayload.manual_review_reason ||
+statusPayload.profile?.manual_review_reason ||
+"Participant profile is in manual review."
+);
+}
+
+const status = String(statusPayload.status || "").toLowerCase();
+
+if (status === "approved") {
+return "Participant verification approved. Commit access is enabled.";
+}
+
+if (status === "pending") {
+return "Participant verification is pending review before commit access can proceed.";
+}
+
+if (status === "rejected") {
+return "Participant verification was rejected. Review the compliance profile before trying again.";
+}
+
+if (status === "restricted") {
+return "Participant profile is currently restricted from committing to launches.";
+}
+
+return "Complete participant verification before committing to launches.";
+}
+
+function renderParticipantComplianceUi(payload = null) {
+const card = $("participantComplianceCard");
+const pill = $("participantCompliancePill");
+const copy = $("participantComplianceCopy");
+const meta = $("participantComplianceMeta");
+const action = $("participantComplianceAction");
+
+if (!card && !pill && !copy && !meta && !action) {
+return;
+}
+
+const wallet = cleanString(payload?.wallet, 120) || getConnectedPublicKey() || "";
+const gateEnabled = Boolean(
+payload?.participant_gate_enabled || payload?.requires_participant_approval
+);
+const approved = isParticipantComplianceApproved(payload);
+const message = getParticipantComplianceMessage(payload);
+const status = cleanString(payload?.status, 40).toLowerCase();
+
+let pillText = "Verification Required";
+let pillClass = "warn";
+
+if (!gateEnabled) {
+pillText = "Verification Optional";
+pillClass = "good";
+} else if (approved) {
+pillText = "Approved";
+pillClass = "good";
+} else if (status === "pending") {
+pillText = "Pending Review";
+pillClass = "warn";
+} else if (status === "rejected" || status === "restricted") {
+pillText = status === "restricted" ? "Restricted" : "Rejected";
+pillClass = "bad";
+}
+
+if (card) {
+const shouldShow = Boolean(wallet || gateEnabled || payload);
+card.classList.toggle("hidden", !shouldShow);
+card.classList.toggle("show", shouldShow);
+}
+
+if (pill) {
+pill.className = `status-pill ${pillClass}`;
+pill.textContent = pillText;
+}
+
+if (copy) {
+copy.textContent = message;
+}
+
+if (meta) {
+const country = cleanString(payload?.profile?.country_code, 20).toUpperCase();
+const risk = cleanString(payload?.profile?.risk_rating, 40) || "low";
+const parts = [];
+
+if (country) parts.push(`Country: ${country}`);
+if (risk) parts.push(`Risk: ${risk}`);
+if (gateEnabled) {
+parts.push(`Access: ${approved ? "Allowed" : "Blocked"}`);
+} else {
+parts.push("Access: Open");
+}
+
+meta.textContent = parts.join(" • ");
+}
+
+if (action) {
+action.href = buildCompliancePageUrl(wallet, "participant");
+action.textContent = approved
+? "Review Compliance Profile"
+: "Complete Participant Verification";
+action.style.display = gateEnabled || wallet ? "" : "none";
+}
+}
+
+async function fetchParticipantComplianceStatus(wallet, { silent = false } = {}) {
+const normalizedWallet = cleanString(wallet, 120);
+if (!normalizedWallet) {
+currentParticipantCompliance = {
+wallet: "",
+payload: null,
+};
+renderParticipantComplianceUi(null);
+return null;
+}
+
+const data = await fetchJson(
+`/api/compliance/status?wallet=${encodeURIComponent(
+normalizedWallet
+)}&mode=participant`
+);
+
+const payload = normalizeComplianceStatusPayload(data, {
+wallet: normalizedWallet,
+mode: "participant",
+});
+
+currentParticipantCompliance = {
+wallet: normalizedWallet,
+payload,
+};
+
+renderParticipantComplianceUi(payload);
+
+if (!silent) {
+if (isParticipantComplianceApproved(payload)) {
+setStatus(getParticipantComplianceMessage(payload), "good");
+} else if (
+payload.participant_gate_enabled ||
+payload.requires_participant_approval
+) {
+setStatus(getParticipantComplianceMessage(payload), "warn");
+}
+}
+
+return payload;
+}
+
+async function refreshParticipantComplianceStatus({ silent = false } = {}) {
+const wallet = getConnectedPublicKey() || $("commitWallet")?.value?.trim() || "";
+
+if (!wallet) {
+currentParticipantCompliance = {
+wallet: "",
+payload: null,
+};
+renderParticipantComplianceUi(null);
+return null;
+}
+
+if (participantComplianceRefreshInFlight) {
+return currentParticipantCompliance?.payload || null;
+}
+
+participantComplianceRefreshInFlight = true;
+
+try {
+return await fetchParticipantComplianceStatus(wallet, { silent });
+} catch (err) {
+if (!silent) {
+setStatus(
+err?.message || "Unable to load participant compliance status.",
+"bad"
+);
+}
+throw err;
+} finally {
+participantComplianceRefreshInFlight = false;
+}
+}
+
+async function requireApprovedParticipantCompliance(
+wallet,
+{ redirect = false } = {}
+) {
+const normalizedWallet = cleanString(wallet, 120);
+
+const payload =
+currentParticipantCompliance.wallet === normalizedWallet &&
+currentParticipantCompliance.payload
+? currentParticipantCompliance.payload
+: await fetchParticipantComplianceStatus(normalizedWallet, {
+silent: true,
+});
+
+if (isParticipantComplianceApproved(payload)) {
+return payload;
+}
+
+const message = getParticipantComplianceMessage(payload);
+renderParticipantComplianceUi(payload);
+setStatus(`${message} Open the compliance page to continue.`, "warn");
+
+if (redirect) {
+window.setTimeout(() => {
+window.location.href = buildCompliancePageUrl(normalizedWallet, "participant");
+}, 800);
+}
+
+throw new Error(message);
 }
 
 function getBuilderBondState(launch, stats) {
@@ -1643,11 +2027,6 @@ return parts.join(" • ");
 
 function renderOverviewPanels(launch, stats, lifecycle) {
 const status = getDisplayPhaseStatus(launch, stats, lifecycle);
-const trustScore = pickFiniteNumber(
-launch.builder_trust_score,
-launch.builder_score,
-launch.trust_score
-);
 const builderAlias = choosePreferredString(
 launch.builder_alias,
 launch.builder_name,
@@ -1782,8 +2161,10 @@ const now = Date.now();
 
 const remainingToMin = Math.max(0, safeNum(minRaise, 0) - safeNum(committed, 0));
 const remainingToHardCap = Math.max(0, safeNum(hardCap, 0) - safeNum(committed, 0));
-const minMet = safeNum(committed, 0) >= safeNum(minRaise, 0) && safeNum(minRaise, 0) > 0;
-const hardCapMet = safeNum(committed, 0) >= safeNum(hardCap, 0) && safeNum(hardCap, 0) > 0;
+const minMet =
+safeNum(committed, 0) >= safeNum(minRaise, 0) && safeNum(minRaise, 0) > 0;
+const hardCapMet =
+safeNum(committed, 0) >= safeNum(hardCap, 0) && safeNum(hardCap, 0) > 0;
 
 let primaryCountdownLabel = "Commit ends in";
 let primaryCountdownValue = Number.isFinite(commitEndsAt)
@@ -1975,29 +2356,14 @@ setHiddenByIds(["contractAddressRow"], !caVisible);
 setTextByIds(["phasePillMirror"], phaseDisplayText(status));
 }
 
-function renderCommandSurfaceMeta(launch) {
-const builderAlias = choosePreferredString(
-launch.builder_alias,
-launch.builder_name,
-"MSS Builder"
-);
-const trustScore = pickFiniteNumber(
-launch.builder_trust_score,
-launch.builder_score,
-launch.trust_score
-);
-
-setTextByIds(["launchCommandBuilder"], builderAlias);
-setTextByIds(
-["launchCommandScore"],
-trustScore > 0 ? String(Math.round(trustScore)) : "—"
-);
-}
-
 let currentLaunch = null;
 let currentCommitStats = null;
 let currentLifecycle = null;
 let currentGraduationPlan = null;
+let currentParticipantCompliance = {
+wallet: "",
+payload: null,
+};
 let refreshIntervalId = null;
 let renderIntervalId = null;
 let lifecycleRefreshIntervalId = null;
@@ -2007,6 +2373,7 @@ let refundActionInFlight = false;
 let walletActionInFlight = false;
 let refreshInFlight = false;
 let lifecycleRefreshInFlight = false;
+let participantComplianceRefreshInFlight = false;
 let launchMarketController = null;
 let lastRenderedPhaseStatus = "";
 let countdownRefreshRequested = false;
@@ -2243,15 +2610,25 @@ document.querySelectorAll(".quick button[data-amount]")
 const stateInfo = getLaunchStateMessage(launch, stats, lifecycle);
 
 const rawStatus = getDisplayPhaseStatus(launch, stats, lifecycle);
-const commitOpen = canCommitForStatus(rawStatus);
 const refundOpen = canRefundForStatus(rawStatus);
+
+const compliancePayload = getCurrentParticipantCompliancePayload();
+const participantGateEnabled = Boolean(
+compliancePayload?.participant_gate_enabled ||
+compliancePayload?.requires_participant_approval
+);
+const participantApproved = isParticipantComplianceApproved(compliancePayload);
+const participantBlocked = rawStatus === "commit" && participantGateEnabled && !participantApproved;
+const commitOpen = canCommitForStatus(rawStatus) && !participantBlocked;
 const refundOnly = rawStatus === "failed";
 
-if (commitForm) commitForm.style.display = commitOpen || refundOpen ? "" : "none";
-if (walletField) walletField.style.display = commitOpen || refundOpen ? "" : "none";
+const shouldShowForm = commitOpen || refundOpen || participantBlocked;
+
+if (commitForm) commitForm.style.display = shouldShowForm ? "" : "none";
+if (walletField) walletField.style.display = shouldShowForm ? "" : "none";
 if (amountField) amountField.style.display = commitOpen ? "" : "none";
 if (quickWrap) quickWrap.style.display = commitOpen ? "" : "none";
-if (actionStack) actionStack.style.display = commitOpen || refundOpen ? "" : "none";
+if (actionStack) actionStack.style.display = shouldShowForm ? "" : "none";
 
 if (commitBtn) {
 commitBtn.style.display = commitOpen ? "inline-flex" : "none";
@@ -2267,13 +2644,21 @@ if (amountInput) {
 amountInput.disabled = !commitOpen || commitActionInFlight;
 amountInput.setAttribute(
 "placeholder",
-commitOpen ? "0.50" : badgeText(rawStatus)
+commitOpen ? "0.50" : participantBlocked ? "Verification required" : badgeText(rawStatus)
 );
 }
 
 quickButtons.forEach((btn) => {
 btn.disabled = !commitOpen || commitActionInFlight;
 });
+
+if (participantBlocked) {
+setStatus(getParticipantComplianceMessage(compliancePayload), "warn", {
+auto: true,
+preserveManual: true,
+});
+return;
+}
 
 if (refundOnly) {
 setStatus(
@@ -2299,6 +2684,7 @@ const id = qs("id");
 if (!id || !$("marketCard")) return;
 
 const connectedWallet = getConnectedPublicKey() || "";
+const participantCompliance = getCurrentParticipantCompliancePayload();
 
 if (!launchMarketController) {
 launchMarketController = await initLaunchMarket({
@@ -2308,6 +2694,12 @@ launch: currentLaunch || null,
 commitStats: currentCommitStats || {},
 saveLinks: defaultSaveLinksWithWallet,
 });
+
+launchMarketController.participantCompliance = participantCompliance;
+
+if (typeof launchMarketController.setComplianceState === "function") {
+launchMarketController.setComplianceState(participantCompliance);
+}
 
 if (
 mode === "hard" &&
@@ -2329,6 +2721,11 @@ launchMarketController.connectedWallet = connectedWallet;
 }
 
 launchMarketController.saveLinks = defaultSaveLinksWithWallet;
+launchMarketController.participantCompliance = participantCompliance;
+
+if (typeof launchMarketController.setComplianceState === "function") {
+launchMarketController.setComplianceState(participantCompliance);
+}
 
 const controllerPhaseBefore = launchMarketController.phase || "";
 const localPhaseNow = getDisplayPhaseStatus(
@@ -2436,6 +2833,7 @@ stats,
 lifecycle
 );
 renderRecent(stats.recent || []);
+renderParticipantComplianceUi(getCurrentParticipantCompliancePayload());
 updateWalletUi();
 renderActionPanelState(launch, stats, lifecycle);
 
@@ -2546,7 +2944,25 @@ const wallet = await connectAnyWallet();
 updateWalletUi();
 
 if (wallet?.isConnected) {
+try {
+await refreshParticipantComplianceStatus({ silent: true });
+} catch (complianceErr) {
+console.error(complianceErr);
+}
+
+const compliancePayload = getCurrentParticipantCompliancePayload();
+
+if (
+compliancePayload &&
+(compliancePayload.participant_gate_enabled ||
+compliancePayload.requires_participant_approval) &&
+!isParticipantComplianceApproved(compliancePayload)
+) {
+setStatus(getParticipantComplianceMessage(compliancePayload), "warn");
+} else {
 setStatus(`Wallet connected: ${shortenWallet(wallet.publicKey)}`, "good");
+}
+
 await syncLaunchMarketController("hard");
 return;
 }
@@ -2579,6 +2995,11 @@ await disconnectAnyWallet();
 // no-op
 } finally {
 walletActionInFlight = false;
+currentParticipantCompliance = {
+wallet: "",
+payload: null,
+};
+renderParticipantComplianceUi(null);
 updateWalletUi();
 
 if (currentLaunch && currentCommitStats) render();
@@ -2661,6 +3082,8 @@ const stateInfo = getLaunchStateMessage(launch, stats, currentLifecycle);
 setStatus(stateInfo.message, stateInfo.kind);
 return;
 }
+
+await requireApprovedParticipantCompliance(wallet, { redirect: true });
 
 setStatus("Preparing secure commit request…", "warn");
 
@@ -2891,6 +3314,18 @@ setStatus(err?.message || "Copy failed.", "bad");
 }
 });
 }
+
+const participantComplianceAction = $("participantComplianceAction");
+if (
+participantComplianceAction &&
+participantComplianceAction.dataset.bound !== "1"
+) {
+participantComplianceAction.dataset.bound = "1";
+participantComplianceAction.addEventListener("click", (event) => {
+const wallet = getConnectedPublicKey() || "";
+event.currentTarget.href = buildCompliancePageUrl(wallet, "participant");
+});
+}
 }
 
 function bindWalletEvents() {
@@ -2903,6 +3338,12 @@ walletChangeBound = true;
 
 onWalletChange(async () => {
 updateWalletUi();
+
+try {
+await refreshParticipantComplianceStatus({ silent: true });
+} catch (err) {
+console.error(err);
+}
 
 if (currentLaunch && currentCommitStats) render();
 
@@ -3074,6 +3515,12 @@ refundBtn.addEventListener("click", refundCommit);
 
 await restoreWalletIfTrusted();
 updateWalletUi();
+
+try {
+await refreshParticipantComplianceStatus({ silent: true });
+} catch (err) {
+console.error(err);
+}
 
 try {
 await refresh({ marketSyncMode: "hard", syncLifecycle: true });

@@ -6,12 +6,12 @@
 <title>MSS Protocol — Create Launch</title>
 <meta
 name="description"
-content="Create a security-first MSS launch with locked template rules, required launch bond, builder controls, team wallet visibility, and structured lifecycle flow."
+content="Create a security-first MSS launch with locked template rules, required launch bond, builder controls, team wallet visibility, structured lifecycle flow, and builder verification gating."
 />
 
 <link rel="stylesheet" href="./assets/app.css?v=7" />
 <link rel="modulepreload" href="./assets/layout-shell.js" />
-<link rel="modulepreload" href="./assets/pages/launch-create.js?v=7" />
+<link rel="modulepreload" href="./assets/pages/launch-create.js?v=8" />
 
 <style>
 .create-launch-page{
@@ -476,6 +476,103 @@ background:rgba(229,193,115,.08);
 color:rgba(255,249,232,.96);
 }
 
+.create-launch-page .builder-compliance-card{
+display:none;
+margin-top:14px;
+padding:16px;
+border-radius:18px;
+border:1px solid rgba(74,165,255,.18);
+background:
+radial-gradient(circle at 0% 0%, rgba(21,156,255,.08), transparent 36%),
+linear-gradient(180deg, rgba(21,156,255,.055), rgba(255,255,255,.028));
+box-shadow:
+inset 0 1px 0 rgba(255,255,255,.03),
+0 0 18px rgba(21,156,255,.04);
+}
+
+.create-launch-page .builder-compliance-card.show{
+display:block;
+}
+
+.create-launch-page .builder-compliance-head{
+display:flex;
+align-items:flex-start;
+justify-content:space-between;
+gap:14px;
+flex-wrap:wrap;
+margin-bottom:10px;
+}
+
+.create-launch-page .builder-compliance-title{
+margin:0 0 6px;
+font-size:13px;
+font-weight:900;
+letter-spacing:.12em;
+text-transform:uppercase;
+color:#fff;
+}
+
+.create-launch-page .builder-compliance-copy{
+color:var(--muted);
+font-size:13px;
+line-height:1.65;
+margin:0;
+}
+
+.create-launch-page .builder-compliance-meta{
+margin-top:10px;
+color:rgba(244,248,255,.74);
+font-size:12px;
+line-height:1.6;
+}
+
+.create-launch-page .status-pill{
+display:inline-flex;
+align-items:center;
+justify-content:center;
+min-height:34px;
+padding:0 12px;
+border-radius:999px;
+font-size:11px;
+font-weight:900;
+letter-spacing:.16em;
+text-transform:uppercase;
+border:1px solid rgba(255,255,255,.10);
+background:rgba(255,255,255,.04);
+color:rgba(255,255,255,.92);
+white-space:nowrap;
+box-shadow:inset 0 1px 0 rgba(255,255,255,.04);
+}
+
+.create-launch-page .status-pill.good{
+border-color:rgba(53,245,163,.22);
+background:rgba(53,245,163,.10);
+color:rgba(230,255,242,.96);
+}
+
+.create-launch-page .status-pill.warn{
+border-color:rgba(229,193,115,.22);
+background:rgba(229,193,115,.10);
+color:rgba(255,249,232,.96);
+}
+
+.create-launch-page .status-pill.bad{
+border-color:rgba(255,91,107,.22);
+background:rgba(255,91,107,.10);
+color:rgba(255,232,236,.96);
+}
+
+.create-launch-page .builder-compliance-actions{
+display:flex;
+flex-wrap:wrap;
+gap:10px;
+margin-top:14px;
+}
+
+.create-launch-page .builder-compliance-actions .btn{
+min-height:42px;
+}
+
 .create-launch-page .preview{
 display:grid;
 gap:14px;
@@ -770,6 +867,19 @@ align-items:stretch;
 .create-launch-page .wallet-row .btn{
 width:100%;
 }
+
+.create-launch-page .builder-compliance-head{
+flex-direction:column;
+align-items:flex-start;
+}
+
+.create-launch-page .builder-compliance-actions{
+flex-direction:column;
+}
+
+.create-launch-page .builder-compliance-actions .btn{
+width:100%;
+}
 }
 </style>
 </head>
@@ -801,6 +911,7 @@ Template economics are fixed by MSS. All launches use a required launch bond. Bu
 <span class="chip">0.5% Max Wallet Starts</span>
 <span class="chip">Participant Tokens Unlock At Live</span>
 <span class="chip">Launch Bond Required</span>
+<span class="chip">Builder Verification Gate</span>
 </div>
 
 <div id="builderModeHighlight" class="builder-highlight">
@@ -809,7 +920,7 @@ Template economics are fixed by MSS. All launches use a required launch bond. Bu
 Builder launches use MSS-approved 1B supply, visible team wallet breakdowns, capped team allocation, selectable hard-cap tiers of 250 / 500 / 750 / 1000 SOL, and locked soft-cap mapping of 200 / 300 / 400 / 500 SOL. Reserve adjusts automatically against team allocation.
 </div>
 <div class="builder-bond-note">
-Every template uses a required launch bond. Builder launches also expose additional structured controls while staying inside the locked MSS template system.
+Every template uses a required launch bond. Builder launches also require builder verification before launch creation remains available.
 </div>
 </div>
 </section>
@@ -817,7 +928,7 @@ Every template uses a required launch bond. Builder launches also expose additio
 <aside class="create-hero-side">
 <div class="hero-stat">
 <div class="k">Wallet & Identity</div>
-<div class="v">Connect Phantom, Solflare, or Backpack to create from your builder wallet.</div>
+<div class="v">Connect Phantom, Solflare, or Backpack to create from your builder wallet and load builder verification status.</div>
 </div>
 
 <div class="hero-stat">
@@ -854,6 +965,32 @@ autocomplete="off"
 readonly
 />
 <div id="walletHint" class="hint">Use Connect Wallet to choose Phantom, Solflare, or Backpack.</div>
+
+<div id="builderComplianceCard" class="builder-compliance-card">
+<div class="builder-compliance-head">
+<div>
+<div class="builder-compliance-title">Builder Verification</div>
+<p id="builderComplianceCopy" class="builder-compliance-copy">
+Builder verification status will load once a wallet is connected.
+</p>
+</div>
+<div id="builderCompliancePill" class="status-pill warn">Verification Required</div>
+</div>
+
+<div id="builderComplianceMeta" class="builder-compliance-meta">
+Access: Blocked
+</div>
+
+<div class="builder-compliance-actions">
+<a
+id="builderComplianceAction"
+class="btn"
+href="./compliance.html?mode=builder"
+>
+Complete Builder Verification
+</a>
+</div>
+</div>
 </div>
 
 <div class="field">
@@ -1082,6 +1219,10 @@ readonly
 <div class="title">Launch Bond</div>
 <div class="copy">Every launch uses a required bond based on template soft cap. Builder launches keep the same bond rule while adding structured controls.</div>
 </div>
+<div class="mini-item">
+<div class="title">Verification Gate</div>
+<div class="copy">Builder launch creation can be gated until the connected wallet reaches approved verification status.</div>
+</div>
 </div>
 </section>
 </aside>
@@ -1120,7 +1261,7 @@ console.error("Shared shell mount failed:", err);
 await mountSharedShell();
 </script>
 
-<script type="module" src="./assets/pages/launch-create.js?v=7"></script>
+<script type="module" src="./assets/pages/launch-create.js?v=8"></script>
 <script src="/assets/devnet-access-gate.js?v=7"></script>
 </body>
 </html>

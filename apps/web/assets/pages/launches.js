@@ -13,6 +13,7 @@ const LAUNCHPAD_INIT_KEY = "__mssLaunchpadInit_v3";
 const RECENT_CACHE = new Map();
 const RECENT_CACHE_TTL_MS = 15000;
 const RECENT_FETCH_LIMIT = 12;
+const COMPLIANCE_CACHE_TTL_MS = 30000;
 
 let ALL_LAUNCHES = [];
 let HISTORY_LAUNCHES = [];
@@ -22,6 +23,19 @@ let loadLaunchesInFlight = false;
 let quickCommitInFlight = false;
 let liveTimerIntervalId = null;
 let fullRefreshIntervalId = null;
+
+let WALLET_COMPLIANCE_STATE = {
+wallet: "",
+checked: false,
+checkedAt: 0,
+loading: false,
+eligible: null,
+blocked: false,
+pending: false,
+status: "unknown",
+message: "",
+raw: null,
+};
 
 function $(id) {
 return document.getElementById(id);
@@ -145,6 +159,40 @@ if (cleaned) return cleaned;
 }
 
 return "";
+}
+
+function firstDefined(...values) {
+for (const value of values) {
+if (value !== undefined && value !== null && value !== "") {
+return value;
+}
+}
+return null;
+}
+
+function isTrueLike(value) {
+if (value === true || value === 1) return true;
+const raw = String(value ?? "").trim().toLowerCase();
+return (
+raw === "true" ||
+raw === "1" ||
+raw === "yes" ||
+raw === "approved" ||
+raw === "allow"
+);
+}
+
+function isFalseLike(value) {
+if (value === false || value === 0) return true;
+const raw = String(value ?? "").trim().toLowerCase();
+return (
+raw === "false" ||
+raw === "0" ||
+raw === "no" ||
+raw === "blocked" ||
+raw === "deny" ||
+raw === "denied"
+);
 }
 
 function normalizeLaunchStatus(status) {
@@ -576,6 +624,63 @@ out.push(
 return out.join("");
 }
 
+function getLaunchComplianceBadges(launch) {
+const chips = [];
+
+const participantComplianceRequired =
+isTrueLike(
+firstDefined(
+launch.participant_compliance_required,
+launch.requires_participant_compliance,
+launch.compliance_required,
+launch.participant_eligibility_required,
+launch.eligibility_required
+)
+);
+
+const identityCheckRequired =
+isTrueLike(
+firstDefined(
+launch.kyc_required,
+launch.kyb_required,
+launch.identity_required,
+launch.compliance_identity_required
+)
+);
+
+const jurisdictionRules =
+isTrueLike(
+firstDefined(
+launch.jurisdiction_restricted,
+launch.geo_restricted,
+launch.region_restricted,
+launch.country_rules_enabled
+)
+) ||
+safeNum(
+firstDefined(
+launch.restricted_jurisdictions_count,
+launch.restrictedJurisdictionsCount,
+launch.country_rule_count
+),
+0
+) > 0;
+
+if (participantComplianceRequired) {
+chips.push(`<span class="small-chip">Compliance Required</span>`);
+}
+
+if (identityCheckRequired) {
+chips.push(`<span class="small-chip">Identity Rules</span>`);
+}
+
+if (jurisdictionRules) {
+chips.push(`<span class="small-chip">Jurisdiction Rules</span>`);
+}
+
+return chips.join("");
+}
+
 function getSafeguardsHtml(launch) {
 const safeguards = [
 "Min Raise Enforced",
@@ -694,6 +799,31 @@ return `<div class="feed-line"><span>${escapeHtml(wallet)} committed</span><span
 .join("");
 }
 
+function getComplianceQuickCommitCopy() {
+const walletState = getConnectedWallet();
+if (!walletState?.isConnected) {
+return "Connect wallet to enable quick commit.";
+}
+
+if (WALLET_COMPLIANCE_STATE.loading) {
+return "Checking participant compliance status...";
+}
+
+if (WALLET_COMPLIANCE_STATE.blocked) {
+return WALLET_COMPLIANCE_STATE.message || "Participant compliance approval is required before commit.";
+}
+
+if (WALLET_COMPLIANCE_STATE.pending) {
+return WALLET_COMPLIANCE_STATE.message || "Participant compliance review is still pending.";
+}
+
+if (WALLET_COMPLIANCE_STATE.eligible === true) {
+return "Participant compliance clear. Quick commit available.";
+}
+
+return "Quick commit will run a participant compliance precheck before commit.";
+}
+
 function buildQuickButtons(launch) {
 if (!isQuickCommitPhase(launch?.status)) {
 return "";
@@ -718,6 +848,10 @@ const buttons = buildQuickButtons(launch);
 
 if (!buttons) return "";
 
+const helperCopy = walletConnected
+? getComplianceQuickCommitCopy()
+: "Connect wallet to enable quick commit.";
+
 if (featured) {
 return `
 <div class="featured-quick-shell">
@@ -726,7 +860,7 @@ return `
 ${buttons}
 </div>
 <div style="margin-top:10px;font-size:12px;color:rgba(255,255,255,.62);">
-${walletConnected ? "Connected wallet can commit directly into the featured launch." : "Connect wallet to enable featured quick commit."}
+${escapeHtml(helperCopy)}
 </div>
 </div>
 `;
@@ -738,7 +872,7 @@ return `
 ${buttons}
 </div>
 <div style="font-size:12px;color:rgba(255,255,255,.62);">
-${walletConnected ? "Quick commit enabled" : "Connect wallet to commit"}
+${escapeHtml(helperCopy)}
 </div>
 `;
 }
@@ -750,7 +884,7 @@ return `
 ${buttons}
 </div>
 <div style="margin-top:8px;font-size:12px;color:rgba(255,255,255,.62);">
-${walletConnected ? "Connected wallet can quick commit from this card." : "Connect wallet to enable quick commit."}
+${escapeHtml(helperCopy)}
 </div>
 </div>
 `;
@@ -782,6 +916,8 @@ const softCapPercent = getSoftCapPercent(launch);
 const timing = getTimingMeta(launch);
 const stateNote = getLaunchStateNote(launch);
 const momentumScore = Math.round(trendingScore(launch));
+const controlBadges = getLaunchControlBadges(launch);
+const complianceBadges = getLaunchComplianceBadges(launch);
 
 const builderHtml = builderWallet
 ? `<a href="./builder.html?wallet=${encodeURIComponent(builderWallet)}" style="color:rgba(255,255,255,.92);text-decoration:none;">${builderName}</a>`
@@ -804,7 +940,7 @@ ${getLogoHtml(launch)}
 <span>${escapeHtml(stateNote)}</span>
 </div>
 
-<div class="builder-badges">${getLaunchControlBadges(launch)}</div>
+<div class="builder-badges">${controlBadges}${complianceBadges}</div>
 ${getSafeguardsHtml(launch)}
 
 <div class="kv">
@@ -892,6 +1028,8 @@ const percent = clamp(getCommitPercent(launch), 0, 100);
 const timing = getTimingMeta(launch);
 const momentumScore = Math.round(trendingScore(launch));
 const stateNote = getLaunchStateNote(launch);
+const controlBadges = getLaunchControlBadges(launch);
+const complianceBadges = getLaunchComplianceBadges(launch);
 
 const builderHtml = builderWallet
 ? `<a href="./builder.html?wallet=${encodeURIComponent(builderWallet)}" style="color:rgba(255,255,255,.92);text-decoration:none;">${builderName}</a>`
@@ -912,7 +1050,7 @@ ${builderHtml} • Score ${builderScore} • ${trust.label}
 <div style="margin-top:8px;font-size:12px;color:rgba(255,255,255,.62);line-height:1.5;">
 ${escapeHtml(stateNote)}
 </div>
-<div class="builder-badges" style="margin-top:10px;">${getLaunchControlBadges(launch)}</div>
+<div class="builder-badges" style="margin-top:10px;">${controlBadges}${complianceBadges}</div>
 <div style="margin-top:10px;">${getSafeguardsHtml(launch)}</div>
 </div>
 </div>
@@ -1128,6 +1266,8 @@ const percent = clamp(getCommitPercent(featured), 0, 100);
 const timing = getTimingMeta(featured);
 const stateNote = getLaunchStateNote(featured);
 const momentumScore = Math.round(trendingScore(featured));
+const controlBadges = getLaunchControlBadges(featured);
+const complianceBadges = getLaunchComplianceBadges(featured);
 
 const builderHtml = builderWallet
 ? `<a href="./builder.html?wallet=${encodeURIComponent(builderWallet)}" style="color:rgba(255,255,255,.92);text-decoration:none;">${builderName}</a>`
@@ -1154,7 +1294,7 @@ ${builderHtml} • Score ${builderScore} • ${trust.label}
 ${escapeHtml(stateNote)}
 </div>
 
-<div class="builder-badges">${getLaunchControlBadges(featured)}</div>
+<div class="builder-badges">${controlBadges}${complianceBadges}</div>
 ${getSafeguardsHtml(featured)}
 
 <div class="progress-wrap">
@@ -1220,6 +1360,516 @@ return;
 
 el.className = `status-banner show ${kind}`;
 el.textContent = message;
+}
+
+function setCompliancePill({ show = false, kind = "warn", text = "" } = {}) {
+const el = $("lpCompliancePill");
+if (!el) return;
+
+el.className = "compliance-pill";
+
+if (!show || !text) {
+el.classList.add("hidden");
+el.textContent = "";
+return;
+}
+
+el.classList.remove("hidden");
+el.classList.add("show", kind);
+el.textContent = text;
+}
+
+function setComplianceBannerState({
+show = false,
+kind = "info",
+kicker = "Compliance",
+title = "",
+body = "",
+meta = "",
+showAction = false,
+actionLabel = "Open Compliance",
+actionHref = "./compliance.html",
+} = {}) {
+const section = $("launchComplianceBanner");
+const kickerEl = $("launchComplianceBannerKicker");
+const titleEl = $("launchComplianceBannerTitle");
+const bodyEl = $("launchComplianceBannerBody");
+const metaEl = $("launchComplianceBannerMeta");
+const actionEl = $("launchComplianceBannerAction");
+
+if (!section) return;
+
+section.className = "compliance-banner";
+
+if (!show) {
+section.classList.add("hidden");
+if (kickerEl) kickerEl.textContent = "Compliance";
+if (titleEl) titleEl.textContent = "Compliance status unavailable.";
+if (bodyEl) bodyEl.textContent = "";
+if (metaEl) metaEl.textContent = "";
+if (actionEl) {
+actionEl.style.display = "none";
+actionEl.textContent = "Open Compliance";
+actionEl.href = "./compliance.html";
+}
+return;
+}
+
+section.classList.remove("hidden");
+section.classList.add("show", kind);
+
+if (kickerEl) kickerEl.textContent = kicker;
+if (titleEl) titleEl.textContent = title;
+if (bodyEl) bodyEl.textContent = body;
+if (metaEl) metaEl.textContent = meta;
+
+if (actionEl) {
+if (showAction) {
+actionEl.style.display = "inline-flex";
+actionEl.textContent = actionLabel || "Open Compliance";
+actionEl.href = actionHref || "./compliance.html";
+} else {
+actionEl.style.display = "none";
+actionEl.textContent = "Open Compliance";
+actionEl.href = "./compliance.html";
+}
+}
+}
+
+function buildComplianceUiModel() {
+const wallet = cleanText(getConnectedPublicKey(), 120);
+const shortWallet = shortenWallet(wallet);
+const complianceHref = wallet
+? `./compliance.html?wallet=${encodeURIComponent(wallet)}`
+: "./compliance.html";
+
+if (!wallet) {
+return {
+pill: {
+show: false,
+kind: "warn",
+text: "",
+},
+banner: {
+show: true,
+kind: "info",
+kicker: "Participant Compliance",
+title: "Connect wallet to check launchpad eligibility",
+body: "Launchpad quick commit and compliance-gated participation require a connected wallet. Connect Phantom, Solflare, or Backpack to run the participant precheck.",
+meta: "Surface: Launchpad",
+showAction: true,
+actionLabel: "Open Compliance",
+actionHref: complianceHref,
+},
+};
+}
+
+if (
+WALLET_COMPLIANCE_STATE.loading ||
+(WALLET_COMPLIANCE_STATE.wallet && WALLET_COMPLIANCE_STATE.wallet !== wallet)
+) {
+return {
+pill: {
+show: true,
+kind: "warn",
+text: "Compliance Checking",
+},
+banner: {
+show: true,
+kind: "info",
+kicker: "Participant Compliance",
+title: "Checking participant compliance status",
+body: "MSS is verifying launchpad participation eligibility for the connected wallet.",
+meta: `Wallet: ${shortWallet}`,
+showAction: false,
+actionLabel: "",
+actionHref: complianceHref,
+},
+};
+}
+
+if (WALLET_COMPLIANCE_STATE.blocked) {
+return {
+pill: {
+show: true,
+kind: "bad",
+text: "Compliance Blocked",
+},
+banner: {
+show: true,
+kind: "bad",
+kicker: "Participant Compliance",
+title: "Launchpad participation is blocked",
+body:
+WALLET_COMPLIANCE_STATE.message ||
+"Participant compliance approval is required before committing.",
+meta: `Wallet: ${shortWallet}`,
+showAction: true,
+actionLabel: "Open Compliance",
+actionHref: complianceHref,
+},
+};
+}
+
+if (WALLET_COMPLIANCE_STATE.pending) {
+return {
+pill: {
+show: true,
+kind: "warn",
+text: "Compliance Pending",
+},
+banner: {
+show: true,
+kind: "warn",
+kicker: "Participant Compliance",
+title: "Compliance review is still pending",
+body:
+WALLET_COMPLIANCE_STATE.message ||
+"Participant compliance review is still pending.",
+meta: `Wallet: ${shortWallet}`,
+showAction: true,
+actionLabel: "Open Compliance",
+actionHref: complianceHref,
+},
+};
+}
+
+if (WALLET_COMPLIANCE_STATE.eligible === true) {
+return {
+pill: {
+show: true,
+kind: "ok",
+text: "Compliance Approved",
+},
+banner: {
+show: true,
+kind: "ok",
+kicker: "Participant Compliance",
+title: "Wallet cleared for launchpad participation",
+body:
+WALLET_COMPLIANCE_STATE.message ||
+"The connected wallet is cleared for launchpad participation and quick commit access.",
+meta: `Wallet: ${shortWallet}`,
+showAction: false,
+actionLabel: "",
+actionHref: complianceHref,
+},
+};
+}
+
+return {
+pill: {
+show: true,
+kind: "warn",
+text: "Compliance Check Needed",
+},
+banner: {
+show: true,
+kind: "info",
+kicker: "Participant Compliance",
+title: "Compliance precheck will run before commit",
+body:
+WALLET_COMPLIANCE_STATE.message ||
+"MSS will run a participant compliance precheck before launchpad commit actions are allowed.",
+meta: `Wallet: ${shortWallet}`,
+showAction: true,
+actionLabel: "Open Compliance",
+actionHref: complianceHref,
+},
+};
+}
+
+function renderComplianceBanner() {
+const ui = buildComplianceUiModel();
+setCompliancePill(ui.pill);
+setComplianceBannerState(ui.banner);
+}
+
+function buildComplianceQuery(wallet, launchId = null) {
+const params = new URLSearchParams();
+
+if (wallet) params.set("wallet", wallet);
+if (launchId != null) params.set("launchId", String(launchId));
+params.set("context", "participant");
+params.set("surface", "launchpad");
+
+return `/api/compliance/status?${params.toString()}`;
+}
+
+function normalizeComplianceState(payload = null, wallet = "") {
+const root =
+payload?.status && typeof payload.status === "object"
+? payload.status
+: payload?.compliance && typeof payload.compliance === "object"
+? payload.compliance
+: payload || {};
+
+const participant =
+root?.participant && typeof root.participant === "object"
+? root.participant
+: root?.participant_status && typeof root.participant_status === "object"
+? root.participant_status
+: root?.eligibility && typeof root.eligibility === "object"
+? root.eligibility
+: {};
+
+const explicitEligible = firstDefined(
+root.eligible,
+participant.eligible,
+root.can_participate,
+participant.can_participate,
+root.allowed_to_participate,
+participant.allowed_to_participate,
+root.allowed,
+participant.allowed
+);
+
+const explicitBlocked = firstDefined(
+root.blocked,
+participant.blocked,
+root.denied,
+participant.denied,
+root.frozen,
+participant.frozen,
+root.restricted,
+participant.restricted
+);
+
+const explicitPending = firstDefined(
+root.pending,
+participant.pending,
+root.requires_review,
+participant.requires_review,
+root.review_required,
+participant.review_required,
+root.manual_review,
+participant.manual_review
+);
+
+const decision = cleanText(
+firstDefined(
+root.decision,
+participant.decision,
+root.result,
+participant.result,
+root.eligibility_status,
+participant.eligibility_status,
+root.compliance_status,
+participant.compliance_status,
+root.case_status,
+participant.case_status,
+root.status,
+participant.status
+),
+80
+).toLowerCase();
+
+const blockedByDecision =
+[
+"blocked",
+"denied",
+"rejected",
+"ineligible",
+"frozen",
+"restricted",
+"offboarded",
+].includes(decision) || isFalseLike(explicitEligible) || isTrueLike(explicitBlocked);
+
+const pendingByDecision =
+[
+"pending",
+"review",
+"under_review",
+"manual_review",
+"requires_review",
+"requires_info",
+"needs_info",
+].includes(decision) || isTrueLike(explicitPending);
+
+const eligibleByDecision =
+[
+"approved",
+"eligible",
+"allowed",
+"clear",
+"active",
+"passed",
+"pass",
+].includes(decision) || isTrueLike(explicitEligible);
+
+const blocked = Boolean(blockedByDecision);
+const pending = !blocked && Boolean(pendingByDecision);
+const eligible = blocked ? false : pending ? false : eligibleByDecision ? true : null;
+
+let status = "unknown";
+let message = "";
+
+if (!wallet) {
+status = "disconnected";
+message = "Connect wallet to check participant compliance status.";
+} else if (blocked) {
+status = "blocked";
+message =
+cleanText(
+firstDefined(
+root.reason,
+participant.reason,
+root.message,
+participant.message,
+root.block_reason,
+participant.block_reason
+),
+240
+) || "Participant compliance approval is required before committing.";
+} else if (pending) {
+status = "pending";
+message =
+cleanText(
+firstDefined(
+root.reason,
+participant.reason,
+root.message,
+participant.message,
+root.review_reason,
+participant.review_reason
+),
+240
+) || "Participant compliance review is still pending.";
+} else if (eligible === true) {
+status = "approved";
+message =
+cleanText(
+firstDefined(
+root.message,
+participant.message,
+root.reason,
+participant.reason
+),
+240
+) || "Wallet is cleared for launchpad participation.";
+} else {
+status = "unknown";
+message =
+cleanText(
+firstDefined(
+root.message,
+participant.message,
+root.reason,
+participant.reason
+),
+240
+) || "Compliance precheck will run before commit.";
+}
+
+return {
+wallet: wallet || "",
+checked: Boolean(wallet),
+checkedAt: Date.now(),
+loading: false,
+eligible,
+blocked,
+pending,
+status,
+message,
+raw: payload || null,
+};
+}
+
+async function fetchWalletComplianceStatus({ force = false, launchId = null } = {}) {
+const wallet = cleanText(getConnectedPublicKey(), 120);
+
+if (!wallet) {
+WALLET_COMPLIANCE_STATE = {
+wallet: "",
+checked: false,
+checkedAt: 0,
+loading: false,
+eligible: null,
+blocked: false,
+pending: false,
+status: "disconnected",
+message: "Connect wallet to check participant compliance status.",
+raw: null,
+};
+return WALLET_COMPLIANCE_STATE;
+}
+
+const sameWallet = WALLET_COMPLIANCE_STATE.wallet === wallet;
+const freshEnough =
+Date.now() - safeNum(WALLET_COMPLIANCE_STATE.checkedAt, 0) < COMPLIANCE_CACHE_TTL_MS;
+
+if (!force && sameWallet && freshEnough && WALLET_COMPLIANCE_STATE.checked && launchId == null) {
+return WALLET_COMPLIANCE_STATE;
+}
+
+WALLET_COMPLIANCE_STATE = {
+...WALLET_COMPLIANCE_STATE,
+wallet,
+loading: true,
+};
+renderComplianceBanner();
+
+const data = await fetchJson(buildComplianceQuery(wallet, launchId));
+WALLET_COMPLIANCE_STATE = normalizeComplianceState(data, wallet);
+return WALLET_COMPLIANCE_STATE;
+}
+
+async function refreshComplianceState({ force = false, launchId = null, suppressErrors = false } = {}) {
+try {
+await fetchWalletComplianceStatus({ force, launchId });
+} catch (err) {
+console.error("Failed to fetch participant compliance status:", err);
+
+const wallet = cleanText(getConnectedPublicKey(), 120);
+WALLET_COMPLIANCE_STATE = {
+wallet,
+checked: Boolean(wallet),
+checkedAt: Date.now(),
+loading: false,
+eligible: null,
+blocked: false,
+pending: false,
+status: "unknown",
+message: "Compliance precheck is temporarily unavailable.",
+raw: null,
+};
+
+if (!suppressErrors) {
+setActionStatus("bad", err?.message || "Compliance precheck failed.");
+}
+} finally {
+renderComplianceBanner();
+}
+
+return WALLET_COMPLIANCE_STATE;
+}
+
+async function precheckQuickCommitCompliance(launchId) {
+const state = await refreshComplianceState({
+force: true,
+launchId,
+suppressErrors: true,
+});
+
+if (state.blocked) {
+throw new Error(
+state.message || "Participant compliance approval is required before quick commit."
+);
+}
+
+if (state.pending) {
+throw new Error(
+state.message || "Participant compliance review is still pending."
+);
+}
+
+if (state.status === "unknown" && !state.eligible) {
+throw new Error(
+state.message || "Compliance precheck is temporarily unavailable. Please try again."
+);
+}
+
+return state;
 }
 
 async function fetchJson(path, options = {}) {
@@ -1542,6 +2192,7 @@ historyItems = sortItems(historyItems, sort);
 
 renderStats(ALL_LAUNCHES);
 renderFeaturedLaunch(activeItems);
+renderComplianceBanner();
 applyViewState();
 updateListMeta(activeItems, historyItems, statusFilter, q);
 
@@ -1595,6 +2246,14 @@ allQuickButtons.forEach((el) => {
 el.disabled = true;
 el.classList.add("is-loading");
 });
+
+if (btn) {
+btn.textContent = "Checking...";
+}
+
+setActionStatus("warn", "Running participant compliance precheck...");
+
+await precheckQuickCommitCompliance(launchId);
 
 if (btn) {
 btn.textContent = "Opening Wallet...";
@@ -1677,6 +2336,7 @@ btn.classList.add("is-success");
 }
 
 await loadLaunches();
+await refreshComplianceState({ force: true, suppressErrors: true });
 } catch (err) {
 console.error(err);
 setActionStatus("bad", err.message || "Quick commit failed.");
@@ -1742,6 +2402,11 @@ disconnectBtn.disabled = quickCommitInFlight;
 async function connectWallet() {
 try {
 const wallet = await connectAnyWallet();
+
+if (wallet?.isConnected) {
+await refreshComplianceState({ force: true, suppressErrors: true });
+}
+
 updateWalletUi();
 render();
 
@@ -1766,6 +2431,19 @@ await disconnectAnyWallet();
 } catch {
 // ignore
 }
+
+WALLET_COMPLIANCE_STATE = {
+wallet: "",
+checked: false,
+checkedAt: 0,
+loading: false,
+eligible: null,
+blocked: false,
+pending: false,
+status: "disconnected",
+message: "Connect wallet to check participant compliance status.",
+raw: null,
+};
 
 updateWalletUi();
 render();
@@ -1807,7 +2485,8 @@ disconnectBtn.addEventListener("click", disconnectWallet);
 
 if (!window.__mssLaunchpadWalletChangeBound) {
 window.__mssLaunchpadWalletChangeBound = true;
-onWalletChange(() => {
+onWalletChange(async () => {
+await refreshComplianceState({ force: true, suppressErrors: true });
 updateWalletUi();
 render();
 });
@@ -1828,6 +2507,7 @@ bindViewToggle();
 bindWalletControls();
 
 await restoreWalletIfTrusted();
+await refreshComplianceState({ force: true, suppressErrors: true });
 updateWalletUi();
 applyViewState();
 
@@ -1843,6 +2523,7 @@ updateLiveTimers();
 fullRefreshIntervalId = setInterval(() => {
 if (document.hidden || quickCommitInFlight) return;
 void loadLaunches();
+void refreshComplianceState({ suppressErrors: true });
 }, 7000);
 }
 

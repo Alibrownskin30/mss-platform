@@ -220,6 +220,16 @@ return "commit";
 return status;
 }
 
+function isExplicitFalseish(value) {
+if (value === false || value === 0) return true;
+const raw = String(value ?? "").trim().toLowerCase();
+return raw === "0" || raw === "false" || raw === "no";
+}
+
+function isMarketBootstrapPending(launch = {}) {
+return isExplicitFalseish(launch?.market_bootstrapped);
+}
+
 function inferLaunchPhase(launch = {}) {
 const rawStatus = normalizePhaseStatus(launch?.status);
 
@@ -251,10 +261,15 @@ reservationStatus === "finalized" ||
 Number.isFinite(mintFinalizedAtMs)
 );
 
+const marketBootstrapPending = isMarketBootstrapPending(launch);
+
 if (rawStatus === "failed_refunded") return "failed_refunded";
 if (rawStatus === "failed") return "failed";
 if (rawStatus === "graduated") return "graduated";
-if (rawStatus === "live") return "live";
+
+if (rawStatus === "live") {
+return marketBootstrapPending ? "building" : "live";
+}
 
 /*
 Protected phase rule:
@@ -301,11 +316,11 @@ Number.isFinite(liveAtMs) &&
 Date.now() >= liveAtMs &&
 hasLiveSignal
 ) {
-return "live";
+return marketBootstrapPending ? "building" : "live";
 }
 
 if (!rawStatus && hasLiveSignal) {
-return "live";
+return marketBootstrapPending ? "building" : "live";
 }
 
 return rawStatus || "commit";
@@ -318,7 +333,7 @@ const marketEnabled = status === "live" || status === "graduated";
 return {
 status,
 market_enabled: marketEnabled,
-can_trade: marketEnabled,
+can_trade: status === "live",
 is_commit: status === "commit",
 is_countdown: status === "countdown",
 is_building: status === "building",

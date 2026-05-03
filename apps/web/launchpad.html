@@ -540,6 +540,44 @@ max-width:100%;
 overflow-wrap:anywhere;
 }
 
+.launchpad-page .compliance-pill{
+display:none;
+align-items:center;
+gap:8px;
+min-height:42px;
+padding:0 14px;
+border-radius:999px;
+border:1px solid rgba(255,255,255,.10);
+background:rgba(255,255,255,.04);
+color:rgba(255,255,255,.84);
+font-size:12px;
+font-weight:800;
+max-width:100%;
+overflow-wrap:anywhere;
+}
+
+.launchpad-page .compliance-pill.show{
+display:inline-flex;
+}
+
+.launchpad-page .compliance-pill.ok{
+border-color:rgba(53,245,163,.20);
+background:rgba(53,245,163,.08);
+color:#dfffee;
+}
+
+.launchpad-page .compliance-pill.warn{
+border-color:rgba(255,209,102,.20);
+background:rgba(255,209,102,.08);
+color:#fff5d7;
+}
+
+.launchpad-page .compliance-pill.bad{
+border-color:rgba(255,91,107,.20);
+background:rgba(255,91,107,.08);
+color:#ffe3e7;
+}
+
 .launchpad-page .status-banner{
 display:none;
 margin-bottom:14px;
@@ -566,6 +604,83 @@ color:#fff;
 border-color:rgba(255,91,107,.20);
 background:rgba(255,91,107,.08);
 color:#fff;
+}
+
+.launchpad-page .compliance-banner{
+display:none;
+margin-bottom:14px;
+padding:16px;
+border-radius:18px;
+border:1px solid rgba(255,255,255,.10);
+background:rgba(255,255,255,.03);
+box-shadow:inset 0 1px 0 rgba(255,255,255,.04);
+}
+
+.launchpad-page .compliance-banner.show{
+display:block;
+}
+
+.launchpad-page .compliance-banner.info{
+border-color:rgba(79,195,255,.20);
+background:rgba(79,195,255,.07);
+}
+
+.launchpad-page .compliance-banner.ok{
+border-color:rgba(53,245,163,.20);
+background:rgba(53,245,163,.08);
+}
+
+.launchpad-page .compliance-banner.warn{
+border-color:rgba(255,209,102,.20);
+background:rgba(255,209,102,.08);
+}
+
+.launchpad-page .compliance-banner.bad{
+border-color:rgba(255,91,107,.20);
+background:rgba(255,91,107,.08);
+}
+
+.launchpad-page .compliance-banner-grid{
+display:grid;
+grid-template-columns:minmax(0,1fr) auto;
+gap:14px;
+align-items:center;
+}
+
+.launchpad-page .compliance-banner-copy{
+display:grid;
+gap:6px;
+min-width:0;
+}
+
+.launchpad-page .compliance-banner-kicker{
+font-size:10px;
+letter-spacing:.14em;
+text-transform:uppercase;
+color:var(--muted2);
+font-weight:800;
+}
+
+.launchpad-page .compliance-banner-title{
+font-size:15px;
+font-weight:900;
+color:#fff;
+line-height:1.3;
+}
+
+.launchpad-page .compliance-banner-body,
+.launchpad-page .compliance-banner-meta{
+font-size:13px;
+color:rgba(255,255,255,.78);
+line-height:1.6;
+overflow-wrap:anywhere;
+}
+
+.launchpad-page .compliance-banner-actions{
+display:flex;
+gap:10px;
+flex-wrap:wrap;
+justify-content:flex-end;
 }
 
 .launchpad-page .featured-launch{
@@ -1286,6 +1401,14 @@ grid-template-columns:1fr;
 .launchpad-page .quick-row{
 grid-template-columns:1fr 1fr;
 }
+
+.launchpad-page .compliance-banner-grid{
+grid-template-columns:1fr;
+}
+
+.launchpad-page .compliance-banner-actions{
+justify-content:flex-start;
+}
 }
 
 @media (max-width:520px){
@@ -1453,11 +1576,37 @@ aria-label="Search launches"
 <button id="lpConnectWalletBtn" class="rail-btn" type="button">Connect Wallet</button>
 <button id="lpDisconnectWalletBtn" class="rail-btn" type="button" style="display:none;">Disconnect</button>
 <div id="lpWalletPill" class="wallet-pill">No wallet connected</div>
+<div id="lpCompliancePill" class="compliance-pill hidden" aria-live="polite"></div>
 </div>
 </div>
 </section>
 
 <div id="launchActionStatus" class="status-banner" aria-live="polite" role="status"></div>
+
+<section
+id="launchComplianceBanner"
+class="compliance-banner hidden"
+aria-live="polite"
+aria-label="Launchpad compliance status"
+>
+<div class="compliance-banner-grid">
+<div class="compliance-banner-copy">
+<div id="launchComplianceBannerKicker" class="compliance-banner-kicker">Compliance</div>
+<div id="launchComplianceBannerTitle" class="compliance-banner-title">Compliance status unavailable.</div>
+<div id="launchComplianceBannerBody" class="compliance-banner-body"></div>
+<div id="launchComplianceBannerMeta" class="compliance-banner-meta"></div>
+</div>
+
+<div id="launchComplianceBannerActions" class="compliance-banner-actions">
+<a
+id="launchComplianceBannerAction"
+class="btn"
+href="./compliance.html"
+style="display:none;"
+>Open Compliance</a>
+</div>
+</div>
+</section>
 
 <section class="featured-launch" aria-labelledby="featuredLaunchTitle">
 <div class="featured-head">

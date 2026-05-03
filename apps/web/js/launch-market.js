@@ -91,6 +91,152 @@ return String(value ?? "")
 .replaceAll("'", "&#39;");
 }
 
+function toTruthyBoolean(value) {
+if (value === true || value === 1) return true;
+const raw = cleanString(value, 40).toLowerCase();
+return raw === "true" || raw === "1" || raw === "yes";
+}
+
+function normalizeComplianceStatusPayload(raw = null) {
+if (!raw || typeof raw !== "object") return null;
+
+const profile =
+raw.profile && typeof raw.profile === "object" ? raw.profile : {};
+
+const status =
+cleanString(raw.status ?? raw.profile_status ?? profile.status, 40).toLowerCase() ||
+"not_started";
+
+const participantGateEnabled = toTruthyBoolean(
+raw.participant_gate_enabled ??
+raw.participantGateEnabled ??
+raw.requires_participant_approval ??
+raw.requiresParticipantApproval
+);
+
+const restrictedJurisdiction = toTruthyBoolean(
+raw.restricted_jurisdiction ?? raw.restrictedJurisdiction
+);
+
+const manualReviewRequired = toTruthyBoolean(
+profile.manual_review_required ??
+profile.manualReviewRequired ??
+raw.manual_review_required ??
+raw.manualReviewRequired
+);
+
+const manualReviewReason = cleanString(
+profile.manual_review_reason ??
+profile.manualReviewReason ??
+raw.manual_review_reason ??
+raw.manualReviewReason,
+500
+);
+
+const transactionalAccess = toTruthyBoolean(
+raw.transactional_access ??
+raw.transactionalAccess ??
+raw.allowed ??
+raw.is_allowed ??
+raw.can_trade ??
+raw.canTrade
+);
+
+let allowed = !participantGateEnabled;
+
+if (participantGateEnabled) {
+allowed =
+!restrictedJurisdiction &&
+!manualReviewRequired &&
+(transactionalAccess ||
+status === "approved" ||
+toTruthyBoolean(raw.allowed ?? raw.is_allowed));
+}
+
+return {
+...raw,
+profile,
+status,
+participant_gate_enabled: participantGateEnabled,
+restricted_jurisdiction: restrictedJurisdiction,
+manual_review_required: manualReviewRequired,
+manual_review_reason: manualReviewReason,
+transactional_access: transactionalAccess,
+allowed,
+};
+}
+
+function isParticipantComplianceBlocked(payload = null, connectedWallet = "") {
+if (!payload) return false;
+if (!cleanString(connectedWallet, 200)) return false;
+
+const gateEnabled = Boolean(
+payload.participant_gate_enabled || payload.requires_participant_approval
+);
+
+if (!gateEnabled) return false;
+if (payload.restricted_jurisdiction) return true;
+if (payload.manual_review_required || payload.profile?.manual_review_required) {
+return true;
+}
+
+if (payload.allowed === false || payload.transactional_access === false) {
+return true;
+}
+
+return !(
+cleanString(payload.status, 40).toLowerCase() === "approved" ||
+payload.allowed ||
+payload.transactional_access
+);
+}
+
+function getParticipantComplianceMessage(payload = null) {
+if (!payload) {
+return "Participant verification is required before live market access can proceed.";
+}
+
+const gateEnabled = Boolean(
+payload.participant_gate_enabled || payload.requires_participant_approval
+);
+
+if (!gateEnabled) {
+return "Participant verification gate is currently disabled.";
+}
+
+if (payload.restricted_jurisdiction) {
+return "Participant access is restricted for the current jurisdiction.";
+}
+
+if (payload.manual_review_required || payload.profile?.manual_review_required) {
+return (
+payload.manual_review_reason ||
+payload.profile?.manual_review_reason ||
+"Participant verification is in manual review."
+);
+}
+
+const status = cleanString(payload.status, 40).toLowerCase();
+
+if (status === "approved") {
+return "Participant verification approved.";
+}
+
+if (status === "pending") {
+return "Participant verification is pending review before market access can proceed.";
+}
+
+if (status === "rejected") {
+return "Participant verification was rejected. Review the compliance profile before trying again.";
+}
+
+if (status === "restricted") {
+return "Participant profile is currently restricted from live market access.";
+}
+
+return "Complete participant verification before using live market actions.";
+}
+
 function formatNumber(value, options = {}) {
 const num = toNumber(value, 0);
 const { minimumFractionDigits = 0, maximumFractionDigits = 2 } = options;
@@ -2794,7 +2940,8 @@ tokenPayload = {},
 chartStats = {},
 quotePayload = null,
 connectedWallet = "",
-fallbackTokenBalance = null
+fallbackTokenBalance = null,
+participantCompliance = null
 ) {
 const card = $("marketAccessCard");
 const tierLabel = $("marketAccessTierLabel");
@@ -2862,6 +3009,17 @@ const effectiveHolding = walletSummary.isBuilderWallet
 ? walletSummary.sellableBalance
 : walletSummary.tokenBalance;
 const remaining = maxWalletTokens > 0 ? Math.max(0, maxWalletTokens - effectiveHolding) : 0;
+
+const compliancePayload = normalizeComplianceStatusPayload(participantCompliance);
+const complianceBlocked = isParticipantComplianceBlocked(
+compliancePayload,
+connectedWallet
+);
+const complianceGateEnabled = Boolean(
+compliancePayload?.participant_gate_enabled ||
+compliancePayload?.requires_participant_approval
+);
+const complianceMessage = getParticipantComplianceMessage(compliancePayload);
 
 if (graduatedLike) {
 statePill.classList.remove("is-open", "is-restricted");
@@ -2968,14 +3126,25 @@ localMaxWalletPct,
 schedule.textContent = "Protected wallet cap window has opened for normal market access.";
 }
 
-setText(
-"launchAccessModeText",
-walletSummary.isBuilderWallet
+let accessModeText = walletSummary.isBuilderWallet
 ? "Builder Vesting"
 : hasRestriction
 ? "Controlled Access"
-: "Open Access"
-);
+: "Open Access";
+
+if (complianceBlocked) {
+statePill.classList.remove("is-open", "is-restricted");
+statePill.classList.add("is-restricted");
+statePill.textContent = "Verify";
+tierLabel.textContent = "Compliance Required";
+remainingValue.textContent = "Blocked";
+schedule.textContent = complianceMessage;
+accessModeText = "Compliance Hold";
+} else if (complianceGateEnabled) {
+schedule.textContent = `${schedule.textContent} Compliance: ${complianceMessage}`;
+}
+
+setText("launchAccessModeText", accessModeText);
 }
 
 function clearLiveOnlyUi() {
@@ -3483,6 +3652,9 @@ this.launch = options.launch
 this.commitStats = options.commitStats || {};
 this.lifecycle = normalizeLifecyclePayload(options.lifecycle || null);
 this.graduationPlan = normalizeGraduationPlanPayload(options.graduationPlan || null);
+this.participantCompliance = normalizeComplianceStatusPayload(
+options.participantCompliance || null
+);
 this.phase = PHASES.COMMIT;
 this.currentInterval = options.initialInterval || "1m";
 this.candleLimit = Number(options.candleLimit || 180);
@@ -4107,7 +4279,8 @@ this.tokenPayload,
 this.chartStats,
 this.lastQuote,
 this.connectedWallet,
-this.walletTokenBalanceFallback
+this.walletTokenBalanceFallback,
+this.participantCompliance
 );
 renderRecentTrades(this.trades, this.tokenPayload, this.chartStats);
 renderCassiePanel(this.phase, this.launch, this.tokenPayload, this.chartStats);
@@ -4151,23 +4324,32 @@ return Math.max(0, summary.sellableBalance);
 }
 
 syncSellQuickButtons() {
+const buyButtons = Array.from(
+document.querySelectorAll("#tradeQuickBuyRow .trade-quick-btn")
+);
 const sellButtons = Array.from(
 document.querySelectorAll("#tradeQuickSellRow .trade-quick-btn")
 );
-if (!sellButtons.length) return;
-
 const balance = this.getWalletTokenBalance();
 const graduatedLike = isGraduatedLike(this.launch, this.lifecycle);
+const complianceBlocked = isParticipantComplianceBlocked(
+this.participantCompliance,
+this.connectedWallet
+);
+const baseDisabled =
+this.phase !== PHASES.LIVE ||
+graduatedLike ||
+complianceBlocked ||
+this.tradeBusy ||
+this.quoteBusy;
+
+buyButtons.forEach((btn) => {
+btn.disabled = baseDisabled;
+});
 
 sellButtons.forEach((btn) => {
 const pct = getQuickSellPct(btn);
-btn.disabled =
-this.phase !== PHASES.LIVE ||
-graduatedLike ||
-balance <= 0 ||
-pct <= 0 ||
-this.tradeBusy ||
-this.quoteBusy;
+btn.disabled = baseDisabled || balance <= 0 || pct <= 0;
 });
 }
 
@@ -4178,6 +4360,10 @@ const submitBtn = $("tradeSubmitBtn");
 const amount = this.getTradeAmountValue();
 const hasAmount = amount > 0;
 const graduatedLike = isGraduatedLike(this.launch, this.lifecycle);
+const complianceBlocked = isParticipantComplianceBlocked(
+this.participantCompliance,
+this.connectedWallet
+);
 
 if (submitBtn) {
 submitBtn.disabled =
@@ -4185,8 +4371,11 @@ this.phase !== PHASES.LIVE ||
 graduatedLike ||
 this.tradeBusy ||
 this.quoteBusy ||
-!hasAmount;
-submitBtn.textContent = this.lastQuote
+!hasAmount ||
+complianceBlocked;
+submitBtn.textContent = complianceBlocked
+? "Verification Required"
+: this.lastQuote
 ? this.tradeMode === TRADE_MODES.BUY
 ? "Execute Buy"
 : "Execute Sell"
@@ -4226,7 +4415,8 @@ this.tokenPayload,
 this.chartStats,
 this.lastQuote,
 this.connectedWallet,
-this.walletTokenBalanceFallback
+this.walletTokenBalanceFallback,
+this.participantCompliance
 );
 this.syncSellQuickButtons();
 this.renderTradePanel();
@@ -4252,6 +4442,17 @@ void this.refreshLaunch({ force: true }).catch((error) => {
 console.error("wallet metadata refresh failed:", error);
 });
 }, 250);
+}
+
+setComplianceState(payload = null) {
+this.participantCompliance = normalizeComplianceStatusPayload(payload || null);
+this.lastQuote = null;
+resetTradeQuoteUi();
+setTradeMessage("");
+
+if (this.launch) {
+this.applyAll(this.phase);
+}
 }
 
 async handleManageLinksClick() {
@@ -4525,7 +4726,8 @@ this.tokenPayload,
 this.chartStats,
 quotePayload,
 this.connectedWallet,
-this.walletTokenBalanceFallback
+this.walletTokenBalanceFallback,
+this.participantCompliance
 );
 
 this.renderTradePanel();
@@ -4555,6 +4757,11 @@ async handleTradeSubmitClick() {
 if (this.phase !== PHASES.LIVE || this.tradeBusy || this.quoteBusy) return;
 if (isGraduatedLike(this.launch, this.lifecycle)) {
 setTradeMessage("This launch has graduated. Internal market execution is no longer available.", "error");
+return;
+}
+
+if (isParticipantComplianceBlocked(this.participantCompliance, this.connectedWallet)) {
+setTradeMessage(getParticipantComplianceMessage(this.participantCompliance), "error");
 return;
 }
 
@@ -4711,6 +4918,12 @@ const previousPhase = this.phase;
 
 if (options.lifecycle) {
 this.lifecycle = normalizeLifecyclePayload(options.lifecycle || null);
+}
+
+if (options.participantCompliance !== undefined) {
+this.participantCompliance = normalizeComplianceStatusPayload(
+options.participantCompliance || null
+);
 }
 
 this.commitStats = commitStats || this.commitStats || {};

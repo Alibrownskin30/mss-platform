@@ -1,6 +1,9 @@
 import db from "../../db/index.js";
 import { buildLaunchAllocations } from "./allocationService.js";
-import { buildLaunchFeeBreakdown, distributeLaunchFees } from "./feeDistributor.js";
+import {
+buildLaunchFeeBreakdown,
+distributeLaunchFees,
+} from "./feeDistributor.js";
 import { bootstrapLiveMarket } from "./mintLifecycle.js";
 
 const DEFAULT_LAUNCH_FEE_PCT = 5;
@@ -98,6 +101,8 @@ circulating_supply: safeNum(row.circulating_supply, 0),
 market_cap: safeNum(row.market_cap, 0),
 price: safeNum(row.price, 0),
 volume_24h: safeNum(row.volume_24h, 0),
+market_bootstrapped:
+row.market_bootstrapped === undefined ? null : row.market_bootstrapped,
 team_wallets: Array.isArray(row.team_wallets)
 ? row.team_wallets
 : parseJsonMaybe(row.team_wallets, []),
@@ -169,6 +174,15 @@ WHERE id = ?
 );
 }
 
+async function setLaunchMarketBootstrapped(launchId, bootstrapped) {
+const columns = await getTableColumns("launches");
+if (!columns.has("market_bootstrapped")) return;
+
+await updateLaunchFieldsSafe(launchId, {
+market_bootstrapped: bootstrapped ? 1 : 0,
+});
+}
+
 async function getLaunchById(launchId) {
 const row = await db.get(`SELECT * FROM launches WHERE id = ?`, [launchId]);
 return normalizeLaunch(row);
@@ -213,10 +227,7 @@ tokenRow?.mint
 }
 
 function pickMintFromLaunch(launch) {
-return cleanText(
-firstPresent(launch?.contract_address, launch?.token_mint),
-120
-);
+return cleanText(firstPresent(launch?.contract_address, launch?.token_mint), 120);
 }
 
 function pickSolReserve(poolRow) {
@@ -298,8 +309,9 @@ return launch;
 }
 
 const fields = {};
+const status = String(launch?.status || "").toLowerCase();
 
-if (artifacts.mint && String(launch?.status || "").toLowerCase() === "live") {
+if (artifacts.mint && status === "live") {
 fields.contract_address = artifacts.mint;
 fields.token_mint = artifacts.mint;
 }
@@ -311,6 +323,10 @@ fields.internal_pool_sol = artifacts.solReserve;
 
 if (artifacts.tokenReserve > 0) {
 fields.internal_pool_tokens = String(artifacts.tokenReserve);
+}
+
+if (artifacts.completed) {
+fields.market_bootstrapped = 1;
 }
 
 await updateLaunchFieldsSafe(launchId, fields);
@@ -389,6 +405,7 @@ if (circulatingSupply > 0) fields.circulating_supply = circulatingSupply;
 if (price > 0) fields.price = price;
 if (marketCap > 0) fields.market_cap = marketCap;
 if (volume24h >= 0) fields.volume_24h = volume24h;
+if (marketBootstrap.ok !== false) fields.market_bootstrapped = 1;
 
 await updateLaunchFieldsSafe(launchId, fields);
 }
@@ -418,18 +435,30 @@ let marketBootstrap = null;
 let refreshedLaunch = launch || (await getLaunchById(launchId));
 
 try {
+const existingArtifacts = await getLiveBootstrapArtifacts(
+launchId,
+refreshedLaunch || launch
+);
+
+if (!existingArtifacts.completed) {
 marketBootstrap = await bootstrapLiveMarket(launchId);
 await syncLaunchMarketArtifactsFromBootstrap(
 launchId,
 marketBootstrap,
 allocationResult
 );
+}
 
 refreshedLaunch = await getLaunchById(launchId);
 refreshedLaunch = await syncLaunchMarketArtifactsFromRows(
 launchId,
 refreshedLaunch || launch
 );
+
+if (existingArtifacts.completed || marketBootstrap?.ok !== false) {
+await setLaunchMarketBootstrapped(launchId, true);
+refreshedLaunch = (await getLaunchById(launchId)) || refreshedLaunch;
+}
 
 return {
 launch: refreshedLaunch || launch,
@@ -501,6 +530,7 @@ retryable: Boolean(retryable),
 reason: reason || "",
 launchId,
 stage,
+status: cleanText(launch?.status, 40).toLowerCase() || stage,
 stageLabel:
 stageLabel ||
 (stage === "building"
@@ -531,6 +561,8 @@ feeDistributionPending: Boolean(feeDistributionPending),
 feeDistributionError: feeDistributionError || "",
 allocationsBuilt: Boolean(allocationsBuilt),
 marketBootstrap,
+marketBootstrapped: safeNum(launch?.market_bootstrapped, 0) === 1,
+market_bootstrapped: safeNum(launch?.market_bootstrapped, 0) === 1,
 mintAddress: resolvedMint,
 mintSource: marketBootstrap?.mintSource || null,
 tokenId: marketBootstrap?.tokenId || null,
@@ -638,6 +670,8 @@ return stats;
 }
 
 async function markLaunchFailed(launchId) {
+await setLaunchMarketBootstrapped(launchId, false);
+
 await db.run(
 `
 UPDATE launches
@@ -655,6 +689,10 @@ await db.run(
 `
 UPDATE launches
 SET status = 'building',
+market_bootstrapped = CASE
+WHEN market_bootstrapped = 1 THEN market_bootstrapped
+ELSE 0
+END,
 updated_at = CURRENT_TIMESTAMP
 WHERE id = ?
 AND status IN ('countdown', 'building')
@@ -676,6 +714,8 @@ return launch;
 }
 
 async function refreshBuildingStateAfterBootstrapFailure(launchId) {
+await setLaunchMarketBootstrapped(launchId, false);
+
 await db.run(
 `
 UPDATE launches
@@ -695,6 +735,10 @@ await db.run(
 `
 UPDATE launches
 SET status = 'live',
+market_bootstrapped = CASE
+WHEN COALESCE(market_bootstrapped, 0) = 1 THEN 1
+ELSE market_bootstrapped
+END,
 live_at = CASE
 WHEN status != 'live' THEN CURRENT_TIMESTAMP
 WHEN live_at IS NULL THEN CURRENT_TIMESTAMP
@@ -1019,6 +1063,8 @@ if (status === "live" || status === "building") {
 launch = await syncLaunchMarketArtifactsFromRows(launchId, launch);
 
 if (await hasCompletedLiveBootstrap(launchId, launch)) {
+await setLaunchMarketBootstrapped(launchId, true);
+
 if (String(launch.status || "").toLowerCase() !== "live") {
 launch = await forcePromoteLaunchToLive(launchId);
 }
@@ -1074,6 +1120,8 @@ String(launch.status || "").toLowerCase() === "building"
 launch = await syncLaunchMarketArtifactsFromRows(launchId, launch);
 
 if (await hasCompletedLiveBootstrap(launchId, launch)) {
+await setLaunchMarketBootstrapped(launchId, true);
+
 if (String(launch.status || "").toLowerCase() !== "live") {
 launch = await forcePromoteLaunchToLive(launchId);
 }
@@ -1115,9 +1163,11 @@ feeDistributionError,
 } = await ensureFeeDistribution(launchId, launch, totalCommitted);
 
 launch = await forcePromoteLaunchToBuilding(launchId);
+await setLaunchMarketBootstrapped(launchId, false);
 launch = await syncLaunchMarketArtifactsFromRows(launchId, launch);
 
 if (await hasCompletedLiveBootstrap(launchId, launch)) {
+await setLaunchMarketBootstrapped(launchId, true);
 launch = await forcePromoteLaunchToLive(launchId);
 
 const refreshed = await refreshLiveMarketAfterPromotion(
@@ -1251,6 +1301,7 @@ retryable: true,
 });
 }
 
+await setLaunchMarketBootstrapped(launchId, true);
 let finalLaunch = await forcePromoteLaunchToLive(launchId);
 
 if (!finalLaunch) {

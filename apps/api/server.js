@@ -18,6 +18,8 @@ import { startLaunchWorker } from "./workers/launchWorker.js";
 import chartRoutes from "./routes/chart.js";
 import tokenMarketRoutes from "./routes/token-market.js";
 import launchLifecycleRoutes from "./routes/launch-lifecycle.js";
+import complianceRoutes from "./routes/compliance.js";
+import complianceAdminRoutes from "./routes/compliance-admin.js";
 import launcherDb, { dbPath as launcherDbPath } from "./db/index.js";
 import {
 getSolPriceSnapshot,
@@ -204,6 +206,8 @@ app.use("/api/chart", chartRoutes);
 app.use("/api/token-market", tokenMarketRoutes);
 app.use("/api/token", tokenRoutes);
 app.use("/api/market", marketRoutes);
+app.use("/api/compliance", complianceRoutes);
+app.use("/api/compliance-admin", complianceAdminRoutes);
 
 // Honeypots
 app.get("/api/_cassie/diag", (req, res) => res.status(404).end());
@@ -1115,7 +1119,8 @@ devConfidence >= 75
 : devConfidence >= 45
 ? "Developer-linked network unwind could trigger moderate pressure"
 : "No strong developer-exit stress detected",
-severity: devConfidence >= 75 ? "high" : devConfidence >= 45 ? "medium" : "low",
+severity:
+devConfidence >= 75 ? "high" : devConfidence >= 45 ? "medium" : "low",
 },
 {
 name: "Wallet Network Control Simulation",

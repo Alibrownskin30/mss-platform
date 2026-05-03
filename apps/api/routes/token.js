@@ -1,6 +1,7 @@
 import express from "express";
 import db from "../db/index.js";
 import { getChartSnapshot, getChartTrades } from "../services/chart-service.js";
+import { getLiquidityLifecycle } from "../services/launcher/liquidityLifecycle.js";
 
 const router = express.Router();
 
@@ -13,10 +14,12 @@ const BUILDER_VESTING_DAYS = BUILDER_UNLOCK_DAYS;
 const TEAM_CLIFF_DAYS = 14;
 const TEAM_VESTING_DAYS = 180;
 
-const PARTICIPANT_UNLOCKED_LABEL = "100% unlocked at live";
+const PARTICIPANT_UNLOCKED_LABEL = "100% unlocked at live.";
 
 const BUILDER_VESTING_RULE =
-"Builder allocation unlocks at 0.5% of total supply per day until the full 5% builder allocation is unlocked.";
+"0% unlocked at live. Builder allocation then unlocks at 0.5% of total supply per day for 10 days until the full 5% allocation is unlocked.";
+
+const MS_PER_DAY = 24 * 60 * 60 * 1000;
 
 function toNumber(value, fallback = 0) {
 if (value === null || value === undefined || value === "") return fallback;
@@ -177,7 +180,9 @@ return toNumber(lifecycle.graduated, 0) === 1;
 }
 
 function isFalseLike(value) {
-return value === false || value === 0 || value === "0";
+if (value === false || value === 0) return true;
+const raw = String(value ?? "").trim().toLowerCase();
+return raw === "0" || raw === "false" || raw === "no";
 }
 
 function isMarketBootstrappedFalse(launch = null, lifecycle = null) {
@@ -203,8 +208,10 @@ lifecycle?.surgeStatus
 );
 
 const countdownStartedMs = parseDbTime(launch?.countdown_started_at);
-const countdownEndsMs = parseDbTime(launch?.countdown_ends_at);
-const liveAtMs = parseDbTime(launch?.live_at);
+const countdownEndsMs = parseDbTime(
+launch?.countdown_ends_at || launch?.live_at
+);
+const liveAtMs = parseDbTime(launch?.live_at || launch?.countdown_ends_at);
 const now = Date.now();
 
 const hasCountdownWindow =
@@ -286,11 +293,11 @@ Number.isFinite(liveAtMs) &&
 now >= liveAtMs &&
 liveMintSignal
 ) {
-return "live";
+return isMarketBootstrappedFalse(launch, lifecycle) ? "building" : "live";
 }
 
 if (!rawStatus && !lifecycleLaunchStatus && liveMintSignal) {
-return "live";
+return isMarketBootstrappedFalse(launch, lifecycle) ? "building" : "live";
 }
 
 return rawStatus || lifecycleLaunchStatus || "commit";
@@ -308,7 +315,7 @@ const marketEnabled = shouldRevealContractAddress(status);
 return {
 status,
 market_enabled: marketEnabled,
-can_trade: marketEnabled,
+can_trade: status === "live",
 is_commit: status === "commit",
 is_countdown: status === "countdown",
 is_building: status === "building",
@@ -356,9 +363,202 @@ created_at: row?.created_at || row?.timestamp || null,
 };
 }
 
-function normalizeLifecycle(raw = {}, phase = null) {
+function getLaunchTotalSupply(launch = null) {
+return toInt(
+chooseFirstFinite(
+launch?.final_supply,
+launch?.total_supply,
+launch?.supply,
+launch?.circulating_supply
+),
+0
+);
+}
+
+function resolveBuilderVestingStartAt(raw = {}, launch = null) {
+return (
+raw.vesting_start_at ||
+raw.vestingStartAt ||
+raw.builder_vesting_start_at ||
+raw.builderVestingStartAt ||
+launch?.live_at ||
+null
+);
+}
+
+function computeBuilderVestingFromRule(
+raw = {},
+launch = null,
+{ allowSupplyFallback = true } = {}
+) {
+const totalSupply = getLaunchTotalSupply(launch);
+
+const rawTotalAllocation = toInt(
+chooseFirstFinite(
+raw.total_allocation,
+raw.totalAllocation,
+raw.builder_total_allocation_tokens,
+raw.builderTotalAllocationTokens,
+raw.builder_visible_total_tokens,
+raw.builderVisibleTotalTokens
+),
+0
+);
+
+const fallbackTotalAllocation =
+allowSupplyFallback && totalSupply > 0
+? Math.floor((totalSupply * BUILDER_TOTAL_ALLOCATION_PCT) / 100)
+: 0;
+
+const totalAllocation = Math.max(rawTotalAllocation, fallbackTotalAllocation);
+
+const supplyDailyUnlock =
+totalSupply > 0
+? Math.floor((totalSupply * BUILDER_DAILY_UNLOCK_PCT) / 100)
+: 0;
+
+const allocationDailyUnlock =
+totalAllocation > 0 ? Math.floor(totalAllocation / BUILDER_UNLOCK_DAYS) : 0;
+
+const rawDailyUnlock = toInt(
+chooseFirstFinite(
+raw.daily_unlock,
+raw.dailyUnlock,
+raw.builder_daily_unlock_tokens,
+raw.builderDailyUnlockTokens
+),
+0
+);
+
+const dailyUnlock = Math.max(
+supplyDailyUnlock,
+allocationDailyUnlock,
+rawDailyUnlock && totalAllocation <= 0 ? rawDailyUnlock : 0
+);
+
+const vestingStartAt = resolveBuilderVestingStartAt(raw, launch);
+const startMs = parseDbTime(vestingStartAt);
+
+const rawUnlocked = toInt(
+chooseFirstFinite(
+raw.unlocked_amount,
+raw.unlockedAmount,
+raw.builder_unlocked_tokens,
+raw.builderUnlockedTokens,
+raw.builder_unlocked_allocation_tokens,
+raw.builderUnlockedAllocationTokens
+),
+0
+);
+
+const rawLocked = toInt(
+chooseFirstFinite(
+raw.locked_amount,
+raw.lockedAmount,
+raw.builder_locked_tokens,
+raw.builderLockedTokens,
+raw.builder_locked_allocation_tokens,
+raw.builderLockedAllocationTokens
+),
+Math.max(0, totalAllocation - rawUnlocked)
+);
+
+let unlockedAmount = rawUnlocked;
+let lockedAmount = rawLocked;
+let elapsedDays = toInt(
+chooseFirstFinite(
+raw.vesting_days_live,
+raw.vestingDaysLive,
+raw.builder_vesting_days_live,
+raw.builderVestingDaysLive
+),
+0
+);
+let vestedDays = toInt(
+chooseFirstFinite(
+raw.vested_days,
+raw.vestedDays,
+raw.builder_vested_days,
+raw.builderVestedDays
+),
+0
+);
+
+if (totalAllocation > 0 && dailyUnlock > 0 && Number.isFinite(startMs)) {
+const elapsedMs = Math.max(0, Date.now() - startMs);
+elapsedDays = Math.floor(elapsedMs / MS_PER_DAY);
+
+if (Date.now() >= startMs) {
+vestedDays = Math.min(BUILDER_UNLOCK_DAYS, elapsedDays);
+unlockedAmount =
+vestedDays >= BUILDER_UNLOCK_DAYS
+? totalAllocation
+: Math.min(totalAllocation, dailyUnlock * vestedDays);
+lockedAmount = Math.max(0, totalAllocation - unlockedAmount);
+} else {
+vestedDays = 0;
+unlockedAmount = 0;
+lockedAmount = totalAllocation;
+}
+} else if (totalAllocation > 0) {
+unlockedAmount = Math.min(totalAllocation, rawUnlocked);
+lockedAmount = Math.max(0, totalAllocation - unlockedAmount);
+}
+
+const percentUnlocked =
+totalAllocation > 0
+? Math.max(0, Math.min(100, (unlockedAmount / totalAllocation) * 100))
+: 0;
+
+return {
+total_allocation: totalAllocation,
+totalAllocation,
+
+daily_unlock: dailyUnlock,
+dailyUnlock,
+
+unlocked_amount: unlockedAmount,
+unlockedAmount,
+
+locked_amount: lockedAmount,
+lockedAmount,
+
+vesting_start_at: vestingStartAt,
+vestingStartAt,
+
+vested_days: vestedDays,
+vestedDays,
+
+vesting_days_live: elapsedDays,
+vestingDaysLive: elapsedDays,
+
+cliff_days: BUILDER_CLIFF_DAYS,
+cliffDays: BUILDER_CLIFF_DAYS,
+
+vesting_days: BUILDER_VESTING_DAYS,
+vestingDays: BUILDER_VESTING_DAYS,
+
+unlock_days: BUILDER_UNLOCK_DAYS,
+unlockDays: BUILDER_UNLOCK_DAYS,
+
+daily_unlock_pct: BUILDER_DAILY_UNLOCK_PCT,
+dailyUnlockPct: BUILDER_DAILY_UNLOCK_PCT,
+
+total_allocation_pct: BUILDER_TOTAL_ALLOCATION_PCT,
+totalAllocationPct: BUILDER_TOTAL_ALLOCATION_PCT,
+
+percent_unlocked: percentUnlocked,
+percentUnlocked,
+
+rule: BUILDER_VESTING_RULE,
+builder_vesting_rule: BUILDER_VESTING_RULE,
+};
+}
+
+function normalizeLifecycle(raw = {}, launch = null, phaseOverride = null) {
+const phase = phaseOverride || buildPhaseMeta(launch, raw);
 if (!raw || typeof raw !== "object") return null;
-if (phase && !phase.market_enabled) return null;
+if (!phase.market_enabled) return null;
 
 const graduated = lifecycleIsGraduated(raw);
 
@@ -369,7 +569,8 @@ null,
 contract_address:
 cleanText(raw.contract_address ?? raw.contractAddress, 120) || null,
 builder_wallet:
-cleanText(raw.builder_wallet ?? raw.builderWallet, 120) || null,
+cleanText(raw.builder_wallet ?? raw.builderWallet ?? launch?.builder_wallet, 120) ||
+null,
 market_bootstrapped:
 raw.market_bootstrapped ?? raw.marketBootstrapped ?? null,
 
@@ -558,7 +759,11 @@ readiness.checks.already_graduated
 };
 }
 
-function normalizeBuilderVestingSummary(raw = {}, phase = null) {
+function normalizeBuilderVestingSummary(raw = {}, launch = null, phase = null) {
+const fixed = computeBuilderVestingFromRule(raw, launch, {
+allowSupplyFallback: true,
+});
+
 const empty = {
 builder_wallet: null,
 builderWallet: null,
@@ -581,6 +786,8 @@ updatedAt: null,
 
 vested_days: 0,
 vestedDays: 0,
+vesting_days_live: 0,
+vestingDaysLive: 0,
 unlock_days: BUILDER_UNLOCK_DAYS,
 unlockDays: BUILDER_UNLOCK_DAYS,
 cliff_days: BUILDER_CLIFF_DAYS,
@@ -605,44 +812,35 @@ return empty;
 }
 
 const builderWallet =
-cleanText(raw.builder_wallet ?? raw.builderWallet, 120) || null;
-const totalAllocation = toInt(raw.total_allocation ?? raw.totalAllocation, 0);
-const rawDailyUnlock = toInt(raw.daily_unlock ?? raw.dailyUnlock, 0);
-const dailyUnlock = Math.max(
-rawDailyUnlock,
-totalAllocation > 0 ? toInt(totalAllocation / BUILDER_UNLOCK_DAYS, 0) : 0
-);
-const unlockedAmount = toInt(raw.unlocked_amount ?? raw.unlockedAmount, 0);
-const lockedAmount = toInt(raw.locked_amount ?? raw.lockedAmount, 0);
-const vestedDays = toInt(raw.vested_days ?? raw.vestedDays, 0);
-const vestingStartAt = raw.vesting_start_at ?? raw.vestingStartAt ?? null;
-const percentUnlocked =
-totalAllocation > 0
-? Math.max(0, Math.min(100, (unlockedAmount / totalAllocation) * 100))
-: 0;
+cleanText(
+raw.builder_wallet ?? raw.builderWallet ?? launch?.builder_wallet,
+120
+) || null;
 
 return {
 builder_wallet: builderWallet,
-builderWallet,
+builderWallet: builderWallet,
 
-total_allocation: totalAllocation,
-totalAllocation,
-daily_unlock: dailyUnlock,
-dailyUnlock,
-unlocked_amount: unlockedAmount,
-unlockedAmount,
-locked_amount: lockedAmount,
-lockedAmount,
+total_allocation: fixed.total_allocation,
+totalAllocation: fixed.totalAllocation,
+daily_unlock: fixed.daily_unlock,
+dailyUnlock: fixed.dailyUnlock,
+unlocked_amount: fixed.unlocked_amount,
+unlockedAmount: fixed.unlockedAmount,
+locked_amount: fixed.locked_amount,
+lockedAmount: fixed.lockedAmount,
 
-vesting_start_at: vestingStartAt,
-vestingStartAt,
+vesting_start_at: fixed.vesting_start_at,
+vestingStartAt: fixed.vestingStartAt,
 created_at: raw.created_at ?? raw.createdAt ?? null,
 createdAt: raw.createdAt ?? raw.created_at ?? null,
 updated_at: raw.updated_at ?? raw.updatedAt ?? null,
 updatedAt: raw.updatedAt ?? raw.updated_at ?? null,
 
-vested_days: Math.min(BUILDER_UNLOCK_DAYS, vestedDays),
-vestedDays: Math.min(BUILDER_UNLOCK_DAYS, vestedDays),
+vested_days: Math.min(BUILDER_UNLOCK_DAYS, fixed.vested_days),
+vestedDays: Math.min(BUILDER_UNLOCK_DAYS, fixed.vestedDays),
+vesting_days_live: fixed.vesting_days_live,
+vestingDaysLive: fixed.vestingDaysLive,
 unlock_days: BUILDER_UNLOCK_DAYS,
 unlockDays: BUILDER_UNLOCK_DAYS,
 cliff_days: BUILDER_CLIFF_DAYS,
@@ -655,12 +853,20 @@ totalAllocationPct: BUILDER_TOTAL_ALLOCATION_PCT,
 daily_unlock_pct: BUILDER_DAILY_UNLOCK_PCT,
 dailyUnlockPct: BUILDER_DAILY_UNLOCK_PCT,
 
-percent_unlocked: percentUnlocked,
-percentUnlocked,
+percent_unlocked: fixed.percent_unlocked,
+percentUnlocked: fixed.percentUnlocked,
 
 rule: BUILDER_VESTING_RULE,
 builder_vesting_rule: BUILDER_VESTING_RULE,
 };
+}
+
+async function safeGetLifecycle(launchId) {
+try {
+return await getLiquidityLifecycle(launchId);
+} catch {
+return null;
+}
 }
 
 async function readLifecycleFallback(launchId) {
@@ -1210,6 +1416,8 @@ const builderVestingDaysLive = toInt(
 chooseFirstFinite(
 walletSummary.builder_vesting_days_live,
 stats.builder_vesting_days_live,
+builderVesting.vesting_days_live,
+builderVesting.vestingDaysLive,
 builderVestedDays
 ),
 0
@@ -1302,7 +1510,7 @@ builder_vesting_rule: BUILDER_VESTING_RULE,
 
 phase,
 market_enabled: true,
-can_trade: true,
+can_trade: phase.can_trade,
 };
 }
 
@@ -1452,7 +1660,7 @@ return {
 
 phase,
 market_enabled: marketActive,
-can_trade: marketActive,
+can_trade: phase.can_trade,
 
 price: priceSol,
 price_sol: priceSol,
@@ -1804,11 +2012,12 @@ return res.status(404).json({ ok: false, error: "Launch not found" });
 const lifecycleRaw =
 snapshot?.lifecycle ||
 launch?.lifecycle ||
+(await safeGetLifecycle(launchId)) ||
 (await readLifecycleFallback(launchId)) ||
 null;
 
 const preliminaryPhase = buildPhaseMeta(launch, lifecycleRaw);
-const lifecycle = normalizeLifecycle(lifecycleRaw, preliminaryPhase);
+const lifecycle = normalizeLifecycle(lifecycleRaw, launch, preliminaryPhase);
 const phase = buildPhaseMeta(launch, lifecycle);
 
 const token = snapshot?.token || null;
@@ -1839,6 +2048,7 @@ null;
 
 const builderVesting = normalizeBuilderVestingSummary(
 builderVestingRaw,
+launch,
 phase
 );
 
@@ -1981,11 +2191,12 @@ return res.status(404).json({ ok: false, error: "Launch not found" });
 const lifecycleRaw =
 payload?.lifecycle ||
 launch?.lifecycle ||
+(await safeGetLifecycle(launchId)) ||
 (await readLifecycleFallback(launchId)) ||
 null;
 
 const preliminaryPhase = buildPhaseMeta(launch, lifecycleRaw);
-const lifecycle = normalizeLifecycle(lifecycleRaw, preliminaryPhase);
+const lifecycle = normalizeLifecycle(lifecycleRaw, launch, preliminaryPhase);
 const phase = buildPhaseMeta(launch, lifecycle);
 const trades = sanitizeTradesForResponse(payload?.trades, phase);
 

@@ -12,7 +12,7 @@ content="MSS Protocol Launch Terminal — builder identity, protected phase trut
 <link rel="stylesheet" href="./assets/app.css?v=7" />
 <link rel="stylesheet" href="./assets/chart.css?v=7" />
 <link rel="modulepreload" href="./assets/layout-shell.js" />
-<link rel="modulepreload" href="./assets/pages/launch.js?v=7" />
+<link rel="modulepreload" href="./assets/pages/launch.js?v=8" />
 
 <style>
 #layoutShellHeader{
@@ -1515,6 +1515,17 @@ Commit phase closed. Market activation is imminent.
 </div>
 
 <div id="marketAccessSchedule" class="market-access-note">Allocation controls activate once the launch is live.</div>
+
+<div id="marketComplianceCard" class="market-access-note hidden">
+<div style="font-weight:850;margin-bottom:8px;color:#fff;">Participant Verification</div>
+<div id="marketComplianceStatusText">Pending</div>
+<div
+id="marketComplianceSummary"
+style="margin-top:6px;font-size:12px;color:rgba(220,230,245,.68);line-height:1.5;"
+>
+Participant verification state will sync here when gated access is active for this launch.
+</div>
+</div>
 </section>
 </div>
 </section>
@@ -1894,6 +1905,30 @@ Use Connect Wallet to choose Phantom, Solflare, or Backpack.
 </div>
 </div>
 
+<div id="participantComplianceCard" class="terminal-wallet-block hidden">
+<div class="terminal-wallet-top">
+<div>
+<div class="terminal-card-kicker">Participant Access</div>
+<div class="terminal-card-title">Verification Status</div>
+</div>
+<div id="participantCompliancePill" class="status-pill commit">Pending</div>
+</div>
+
+<div class="terminal-wallet-row">
+<div id="participantComplianceStatusText" class="wallet-pill">
+Participant verification sync pending
+</div>
+</div>
+
+<div
+id="participantComplianceSummary"
+class="desc"
+style="margin-top:0;font-size:12px;color:rgba(220,230,245,.52);"
+>
+Participant verification state will sync here when access gating is enabled for this launch.
+</div>
+</div>
+
 <form id="commitForm" class="commit-form">
 <div class="field">
 <label>Connected Wallet</label>
@@ -2152,7 +2187,7 @@ console.error("Shared shell mount failed:", err);
 await mountSharedShell();
 </script>
 
-<script type="module" src="./assets/pages/launch.js?v=7"></script>
+<script type="module" src="./assets/pages/launch.js?v=8"></script>
 
 <script>
 (function () {

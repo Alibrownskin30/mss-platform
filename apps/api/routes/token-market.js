@@ -179,7 +179,9 @@ return raw?.graduated === true || toNumber(raw?.graduated, 0) === 1;
 }
 
 function isFalseLike(value) {
-return value === false || value === 0 || value === "0";
+if (value === false || value === 0) return true;
+const raw = String(value ?? "").trim().toLowerCase();
+return raw === "0" || raw === "false" || raw === "no";
 }
 
 function isMarketBootstrappedFalse(launch = null, lifecycle = null) {
@@ -205,8 +207,10 @@ lifecycle?.surgeStatus
 );
 
 const countdownStartedMs = parseDbTime(launch?.countdown_started_at);
-const countdownEndsMs = parseDbTime(launch?.countdown_ends_at);
-const liveAtMs = parseDbTime(launch?.live_at);
+const countdownEndsMs = parseDbTime(
+launch?.countdown_ends_at || launch?.live_at
+);
+const liveAtMs = parseDbTime(launch?.live_at || launch?.countdown_ends_at);
 const now = Date.now();
 
 const hasCountdownWindow =
@@ -289,11 +293,11 @@ Number.isFinite(liveAtMs) &&
 now >= liveAtMs &&
 liveMintSignal
 ) {
-return "live";
+return isMarketBootstrappedFalse(launch, lifecycle) ? "building" : "live";
 }
 
 if (!rawStatus && !lifecycleLaunchStatus && liveMintSignal) {
-return "live";
+return isMarketBootstrappedFalse(launch, lifecycle) ? "building" : "live";
 }
 
 return rawStatus || lifecycleLaunchStatus || "commit";
@@ -311,7 +315,7 @@ const marketEnabled = shouldRevealContractAddress(status);
 return {
 status,
 market_enabled: marketEnabled,
-can_trade: marketEnabled,
+can_trade: status === "live",
 is_commit: status === "commit",
 is_countdown: status === "countdown",
 is_building: status === "building",
@@ -1136,13 +1140,6 @@ builderStatsVesting.total_allocation
 )
 : 0;
 
-const builderSellableTokens = marketActive
-? Math.max(
-toInt(stats.builder_sellable_tokens, 0),
-builderStatsVesting.unlocked_amount
-)
-: 0;
-
 const walletVestingActive = marketActive
 ? Boolean(
 (walletIsBuilder && builderStatsVesting.locked_amount > 0) ||
@@ -1155,7 +1152,7 @@ return {
 
 phase,
 market_enabled: marketActive,
-can_trade: marketActive,
+can_trade: phase.can_trade,
 
 contract_address: revealedMintAddress,
 mint_address: revealedMintAddress,
@@ -1312,7 +1309,12 @@ builder_total_allocation_tokens: marketActive
 : 0,
 builder_unlocked_tokens: marketActive ? builderStatsVesting.unlocked_amount : 0,
 builder_locked_tokens: marketActive ? builderStatsVesting.locked_amount : 0,
-builder_sellable_tokens: builderSellableTokens,
+builder_sellable_tokens: marketActive
+? Math.max(
+toInt(stats.builder_sellable_tokens, 0),
+builderStatsVesting.unlocked_amount
+)
+: 0,
 builder_visible_total_tokens: builderVisibleTotalTokens,
 builder_unlocked_allocation_tokens: marketActive
 ? builderStatsVesting.unlocked_amount
@@ -2226,7 +2228,7 @@ builder_vesting_rule: BUILDER_VESTING_RULE,
 
 phase,
 market_enabled: true,
-can_trade: true,
+can_trade: phase.can_trade,
 };
 }
 

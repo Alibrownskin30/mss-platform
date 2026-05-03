@@ -376,6 +376,64 @@ if (solReserve <= 0 || tokenReserve <= 0) return 0;
 return solReserve / tokenReserve;
 }
 
+function computeImpliedMarketcapSol(totalSupply, pool) {
+const supply = floorToken(totalSupply);
+const price = computeSpotPriceSolPerToken(pool);
+return roundSol(price * supply);
+}
+
+function resolveLifecycleLaunchStatus(status) {
+const normalized = clean(status, 40).toLowerCase();
+
+if (normalized === "graduated") return "graduated";
+if (normalized === "live") return "live";
+if (normalized === "building") return "building";
+if (normalized === "countdown") return "countdown";
+if (normalized === "commit") return "commit";
+
+return normalized || "pending";
+}
+
+function resolveLifecycleGraduationStatus(status) {
+const launchStatus = resolveLifecycleLaunchStatus(status);
+
+if (launchStatus === "graduated") return "graduated";
+if (launchStatus === "live") return "internal_live";
+if (launchStatus === "building") return "building";
+if (launchStatus === "countdown") return "countdown";
+
+return "pending";
+}
+
+function resolveLifecycleLockStatus({
+existingLockStatus = "",
+launchStatus = "",
+hasReserves = false,
+}) {
+const persisted = clean(existingLockStatus, 64);
+if (persisted) return persisted;
+
+if (launchStatus === "graduated") return "locked_pending_proof";
+if (hasReserves && (launchStatus === "live" || launchStatus === "building")) {
+return "mss_held_internal";
+}
+if (launchStatus === "countdown") return "pending_live";
+
+return "pending";
+}
+
+function resolveLifecycleContractAddress(launch, token) {
+return (
+clean(
+token?.mint_address ||
+launch?.token_mint ||
+launch?.contract_address ||
+launch?.mint_address,
+120
+) || null
+);
+}
+
 function computeBuilderTotalAllocation(totalSupply) {
 return floorToken((safeNum(totalSupply, 0) * BUILDER_TOTAL_ALLOCATION_PCT) / 100);
 }
@@ -638,7 +696,11 @@ Math.max(0, visibleTotalBalance - unlockedBalance)
 const sellableBalance = floorToken(
 getRowAliasValue(row, WALLET_BALANCE_ALIAS_GROUPS.sellableBalance, unlockedBalance)
 );
-const solBalanceRaw = getRowAliasValue(row, WALLET_BALANCE_ALIAS_GROUPS.solBalance, null);
+const solBalanceRaw = getRowAliasValue(
+row,
+WALLET_BALANCE_ALIAS_GROUPS.solBalance,
+null
+);
 
 return {
 tokenAmount,
@@ -1246,6 +1308,34 @@ reservationStatus: "minted",
 clearContractAddress: true,
 clearMintFinalizedAt: true,
 });
+}
+
+async function markLaunchBootstrapComplete(launchId) {
+const columns = await getLaunchesColumns();
+const sets = [];
+const values = [];
+
+if (columns.has("market_bootstrapped")) {
+sets.push("market_bootstrapped = ?");
+values.push(1);
+}
+
+if (columns.has("updated_at")) {
+sets.push("updated_at = CURRENT_TIMESTAMP");
+}
+
+if (!sets.length) return;
+
+values.push(launchId);
+
+await db.run(
+`
+UPDATE launches
+SET ${sets.join(", ")}
+WHERE id = ?
+`,
+values
+);
 }
 
 async function ensureMintAddress(launch) {
@@ -2008,15 +2098,37 @@ values
 );
 }
 
-async function ensureLaunchLiquidityLifecycle(launchId, launch, pool) {
+async function ensureLaunchLiquidityLifecycle(launchId, launch, token, pool) {
+const totalSupply = floorToken(launch?.final_supply || launch?.supply || 0);
+const internalSolReserve = safeNum(pool?.sol_reserve, 0);
+const internalTokenReserve = floorToken(pool?.token_reserve);
+const impliedMarketcapSol = computeImpliedMarketcapSol(totalSupply, pool);
+const launchStatus = resolveLifecycleLaunchStatus(launch?.status);
+const graduationStatus = resolveLifecycleGraduationStatus(launch?.status);
+const contractAddress = resolveLifecycleContractAddress(launch, token);
+const builderWallet = clean(launch?.builder_wallet, 120) || null;
+const hasReserves = internalSolReserve > 0 && internalTokenReserve > 0;
+
 if (!(await tableExists("launch_liquidity_lifecycle"))) {
 return {
 launch_id: launchId,
-internal_sol_reserve: safeNum(pool.sol_reserve, 0),
-internal_token_reserve: floorToken(pool.token_reserve),
-graduated: false,
+launch_status: launchStatus,
+contract_address: contractAddress,
+builder_wallet: builderWallet,
+market_bootstrapped: 1,
+internal_sol_reserve: internalSolReserve,
+internal_token_reserve: internalTokenReserve,
+implied_marketcap_sol: impliedMarketcapSol,
+graduation_status: graduationStatus,
+graduated: launchStatus === "graduated",
 raydium_target_pct: RAYDIUM_LIQUIDITY_SPLIT_PCT,
 mss_locked_target_pct: RAYDIUM_LIQUIDITY_SPLIT_PCT,
+lock_status: hasReserves
+? resolveLifecycleLockStatus({
+launchStatus,
+hasReserves,
+})
+: "pending",
 };
 }
 
@@ -2033,12 +2145,35 @@ LIMIT 1
 const columns = await getTableColumns("launch_liquidity_lifecycle");
 const has = (name) => columns.has(name);
 
-const internalSolReserve = safeNum(pool.sol_reserve, 0);
-const internalTokenReserve = floorToken(pool.token_reserve);
+const lockStatus = resolveLifecycleLockStatus({
+existingLockStatus: existing?.lock_status,
+launchStatus,
+hasReserves,
+});
 
 if (existing) {
 const sets = [];
 const values = [];
+
+if (has("launch_status")) {
+sets.push("launch_status = ?");
+values.push(launchStatus);
+}
+
+if (has("contract_address")) {
+sets.push("contract_address = ?");
+values.push(contractAddress);
+}
+
+if (has("builder_wallet")) {
+sets.push("builder_wallet = ?");
+values.push(builderWallet);
+}
+
+if (has("market_bootstrapped")) {
+sets.push("market_bootstrapped = ?");
+values.push(1);
+}
 
 if (has("internal_sol_reserve")) {
 sets.push("internal_sol_reserve = ?");
@@ -2050,8 +2185,24 @@ sets.push("internal_token_reserve = ?");
 values.push(internalTokenReserve);
 }
 
+if (has("implied_marketcap_sol")) {
+sets.push("implied_marketcap_sol = ?");
+values.push(impliedMarketcapSol);
+}
+
+if (has("graduation_status")) {
+sets.push(`
+graduation_status = CASE
+WHEN COALESCE(graduated, 0) = 1 THEN graduation_status
+ELSE ?
+END
+`);
+values.push(graduationStatus);
+}
+
 if (has("graduated")) {
-sets.push("graduated = COALESCE(graduated, 0)");
+sets.push("graduated = CASE WHEN ? = 'graduated' THEN 1 ELSE COALESCE(graduated, 0) END");
+values.push(launchStatus);
 }
 
 if (has("raydium_target_pct")) {
@@ -2065,7 +2216,8 @@ values.push(RAYDIUM_LIQUIDITY_SPLIT_PCT);
 }
 
 if (has("lock_status")) {
-sets.push("lock_status = COALESCE(lock_status, 'mss_held_internal')");
+sets.push("lock_status = COALESCE(lock_status, ?)");
+values.push(lockStatus);
 }
 
 if (has("updated_at")) {
@@ -2088,6 +2240,30 @@ const insertColumns = ["launch_id"];
 const placeholders = ["?"];
 const values = [launchId];
 
+if (has("launch_status")) {
+insertColumns.push("launch_status");
+placeholders.push("?");
+values.push(launchStatus);
+}
+
+if (has("contract_address")) {
+insertColumns.push("contract_address");
+placeholders.push("?");
+values.push(contractAddress);
+}
+
+if (has("builder_wallet")) {
+insertColumns.push("builder_wallet");
+placeholders.push("?");
+values.push(builderWallet);
+}
+
+if (has("market_bootstrapped")) {
+insertColumns.push("market_bootstrapped");
+placeholders.push("?");
+values.push(1);
+}
+
 if (has("internal_sol_reserve")) {
 insertColumns.push("internal_sol_reserve");
 placeholders.push("?");
@@ -2100,10 +2276,22 @@ placeholders.push("?");
 values.push(internalTokenReserve);
 }
 
+if (has("implied_marketcap_sol")) {
+insertColumns.push("implied_marketcap_sol");
+placeholders.push("?");
+values.push(impliedMarketcapSol);
+}
+
+if (has("graduation_status")) {
+insertColumns.push("graduation_status");
+placeholders.push("?");
+values.push(graduationStatus);
+}
+
 if (has("graduated")) {
 insertColumns.push("graduated");
 placeholders.push("?");
-values.push(0);
+values.push(launchStatus === "graduated" ? 1 : 0);
 }
 
 if (has("raydium_target_pct")) {
@@ -2121,7 +2309,7 @@ values.push(RAYDIUM_LIQUIDITY_SPLIT_PCT);
 if (has("lock_status")) {
 insertColumns.push("lock_status");
 placeholders.push("?");
-values.push("mss_held_internal");
+values.push(lockStatus);
 }
 
 if (has("created_at")) {
@@ -2145,11 +2333,18 @@ values
 
 return {
 launch_id: launchId,
+launch_status: launchStatus,
+contract_address: contractAddress,
+builder_wallet: builderWallet,
+market_bootstrapped: 1,
 internal_sol_reserve: internalSolReserve,
 internal_token_reserve: internalTokenReserve,
-graduated: false,
+implied_marketcap_sol: impliedMarketcapSol,
+graduated: launchStatus === "graduated",
+graduation_status: graduationStatus,
 raydium_target_pct: RAYDIUM_LIQUIDITY_SPLIT_PCT,
 mss_locked_target_pct: RAYDIUM_LIQUIDITY_SPLIT_PCT,
+lock_status: lockStatus,
 };
 }
 
@@ -2165,11 +2360,13 @@ validatePoolRow(pool);
 await ensureBuilderVestingState(launchId, launch);
 await ensureWalletBalancesFromAllocations(launchId, launch);
 await updateLaunchMarketFields(launchId, launch, pool);
+await markLaunchBootstrapComplete(launchId);
 
 let refreshedLaunch = await getLaunchById(launchId);
 validateLaunchMarketFields(refreshedLaunch);
 
-await ensureLaunchLiquidityLifecycle(launchId, refreshedLaunch, pool);
+await ensureLaunchLiquidityLifecycle(launchId, refreshedLaunch, token, pool);
+refreshedLaunch = await getLaunchById(launchId);
 
 if (isLiveLikeLaunchStatus(refreshedLaunch?.status) && clean(token?.mint_address, 120)) {
 await finalizeLaunchMintFields(launchId, clean(token.mint_address, 120));
@@ -2231,6 +2428,8 @@ volume24h: safeNum(healedLaunch?.volume_24h, 0),
 mintRequiredTag: healedLaunch.mint_required_tag || DEFAULT_REQUIRED_MINT_TAG,
 internalPoolSol: safeNum(healedLaunch.internal_pool_sol, 0),
 internalPoolTokens: floorToken(healedLaunch.internal_pool_tokens || 0),
+marketBootstrapped: true,
+market_bootstrapped: true,
 liquidityTokenAllocation,
 raydiumReservedTokens,
 builderTotalAllocation,
@@ -2298,6 +2497,8 @@ volume24h: safeNum(refreshedLaunch?.volume_24h, 0),
 mintRequiredTag: launch.mint_required_tag || DEFAULT_REQUIRED_MINT_TAG,
 internalPoolSol,
 internalPoolTokens,
+marketBootstrapped: true,
+market_bootstrapped: true,
 liquidityTokenAllocation,
 raydiumReservedTokens,
 builderTotalAllocation,

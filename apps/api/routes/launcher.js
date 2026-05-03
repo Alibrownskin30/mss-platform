@@ -38,6 +38,12 @@ const RECONCILE_INTERVAL_MS = 15000;
 const REQUIRED_MINT_TAG = "MSS";
 const RESERVED_MINT_MAX_ATTEMPTS = 1000000;
 
+function cleanEnv(value, max = 200) {
+return String(value ?? "").trim().slice(0, max);
+}
+
+const INTERNAL_API_PORT = cleanEnv(process.env.PORT, 20) || "8787";
+
 const BUILDER_ALLOWED_HARD_CAPS = [250, 500, 750, 1000];
 const BUILDER_SOFT_CAP_BY_HARD_CAP = {
 250: 200,
@@ -1054,6 +1060,274 @@ function extractGraduationReadiness(lifecycle) {
 return lifecycle?.graduationReadiness || null;
 }
 
+function toTruthyBoolean(value) {
+if (value === true || value === 1) return true;
+const raw = String(value ?? "").trim().toLowerCase();
+return raw === "true" || raw === "1" || raw === "yes";
+}
+
+function getInternalApiOrigin() {
+const explicit =
+cleanText(process.env.INTERNAL_API_BASE, 500) ||
+cleanText(process.env.INTERNAL_API_ORIGIN, 500) ||
+cleanText(process.env.API_BASE_INTERNAL, 500);
+
+if (explicit) {
+return explicit.replace(/\/$/, "");
+}
+
+return `http://127.0.0.1:${INTERNAL_API_PORT}`;
+}
+
+function buildCompliancePagePath(wallet, mode = "builder") {
+const params = new URLSearchParams();
+params.set("mode", mode);
+if (wallet) {
+params.set("wallet", wallet);
+}
+return `./compliance.html?${params.toString()}`;
+}
+
+function normalizeComplianceStatusPayload(payload = {}, { wallet = "", mode = "builder" } = {}) {
+const profile =
+payload?.profile && typeof payload.profile === "object" ? payload.profile : {};
+
+const status = cleanText(
+payload.status ?? payload.profile_status ?? profile.status,
+40
+).toLowerCase() || "not_started";
+
+const builderGateEnabled = toTruthyBoolean(
+payload.builder_gate_enabled ??
+payload.builderGateEnabled ??
+payload.requires_builder_approval ??
+payload.requiresBuilderApproval
+);
+
+const participantGateEnabled = toTruthyBoolean(
+payload.participant_gate_enabled ??
+payload.participantGateEnabled ??
+payload.requires_participant_approval ??
+payload.requiresParticipantApproval
+);
+
+const restrictedJurisdiction = toTruthyBoolean(
+payload.restricted_jurisdiction ?? payload.restrictedJurisdiction
+);
+
+const manualReviewRequired = toTruthyBoolean(
+profile.manual_review_required ??
+profile.manualReviewRequired ??
+payload.manual_review_required ??
+payload.manualReviewRequired
+);
+
+const manualReviewReason = cleanText(
+profile.manual_review_reason ??
+profile.manualReviewReason ??
+payload.manual_review_reason ??
+payload.manualReviewReason,
+500
+);
+
+const transactionalAccess = toTruthyBoolean(
+payload.transactional_access ??
+payload.transactionalAccess ??
+payload.allowed ??
+payload.is_allowed ??
+payload.can_create_launch ??
+payload.canCreateLaunch
+);
+
+const gateEnabled = mode === "participant" ? participantGateEnabled : builderGateEnabled;
+
+let allowed = !gateEnabled;
+
+if (gateEnabled) {
+if (restrictedJurisdiction || manualReviewRequired) {
+allowed = false;
+} else if (
+payload.allowed === false ||
+payload.is_allowed === false ||
+payload.transactional_access === false ||
+payload.transactionalAccess === false ||
+payload.can_create_launch === false ||
+payload.canCreateLaunch === false
+) {
+allowed = false;
+} else {
+allowed = transactionalAccess || status === "approved";
+}
+}
+
+return {
+...payload,
+profile,
+wallet: cleanText(payload.wallet, 120) || cleanText(wallet, 120),
+mode,
+status,
+builder_gate_enabled: builderGateEnabled,
+participant_gate_enabled: participantGateEnabled,
+restricted_jurisdiction: restrictedJurisdiction,
+transactional_access: transactionalAccess,
+allowed,
+gate_enabled: gateEnabled,
+manual_review_required: manualReviewRequired,
+manual_review_reason: manualReviewReason,
+};
+}
+
+function getBuilderComplianceErrorMessage(compliance = {}) {
+if (!compliance.gate_enabled) {
+return "builder verification gate is currently disabled";
+}
+
+if (compliance.restricted_jurisdiction) {
+return "builder access is restricted for the current jurisdiction";
+}
+
+if (compliance.manual_review_required) {
+return (
+compliance.manual_review_reason ||
+"builder profile is in manual review"
+);
+}
+
+if (compliance.status === "approved") {
+return "builder profile approved";
+}
+
+if (compliance.status === "pending") {
+return "builder verification is pending review before launch creation can proceed";
+}
+
+if (compliance.status === "rejected") {
+return "builder verification was rejected. review the compliance profile before trying again";
+}
+
+if (compliance.status === "restricted") {
+return "builder profile is currently restricted from launch creation";
+}
+
+return "complete builder verification before creating a launch";
+}
+
+function buildBuilderComplianceError(wallet, compliance, action = "launch_create") {
+const err = new Error(getBuilderComplianceErrorMessage(compliance));
+err.statusCode = 403;
+err.code = "builder_compliance_required";
+err.action = action;
+err.wallet = cleanText(wallet, 120);
+err.compliance = compliance || null;
+err.complianceUrl = buildCompliancePagePath(wallet, "builder");
+return err;
+}
+
+function maybeSendComplianceError(res, err) {
+if (!err) return false;
+
+if (err.code === "builder_compliance_required" || Number(err.statusCode) === 403) {
+res.status(Number(err.statusCode) || 403).json({
+ok: false,
+error: err.message || "builder verification is required",
+code: err.code || "builder_compliance_required",
+action: err.action || null,
+compliance: err.compliance || null,
+complianceUrl: err.complianceUrl || null,
+});
+return true;
+}
+
+if (Number(err.statusCode) === 502) {
+res.status(502).json({
+ok: false,
+error: err.message || "failed to resolve builder compliance status",
+code: err.code || "builder_compliance_unavailable",
+});
+return true;
+}
+
+return false;
+}
+
+async function fetchComplianceStatus(req, { wallet, mode = "builder" } = {}) {
+if (typeof fetch !== "function") {
+const err = new Error("native fetch is not available for compliance checks");
+err.statusCode = 502;
+err.code = "builder_compliance_unavailable";
+throw err;
+}
+
+const normalizedWallet = cleanText(wallet, 120);
+if (!normalizedWallet) {
+const err = new Error("wallet is required for compliance checks");
+err.statusCode = 400;
+err.code = "wallet_required";
+throw err;
+}
+
+const origin = getInternalApiOrigin();
+const url = `${origin}/api/compliance/status?wallet=${encodeURIComponent(
+normalizedWallet
+)}&mode=${encodeURIComponent(mode)}`;
+
+let response;
+try {
+response = await fetch(url, {
+method: "GET",
+headers: {
+Accept: "application/json",
+},
+});
+} catch (cause) {
+const err = new Error("failed to resolve builder compliance status");
+err.statusCode = 502;
+err.code = "builder_compliance_unavailable";
+err.cause = cause;
+throw err;
+}
+
+let payload = null;
+try {
+payload = await response.json();
+} catch {
+payload = null;
+}
+
+if (!response.ok || !payload) {
+const err = new Error(
+payload?.error || `failed to resolve builder compliance status (${response.status})`
+);
+err.statusCode = response.status >= 400 && response.status < 500 ? response.status : 502;
+err.code =
+err.statusCode === 404
+? "builder_compliance_unavailable"
+: "builder_compliance_status_failed";
+throw err;
+}
+
+return normalizeComplianceStatusPayload(payload, {
+wallet: normalizedWallet,
+mode,
+});
+}
+
+async function requireApprovedBuilderCompliance(
+req,
+{ wallet, action = "launch_create" } = {}
+) {
+const compliance = await fetchComplianceStatus(req, {
+wallet,
+mode: "builder",
+});
+
+if (compliance.allowed) {
+return compliance;
+}
+
+throw buildBuilderComplianceError(wallet, compliance, action);
+}
+
 async function buildEscrowTransferTransaction({ wallet, solAmount, reference }) {
 const escrowWallet = getEscrowWallet();
 const expectedLamports = solToLamports(solAmount);
@@ -1814,6 +2088,11 @@ error: `launch bond must be between ${MIN_LAUNCH_BOND_SOL} and ${MAX_LAUNCH_BOND
 });
 }
 
+await requireApprovedBuilderCompliance(req, {
+wallet,
+action: "prepare_builder_bond",
+});
+
 const prepared = await buildEscrowTransferTransaction({
 wallet,
 solAmount: builderBondSol,
@@ -1828,6 +2107,10 @@ launchBondSol: builderBondSol,
 ...prepared,
 });
 } catch (err) {
+if (maybeSendComplianceError(res, err)) {
+return;
+}
+
 console.error("POST /api/launcher/prepare-builder-bond failed:", err);
 return res.status(500).json({
 ok: false,
@@ -1992,6 +2275,11 @@ error: validationErr.message,
 });
 }
 
+await requireApprovedBuilderCompliance(req, {
+wallet,
+action: "launch_create",
+});
+
 let builder;
 try {
 builder = await ensureBuilderProfileForWallet(wallet);
@@ -2155,6 +2443,10 @@ builder_pct: Number(cfg.builder_pct || 0),
 mintReservation: reservation,
 });
 } catch (err) {
+if (maybeSendComplianceError(res, err)) {
+return;
+}
+
 console.error("POST /api/launcher/create failed:", err);
 return res
 .status(500)
