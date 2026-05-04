@@ -89,6 +89,87 @@ return fallback;
 }
 }
 
+function parseDbTime(value) {
+if (!value) return null;
+
+const raw = String(value).trim();
+if (!raw) return null;
+
+const hasExplicitTimezone =
+/z$/i.test(raw) || /[+-]\d{2}:\d{2}$/.test(raw);
+
+if (
+!hasExplicitTimezone &&
+/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/.test(raw)
+) {
+const sqliteUtc = Date.parse(raw.replace(" ", "T") + "Z");
+return Number.isFinite(sqliteUtc) ? sqliteUtc : null;
+}
+
+const direct = Date.parse(raw);
+return Number.isFinite(direct) ? direct : null;
+}
+
+function normalizePhaseStatus(value) {
+const status = clean(value, 80).toLowerCase();
+
+if (!status) return "";
+if (status === "failed_refunded" || status === "refunded") {
+return "failed_refunded";
+}
+if (
+status === "failed" ||
+status === "cancelled" ||
+status === "canceled" ||
+status === "expired"
+) {
+return "failed";
+}
+if (status === "graduated" || status === "surged" || status === "surge") {
+return "graduated";
+}
+if (status === "live" || status === "trading" || status === "market_live") {
+return "live";
+}
+if (
+status === "building" ||
+status === "bootstrap" ||
+status === "bootstrapping" ||
+status === "deploying" ||
+status === "finalizing" ||
+status === "finalising"
+) {
+return "building";
+}
+if (status === "countdown" || status === "pre_live" || status === "prelive") {
+return "countdown";
+}
+if (
+status === "commit" ||
+status === "committing" ||
+status === "open" ||
+status === "pending" ||
+status === "created" ||
+status === "draft"
+) {
+return "commit";
+}
+
+return status;
+}
+
+function isExplicitFalseish(value) {
+if (value === false || value === 0) return true;
+const raw = String(value ?? "").trim().toLowerCase();
+return raw === "0" || raw === "false" || raw === "no";
+}
+
+function isExplicitTrueish(value) {
+if (value === true || value === 1) return true;
+const raw = String(value ?? "").trim().toLowerCase();
+return raw === "1" || raw === "true" || raw === "yes";
+}
+
 async function getTableColumns(tableName) {
 const rows = await db.all(`PRAGMA table_info(${tableName})`);
 return new Set(rows.map((row) => String(row.name || "").trim()));
@@ -219,6 +300,11 @@ circulating_supply: safeNum(row.circulating_supply, 0),
 market_cap: safeNum(row.market_cap, 0),
 price: safeNum(row.price, 0),
 volume_24h: safeNum(row.volume_24h, 0),
+market_bootstrapped:
+row.market_bootstrapped === undefined ? null : row.market_bootstrapped,
+countdown_started_at: row.countdown_started_at || null,
+countdown_ends_at: row.countdown_ends_at || null,
+live_at: row.live_at || null,
 status: clean(row.status, 40).toLowerCase(),
 token_name: clean(row.token_name, 120),
 symbol: clean(row.symbol, 40),
@@ -229,7 +315,6 @@ max_wallet_allocation_pct: safeNum(
 row.max_wallet_allocation_pct,
 DEFAULT_MAX_WALLET_ALLOCATION_PCT
 ),
-live_at: row.live_at || null,
 created_at: row.created_at || null,
 updated_at: row.updated_at || null,
 };
@@ -311,7 +396,7 @@ return clean(value, 32).toUpperCase() || DEFAULT_REQUIRED_MINT_TAG;
 }
 
 function isLiveLikeLaunchStatus(status) {
-const normalized = clean(status, 40).toLowerCase();
+const normalized = normalizePhaseStatus(status);
 return normalized === "live" || normalized === "graduated";
 }
 
@@ -382,26 +467,102 @@ const price = computeSpotPriceSolPerToken(pool);
 return roundSol(price * supply);
 }
 
-function resolveLifecycleLaunchStatus(status) {
-const normalized = clean(status, 40).toLowerCase();
+function getLaunchLiveSignal(launch) {
+const contractAddress =
+clean(launch?.contract_address, 120) || clean(launch?.token_mint, 120);
+const reservationStatus = clean(launch?.mint_reservation_status, 40).toLowerCase();
+const mintFinalizedAt = parseDbTime(launch?.mint_finalized_at);
 
-if (normalized === "graduated") return "graduated";
-if (normalized === "live") return "live";
-if (normalized === "building") return "building";
-if (normalized === "countdown") return "countdown";
-if (normalized === "commit") return "commit";
-
-return normalized || "pending";
+return Boolean(
+contractAddress ||
+reservationStatus === "finalized" ||
+Number.isFinite(mintFinalizedAt)
+);
 }
 
-function resolveLifecycleGraduationStatus(status) {
-const launchStatus = resolveLifecycleLaunchStatus(status);
+function computeCanonicalBootstrapStatus(
+launch,
+{ marketBootstrapped = null } = {}
+) {
+if (!launch) return "commit";
 
+const rawStatus = normalizePhaseStatus(launch.status);
+const countdownStartedMs = parseDbTime(launch.countdown_started_at);
+const countdownEndsMs = parseDbTime(launch.countdown_ends_at || launch.live_at);
+const liveAtMs = parseDbTime(launch.live_at);
+const now = Date.now();
+
+const hasCountdownWindow =
+Number.isFinite(countdownStartedMs) || Number.isFinite(countdownEndsMs);
+const countdownStillRunning =
+Number.isFinite(countdownEndsMs) && now < countdownEndsMs;
+
+const bootstrapTruth =
+typeof marketBootstrapped === "boolean"
+? marketBootstrapped
+: isExplicitTrueish(launch.market_bootstrapped)
+? true
+: isExplicitFalseish(launch.market_bootstrapped)
+? false
+: null;
+
+const liveSignal = getLaunchLiveSignal(launch);
+
+if (rawStatus === "failed_refunded") return "failed_refunded";
+if (rawStatus === "failed") return "failed";
+if (rawStatus === "graduated") return "graduated";
+
+if (rawStatus === "live") {
+return bootstrapTruth === false ? "building" : "live";
+}
+
+if (rawStatus === "building") return "building";
+
+if (rawStatus === "countdown") {
+if (!Number.isFinite(countdownEndsMs) || countdownStillRunning) {
+return "countdown";
+}
+return "building";
+}
+
+if (rawStatus === "commit") {
+if (hasCountdownWindow) {
+if (!Number.isFinite(countdownEndsMs) || countdownStillRunning) {
+return "countdown";
+}
+return "building";
+}
+return "commit";
+}
+
+if (!rawStatus && hasCountdownWindow) {
+if (!Number.isFinite(countdownEndsMs) || countdownStillRunning) {
+return "countdown";
+}
+return "building";
+}
+
+if (!rawStatus && Number.isFinite(liveAtMs) && now >= liveAtMs && liveSignal) {
+return bootstrapTruth === false ? "building" : "live";
+}
+
+if (!rawStatus && liveSignal) {
+return bootstrapTruth === false ? "building" : "live";
+}
+
+return rawStatus || "commit";
+}
+
+function resolveLifecycleLaunchStatus(launch, marketBootstrapped) {
+return computeCanonicalBootstrapStatus(launch, { marketBootstrapped });
+}
+
+function resolveLifecycleGraduationStatus(launchStatus) {
 if (launchStatus === "graduated") return "graduated";
 if (launchStatus === "live") return "internal_live";
 if (launchStatus === "building") return "building";
 if (launchStatus === "countdown") return "countdown";
-
+if (launchStatus === "commit") return "pending";
 return "pending";
 }
 
@@ -467,16 +628,21 @@ if (legacy > 0) return legacy;
 return 0;
 }
 
-function resolveBootstrapVestingStartAt(launch, existingVestingRow = null) {
+function resolveBootstrapVestingStartAt(
+launch,
+existingVestingRow = null,
+{ canonicalStatus = "", marketBootstrapped = false } = {}
+) {
 const existingStart = clean(existingVestingRow?.vesting_start_at, 120);
 if (existingStart) {
 return existingStart;
 }
 
-const status = clean(launch?.status, 40).toLowerCase();
 const liveAt = clean(launch?.live_at, 120);
-
-if (status === "live" || status === "graduated") {
+if (
+marketBootstrapped &&
+(canonicalStatus === "live" || canonicalStatus === "graduated")
+) {
 return liveAt || new Date().toISOString();
 }
 
@@ -496,7 +662,8 @@ pool?.id &&
 safeNum(pool?.sol_reserve, 0) > 0 &&
 safeNum(pool?.token_reserve, 0) > 0 &&
 safeNum(launch?.liquidity, 0) > 0 &&
-safeNum(launch?.price, 0) > 0
+safeNum(launch?.price, 0) > 0 &&
+safeNum(launch?.circulating_supply, 0) > 0
 );
 }
 
@@ -561,6 +728,10 @@ throw new Error("launch liquidity not written during bootstrap");
 
 if (safeNum(launch.price, 0) <= 0) {
 throw new Error("launch implied price not written during bootstrap");
+}
+
+if (safeNum(launch.circulating_supply, 0) <= 0) {
+throw new Error("launch circulating supply not written during bootstrap");
 }
 }
 
@@ -1297,8 +1468,12 @@ WHERE id = ?
 );
 }
 
-async function syncLaunchMintRevealState(launchId, mintAddress, launchStatus) {
-if (isLiveLikeLaunchStatus(launchStatus)) {
+async function syncLaunchMintRevealState(
+launchId,
+mintAddress,
+canonicalLaunchStatus
+) {
+if (isLiveLikeLaunchStatus(canonicalLaunchStatus)) {
 await finalizeLaunchMintFields(launchId, mintAddress);
 return;
 }
@@ -1340,11 +1515,18 @@ values
 
 async function ensureMintAddress(launch) {
 const existingToken = await getTokenByLaunchId(launch.id);
+const preBootstrapCanonicalStatus = computeCanonicalBootstrapStatus(launch, {
+marketBootstrapped: false,
+});
 
 if (existingToken?.mint_address) {
 const existingMint = clean(existingToken.mint_address, 120);
 
-await syncLaunchMintRevealState(launch.id, existingMint, launch.status);
+await syncLaunchMintRevealState(
+launch.id,
+existingMint,
+preBootstrapCanonicalStatus
+);
 
 await markPoolReservationFinalizedByLaunch({
 ...launch,
@@ -1368,15 +1550,11 @@ reservationStatus === "finalized" &&
 existingLaunchAddress &&
 isValidSolanaAddress(existingLaunchAddress)
 ) {
-if (isLiveLikeLaunchStatus(launch.status)) {
-await finalizeLaunchMintFields(launch.id, existingLaunchAddress);
-} else {
-await persistBootstrapMintFields(launch.id, existingLaunchAddress, {
-reservationStatus: "minted",
-clearContractAddress: true,
-clearMintFinalizedAt: true,
-});
-}
+await syncLaunchMintRevealState(
+launch.id,
+existingLaunchAddress,
+preBootstrapCanonicalStatus
+);
 
 await markPoolReservationFinalizedByLaunch({
 ...launch,
@@ -1387,7 +1565,7 @@ return {
 created: false,
 mintAddress: existingLaunchAddress,
 tokenRow: null,
-source: isLiveLikeLaunchStatus(launch.status)
+source: isLiveLikeLaunchStatus(preBootstrapCanonicalStatus)
 ? "launch_row_finalized"
 : "launch_row_healed_pre_live",
 };
@@ -1424,7 +1602,11 @@ if (mintAddress !== reservedMintAddress) {
 throw new Error("created mint address does not match reserved mint address");
 }
 
-await syncLaunchMintRevealState(launch.id, mintAddress, launch.status);
+await syncLaunchMintRevealState(
+launch.id,
+mintAddress,
+preBootstrapCanonicalStatus
+);
 await markPoolReservationFinalizedByLaunch(launch);
 
 return {
@@ -1772,7 +1954,11 @@ initial_token_reserve
 return db.get(`SELECT * FROM pools WHERE id = ?`, [result.lastID]);
 }
 
-async function ensureBuilderVestingState(launchId, launch) {
+async function ensureBuilderVestingState(
+launchId,
+launch,
+{ canonicalStatus = "", marketBootstrapped = false } = {}
+) {
 const builderWallet = clean(launch.builder_wallet, 120);
 if (!builderWallet) return null;
 
@@ -1784,6 +1970,10 @@ const dailyUnlock = computeBuilderDailyUnlock(totalSupply);
 const initialUnlocked = 0;
 const lockedRemaining = totalAllocation;
 
+const shouldStartVesting =
+marketBootstrapped &&
+(canonicalStatus === "live" || canonicalStatus === "graduated");
+
 if (!(await tableExists("builder_vesting"))) {
 return {
 launch_id: launchId,
@@ -1794,7 +1984,12 @@ unlocked_amount: initialUnlocked,
 locked_amount: lockedRemaining,
 cliff_days: BUILDER_CLIFF_DAYS,
 vesting_days: BUILDER_VESTING_DAYS,
-vesting_start_at: resolveBootstrapVestingStartAt(launch),
+vesting_start_at: shouldStartVesting
+? resolveBootstrapVestingStartAt(launch, null, {
+canonicalStatus,
+marketBootstrapped,
+})
+: null,
 };
 }
 
@@ -1808,8 +2003,12 @@ LIMIT 1
 [launchId]
 );
 
-const bootstrapVestingStartAt = resolveBootstrapVestingStartAt(launch, existing);
-const launchStatus = clean(launch?.status, 40).toLowerCase();
+const bootstrapVestingStartAt = shouldStartVesting
+? resolveBootstrapVestingStartAt(launch, existing, {
+canonicalStatus,
+marketBootstrapped,
+})
+: null;
 
 const hasBuilderWallet = await builderVestingHasColumn("builder_wallet");
 const hasTotalAllocation = await builderVestingHasColumn("total_allocation");
@@ -1850,9 +2049,14 @@ values.push(lockedRemaining);
 }
 
 if (hasVestingStartAt) {
-if (launchStatus === "live" || launchStatus === "graduated") {
+if (shouldStartVesting) {
 sets.push("vesting_start_at = COALESCE(vesting_start_at, ?)");
 values.push(bootstrapVestingStartAt || new Date().toISOString());
+} else if (
+clean(existing?.vesting_start_at, 120) &&
+safeNum(existing?.unlocked_amount, 0) <= 0
+) {
+sets.push("vesting_start_at = NULL");
 }
 }
 
@@ -1909,11 +2113,7 @@ values.push(lockedRemaining);
 if (hasVestingStartAt) {
 columns.push("vesting_start_at");
 placeholders.push("?");
-values.push(
-launchStatus === "live" || launchStatus === "graduated"
-? bootstrapVestingStartAt || new Date().toISOString()
-: null
-);
+values.push(shouldStartVesting ? bootstrapVestingStartAt : null);
 }
 
 if (hasCreatedAt) {
@@ -2098,13 +2298,19 @@ values
 );
 }
 
-async function ensureLaunchLiquidityLifecycle(launchId, launch, token, pool) {
+async function ensureLaunchLiquidityLifecycle(
+launchId,
+launch,
+token,
+pool,
+{ marketBootstrapped = true } = {}
+) {
 const totalSupply = floorToken(launch?.final_supply || launch?.supply || 0);
 const internalSolReserve = safeNum(pool?.sol_reserve, 0);
 const internalTokenReserve = floorToken(pool?.token_reserve);
 const impliedMarketcapSol = computeImpliedMarketcapSol(totalSupply, pool);
-const launchStatus = resolveLifecycleLaunchStatus(launch?.status);
-const graduationStatus = resolveLifecycleGraduationStatus(launch?.status);
+const launchStatus = resolveLifecycleLaunchStatus(launch, marketBootstrapped);
+const graduationStatus = resolveLifecycleGraduationStatus(launchStatus);
 const contractAddress = resolveLifecycleContractAddress(launch, token);
 const builderWallet = clean(launch?.builder_wallet, 120) || null;
 const hasReserves = internalSolReserve > 0 && internalTokenReserve > 0;
@@ -2115,7 +2321,7 @@ launch_id: launchId,
 launch_status: launchStatus,
 contract_address: contractAddress,
 builder_wallet: builderWallet,
-market_bootstrapped: 1,
+market_bootstrapped: marketBootstrapped ? 1 : 0,
 internal_sol_reserve: internalSolReserve,
 internal_token_reserve: internalTokenReserve,
 implied_marketcap_sol: impliedMarketcapSol,
@@ -2172,7 +2378,7 @@ values.push(builderWallet);
 
 if (has("market_bootstrapped")) {
 sets.push("market_bootstrapped = ?");
-values.push(1);
+values.push(marketBootstrapped ? 1 : 0);
 }
 
 if (has("internal_sol_reserve")) {
@@ -2261,7 +2467,7 @@ values.push(builderWallet);
 if (has("market_bootstrapped")) {
 insertColumns.push("market_bootstrapped");
 placeholders.push("?");
-values.push(1);
+values.push(marketBootstrapped ? 1 : 0);
 }
 
 if (has("internal_sol_reserve")) {
@@ -2336,7 +2542,7 @@ launch_id: launchId,
 launch_status: launchStatus,
 contract_address: contractAddress,
 builder_wallet: builderWallet,
-market_bootstrapped: 1,
+market_bootstrapped: marketBootstrapped ? 1 : 0,
 internal_sol_reserve: internalSolReserve,
 internal_token_reserve: internalTokenReserve,
 implied_marketcap_sol: impliedMarketcapSol,
@@ -2357,19 +2563,38 @@ pool,
 validateTokenRow(token, clean(token?.mint_address, 120));
 validatePoolRow(pool);
 
-await ensureBuilderVestingState(launchId, launch);
-await ensureWalletBalancesFromAllocations(launchId, launch);
 await updateLaunchMarketFields(launchId, launch, pool);
-await markLaunchBootstrapComplete(launchId);
 
 let refreshedLaunch = await getLaunchById(launchId);
 validateLaunchMarketFields(refreshedLaunch);
 
-await ensureLaunchLiquidityLifecycle(launchId, refreshedLaunch, token, pool);
+await markLaunchBootstrapComplete(launchId);
 refreshedLaunch = await getLaunchById(launchId);
 
-if (isLiveLikeLaunchStatus(refreshedLaunch?.status) && clean(token?.mint_address, 120)) {
-await finalizeLaunchMintFields(launchId, clean(token.mint_address, 120));
+const canonicalStatus = computeCanonicalBootstrapStatus(refreshedLaunch, {
+marketBootstrapped: true,
+});
+
+await ensureLaunchLiquidityLifecycle(launchId, refreshedLaunch, token, pool, {
+marketBootstrapped: true,
+});
+
+await ensureBuilderVestingState(launchId, refreshedLaunch, {
+canonicalStatus,
+marketBootstrapped: true,
+});
+
+await ensureWalletBalancesFromAllocations(launchId, refreshedLaunch);
+
+refreshedLaunch = await getLaunchById(launchId);
+validateLaunchMarketFields(refreshedLaunch);
+
+if (clean(token?.mint_address, 120)) {
+await syncLaunchMintRevealState(
+launchId,
+clean(token.mint_address, 120),
+canonicalStatus
+);
 refreshedLaunch = await getLaunchById(launchId);
 }
 
@@ -2385,7 +2610,7 @@ if (!launch) {
 throw new Error("launch not found");
 }
 
-const status = String(launch.status || "").toLowerCase();
+const status = normalizePhaseStatus(launch.status);
 if (status !== "countdown" && status !== "building" && status !== "live") {
 throw new Error("launch must be countdown, building, or live before market bootstrap");
 }

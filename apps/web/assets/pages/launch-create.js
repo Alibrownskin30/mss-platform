@@ -41,6 +41,12 @@ function sleep(ms) {
 return new Promise((resolve) => window.setTimeout(resolve, ms));
 }
 
+function toNumber(value, fallback = 0) {
+if (value === null || value === undefined || value === "") return fallback;
+const num = Number(value);
+return Number.isFinite(num) ? num : fallback;
+}
+
 function normalizeSymbol(value) {
 return String(value || "")
 .toUpperCase()
@@ -58,6 +64,10 @@ function normalizeWallet(value) {
 return String(value || "").trim();
 }
 
+function normalizeBuilderAlias(value, fallback = "") {
+return String(value || fallback || "").trim().slice(0, 60);
+}
+
 function formatSupply(value) {
 const num = Number(value);
 if (!Number.isFinite(num) || num <= 0) return "—";
@@ -66,12 +76,24 @@ return num.toLocaleString("en-AU");
 
 function formatSol(value, maxDecimals = 2) {
 const num = Number(value);
-if (!Number.isFinite(num) || num <= 0) return "— SOL";
+if (!Number.isFinite(num) || num < 0) return "— SOL";
 
 return `${num.toLocaleString("en-AU", {
 minimumFractionDigits: 0,
 maximumFractionDigits: maxDecimals,
 })} SOL`;
+}
+
+function formatUsd(value, maxDecimals = 2) {
+const num = Number(value);
+if (!Number.isFinite(num) || num < 0) return "$0";
+
+return num.toLocaleString("en-AU", {
+style: "currency",
+currency: "USD",
+minimumFractionDigits: 0,
+maximumFractionDigits: maxDecimals,
+});
 }
 
 function shortenWallet(wallet) {
@@ -87,9 +109,11 @@ if (!w) return "New Builder";
 return `Builder ${w.slice(0, 4)}${w.slice(-4)}`;
 }
 
-function getBuilderAliasCandidates(wallet) {
+function getBuilderAliasCandidates(wallet, preferredAlias = "") {
 const w = String(wallet || "").trim();
-if (!w) return ["New Builder"];
+const cleanedPreferred = normalizeBuilderAlias(preferredAlias);
+
+if (!w) return cleanedPreferred ? [cleanedPreferred] : ["New Builder"];
 
 const first4 = w.slice(0, 4);
 const last4 = w.slice(-4);
@@ -98,13 +122,16 @@ const first6 = w.slice(0, 6);
 return Array.from(
 new Set(
 [
+cleanedPreferred,
 `Builder ${first4}${last4}`,
 `Builder ${first4}-${last4}`,
 `Builder ${first6}`,
 defaultBuilderAlias(wallet),
-].map((value) => String(value).trim().slice(0, 60))
+]
+.map((value) => String(value || "").trim().slice(0, 60))
+.filter(Boolean)
 )
-).filter(Boolean);
+);
 }
 
 function escapeHtmlAttr(str) {
@@ -145,7 +172,7 @@ text.includes("builder profile not found")
 }
 
 function getLaunchBondLabel() {
-return "Launch bond";
+return "Builder Bond";
 }
 
 function getInjectedWalletProvider() {
@@ -169,8 +196,141 @@ candidates.find(
 );
 }
 
+function normalizeUrl(raw, typeKey = "") {
+const value = String(raw || "").trim();
+if (!value) return "";
+if (/^javascript:/i.test(value) || /^data:/i.test(value)) return "";
+
+let normalized = value;
+if (!/^https?:\/\//i.test(normalized)) normalized = `https://${normalized}`;
+
+try {
+const url = new URL(normalized);
+if (!["http:", "https:"].includes(url.protocol)) return "";
+
+const host = url.hostname.toLowerCase();
+
+if (
+typeKey === "x_url" &&
+!(host.includes("x.com") || host.includes("twitter.com"))
+) {
+return "";
+}
+
+if (
+typeKey === "telegram_url" &&
+!(host.includes("t.me") || host.includes("telegram.me"))
+) {
+return "";
+}
+
+if (
+typeKey === "discord_url" &&
+!(host.includes("discord.gg") || host.includes("discord.com"))
+) {
+return "";
+}
+
+return url.toString();
+} catch {
+return "";
+}
+}
+
+const SOL_QUOTE_REFRESH_MS = 20000;
+const BUILDER_ALLOWED_HARD_CAPS = [250, 500, 750, 1000];
+const BUILDER_SOFT_CAP_BY_HARD_CAP = {
+250: 200,
+500: 300,
+750: 400,
+1000: 500,
+};
+const DEFAULT_BUILDER_HARD_CAP_SOL = 250;
+const MIN_LAUNCH_BOND_SOL = 3;
+const MAX_LAUNCH_BOND_SOL = 25;
+
+const TEMPLATE_CONFIG = {
+degen_zone: {
+supply: 1000000000,
+minRaiseSol: 55,
+hardCapSol: 75,
+},
+meme_lite: {
+supply: 1000000000,
+minRaiseSol: 60,
+hardCapSol: 100,
+},
+meme_pro: {
+supply: 1000000000,
+minRaiseSol: 75,
+hardCapSol: 200,
+},
+community: {
+supply: 1000000000,
+minRaiseSol: 75,
+hardCapSol: 200,
+},
+builder: {
+supply: 1000000000,
+minRaiseSol: BUILDER_SOFT_CAP_BY_HARD_CAP[DEFAULT_BUILDER_HARD_CAP_SOL],
+hardCapSol: DEFAULT_BUILDER_HARD_CAP_SOL,
+},
+};
+
+const TEAM_LABEL_OPTIONS = [
+"Team",
+"Marketing",
+"Treasury",
+"Advisors",
+"Operations",
+"Development",
+"Community",
+"Custom",
+];
+
+const VISIBILITY_ADDONS = [
+{
+key: "coming_soon_spotlight",
+label: "Coming Soon Spotlight",
+usd: 99,
+checkboxId: "addOnComingSoon",
+cardId: "addOnCardComingSoon",
+priceId: "addOnComingSoonPrice",
+},
+{
+key: "commit_opens_spotlight",
+label: "Commit Opens Spotlight",
+usd: 149,
+checkboxId: "addOnCommitOpens",
+cardId: "addOnCardCommitOpens",
+priceId: "addOnCommitOpensPrice",
+},
+{
+key: "priority_placement",
+label: "Priority Placement",
+usd: 249,
+checkboxId: "addOnPriorityPlacement",
+cardId: "addOnCardPriorityPlacement",
+priceId: "addOnPriorityPlacementPrice",
+},
+{
+key: "community_distribution",
+label: "Community Distribution",
+usd: 129,
+checkboxId: "addOnCommunityDistribution",
+cardId: "addOnCardCommunityDistribution",
+priceId: "addOnCommunityDistributionPrice",
+},
+];
+
 let cachedBuilderBond = null;
 let currentLogoPreviewObjectUrl = "";
+let quoteRefreshIntervalId = null;
+let pricingState = {
+solUsd: null,
+fetchedAt: 0,
+isLoading: false,
+};
 let builderComplianceState = {
 wallet: "",
 payload: null,
@@ -222,56 +382,6 @@ throw new Error(data?.error || `HTTP ${res.status}`);
 
 return data;
 }
-
-const BUILDER_ALLOWED_HARD_CAPS = [250, 500, 750, 1000];
-const BUILDER_SOFT_CAP_BY_HARD_CAP = {
-250: 200,
-500: 300,
-750: 400,
-1000: 500,
-};
-const DEFAULT_BUILDER_HARD_CAP_SOL = 250;
-const MIN_LAUNCH_BOND_SOL = 3;
-const MAX_LAUNCH_BOND_SOL = 25;
-
-const TEMPLATE_CONFIG = {
-degen_zone: {
-supply: 1000000000,
-minRaiseSol: 55,
-hardCapSol: 75,
-},
-meme_lite: {
-supply: 1000000000,
-minRaiseSol: 60,
-hardCapSol: 100,
-},
-meme_pro: {
-supply: 1000000000,
-minRaiseSol: 75,
-hardCapSol: 200,
-},
-community: {
-supply: 1000000000,
-minRaiseSol: 75,
-hardCapSol: 200,
-},
-builder: {
-supply: 1000000000,
-minRaiseSol: BUILDER_SOFT_CAP_BY_HARD_CAP[DEFAULT_BUILDER_HARD_CAP_SOL],
-hardCapSol: DEFAULT_BUILDER_HARD_CAP_SOL,
-},
-};
-
-const TEAM_LABEL_OPTIONS = [
-"Team",
-"Marketing",
-"Treasury",
-"Advisors",
-"Operations",
-"Development",
-"Community",
-"Custom",
-];
 
 function normalizeBuilderHardCap(raw) {
 const parsed = Number(raw);
@@ -439,9 +549,37 @@ return;
 totalEl.classList.add("good");
 }
 
+function getSelectedVisibilityAddons() {
+return VISIBILITY_ADDONS.filter((addon) => $(addon.checkboxId)?.checked).map(
+(addon) => ({ ...addon })
+);
+}
+
+function maybeSeedBuilderAlias() {
+const input = $("builderAlias");
+if (!input) return;
+
+const wallet = getConnectedPublicKey() || "";
+const current = String(input.value || "").trim();
+const userEdited = input.dataset.userEdited === "1";
+
+if (!wallet) {
+if (!userEdited && !current) {
+input.value = "";
+}
+return;
+}
+
+if (!current || (!userEdited && current === defaultBuilderAlias(wallet))) {
+input.value = defaultBuilderAlias(wallet);
+input.dataset.userEdited = "0";
+}
+}
+
 function getFormValues() {
 const tpl = getSelectedTemplate();
 const builderMode = tpl.key === "builder";
+const wallet = getConnectedPublicKey() || "";
 const supplyValue = builderMode
 ? Number($("supplyPreset")?.value || tpl.supply)
 : tpl.supply;
@@ -449,14 +587,35 @@ const supplyValue = builderMode
 const teamWalletBreakdown = builderMode ? getTeamWalletBreakdown() : [];
 const teamWallets = builderMode ? getTeamWallets() : [];
 const teamAllocationTotal = builderMode ? getTeamAllocationTotalValue() : 0;
+const visibilityAddons = getSelectedVisibilityAddons().map((addon) => {
+const solEstimate =
+pricingState.solUsd && pricingState.solUsd > 0
+? addon.usd / pricingState.solUsd
+: 0;
 
 return {
-wallet: getConnectedPublicKey() || "",
+key: addon.key,
+label: addon.label,
+usd: addon.usd,
+sol_estimate: solEstimate,
+};
+});
+
+return {
+wallet,
 template: tpl.key,
 tokenName: $("tokenName")?.value.trim() || "",
 symbol: normalizeSymbol($("symbol")?.value || ""),
+builderAlias: normalizeBuilderAlias(
+$("builderAlias")?.value || "",
+defaultBuilderAlias(wallet)
+),
 description: $("description")?.value.trim() || "",
 imageUrl: $("imageUrl")?.value.trim() || "",
+websiteUrl: $("websiteUrl")?.value.trim() || "",
+xUrl: $("xUrl")?.value.trim() || "",
+telegramUrl: $("telegramUrl")?.value.trim() || "",
+discordUrl: $("discordUrl")?.value.trim() || "",
 supply: supplyValue,
 minRaiseSol: tpl.minRaiseSol,
 hardCapSol: tpl.hardCapSol,
@@ -466,6 +625,12 @@ teamAllocation: builderMode ? Number($("teamAllocation")?.value || 0) : 0,
 teamWallets,
 teamWalletBreakdown,
 teamAllocationTotal,
+visibilityAddons,
+acknowledgements: {
+bondRequired: Boolean($("ackBondRequired")?.checked),
+visibilityImmediate: Boolean($("ackVisibilityImmediate")?.checked),
+launchFeeLive: Boolean($("ackLaunchFeeLive")?.checked),
+},
 };
 }
 
@@ -492,6 +657,10 @@ throw new Error("Symbol is required.");
 
 if (values.symbol.length < 2) {
 throw new Error("Symbol must be at least 2 characters.");
+}
+
+if (!values.builderAlias) {
+throw new Error("Builder alias is required.");
 }
 
 if (!values.description) {
@@ -522,10 +691,39 @@ throw new Error(
 );
 }
 
+const normalizedWebsiteUrl = values.websiteUrl
+? normalizeUrl(values.websiteUrl, "website_url")
+: "";
+const normalizedXUrl = values.xUrl ? normalizeUrl(values.xUrl, "x_url") : "";
+const normalizedTelegramUrl = values.telegramUrl
+? normalizeUrl(values.telegramUrl, "telegram_url")
+: "";
+const normalizedDiscordUrl = values.discordUrl
+? normalizeUrl(values.discordUrl, "discord_url")
+: "";
+
+if (values.websiteUrl && !normalizedWebsiteUrl) {
+throw new Error("Website URL is invalid.");
+}
+
+if (values.xUrl && !normalizedXUrl) {
+throw new Error("X URL is invalid.");
+}
+
+if (values.telegramUrl && !normalizedTelegramUrl) {
+throw new Error("Telegram URL is invalid.");
+}
+
+if (values.discordUrl && !normalizedDiscordUrl) {
+throw new Error("Discord URL is invalid.");
+}
+
 if (values.template === "builder") {
 if (!BUILDER_ALLOWED_HARD_CAPS.includes(Number(values.hardCapSol))) {
 throw new Error(
-`Builder hard cap must be one of ${BUILDER_ALLOWED_HARD_CAPS.join(", ")} SOL.`
+`Builder hard cap must be one of ${BUILDER_ALLOWED_HARD_CAPS.join(
+", "
+)} SOL.`
 );
 }
 
@@ -639,12 +837,18 @@ throw new Error("Logo must be 5MB or smaller.");
 }
 }
 
-if (values.imageUrl) {
-try {
-new URL(values.imageUrl);
-} catch {
-throw new Error("Existing image URL is invalid.");
+if (!values.acknowledgements.bondRequired) {
+throw new Error("Confirm the Builder Bond acknowledgement before continuing.");
 }
+
+if (!values.acknowledgements.visibilityImmediate) {
+throw new Error(
+"Confirm the Launch Visibility acknowledgement before continuing."
+);
+}
+
+if (!values.acknowledgements.launchFeeLive) {
+throw new Error("Confirm the MSS Launch Fee acknowledgement before continuing.");
 }
 }
 
@@ -923,6 +1127,8 @@ walletHint.textContent =
 "Use Connect Wallet to choose Phantom, Solflare, or Backpack.";
 }
 }
+
+maybeSeedBuilderAlias();
 }
 
 function buildLabelOptionsHtml(selected = "") {
@@ -955,15 +1161,21 @@ row.innerHTML = `
 <select data-role="label-select">
 ${buildLabelOptionsHtml(selectedLabel)}
 </select>
-<input data-role="label-custom" type="text" placeholder="Custom label" value="${escapeHtmlAttr(customLabel)}" style="${selectedLabel === "Custom" ? "" : "display:none;"}" />
+<input data-role="label-custom" type="text" placeholder="Custom label" value="${escapeHtmlAttr(
+customLabel
+)}" style="${selectedLabel === "Custom" ? "" : "display:none;"}" />
 </div>
 <div class="field">
 <label>Wallet Address</label>
-<input data-role="wallet" type="text" placeholder="Team wallet ${i + 1}" value="${escapeHtmlAttr(prev.wallet || "")}" autocomplete="off" />
+<input data-role="wallet" type="text" placeholder="Team wallet ${
+i + 1
+}" value="${escapeHtmlAttr(prev.wallet || "")}" autocomplete="off" />
 </div>
 <div class="field">
 <label>Allocation %</label>
-<input data-role="allocation" type="number" min="0" max="15" step="0.1" placeholder="0.0" value="${Number(prev.pct || 0) || ""}" />
+<input data-role="allocation" type="number" min="0" max="15" step="0.1" placeholder="0.0" value="${
+Number(prev.pct || 0) || ""
+}" />
 </div>
 `;
 
@@ -1048,6 +1260,197 @@ currentLogoPreviewObjectUrl = "";
 }
 }
 
+function updateTemplateSelectionCards(templateKey) {
+document.querySelectorAll("[data-template-card]").forEach((card) => {
+card.classList.toggle(
+"active",
+card.getAttribute("data-template-card") === templateKey
+);
+});
+}
+
+function updateVisibilitySelectionCards() {
+VISIBILITY_ADDONS.forEach((addon) => {
+const card = $(addon.cardId);
+const checkbox = $(addon.checkboxId);
+if (!card || !checkbox) return;
+card.classList.toggle("is-selected", Boolean(checkbox.checked));
+});
+}
+
+function getSolEquivalentText(usdValue) {
+const solUsd = toNumber(pricingState.solUsd, 0);
+if (solUsd <= 0) return "— SOL";
+return formatSol(usdValue / solUsd, 3);
+}
+
+function updateAddonPriceLabels() {
+VISIBILITY_ADDONS.forEach((addon) => {
+const priceEl = $(addon.priceId);
+if (!priceEl) return;
+priceEl.textContent = `${formatUsd(addon.usd, 0)} • ${getSolEquivalentText(
+addon.usd
+)}`;
+});
+}
+
+function renderCheckoutSummary(values) {
+const bondPrimary = $("checkoutBondPrimary");
+const bondSecondary = $("checkoutBondSecondary");
+const visibilityTotalPrimary = $("checkoutVisibilityTotalPrimary");
+const visibilityTotalSecondary = $("checkoutVisibilityTotalSecondary");
+const visibilityItems = $("checkoutVisibilityItems");
+const dueNowPrimary = $("checkoutDueNowPrimary");
+const dueNowSecondary = $("checkoutDueNowSecondary");
+const launchFeePrimary = $("checkoutLaunchFeePrimary");
+const launchFeeSecondary = $("checkoutLaunchFeeSecondary");
+const dueIfLivePrimary = $("checkoutDueIfLivePrimary");
+const dueIfLiveSecondary = $("checkoutDueIfLiveSecondary");
+const launchName = $("checkoutLaunchName");
+const launchSub = $("checkoutLaunchSub");
+const bondBadge = $("checkoutBuilderBondBadge");
+const quoteNote = $("checkoutQuoteRefreshNote");
+
+const visibilityAddons = values.visibilityAddons || [];
+const visibilityTotalUsd = visibilityAddons.reduce(
+(sum, addon) => sum + toNumber(addon.usd, 0),
+0
+);
+const solUsd = toNumber(pricingState.solUsd, 0);
+const bondUsdEstimate = solUsd > 0 ? values.builderBond * solUsd : 0;
+const visibilitySolEstimate = solUsd > 0 ? visibilityTotalUsd / solUsd : 0;
+const dueNowUsdEstimate = solUsd > 0 ? bondUsdEstimate + visibilityTotalUsd : 0;
+const dueNowSolEstimate = values.builderBond + visibilitySolEstimate;
+const maxLaunchFeeSol = toNumber(values.hardCapSol, 0) * 0.03;
+const maxLaunchFeeUsd = solUsd > 0 ? maxLaunchFeeSol * solUsd : 0;
+
+if (launchName) {
+launchName.textContent = values.tokenName || "Untitled Launch";
+}
+
+if (launchSub) {
+launchSub.textContent = `${normalizeTemplateLabel(values.template)} • ${
+values.symbol || "Ticker Pending"
+}`;
+}
+
+if (bondBadge) {
+bondBadge.textContent = `${getLaunchBondLabel()} Required`;
+}
+
+if (bondPrimary) {
+bondPrimary.textContent = formatSol(values.builderBond, 3);
+}
+
+if (bondSecondary) {
+bondSecondary.textContent =
+solUsd > 0 ? `≈ ${formatUsd(bondUsdEstimate, 2)}` : "USD estimate pending";
+}
+
+if (visibilityTotalPrimary) {
+visibilityTotalPrimary.textContent = formatUsd(visibilityTotalUsd, 0);
+}
+
+if (visibilityTotalSecondary) {
+visibilityTotalSecondary.textContent =
+solUsd > 0
+? `${formatUsd(visibilityTotalUsd, 0)} • ${formatSol(
+visibilitySolEstimate,
+3
+)}`
+: `${formatUsd(visibilityTotalUsd, 0)} • — SOL`;
+}
+
+if (visibilityItems) {
+if (!visibilityAddons.length) {
+visibilityItems.innerHTML = `
+<div class="checkout-list-item">
+<span>No visibility items selected</span>
+<strong>$0</strong>
+</div>
+`;
+} else {
+visibilityItems.innerHTML = visibilityAddons
+.map((addon) => {
+const solText = solUsd > 0 ? formatSol(addon.usd / solUsd, 3) : "— SOL";
+return `
+<div class="checkout-list-item">
+<span>${escapeHtmlText(addon.label)}</span>
+<strong>${escapeHtmlText(
+`${formatUsd(addon.usd, 0)} • ${solText}`
+)}</strong>
+</div>
+`;
+})
+.join("");
+}
+}
+
+if (dueNowPrimary) {
+if (solUsd > 0) {
+dueNowPrimary.textContent = formatUsd(dueNowUsdEstimate, 2);
+} else if (visibilityTotalUsd > 0) {
+dueNowPrimary.textContent = `${formatUsd(visibilityTotalUsd, 0)} + bond quote pending`;
+} else {
+dueNowPrimary.textContent = formatSol(values.builderBond, 3);
+}
+}
+
+if (dueNowSecondary) {
+dueNowSecondary.textContent =
+solUsd > 0
+? `${formatSol(dueNowSolEstimate, 3)} total due now`
+: `${formatSol(values.builderBond, 3)} builder bond • SOL refresh pending for add-ons`;
+}
+
+if (launchFeePrimary) {
+launchFeePrimary.textContent = "3% of final committed SOL";
+}
+
+if (launchFeeSecondary) {
+launchFeeSecondary.textContent =
+maxLaunchFeeSol > 0
+? solUsd > 0
+? `At hard cap: ${formatSol(maxLaunchFeeSol, 3)} • ≈ ${formatUsd(
+maxLaunchFeeUsd,
+2
+)}`
+: `At hard cap: ${formatSol(maxLaunchFeeSol, 3)}`
+: "Estimated from final raise once available";
+}
+
+if (dueIfLivePrimary) {
+dueIfLivePrimary.textContent = "3% of final committed SOL";
+}
+
+if (dueIfLiveSecondary) {
+dueIfLiveSecondary.textContent =
+maxLaunchFeeSol > 0
+? solUsd > 0
+? `At hard cap: ${formatSol(maxLaunchFeeSol, 3)} • ≈ ${formatUsd(
+maxLaunchFeeUsd,
+2
+)}`
+: `At hard cap: ${formatSol(maxLaunchFeeSol, 3)}`
+: "Settles only if the launch goes live";
+}
+
+if (quoteNote) {
+if (solUsd > 0 && pricingState.fetchedAt) {
+quoteNote.textContent = `USD prices are fixed. SOL equivalents refresh automatically every 20 seconds with market price. Current SOL/USD: ${formatUsd(
+solUsd,
+2
+)}. Last updated ${new Date(pricingState.fetchedAt).toLocaleTimeString([], {
+hour: "2-digit",
+minute: "2-digit",
+})}.`;
+} else {
+quoteNote.textContent =
+"USD prices are fixed. SOL equivalents refresh automatically every 20 seconds when quote data is available.";
+}
+}
+}
+
 function updatePreview() {
 const values = getFormValues();
 
@@ -1070,7 +1473,11 @@ if (previewMinRaise) previewMinRaise.textContent = formatSol(values.minRaiseSol)
 if (previewHardCap) previewHardCap.textContent = formatSol(values.hardCapSol);
 if (previewSupply) previewSupply.textContent = formatSupply(values.supply);
 if (previewWallet) {
-previewWallet.textContent = values.wallet ? shortenWallet(values.wallet) : "—";
+previewWallet.textContent = values.builderAlias
+? `${values.builderAlias}${values.wallet ? ` • ${shortenWallet(values.wallet)}` : ""}`
+: values.wallet
+? shortenWallet(values.wallet)
+: "—";
 }
 if (previewDesc) {
 previewDesc.textContent =
@@ -1094,12 +1501,16 @@ values.template === "builder" ? "Builder Template" : "Template Locked";
 if (allocationChip) {
 allocationChip.textContent =
 values.template === "builder"
-? "Reserve Adjusts For Team"
+? "Builder Controls Active"
 : "1 SOL Max Commit";
 }
 
 renderPreviewBuilderBlock(values);
 syncLaunchBondField(values);
+updateTemplateSelectionCards(values.template);
+updateVisibilitySelectionCards();
+updateAddonPriceLabels();
+renderCheckoutSummary(values);
 
 const file = $("logoInput")?.files?.[0];
 const existingUrl = values.imageUrl;
@@ -1168,7 +1579,23 @@ if (builderHighlight) builderHighlight.classList.remove("show");
 if ($("minRaiseSol")) $("minRaiseSol").value = String(tpl.minRaiseSol);
 if ($("hardCapSol")) $("hardCapSol").value = String(tpl.hardCapSol);
 
+if ($("launchFeeDisplay")) {
+$("launchFeeDisplay").value = "3% of final committed SOL • only if live";
+}
+if ($("launchFeeRuleDisplay")) {
+$("launchFeeRuleDisplay").value = "3% of final committed SOL";
+}
+if ($("launchFeeSplitDisplay")) {
+$("launchFeeSplitDisplay").value =
+"60% Core Team Development • 40% MSS Ecosystem Support";
+}
+if ($("cassieIncludedDisplay")) {
+$("cassieIncludedDisplay").value =
+"Included standard on every launch";
+}
+
 syncLaunchBondField(tpl);
+updateTemplateSelectionCards(tpl.key);
 updateTeamAllocationTotal();
 updatePreview();
 }
@@ -1260,8 +1687,8 @@ throw err;
 }
 }
 
-async function createBuilderProfile(wallet) {
-const aliases = getBuilderAliasCandidates(wallet);
+async function createBuilderProfile(wallet, preferredAlias = "") {
+const aliases = getBuilderAliasCandidates(wallet, preferredAlias);
 let lastError = null;
 
 for (const alias of aliases) {
@@ -1305,7 +1732,7 @@ throw lastError;
 throw new Error("Builder profile could not be created automatically.");
 }
 
-async function ensureBuilderProfile(wallet, { forceCreate = false } = {}) {
+async function ensureBuilderProfile(wallet, preferredAlias = "", { forceCreate = false } = {}) {
 if (!wallet) {
 throw new Error("Builder wallet is required.");
 }
@@ -1316,7 +1743,7 @@ if (existing) return existing;
 }
 
 setStatus("warn", "No builder profile found. Creating one automatically...");
-const created = await createBuilderProfile(wallet);
+const created = await createBuilderProfile(wallet, preferredAlias);
 
 if (created) {
 return created;
@@ -1354,7 +1781,7 @@ setStatus(
 "warn",
 "Builder profile was missing during launch creation. Rebuilding profile and retrying..."
 );
-await ensureBuilderProfile(payload.wallet, { forceCreate: true });
+await ensureBuilderProfile(payload.wallet, payload.builder_alias, { forceCreate: true });
 await sleep(300);
 
 return createLaunch(payload);
@@ -1412,9 +1839,7 @@ const transaction = window.solanaWeb3.Transaction.from(txBytes);
 setStatus("warn", `Awaiting ${getLaunchBondLabel().toLowerCase()} wallet approval...`);
 const signedTransaction = await provider.signTransaction(transaction);
 
-const signedBase64 = btoa(
-String.fromCharCode(...signedTransaction.serialize())
-);
+const signedBase64 = btoa(String.fromCharCode(...signedTransaction.serialize()));
 
 setStatus("warn", `Confirming ${getLaunchBondLabel().toLowerCase()}...`);
 const confirm = await fetchJson(`/api/launcher/confirm-builder-bond`, {
@@ -1437,6 +1862,113 @@ txSignature: confirm.txSignature,
 return confirm.txSignature;
 }
 
+async function fetchOptionalJson(url) {
+try {
+const res = await fetch(url, { credentials: "include" });
+if (!res.ok) return null;
+return await res.json().catch(() => null);
+} catch {
+return null;
+}
+}
+
+function extractSolUsdFromPayload(payload) {
+if (!payload || typeof payload !== "object") return null;
+
+const candidates = [
+payload.solUsd,
+payload.sol_usd,
+payload.price,
+payload.usd,
+payload.data?.solUsd,
+payload.data?.sol_usd,
+payload.data?.price,
+payload.data?.usd,
+payload.quote?.solUsd,
+payload.quote?.sol_usd,
+payload.quote?.price,
+payload.quote?.usd,
+payload.market?.solUsd,
+payload.market?.sol_usd,
+];
+
+for (const candidate of candidates) {
+const num = Number(candidate);
+if (Number.isFinite(num) && num > 0) {
+return num;
+}
+}
+
+const globalQuote = Number(window.__MSS_SOL_USD__ || 0);
+if (Number.isFinite(globalQuote) && globalQuote > 0) {
+return globalQuote;
+}
+
+return null;
+}
+
+async function fetchSolUsdQuote() {
+const apiBase = getApiBase();
+const endpoints = [
+`${apiBase}/api/launcher/checkout-quote`,
+`${apiBase}/api/pricing/sol-usd`,
+`${apiBase}/api/market/sol-usd`,
+`${apiBase}/api/market/sol-price`,
+`${apiBase}/api/quote/sol-usd`,
+];
+
+for (const url of endpoints) {
+const payload = await fetchOptionalJson(url);
+const solUsd = extractSolUsdFromPayload(payload);
+if (solUsd) {
+return solUsd;
+}
+}
+
+return null;
+}
+
+async function refreshPricingQuote({ silent = false } = {}) {
+if (pricingState.isLoading) return pricingState.solUsd;
+pricingState.isLoading = true;
+
+try {
+const solUsd = await fetchSolUsdQuote();
+if (solUsd && Number.isFinite(solUsd) && solUsd > 0) {
+pricingState.solUsd = solUsd;
+pricingState.fetchedAt = Date.now();
+}
+updatePreview();
+return pricingState.solUsd;
+} catch (err) {
+if (!silent) {
+console.error("pricing quote refresh failed:", err);
+}
+updatePreview();
+return pricingState.solUsd;
+} finally {
+pricingState.isLoading = false;
+}
+}
+
+function startPricingQuoteLoop() {
+if (quoteRefreshIntervalId) {
+clearInterval(quoteRefreshIntervalId);
+quoteRefreshIntervalId = null;
+}
+
+quoteRefreshIntervalId = window.setInterval(() => {
+void refreshPricingQuote({ silent: true });
+}, SOL_QUOTE_REFRESH_MS);
+}
+
+function stopPricingQuoteLoop() {
+if (quoteRefreshIntervalId) {
+clearInterval(quoteRefreshIntervalId);
+quoteRefreshIntervalId = null;
+}
+}
+
 async function onSubmit(e) {
 e.preventDefault();
 clearStatus();
@@ -1455,7 +1987,7 @@ btn.textContent = "Creating Launch...";
 await requireApprovedBuilderCompliance(values.wallet);
 
 setStatus("warn", "Preparing builder profile...");
-await ensureBuilderProfile(values.wallet);
+await ensureBuilderProfile(values.wallet, values.builderAlias);
 
 let builderBondTxSignature = "";
 if (Number(values.builderBond) > 0) {
@@ -1475,8 +2007,17 @@ wallet: values.wallet,
 template: values.template,
 token_name: values.tokenName,
 symbol: values.symbol,
+builder_alias: values.builderAlias,
 description: values.description,
 image_url: finalImageUrl,
+website_url: values.websiteUrl ? normalizeUrl(values.websiteUrl, "website_url") : "",
+x_url: values.xUrl ? normalizeUrl(values.xUrl, "x_url") : "",
+telegram_url: values.telegramUrl
+? normalizeUrl(values.telegramUrl, "telegram_url")
+: "",
+discord_url: values.discordUrl
+? normalizeUrl(values.discordUrl, "discord_url")
+: "",
 supply: Number(values.supply),
 min_raise_sol: Number(values.minRaiseSol),
 hard_cap_sol: Number(values.hardCapSol),
@@ -1487,6 +2028,23 @@ team_wallet_breakdown:
 values.template === "builder" ? values.teamWalletBreakdown : [],
 builder_bond_sol: Number(values.builderBond),
 builder_bond_tx_signature: builderBondTxSignature,
+launch_fee_pct: 3,
+launch_fee_split: {
+core_team_development_pct: 60,
+mss_ecosystem_support_pct: 40,
+},
+cassie_monitoring_included: true,
+launch_visibility_addons: values.visibilityAddons.map((addon) => ({
+key: addon.key,
+label: addon.label,
+usd_price: Number(addon.usd),
+sol_estimate: toNumber(addon.sol_estimate, 0),
+})),
+pricing_quote: {
+sol_usd: toNumber(pricingState.solUsd, 0),
+quoted_at: pricingState.fetchedAt || null,
+},
+acknowledgements: values.acknowledgements,
 };
 
 const result = await createLaunchWithBuilderFallback(payload);
@@ -1502,6 +2060,12 @@ Number(values.builderBond) > 0
 ? ` ${getLaunchBondLabel()} confirmed: ${values.builderBond} SOL.`
 : "";
 
+const visibilityNotice = values.visibilityAddons.length
+? ` Visibility selected: ${values.visibilityAddons.length} item${
+values.visibilityAddons.length === 1 ? "" : "s"
+}.`
+: "";
+
 const mintNotice = mintReservation?.reservedMintAddress
 ? ` Reserved mint: ${mintReservation.reservedMintAddress}.`
 : "";
@@ -1510,13 +2074,15 @@ setStatus(
 "good",
 `Launch created successfully. Redirecting to launch #${
 launch.id
-}...${launchBondNotice}${mintNotice}`
+}...${launchBondNotice}${visibilityNotice}${mintNotice}`
 );
 
 clearBuilderBondCache();
 
 window.setTimeout(() => {
-window.location.href = `./launch-detail.html?id=${encodeURIComponent(launch.id)}`;
+window.location.href = `./launch-detail.html?id=${encodeURIComponent(
+launch.id
+)}`;
 }, 700);
 } catch (err) {
 const values = getFormValues();
@@ -1577,15 +2143,23 @@ const ids = [
 "template",
 "tokenName",
 "symbol",
+"builderAlias",
 "description",
 "imageUrl",
 "logoInput",
+"websiteUrl",
+"xUrl",
+"telegramUrl",
+"discordUrl",
 "supplyPreset",
 "builderHardCapSol",
 "builderMinRaiseSol",
 "teamWalletCount",
 "teamAllocation",
 "builderBond",
+"ackBondRequired",
+"ackVisibilityImmediate",
+"ackLaunchFeeLive",
 ];
 
 for (const id of ids) {
@@ -1596,6 +2170,37 @@ const handler = handleTemplateLinkedChange(id);
 el.addEventListener("input", handler);
 el.addEventListener("change", handler);
 }
+
+const builderAliasInput = $("builderAlias");
+if (builderAliasInput) {
+builderAliasInput.addEventListener("input", () => {
+builderAliasInput.dataset.userEdited = builderAliasInput.value.trim() ? "1" : "0";
+});
+}
+
+VISIBILITY_ADDONS.forEach((addon) => {
+const checkbox = $(addon.checkboxId);
+if (!checkbox) return;
+const handler = () => updatePreview();
+checkbox.addEventListener("change", handler);
+checkbox.addEventListener("input", handler);
+});
+}
+
+function bindTemplateCards() {
+document.querySelectorAll("[data-template-card]").forEach((card) => {
+if (card.dataset.bound === "1") return;
+card.dataset.bound = "1";
+
+card.addEventListener("click", () => {
+const key = card.getAttribute("data-template-card") || "";
+const select = $("template");
+if (!select || !key) return;
+select.value = key;
+clearBuilderBondCache();
+applyTemplateValues();
+});
+});
 }
 
 function initSessionUi() {
@@ -1643,6 +2248,7 @@ initSessionUi();
 applyTemplateValues();
 updateWalletUi();
 bindPreview();
+bindTemplateCards();
 bindWalletEvents();
 renderTeamWalletInputs();
 updatePreview();
@@ -1659,6 +2265,9 @@ await refreshBuilderComplianceStatus({ silent: true });
 // ignore on initial passive load
 }
 
+await refreshPricingQuote({ silent: true });
+startPricingQuoteLoop();
+
 const form = $("launchCreateForm");
 if (form) {
 form.addEventListener("submit", onSubmit);
@@ -1674,6 +2283,7 @@ updatePreview();
 
 window.addEventListener("beforeunload", () => {
 clearLogoPreviewObjectUrl();
+stopPricingQuoteLoop();
 });
 }
 

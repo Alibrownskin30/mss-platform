@@ -6,7 +6,7 @@
 <title>MSS Protocol — Create Launch</title>
 <meta
 name="description"
-content="Create a security-first MSS launch with locked template rules, required launch bond, builder controls, team wallet visibility, structured lifecycle flow, and builder verification gating."
+content="Create a security-first MSS launch with locked template rules, required builder bond, CassIE monitoring included, fixed launch visibility products, and structured checkout."
 />
 
 <link rel="stylesheet" href="./assets/app.css?v=7" />
@@ -19,7 +19,7 @@ min-height:100vh;
 }
 
 .create-launch-page .create-wrap{
-max-width:1320px;
+max-width:1440px;
 margin:0 auto;
 padding:28px 20px 88px;
 position:relative;
@@ -45,7 +45,7 @@ color:var(--text);
 
 .create-launch-page .create-hero{
 display:grid;
-grid-template-columns:minmax(0,1.16fr) minmax(320px,.84fr);
+grid-template-columns:minmax(0,1.18fr) minmax(320px,.82fr);
 gap:18px;
 margin-bottom:18px;
 }
@@ -54,7 +54,8 @@ margin-bottom:18px;
 .create-launch-page .create-hero-main,
 .create-launch-page .create-hero-side,
 .create-launch-page .create-form-card,
-.create-launch-page .create-preview-card{
+.create-launch-page .create-preview-card,
+.create-launch-page .checkout-summary-card{
 position:relative;
 border:1px solid rgba(74,165,255,.16);
 border-radius:var(--radius-xl);
@@ -70,7 +71,8 @@ overflow:hidden;
 .create-launch-page .create-hero-main::before,
 .create-launch-page .create-hero-side::before,
 .create-launch-page .create-form-card::before,
-.create-launch-page .create-preview-card::before{
+.create-launch-page .create-preview-card::before,
+.create-launch-page .checkout-summary-card::before{
 content:"";
 position:absolute;
 inset:0;
@@ -85,7 +87,8 @@ radial-gradient(520px 180px at 50% 110%, rgba(229,193,115,.045), transparent 44%
 .create-launch-page .create-hero-main::after,
 .create-launch-page .create-hero-side::after,
 .create-launch-page .create-form-card::after,
-.create-launch-page .create-preview-card::after{
+.create-launch-page .create-preview-card::after,
+.create-launch-page .checkout-summary-card::after{
 content:"";
 position:absolute;
 left:0;
@@ -100,7 +103,8 @@ pointer-events:none;
 
 .create-launch-page .create-hero-main,
 .create-launch-page .create-form-card,
-.create-launch-page .create-preview-card{
+.create-launch-page .create-preview-card,
+.create-launch-page .checkout-summary-card{
 padding:24px;
 }
 
@@ -114,7 +118,8 @@ align-content:start;
 .create-launch-page .create-hero-main > *,
 .create-launch-page .create-hero-side > *,
 .create-launch-page .create-form-card > *,
-.create-launch-page .create-preview-card > *{
+.create-launch-page .create-preview-card > *,
+.create-launch-page .checkout-summary-card > *{
 position:relative;
 z-index:1;
 }
@@ -262,7 +267,7 @@ line-height:1.55;
 
 .create-launch-page .create-layout{
 display:grid;
-grid-template-columns:minmax(0,1fr) 380px;
+grid-template-columns:minmax(0,1fr) 400px;
 gap:18px;
 align-items:start;
 }
@@ -286,6 +291,48 @@ font-size:18px;
 font-weight:900;
 letter-spacing:-.02em;
 color:#fff;
+}
+
+.create-launch-page .form-section{
+display:grid;
+gap:14px;
+padding:18px;
+border:1px solid rgba(255,255,255,.08);
+border-radius:22px;
+background:rgba(255,255,255,.022);
+box-shadow:inset 0 1px 0 rgba(255,255,255,.03);
+}
+
+.create-launch-page .form-section + .form-section{
+margin-top:18px;
+}
+
+.create-launch-page .form-section-head{
+display:grid;
+gap:8px;
+}
+
+.create-launch-page .form-section-kicker{
+font-size:11px;
+font-weight:900;
+letter-spacing:.16em;
+text-transform:uppercase;
+color:rgba(220,230,245,.56);
+}
+
+.create-launch-page .form-section-title{
+font-size:24px;
+line-height:1.04;
+letter-spacing:-.03em;
+font-weight:900;
+color:#fff;
+}
+
+.create-launch-page .form-section-copy{
+color:var(--muted);
+font-size:13px;
+line-height:1.65;
+max-width:840px;
 }
 
 .create-launch-page .field-grid{
@@ -573,6 +620,184 @@ margin-top:14px;
 min-height:42px;
 }
 
+.create-launch-page .option-grid{
+display:grid;
+grid-template-columns:repeat(2, minmax(0,1fr));
+gap:12px;
+}
+
+.create-launch-page .template-option{
+position:relative;
+display:grid;
+gap:10px;
+padding:16px;
+border-radius:18px;
+border:1px solid rgba(255,255,255,.08);
+background:rgba(255,255,255,.024);
+box-shadow:inset 0 1px 0 rgba(255,255,255,.03);
+}
+
+.create-launch-page .template-option.active{
+border-color:rgba(74,165,255,.22);
+background:
+radial-gradient(circle at 0% 0%, rgba(21,156,255,.08), transparent 38%),
+rgba(255,255,255,.03);
+box-shadow:
+0 0 18px rgba(21,156,255,.05),
+inset 0 1px 0 rgba(255,255,255,.03);
+}
+
+.create-launch-page .template-option-title{
+font-size:14px;
+font-weight:900;
+color:#fff;
+letter-spacing:.02em;
+}
+
+.create-launch-page .template-option-copy{
+font-size:12px;
+line-height:1.6;
+color:var(--muted);
+}
+
+.create-launch-page .template-option-meta{
+display:flex;
+flex-wrap:wrap;
+gap:8px;
+}
+
+.create-launch-page .template-mini-pill{
+display:inline-flex;
+align-items:center;
+min-height:28px;
+padding:0 10px;
+border-radius:999px;
+border:1px solid rgba(255,255,255,.10);
+background:rgba(255,255,255,.03);
+color:rgba(244,248,255,.82);
+font-size:11px;
+font-weight:800;
+letter-spacing:.04em;
+}
+
+.create-launch-page .addon-grid{
+display:grid;
+grid-template-columns:repeat(2, minmax(0,1fr));
+gap:12px;
+}
+
+.create-launch-page .addon-card{
+position:relative;
+display:grid;
+gap:10px;
+padding:16px;
+border-radius:18px;
+border:1px solid rgba(255,255,255,.08);
+background:rgba(255,255,255,.024);
+box-shadow:inset 0 1px 0 rgba(255,255,255,.03);
+}
+
+.create-launch-page .addon-card input{
+position:absolute;
+opacity:0;
+pointer-events:none;
+}
+
+.create-launch-page .addon-card.is-selectable{
+cursor:pointer;
+transition:.16s ease;
+}
+
+.create-launch-page .addon-card.is-selectable:hover{
+border-color:rgba(74,165,255,.22);
+background:rgba(255,255,255,.04);
+}
+
+.create-launch-page .addon-card.is-selected{
+border-color:rgba(74,165,255,.26);
+background:
+radial-gradient(circle at 0% 0%, rgba(21,156,255,.08), transparent 38%),
+rgba(255,255,255,.04);
+box-shadow:
+0 0 18px rgba(21,156,255,.05),
+inset 0 1px 0 rgba(255,255,255,.03);
+}
+
+.create-launch-page .addon-card.is-locked{
+opacity:.68;
+}
+
+.create-launch-page .addon-top{
+display:flex;
+align-items:flex-start;
+justify-content:space-between;
+gap:10px;
+}
+
+.create-launch-page .addon-title{
+font-size:14px;
+font-weight:900;
+color:#fff;
+line-height:1.3;
+}
+
+.create-launch-page .addon-tag{
+display:inline-flex;
+align-items:center;
+justify-content:center;
+min-height:26px;
+padding:0 9px;
+border-radius:999px;
+border:1px solid rgba(255,255,255,.10);
+background:rgba(255,255,255,.04);
+color:rgba(255,255,255,.86);
+font-size:10px;
+font-weight:900;
+letter-spacing:.12em;
+text-transform:uppercase;
+white-space:nowrap;
+}
+
+.create-launch-page .addon-tag.required{
+border-color:rgba(229,193,115,.24);
+background:rgba(229,193,115,.10);
+color:rgba(255,249,232,.96);
+}
+
+.create-launch-page .addon-tag.included{
+border-color:rgba(53,245,163,.20);
+background:rgba(53,245,163,.10);
+color:rgba(230,255,242,.96);
+}
+
+.create-launch-page .addon-tag.now{
+border-color:rgba(74,165,255,.22);
+background:rgba(21,156,255,.10);
+}
+
+.create-launch-page .addon-tag.live{
+border-color:rgba(255,255,255,.10);
+background:rgba(255,255,255,.04);
+}
+
+.create-launch-page .addon-copy{
+color:var(--muted);
+font-size:12px;
+line-height:1.6;
+}
+
+.create-launch-page .addon-price{
+color:#fff;
+font-size:15px;
+font-weight:900;
+}
+
+.create-launch-page .addon-price-sub{
+color:rgba(220,230,245,.58);
+font-size:11px;
+line-height:1.5;
+}
+
 .create-launch-page .preview{
 display:grid;
 gap:14px;
@@ -806,14 +1031,233 @@ border:1px solid rgba(255,255,255,.08);
 font-size:12px;
 }
 
-@media (max-width:1080px){
-.create-launch-page .create-hero,
+.create-launch-page .ack-list{
+display:grid;
+gap:12px;
+}
+
+.create-launch-page .ack-item{
+display:flex;
+gap:10px;
+align-items:flex-start;
+padding:12px 14px;
+border-radius:16px;
+border:1px solid rgba(255,255,255,.08);
+background:rgba(255,255,255,.024);
+}
+
+.create-launch-page .ack-item input{
+margin-top:3px;
+width:16px;
+height:16px;
+flex:0 0 auto;
+}
+
+.create-launch-page .ack-item-text{
+color:var(--muted);
+font-size:13px;
+line-height:1.6;
+}
+
+.create-launch-page .checkout-summary-card{
+display:grid;
+gap:16px;
+}
+
+.create-launch-page .checkout-head{
+display:flex;
+justify-content:space-between;
+gap:12px;
+align-items:flex-start;
+flex-wrap:wrap;
+}
+
+.create-launch-page .checkout-title{
+font-size:24px;
+font-weight:900;
+line-height:1.04;
+letter-spacing:-.03em;
+color:#fff;
+}
+
+.create-launch-page .checkout-sub{
+margin-top:6px;
+font-size:12px;
+color:rgba(220,230,245,.62);
+text-transform:uppercase;
+letter-spacing:.14em;
+}
+
+.create-launch-page .checkout-badge{
+display:inline-flex;
+align-items:center;
+justify-content:center;
+min-height:32px;
+padding:0 12px;
+border-radius:999px;
+border:1px solid rgba(229,193,115,.24);
+background:rgba(229,193,115,.10);
+color:rgba(255,249,232,.96);
+font-size:11px;
+font-weight:900;
+letter-spacing:.12em;
+text-transform:uppercase;
+white-space:nowrap;
+}
+
+.create-launch-page .checkout-section{
+display:grid;
+gap:12px;
+padding:16px;
+border-radius:18px;
+border:1px solid rgba(255,255,255,.08);
+background:rgba(255,255,255,.024);
+box-shadow:inset 0 1px 0 rgba(255,255,255,.03);
+}
+
+.create-launch-page .checkout-section-head{
+display:flex;
+justify-content:space-between;
+gap:10px;
+align-items:flex-start;
+flex-wrap:wrap;
+}
+
+.create-launch-page .checkout-section-title{
+font-size:12px;
+font-weight:900;
+letter-spacing:.16em;
+text-transform:uppercase;
+color:rgba(220,230,245,.58);
+}
+
+.create-launch-page .checkout-row{
+display:flex;
+justify-content:space-between;
+align-items:flex-start;
+gap:14px;
+}
+
+.create-launch-page .checkout-row + .checkout-row{
+padding-top:12px;
+border-top:1px solid rgba(255,255,255,.06);
+}
+
+.create-launch-page .checkout-row-title{
+font-size:14px;
+font-weight:850;
+color:#fff;
+line-height:1.45;
+}
+
+.create-launch-page .checkout-row-meta{
+margin-top:4px;
+color:rgba(220,230,245,.58);
+font-size:11px;
+line-height:1.5;
+}
+
+.create-launch-page .checkout-row-price{
+text-align:right;
+color:#fff;
+font-size:14px;
+font-weight:900;
+line-height:1.45;
+white-space:nowrap;
+}
+
+.create-launch-page .checkout-row-price-sub{
+margin-top:4px;
+color:rgba(220,230,245,.58);
+font-size:11px;
+line-height:1.5;
+}
+
+.create-launch-page .checkout-total{
+display:flex;
+justify-content:space-between;
+align-items:flex-start;
+gap:12px;
+padding-top:12px;
+border-top:1px solid rgba(255,255,255,.08);
+}
+
+.create-launch-page .checkout-total-label{
+font-size:12px;
+font-weight:900;
+letter-spacing:.16em;
+text-transform:uppercase;
+color:rgba(220,230,245,.62);
+}
+
+.create-launch-page .checkout-total-value{
+text-align:right;
+font-size:18px;
+font-weight:950;
+color:#fff;
+line-height:1.2;
+}
+
+.create-launch-page .checkout-total-sub{
+margin-top:4px;
+color:rgba(220,230,245,.58);
+font-size:11px;
+line-height:1.5;
+text-align:right;
+}
+
+.create-launch-page .checkout-list{
+display:grid;
+gap:10px;
+}
+
+.create-launch-page .checkout-list-item{
+display:flex;
+justify-content:space-between;
+gap:12px;
+align-items:flex-start;
+font-size:13px;
+color:rgba(244,248,255,.84);
+}
+
+.create-launch-page .checkout-list-item strong{
+color:#fff;
+font-weight:900;
+}
+
+.create-launch-page .checkout-note{
+padding:14px 16px;
+border-radius:16px;
+border:1px solid rgba(255,255,255,.08);
+background:rgba(255,255,255,.022);
+color:rgba(220,230,245,.72);
+font-size:12px;
+line-height:1.6;
+}
+
+.create-launch-page .checkout-note strong{
+color:#fff;
+}
+
+.create-launch-page .quote-refresh-note{
+font-size:11px;
+color:rgba(220,230,245,.56);
+line-height:1.6;
+}
+
+@media (max-width:1180px){
 .create-launch-page .create-layout{
 grid-template-columns:1fr;
 }
 
 .create-launch-page .create-preview-rail{
 position:static;
+}
+}
+
+@media (max-width:1080px){
+.create-launch-page .create-hero{
+grid-template-columns:1fr;
 }
 }
 
@@ -825,7 +1269,9 @@ font-size:34px;
 .create-launch-page .field-grid,
 .create-launch-page .kv,
 .create-launch-page .team-wallet-row,
-.create-launch-page .preview-builder-grid{
+.create-launch-page .preview-builder-grid,
+.create-launch-page .option-grid,
+.create-launch-page .addon-grid{
 grid-template-columns:1fr;
 }
 }
@@ -838,13 +1284,15 @@ padding:22px 14px 80px;
 .create-launch-page .create-hero-main,
 .create-launch-page .create-hero-side,
 .create-launch-page .create-form-card,
-.create-launch-page .create-preview-card{
+.create-launch-page .create-preview-card,
+.create-launch-page .checkout-summary-card{
 border-radius:22px;
 }
 
 .create-launch-page .create-hero-main,
 .create-launch-page .create-form-card,
-.create-launch-page .create-preview-card{
+.create-launch-page .create-preview-card,
+.create-launch-page .checkout-summary-card{
 padding:18px 16px;
 }
 
@@ -880,6 +1328,18 @@ flex-direction:column;
 .create-launch-page .builder-compliance-actions .btn{
 width:100%;
 }
+
+.create-launch-page .checkout-row,
+.create-launch-page .checkout-total{
+flex-direction:column;
+align-items:flex-start;
+}
+
+.create-launch-page .checkout-row-price,
+.create-launch-page .checkout-total-value,
+.create-launch-page .checkout-total-sub{
+text-align:left;
+}
 }
 </style>
 </head>
@@ -903,42 +1363,42 @@ data-shell-subtitle="Launch Creation"
 <h1>Create a Security-First MSS Launch</h1>
 
 <div class="hero-copy">
-Template economics are fixed by MSS. All launches use a required launch bond. Builder launches unlock structured project controls, approved hard-cap tiers up to 1000 SOL, fixed soft-cap mapping by tier, visible team wallet breakdowns, capped team allocation, and the same locked MSS launch flow used across the platform.
+MSS launch creation now follows a structured builder checkout flow. Template rules remain locked, CassIE monitoring stays standard on every launch, launch visibility products are optional and charged immediately, and the MSS launch fee only settles if the launch reaches live state.
 </div>
 
 <div class="pill-row">
 <span class="chip">1 SOL Max Commit</span>
 <span class="chip">0.5% Max Wallet Starts</span>
-<span class="chip">Participant Tokens Unlock At Live</span>
-<span class="chip">Launch Bond Required</span>
-<span class="chip">Builder Verification Gate</span>
+<span class="chip">CassIE Included Standard</span>
+<span class="chip">Builder Bond Required</span>
+<span class="chip">3% Launch Fee Only If Live</span>
 </div>
 
 <div id="builderModeHighlight" class="builder-highlight">
 <div class="builder-highlight-title">Builder Template Active</div>
 <div class="builder-highlight-copy">
-Builder launches use MSS-approved 1B supply, visible team wallet breakdowns, capped team allocation, selectable hard-cap tiers of 250 / 500 / 750 / 1000 SOL, and locked soft-cap mapping of 200 / 300 / 400 / 500 SOL. Reserve adjusts automatically against team allocation.
+Builder launches use the locked MSS 1B supply model, approved hard-cap tiers of 250 / 500 / 750 / 1000 SOL, fixed soft-cap mapping, visible team wallet breakdowns, capped team allocation, and the same lifecycle flow used across the platform.
 </div>
 <div class="builder-bond-note">
-Every template uses a required launch bond. Builder launches also require builder verification before launch creation remains available.
+Every template uses a required builder bond. Builder launches also require builder verification before launch creation remains available.
 </div>
 </div>
 </section>
 
 <aside class="create-hero-side">
 <div class="hero-stat">
-<div class="k">Wallet & Identity</div>
-<div class="v">Connect Phantom, Solflare, or Backpack to create from your builder wallet and load builder verification status.</div>
+<div class="k">Launch Commitments</div>
+<div class="v">Builder Bond is due now. CassIE Monitoring is included standard on every launch.</div>
 </div>
 
 <div class="hero-stat">
-<div class="k">Template Rules</div>
-<div class="v">Degen 55/75, Meme Lite 60/100, Meme Pro 75/200, Community 75/200, Builder 250/500/750/1000 with locked soft-cap mapping.</div>
+<div class="k">Launch Visibility</div>
+<div class="v">Optional visibility products are charged immediately and confirmed immediately at checkout.</div>
 </div>
 
 <div class="hero-stat">
-<div class="k">After Create</div>
-<div class="v">Redirects into the launch detail page for commit, countdown, building, live, and lifecycle tracking.</div>
+<div class="k">Launch Success</div>
+<div class="v">MSS Launch Fee settles only if the launch goes live. Live Momentum upgrades unlock after live activation.</div>
 </div>
 </aside>
 </section>
@@ -948,6 +1408,132 @@ Every template uses a required launch bond. Builder launches also require builde
 <h2 class="section-title">Launch Configuration</h2>
 
 <form id="launchCreateForm" novalidate>
+<section class="form-section">
+<div class="form-section-head">
+<div class="form-section-kicker">1 · Template Selection</div>
+<div class="form-section-title">Choose the launch framework</div>
+<div class="form-section-copy">
+Template selection locks MSS launch economics, launch rules, supply posture, access structure, and bond requirements.
+</div>
+</div>
+
+<div class="field-grid">
+<div class="field">
+<label for="template">Template</label>
+<select id="template" name="template">
+<option value="meme_lite">Meme Lite</option>
+<option value="meme_pro">Meme Pro</option>
+<option value="builder">Builder</option>
+<option value="community">Community</option>
+<option value="degen_zone">Degen Zone</option>
+</select>
+<div class="hint">Template selection locks MSS launch economics and bond requirements.</div>
+</div>
+
+<div class="field">
+<label>Lifecycle</label>
+<input type="text" value="Commit → Countdown → Building → Live → Graduated / Failed" readonly />
+<div class="hint">Lifecycle structure is fixed across MSS launches.</div>
+</div>
+</div>
+
+<div class="option-grid" id="templateOptionGrid">
+<div class="template-option" data-template-card="degen_zone">
+<div class="template-option-title">Degen Zone</div>
+<div class="template-option-copy">Fastest entry template with 55 SOL minimum raise and 75 SOL hard cap.</div>
+<div class="template-option-meta">
+<span class="template-mini-pill">55 SOL Min</span>
+<span class="template-mini-pill">75 SOL Hard</span>
+</div>
+</div>
+
+<div class="template-option" data-template-card="meme_lite">
+<div class="template-option-title">Meme Lite</div>
+<div class="template-option-copy">Lighter meme launch structure with 60 SOL minimum raise and 100 SOL hard cap.</div>
+<div class="template-option-meta">
+<span class="template-mini-pill">60 SOL Min</span>
+<span class="template-mini-pill">100 SOL Hard</span>
+</div>
+</div>
+
+<div class="template-option" data-template-card="meme_pro">
+<div class="template-option-title">Meme Pro</div>
+<div class="template-option-copy">Higher-cap meme template built for larger raises and broader distribution.</div>
+<div class="template-option-meta">
+<span class="template-mini-pill">75 SOL Min</span>
+<span class="template-mini-pill">200 SOL Hard</span>
+</div>
+</div>
+
+<div class="template-option" data-template-card="community">
+<div class="template-option-title">Community</div>
+<div class="template-option-copy">Community-oriented structure with the same 75 SOL / 200 SOL raise profile.</div>
+<div class="template-option-meta">
+<span class="template-mini-pill">75 SOL Min</span>
+<span class="template-mini-pill">200 SOL Hard</span>
+</div>
+</div>
+
+<div class="template-option" data-template-card="builder">
+<div class="template-option-title">Builder</div>
+<div class="template-option-copy">Structured project template with hard-cap tiers, team wallet visibility, and builder verification gating.</div>
+<div class="template-option-meta">
+<span class="template-mini-pill">250 / 500 / 750 / 1000</span>
+<span class="template-mini-pill">Builder Controls</span>
+</div>
+</div>
+</div>
+</section>
+
+<section class="form-section">
+<div class="form-section-head">
+<div class="form-section-kicker">2 · Token Identity & Media</div>
+<div class="form-section-title">Set the launch identity</div>
+<div class="form-section-copy">
+This controls the public launch identity, logo preview, symbol, and launch narrative shown across the MSS interface.
+</div>
+</div>
+
+<div class="field-grid">
+<div class="field">
+<label for="tokenName">Token Name</label>
+<input id="tokenName" name="tokenName" type="text" maxlength="48" placeholder="Example: TestCoin" autocomplete="off" />
+</div>
+
+<div class="field">
+<label for="symbol">Symbol</label>
+<input id="symbol" name="symbol" type="text" maxlength="12" placeholder="Example: TEST" autocomplete="off" />
+</div>
+
+<div class="field full">
+<label for="description">Description</label>
+<textarea id="description" name="description" maxlength="600" placeholder="Describe the launch, direction, and narrative..."></textarea>
+<div class="hint">This is the builder-controlled narrative shown on launch pages.</div>
+</div>
+
+<div class="field">
+<label for="logoInput">Launch Logo</label>
+<input id="logoInput" name="logoInput" type="file" accept="image/png,image/jpeg,image/webp,image/gif" />
+<div class="hint">Supported: PNG, JPG, WEBP, GIF.</div>
+</div>
+
+<div class="field">
+<label for="imageUrl">Or Existing Image URL</label>
+<input id="imageUrl" name="imageUrl" type="url" placeholder="https://..." autocomplete="off" />
+<div class="hint">Used only if no upload file is selected.</div>
+</div>
+</div>
+</section>
+
+<section class="form-section">
+<div class="form-section-head">
+<div class="form-section-kicker">3 · Builder Profile & Links</div>
+<div class="form-section-title">Connect builder identity</div>
+<div class="form-section-copy">
+Launch creation runs from the connected builder wallet. Builder verification status is loaded from the same wallet and external profile links can be attached to the launch.
+</div>
+</div>
+
 <div class="field-grid">
 <div class="field full">
 <label>Builder Wallet</label>
@@ -994,45 +1580,43 @@ Complete Builder Verification
 </div>
 
 <div class="field">
-<label for="template">Template</label>
-<select id="template" name="template">
-<option value="meme_lite">Meme Lite</option>
-<option value="meme_pro">Meme Pro</option>
-<option value="builder">Builder</option>
-<option value="community">Community</option>
-<option value="degen_zone">Degen Zone</option>
-</select>
-<div class="hint">Template selection locks MSS launch economics and bond requirements.</div>
+<label for="builderAlias">Builder Alias</label>
+<input id="builderAlias" name="builderAlias" type="text" maxlength="40" placeholder="Public builder alias" autocomplete="off" />
+<div class="hint">Shown as the builder-facing identity on the launch page.</div>
 </div>
 
 <div class="field">
-<label for="tokenName">Token Name</label>
-<input id="tokenName" name="tokenName" type="text" maxlength="48" placeholder="Example: TestCoin" autocomplete="off" />
+<label for="websiteUrl">Website</label>
+<input id="websiteUrl" name="websiteUrl" type="url" placeholder="https://yourproject.com" autocomplete="off" />
 </div>
 
 <div class="field">
-<label for="symbol">Symbol</label>
-<input id="symbol" name="symbol" type="text" maxlength="12" placeholder="Example: TEST" autocomplete="off" />
+<label for="xUrl">X</label>
+<input id="xUrl" name="xUrl" type="url" placeholder="https://x.com/yourproject" autocomplete="off" />
+</div>
+
+<div class="field">
+<label for="telegramUrl">Telegram</label>
+<input id="telegramUrl" name="telegramUrl" type="url" placeholder="https://t.me/yourproject" autocomplete="off" />
 </div>
 
 <div class="field full">
-<label for="description">Description</label>
-<textarea id="description" name="description" maxlength="600" placeholder="Describe the launch, theme, and direction..."></textarea>
-<div class="hint">This is the builder-controlled narrative shown on launch pages.</div>
+<label for="discordUrl">Discord</label>
+<input id="discordUrl" name="discordUrl" type="url" placeholder="https://discord.gg/yourproject" autocomplete="off" />
+</div>
+</div>
+</section>
+
+<section class="form-section">
+<div class="form-section-head">
+<div class="form-section-kicker">4 · Launch Economics Snapshot</div>
+<div class="form-section-title">Review locked economics</div>
+<div class="form-section-copy">
+Supply, minimum raise, hard cap, commit rules, and builder controls remain locked to the selected MSS template.
+</div>
 </div>
 
-<div class="field">
-<label for="logoInput">Launch Logo</label>
-<input id="logoInput" name="logoInput" type="file" accept="image/png,image/jpeg,image/webp,image/gif" />
-<div class="hint">Supported: PNG, JPG, WEBP, GIF.</div>
-</div>
-
-<div class="field">
-<label for="imageUrl">Or Existing Image URL</label>
-<input id="imageUrl" name="imageUrl" type="url" placeholder="https://..." autocomplete="off" />
-<div class="hint">Used only if no upload file is selected.</div>
-</div>
-
+<div class="field-grid">
 <div class="field" id="fixedSupplyField">
 <label for="supply">Total Supply</label>
 <input id="supply" name="supply" type="number" readonly />
@@ -1060,15 +1644,15 @@ Complete Builder Verification
 </div>
 
 <div class="field">
-<label for="builderBond">Launch Bond (SOL)</label>
-<input id="builderBond" name="builderBond" type="number" min="3" step="1" readonly />
-<div class="hint">Required on every template. Calculated from the locked MSS bond rule for the selected soft cap.</div>
-</div>
-
-<div class="field">
 <label>Participant Access</label>
 <input type="text" value="1 SOL max commit • participant tokens unlock 100% at live" readonly />
 <div class="hint">Wallet cap starts at 0.5% and increases by 0.5% daily for 5 days after live.</div>
+</div>
+
+<div class="field">
+<label>Launch Fee</label>
+<input id="launchFeeDisplay" type="text" value="3% of final committed SOL • only if live" readonly />
+<div class="hint">Settles only if the launch goes live.</div>
 </div>
 
 <div class="field template-builder-only" id="builderHardCapField">
@@ -1086,6 +1670,7 @@ Complete Builder Verification
 <label for="builderMinRaiseSol">Builder Soft Cap / Minimum Raise (SOL)</label>
 <input id="builderMinRaiseSol" name="builderMinRaiseSol" type="number" min="200" step="1" value="200" readonly />
 <div class="hint">Auto-mapped from the selected builder hard-cap tier: 250→200, 500→300, 750→400, 1000→500.</div>
+</div>
 </div>
 
 <div class="field full template-builder-only" id="builderExtras">
@@ -1118,12 +1703,199 @@ Complete Builder Verification
 <span>Current Team Allocation Total</span>
 <strong id="teamAllocationTotal" class="team-total good">0.00%</strong>
 </div>
-<div class="hint">Example labels: Marketing, Team, Treasury, Advisors.</div>
+<div class="hint">Example labels: Marketing, Treasury, Advisors, Core Team.</div>
 </div>
+</div>
+</div>
+</section>
+
+<section class="form-section">
+<div class="form-section-head">
+<div class="form-section-kicker">5 · Required Launch Commitments</div>
+<div class="form-section-title">Builder bond and baseline protection</div>
+<div class="form-section-copy">
+Builder Bond is required on every launch. CassIE Monitoring is included standard and is not an optional add-on.
 </div>
 </div>
 
-<div class="hr"></div>
+<div class="field-grid">
+<div class="field">
+<label for="builderBond">Builder Bond (SOL)</label>
+<input id="builderBond" name="builderBond" type="number" min="3" step="1" readonly />
+<div class="hint">Required on every template. Calculated from the locked MSS bond rule for the selected soft cap.</div>
+</div>
+
+<div class="field">
+<label>CassIE Monitoring</label>
+<input id="cassieIncludedDisplay" type="text" value="Included standard on every launch" readonly />
+<div class="hint">CassIE monitoring remains part of the MSS safety standard and is always active on launches.</div>
+</div>
+</div>
+</section>
+
+<section class="form-section">
+<div class="form-section-head">
+<div class="form-section-kicker">6 · Launch Visibility</div>
+<div class="form-section-title">Select optional visibility products</div>
+<div class="form-section-copy">
+These products are charged immediately, confirmed immediately, and displayed in the Due Now section of checkout. USD pricing is fixed. SOL equivalent refreshes automatically with market price.
+</div>
+</div>
+
+<div class="addon-grid">
+<label class="addon-card is-selectable" id="addOnCardComingSoon">
+<input type="checkbox" id="addOnComingSoon" name="visibilityAddons" value="coming_soon_spotlight" data-price-usd="99" />
+<div class="addon-top">
+<div class="addon-title">Coming Soon Spotlight</div>
+<div class="addon-tag now">Charged Now</div>
+</div>
+<div class="addon-copy">Pre-launch placement for projects that want early MSS discovery before commit opens.</div>
+<div class="addon-price" id="addOnComingSoonPrice">$99 • — SOL</div>
+<div class="addon-price-sub">Immediate visibility purchase</div>
+</label>
+
+<label class="addon-card is-selectable" id="addOnCardCommitOpens">
+<input type="checkbox" id="addOnCommitOpens" name="visibilityAddons" value="commit_opens_spotlight" data-price-usd="149" />
+<div class="addon-top">
+<div class="addon-title">Commit Opens Spotlight</div>
+<div class="addon-tag now">Charged Now</div>
+</div>
+<div class="addon-copy">Priority exposure as the launch transitions into active commit availability.</div>
+<div class="addon-price" id="addOnCommitOpensPrice">$149 • — SOL</div>
+<div class="addon-price-sub">Immediate visibility purchase</div>
+</label>
+
+<label class="addon-card is-selectable" id="addOnCardPriorityPlacement">
+<input type="checkbox" id="addOnPriorityPlacement" name="visibilityAddons" value="priority_placement" data-price-usd="249" />
+<div class="addon-top">
+<div class="addon-title">Priority Placement</div>
+<div class="addon-tag now">Charged Now</div>
+</div>
+<div class="addon-copy">Premium MSS placement intended to increase storefront visibility during the launch cycle.</div>
+<div class="addon-price" id="addOnPriorityPlacementPrice">$249 • — SOL</div>
+<div class="addon-price-sub">Immediate visibility purchase</div>
+</label>
+
+<label class="addon-card is-selectable" id="addOnCardCommunityDistribution">
+<input type="checkbox" id="addOnCommunityDistribution" name="visibilityAddons" value="community_distribution" data-price-usd="129" />
+<div class="addon-top">
+<div class="addon-title">Community Distribution</div>
+<div class="addon-tag now">Charged Now</div>
+</div>
+<div class="addon-copy">Community-facing distribution support for pre-live awareness across MSS channels.</div>
+<div class="addon-price" id="addOnCommunityDistributionPrice">$129 • — SOL</div>
+<div class="addon-price-sub">Immediate visibility purchase</div>
+</label>
+</div>
+</section>
+
+<section class="form-section">
+<div class="form-section-head">
+<div class="form-section-kicker">7 · Launch Success</div>
+<div class="form-section-title">MSS launch fee</div>
+<div class="form-section-copy">
+MSS Launch Fee is not charged at creation. It only settles if the launch reaches live status.
+</div>
+</div>
+
+<div class="field-grid">
+<div class="field">
+<label>MSS Launch Fee</label>
+<input id="launchFeeRuleDisplay" type="text" value="3% of final committed SOL" readonly />
+<div class="hint">Only if live. Reflected in the Due If Live section of checkout.</div>
+</div>
+
+<div class="field">
+<label>Revenue Split</label>
+<input id="launchFeeSplitDisplay" type="text" value="60% Core Team Development • 40% MSS Ecosystem Support" readonly />
+<div class="hint">This split also applies to paid add-ons.</div>
+</div>
+</div>
+</section>
+
+<section class="form-section">
+<div class="form-section-head">
+<div class="form-section-kicker">8 · Live Momentum</div>
+<div class="form-section-title">Available after live</div>
+<div class="form-section-copy">
+These products are intentionally not selectable on the create page. They unlock only after live activation.
+</div>
+</div>
+
+<div class="addon-grid">
+<div class="addon-card is-locked">
+<div class="addon-top">
+<div class="addon-title">Live Spotlight</div>
+<div class="addon-tag live">Available After Live</div>
+</div>
+<div class="addon-copy">Premium live-phase visibility once the market is active.</div>
+<div class="addon-price">$149 • — SOL</div>
+<div class="addon-price-sub">Locked until live</div>
+</div>
+
+<div class="addon-card is-locked">
+<div class="addon-top">
+<div class="addon-title">Momentum Distribution</div>
+<div class="addon-tag live">Available After Live</div>
+</div>
+<div class="addon-copy">Additional live distribution for launches that want post-activation momentum support.</div>
+<div class="addon-price">$249 • — SOL</div>
+<div class="addon-price-sub">Locked until live</div>
+</div>
+
+<div class="addon-card is-locked">
+<div class="addon-top">
+<div class="addon-title">CassIE Pro Brief</div>
+<div class="addon-tag live">Available After Live</div>
+</div>
+<div class="addon-copy">Extended intelligence brief intended for live markets that want deeper reporting.</div>
+<div class="addon-price">$349 • — SOL</div>
+<div class="addon-price-sub">Locked until live</div>
+</div>
+
+<div class="addon-card is-locked">
+<div class="addon-top">
+<div class="addon-title">Launch Concierge</div>
+<div class="addon-tag live">Available After Live</div>
+</div>
+<div class="addon-copy">Higher-touch support layer available only after live activation.</div>
+<div class="addon-price">$999 • — SOL</div>
+<div class="addon-price-sub">Locked until live</div>
+</div>
+</div>
+</section>
+
+<section class="form-section">
+<div class="form-section-head">
+<div class="form-section-kicker">9 · Final Acknowledgements</div>
+<div class="form-section-title">Confirm launch responsibilities</div>
+<div class="form-section-copy">
+Final confirmations before the launch is created and checkout is submitted.
+</div>
+</div>
+
+<div class="ack-list">
+<label class="ack-item">
+<input id="ackBondRequired" name="ackBondRequired" type="checkbox" />
+<div class="ack-item-text">
+I understand the Builder Bond is required at creation and is part of the Due Now total.
+</div>
+</label>
+
+<label class="ack-item">
+<input id="ackVisibilityImmediate" name="ackVisibilityImmediate" type="checkbox" />
+<div class="ack-item-text">
+I understand selected Launch Visibility purchases are confirmed immediately and are charged at checkout.
+</div>
+</label>
+
+<label class="ack-item">
+<input id="ackLaunchFeeLive" name="ackLaunchFeeLive" type="checkbox" />
+<div class="ack-item-text">
+I understand the MSS Launch Fee settles only if the launch goes live.
+</div>
+</label>
+</div>
 
 <div class="btn-row">
 <button id="createLaunchBtn" class="btn primary" type="submit">Create Launch</button>
@@ -1131,7 +1903,7 @@ Complete Builder Verification
 </div>
 
 <div id="createStatus" class="status" aria-live="polite"></div>
-</div>
+</section>
 </form>
 </section>
 
@@ -1187,7 +1959,7 @@ Complete Builder Verification
 <div id="previewTeamAllocation" class="v">0%</div>
 </div>
 <div class="kv-box">
-<div class="k">Launch Bond</div>
+<div class="k">Builder Bond</div>
 <div id="previewBuilderBond" class="v">0 SOL</div>
 </div>
 </div>
@@ -1199,30 +1971,150 @@ Complete Builder Verification
 </div>
 </section>
 
-<section class="create-preview-card">
-<h2 class="section-title">Launch Notes</h2>
+<section class="checkout-summary-card">
+<div class="checkout-head">
+<div>
+<div class="section-title" style="margin:0;">Checkout Summary</div>
+<div id="checkoutLaunchName" class="checkout-title">Untitled Launch</div>
+<div id="checkoutLaunchSub" class="checkout-sub">MSS Launch • Template Pending</div>
+</div>
+<div id="checkoutBuilderBondBadge" class="checkout-badge">Builder Bond</div>
+</div>
 
-<div class="mini-list">
-<div class="mini-item">
-<div class="title">Flow</div>
-<div class="copy">Commit → Countdown → Building → Live → Graduated / Failed.</div>
+<section class="checkout-section">
+<div class="checkout-section-head">
+<div class="checkout-section-title">Due Now</div>
 </div>
-<div class="mini-item">
-<div class="title">Economics</div>
-<div class="copy">Templates lock MSS supply and cap settings. Participant commits are capped at 1 SOL and participant allocations unlock fully at live.</div>
+
+<div class="checkout-row">
+<div>
+<div class="checkout-row-title">Builder Bond</div>
+<div class="checkout-row-meta">Required</div>
 </div>
-<div class="mini-item">
-<div class="title">Builder Controls</div>
-<div class="copy">Builder template supports the locked 1B supply model, hard-cap tiers up to 1000 SOL, fixed tier-based soft caps, labeled team wallets, and capped team allocation.</div>
+<div class="checkout-row-price">
+<div id="checkoutBondPrimary">0 SOL</div>
+<div id="checkoutBondSecondary" class="checkout-row-price-sub">≈ $0</div>
 </div>
-<div class="mini-item">
-<div class="title">Launch Bond</div>
-<div class="copy">Every launch uses a required bond based on template soft cap. Builder launches keep the same bond rule while adding structured controls.</div>
 </div>
-<div class="mini-item">
-<div class="title">Verification Gate</div>
-<div class="copy">Builder launch creation can be gated until the connected wallet reaches approved verification status.</div>
+
+<div class="checkout-row">
+<div>
+<div class="checkout-row-title">Launch Visibility</div>
+<div class="checkout-row-meta">Charged Now</div>
 </div>
+<div class="checkout-row-price">
+<div id="checkoutVisibilityTotalPrimary">$0</div>
+<div id="checkoutVisibilityTotalSecondary" class="checkout-row-price-sub">$0 • 0 SOL</div>
+</div>
+</div>
+
+<div id="checkoutVisibilityItems" class="checkout-list">
+<div class="checkout-list-item">
+<span>No visibility items selected</span>
+<strong>$0</strong>
+</div>
+</div>
+
+<div class="checkout-total">
+<div class="checkout-total-label">Due Now Total</div>
+<div>
+<div id="checkoutDueNowPrimary" class="checkout-total-value">0 SOL</div>
+<div id="checkoutDueNowSecondary" class="checkout-total-sub">Builder bond + selected visibility</div>
+</div>
+</div>
+</section>
+
+<section class="checkout-section">
+<div class="checkout-section-head">
+<div class="checkout-section-title">Due If Live</div>
+</div>
+
+<div class="checkout-row">
+<div>
+<div class="checkout-row-title">MSS Launch Fee</div>
+<div class="checkout-row-meta">Only If Live</div>
+</div>
+<div class="checkout-row-price">
+<div id="checkoutLaunchFeePrimary">3% of final committed SOL</div>
+<div id="checkoutLaunchFeeSecondary" class="checkout-row-price-sub">Estimated value updates after final raise</div>
+</div>
+</div>
+
+<div class="checkout-total">
+<div class="checkout-total-label">Due If Live Total</div>
+<div>
+<div id="checkoutDueIfLivePrimary" class="checkout-total-value">3% of final committed SOL</div>
+<div id="checkoutDueIfLiveSecondary" class="checkout-total-sub">Settles only if the launch goes live</div>
+</div>
+</div>
+</section>
+
+<section class="checkout-section">
+<div class="checkout-section-head">
+<div class="checkout-section-title">Included Standard</div>
+</div>
+
+<div class="checkout-list">
+<div class="checkout-list-item">
+<span>CassIE Monitoring</span>
+<strong>Included</strong>
+</div>
+</div>
+</section>
+
+<section class="checkout-section">
+<div class="checkout-section-head">
+<div class="checkout-section-title">Available Later</div>
+</div>
+
+<div class="checkout-list">
+<div class="checkout-list-item">
+<span>Live Spotlight</span>
+<strong>$149</strong>
+</div>
+<div class="checkout-list-item">
+<span>Momentum Distribution</span>
+<strong>$249</strong>
+</div>
+<div class="checkout-list-item">
+<span>CassIE Pro Brief</span>
+<strong>$349</strong>
+</div>
+<div class="checkout-list-item">
+<span>Launch Concierge</span>
+<strong>$999</strong>
+</div>
+</div>
+
+<div class="checkout-note">
+These upgrades unlock only after live activation and are not selectable on the create page.
+</div>
+</section>
+
+<section class="checkout-section">
+<div class="checkout-section-head">
+<div class="checkout-section-title">Revenue Split Note</div>
+</div>
+
+<div class="checkout-list">
+<div class="checkout-list-item">
+<span>Core Team Development</span>
+<strong>60%</strong>
+</div>
+<div class="checkout-list-item">
+<span>MSS Ecosystem Support</span>
+<strong>40%</strong>
+</div>
+</div>
+</section>
+
+<div class="checkout-note">
+<strong>Pricing:</strong> USD list prices are fixed. SOL equivalents refresh automatically with market price.<br />
+<strong>Checkout:</strong> Visibility purchases are confirmed immediately. MSS Launch Fee settles only if the launch goes live.
+</div>
+
+<div id="checkoutQuoteRefreshNote" class="quote-refresh-note">
+SOL quote refresh target: every 20 seconds without closing the payment or confirmation state.
 </div>
 </section>
 </aside>

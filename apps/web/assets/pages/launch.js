@@ -277,6 +277,12 @@ maximumFractionDigits: decimals,
 });
 }
 
+function fmtDateTime(value) {
+const ts = parseTs(value);
+if (!Number.isFinite(ts)) return "—";
+return new Date(ts).toLocaleString();
+}
+
 function solToLamports(solAmount) {
 const n = Number(solAmount);
 
@@ -1308,11 +1314,26 @@ return "Complete participant verification before committing to launches.";
 function renderParticipantComplianceUi(payload = null) {
 const card = $("participantComplianceCard");
 const pill = $("participantCompliancePill");
-const copy = $("participantComplianceCopy");
-const meta = $("participantComplianceMeta");
+const statusTextEl =
+$("participantComplianceStatusText") || $("participantComplianceCopy");
+const summaryEl =
+$("participantComplianceSummary") || $("participantComplianceMeta");
 const action = $("participantComplianceAction");
 
-if (!card && !pill && !copy && !meta && !action) {
+const marketComplianceCard = $("marketComplianceCard");
+const marketComplianceStatusText = $("marketComplianceStatusText");
+const marketComplianceSummary = $("marketComplianceSummary");
+
+if (
+!card &&
+!pill &&
+!statusTextEl &&
+!summaryEl &&
+!action &&
+!marketComplianceCard &&
+!marketComplianceStatusText &&
+!marketComplianceSummary
+) {
 return;
 }
 
@@ -1352,11 +1373,11 @@ pill.className = `status-pill ${pillClass}`;
 pill.textContent = pillText;
 }
 
-if (copy) {
-copy.textContent = message;
+if (statusTextEl) {
+statusTextEl.textContent = message;
 }
 
-if (meta) {
+if (summaryEl) {
 const country = cleanString(payload?.profile?.country_code, 20).toUpperCase();
 const risk = cleanString(payload?.profile?.risk_rating, 40) || "low";
 const parts = [];
@@ -1369,7 +1390,7 @@ parts.push(`Access: ${approved ? "Allowed" : "Blocked"}`);
 parts.push("Access: Open");
 }
 
-meta.textContent = parts.join(" • ");
+summaryEl.textContent = parts.join(" • ");
 }
 
 if (action) {
@@ -1378,6 +1399,19 @@ action.textContent = approved
 ? "Review Compliance Profile"
 : "Complete Participant Verification";
 action.style.display = gateEnabled || wallet ? "" : "none";
+}
+
+if (marketComplianceCard) {
+const shouldShowMarket = Boolean(wallet || gateEnabled || payload);
+marketComplianceCard.classList.toggle("hidden", !shouldShowMarket);
+}
+
+if (marketComplianceStatusText) {
+marketComplianceStatusText.textContent = pillText;
+}
+
+if (marketComplianceSummary) {
+marketComplianceSummary.textContent = message;
 }
 }
 
@@ -1802,6 +1836,80 @@ setTextByIds(
 ["launchCommandScore"],
 trustScore > 0 ? String(Math.round(trustScore)) : "—"
 );
+}
+
+function renderCommandSurfaceMeta(
+launch,
+stats = currentCommitStats,
+lifecycle = currentLifecycle
+) {
+const status = getDisplayPhaseStatus(launch, stats, lifecycle);
+const bondState = getBuilderBondState(launch, stats);
+
+const feePct = safeNum(
+stats?.launchFeePct,
+safeNum(launch?.launch_fee_pct, 5)
+);
+const totalFeeSol = safeNum(
+stats?.feeTotal,
+safeNum(launch?.fee_total_sol, 0)
+);
+const founderFeeSol = safeNum(
+stats?.founderFee ?? stats?.coreFee,
+safeNum(launch?.founder_fee_sol ?? launch?.core_fee_sol, 0)
+);
+const buybackFeeSol = safeNum(
+stats?.buybackFee,
+safeNum(launch?.buyback_fee_sol, 0)
+);
+const treasuryFeeSol = safeNum(
+stats?.treasuryFee,
+safeNum(launch?.treasury_fee_sol, 0)
+);
+const netRaiseAfterFee = safeNum(
+stats?.netRaiseAfterFee ?? stats?.netRaise,
+safeNum(launch?.net_raise_after_fee_sol ?? launch?.net_raise_sol, 0)
+);
+const liquidityFunding = safeNum(
+lifecycle?.internalSolReserve,
+safeNum(launch?.internal_pool_sol ?? launch?.liquidity, 0)
+);
+
+setTextByIds(["launchStatusBoardStatus"], phaseDisplayText(status));
+
+setTextByIds(["launchFeePctStat"], fmtPct(feePct, 0));
+setTextByIds(["totalFeeSolStat"], totalFeeSol > 0 ? fmtSol(totalFeeSol, 4) : "—");
+setTextByIds(
+["founderFeeSolStat"],
+founderFeeSol > 0 ? fmtSol(founderFeeSol, 4) : "—"
+);
+setTextByIds(
+["buybackFeeSolStat"],
+buybackFeeSol > 0 ? fmtSol(buybackFeeSol, 4) : "—"
+);
+setTextByIds(
+["treasuryFeeSolStat"],
+treasuryFeeSol > 0 ? fmtSol(treasuryFeeSol, 4) : "—"
+);
+setTextByIds(
+["netRaiseAfterFeeStat"],
+netRaiseAfterFee > 0 ? fmtSol(netRaiseAfterFee, 4) : "—"
+);
+setTextByIds(
+["liquidityFundingStat"],
+liquidityFunding > 0 ? fmtSol(liquidityFunding, 4) : "—"
+);
+
+const bondText =
+bondState.amount > 0
+? bondState.refunded
+? `${fmtSol(bondState.amount)} refunded`
+: bondState.paid
+? `${fmtSol(bondState.amount)} collected`
+: `${fmtSol(bondState.amount)} pending`
+: "No bond";
+
+setTextByIds(["builderBondStat"], bondText);
 }
 
 function resolveAllocationPct(primary, fallback) {
@@ -2692,6 +2800,8 @@ launchId: Number(id),
 connectedWallet,
 launch: currentLaunch || null,
 commitStats: currentCommitStats || {},
+lifecycle: currentLifecycle || null,
+participantCompliance,
 saveLinks: defaultSaveLinksWithWallet,
 });
 
@@ -2739,6 +2849,8 @@ launchMarketController.setBaseState(
 currentLaunch || null,
 currentCommitStats || {},
 {
+lifecycle: currentLifecycle || null,
+participantCompliance,
 restartPolling:
 mode === "hard" ||
 walletChanged ||
@@ -2753,6 +2865,11 @@ currentCommitStats || {},
 currentLifecycle
 );
 launchMarketController.commitStats = currentCommitStats || {};
+launchMarketController.lifecycle = currentLifecycle || null;
+
+if (typeof launchMarketController.setComplianceState === "function") {
+launchMarketController.setComplianceState(participantCompliance);
+}
 
 if (typeof launchMarketController.applyAll === "function") {
 launchMarketController.applyAll();
@@ -2809,7 +2926,7 @@ const displayStatus = getDisplayPhaseStatus(launch, stats, lifecycle);
 
 updateLifecycleVisibility(displayStatus);
 renderBuilderInfo(launch);
-renderCommandSurfaceMeta(launch);
+renderCommandSurfaceMeta(launch, stats, lifecycle);
 renderAllocationStructure(launch, stats);
 renderTeamWalletBreakdown(launch, stats);
 renderProgressCard(

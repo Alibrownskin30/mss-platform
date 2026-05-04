@@ -13,6 +13,12 @@ BUY: "buy",
 SELL: "sell",
 };
 
+const EXTERNAL_MARKET = {
+venue: "Raydium",
+url: "https://raydium.io/",
+mode: "external_lp_only",
+};
+
 const EXTERNAL_LINK_TYPES = [
 { key: "website_url", label: "Website", icon: "◉" },
 { key: "x_url", label: "X", icon: "𝕏" },
@@ -1181,6 +1187,9 @@ const explicit = normalizeLaunchStatusValue(truth?.status || truth?.raw_status);
 const lifecycleStatus = normalizeLaunchStatusValue(
 lifecycleTruth?.launchStatus || lifecycleTruth?.status
 );
+const lifecycleGraduationStatus = normalizeLaunchStatusValue(
+lifecycleTruth?.graduationStatus
+);
 const lifecycleGraduated = lifecycleShowsGraduated(lifecycleTruth);
 const now = getNowMs();
 
@@ -1208,7 +1217,12 @@ reservationStatus === "finalized" ||
 Number.isFinite(mintFinalizedAtMs)
 );
 
-if (explicit === "graduated" || lifecycleStatus === "graduated" || lifecycleGraduated) {
+if (
+explicit === "graduated" ||
+lifecycleStatus === "graduated" ||
+lifecycleGraduationStatus === "graduated" ||
+lifecycleGraduated
+) {
 return PHASES.LIVE;
 }
 
@@ -1411,7 +1425,7 @@ return getPhaseLabel(phase);
 }
 
 function getPhaseAccessLabel(phase, launch = {}, lifecycle = null) {
-if (isGraduatedLike(launch, lifecycle)) return "Graduated";
+if (isGraduatedLike(launch, lifecycle)) return "Externalized";
 
 switch (phase) {
 case PHASES.COUNTDOWN:
@@ -1419,7 +1433,7 @@ return "Countdown Locked";
 case PHASES.BUILDING:
 return "Bootstrapping";
 case PHASES.LIVE:
-return "Live Access";
+return "External LP";
 case PHASES.FAILED:
 return "Closed";
 case PHASES.COMMIT:
@@ -1430,7 +1444,7 @@ return "Pre-Live";
 
 function getPhaseNote(phase, launch = {}, commitStats = {}, lifecycle = null) {
 if (isGraduatedLike(launch, lifecycle)) {
-return "Launch has graduated. Migration and lock proof are reflected in lifecycle telemetry.";
+return "Launch has graduated. Lifecycle proof and migration telemetry remain visible while trading continues externally.";
 }
 
 if (phase === PHASES.COUNTDOWN) {
@@ -1441,11 +1455,11 @@ return countdownText !== "00:00"
 }
 
 if (phase === PHASES.BUILDING) {
-return "Countdown reached zero. MSS is finalizing mint, liquidity, and live market state.";
+return "Countdown reached zero. MSS is finalizing mint, liquidity, and the external market handoff.";
 }
 
 if (phase === PHASES.LIVE) {
-return "Live market access is active. Participant allocations are fully unlocked.";
+return "Live market access is active through the external LP route. MSS shows the market state here while execution happens on Raydium.";
 }
 
 if (phase === PHASES.FAILED) {
@@ -1465,8 +1479,9 @@ marketModeText: "Bootstrapping",
 overlayEyebrow: "MARKET BOOTSTRAP",
 overlayTitle: "Building Live Market",
 overlayText:
-"Countdown has ended. Final mint, liquidity, and market state are being finalized.",
-overlaySubtext: "Contract address and live pricing will appear once bootstrap completes.",
+"Countdown has ended. Final mint, liquidity, and external route state are being finalized.",
+overlaySubtext:
+"Contract address and external trading route appear once bootstrap completes.",
 marketTitle: "Market Bootstrap",
 };
 case PHASES.COUNTDOWN:
@@ -1484,10 +1499,10 @@ case PHASES.LIVE:
 return {
 badgeText: "LIVE",
 statusText: "Live",
-marketModeText: "Live Access",
+marketModeText: "External LP",
 overlayEyebrow: "LIVE MARKET",
-overlayTitle: "Live Trading",
-overlayText: "Market is now open.",
+overlayTitle: "External Market Live",
+overlayText: "Market is live. Execution routes externally.",
 overlaySubtext: "",
 marketTitle: "Live Market",
 };
@@ -1590,8 +1605,8 @@ structureSignal = "Live";
 marketSignal = elevatedFlow ? "Active Flow" : "Balanced";
 
 note = elevatedFlow
-? "CassIE has detected elevated live market activity. Review price movement, flow imbalance, and execution details before confirming."
-: "CassIE is actively monitoring live flow, price behaviour, and structure changes as this market trades.";
+? "CassIE has detected elevated live market activity. Review price movement, flow imbalance, and execution details before acting on the external venue."
+: "CassIE is actively monitoring live flow, price behaviour, and structure changes while the market trades externally.";
 }
 
 return {
@@ -1722,7 +1737,7 @@ const displayMeta = graduatedLike
 ...meta,
 badgeText: "GRADUATED",
 statusText: "Graduated",
-marketModeText: "Graduated",
+marketModeText: "Externalized",
 marketTitle: "Graduated Market",
 }
 : displayStatus === "Refunded"
@@ -1740,7 +1755,7 @@ setTextMany(["launchStatusText", "launchStatusText2"], displayMeta.statusText);
 setText("launchMarketModeText", displayMeta.marketModeText);
 setText(
 "marketStatusLabel",
-graduatedLike ? "Graduated" : phase === PHASES.LIVE ? "Live Trading" : displayMeta.statusText
+graduatedLike ? "Graduated" : phase === PHASES.LIVE ? "External Market" : displayMeta.statusText
 );
 setText("marketOverlayEyebrow", displayMeta.overlayEyebrow);
 setText("marketOverlayTitle", displayMeta.overlayTitle);
@@ -1830,7 +1845,7 @@ phaseHeadline.textContent =
 graduatedLike
 ? "Launch has graduated"
 : phase === PHASES.LIVE
-? "Launch is now live"
+? "External market is live"
 : phase === PHASES.BUILDING
 ? "MSS is finalizing launch infrastructure"
 : phase === PHASES.COUNTDOWN
@@ -2133,7 +2148,7 @@ const liq = toNumber(lifecycle?.internalSolReserve, 0);
 setText("stat3Value", liq > 0 ? formatSol(liq, 4) : "Pending");
 
 setText("stat4Label", "Execution");
-setText("stat4Value", "Bootstrapping");
+setText("stat4Value", "External Route Pending");
 }
 
 function updateStatsForFailed(launch, commitStats = {}) {
@@ -2487,18 +2502,18 @@ const quickSellRow = $("tradeQuickSellRow");
 
 if (!tradePanelCard || !recentTradesCard || !tradePanelPhasePill) return;
 
-const isLiveTradeable = phase === PHASES.LIVE && !graduatedLike;
+const shouldShowTradePanel = phase === PHASES.LIVE;
+const shouldShowRecentTrades = phase === PHASES.LIVE;
 
-tradePanelCard.classList.toggle("hidden", !isLiveTradeable);
-recentTradesCard.classList.toggle("hidden", phase !== PHASES.LIVE);
+tradePanelCard.classList.toggle("hidden", !shouldShowTradePanel);
+recentTradesCard.classList.toggle("hidden", !shouldShowRecentTrades);
 
 tradePanelPhasePill.classList.remove("phase-commit", "phase-countdown", "phase-live");
 tradePanelPhasePill.classList.add(`phase-${getVisualPhase(phase)}`);
-tradePanelPhasePill.textContent =
-graduatedLike
-? "Graduated"
+tradePanelPhasePill.textContent = graduatedLike
+? "Externalized"
 : phase === PHASES.LIVE
-? "Market Active"
+? "External Market"
 : phase === PHASES.BUILDING
 ? "Building"
 : phase === PHASES.COUNTDOWN
@@ -2508,11 +2523,11 @@ graduatedLike
 : "Market Locked";
 
 if (tradeSubmitBtn) {
-tradeSubmitBtn.disabled = !isLiveTradeable;
+tradeSubmitBtn.disabled = !shouldShowTradePanel;
 }
 
-toggleHidden(quickBuyRow, !isLiveTradeable);
-toggleHidden(quickSellRow, !isLiveTradeable);
+toggleHidden(quickBuyRow, true);
+toggleHidden(quickSellRow, true);
 }
 
 function updateTradeTabUi(mode) {
@@ -2529,24 +2544,25 @@ if (buyTab) buyTab.classList.toggle("active", mode === TRADE_MODES.BUY);
 if (sellTab) sellTab.classList.toggle("active", mode === TRADE_MODES.SELL);
 
 if (amountLabel) {
-amountLabel.textContent = mode === TRADE_MODES.BUY ? "Amount (SOL)" : "Amount (Tokens)";
+amountLabel.textContent = "Execution Venue";
 }
 
 if (amountInput) {
-amountInput.placeholder = mode === TRADE_MODES.BUY ? "0.00" : "0";
+amountInput.placeholder = "Execution handled externally";
+amountInput.value = "";
+amountInput.disabled = true;
 }
 
 if (primaryLabel) {
-primaryLabel.textContent = "You Receive";
+primaryLabel.textContent = "Route";
 }
 
 if (walletLimitLabel) {
-walletLimitLabel.textContent =
-mode === TRADE_MODES.BUY ? "Wallet Limit After" : "Balance After";
+walletLimitLabel.textContent = "Contract";
 }
 
-toggleHidden(quickBuyRow, mode !== TRADE_MODES.BUY);
-toggleHidden(quickSellRow, mode !== TRADE_MODES.SELL);
+toggleHidden(quickBuyRow, true);
+toggleHidden(quickSellRow, true);
 }
 
 function resetTradeQuoteUi() {
@@ -2888,7 +2904,7 @@ positionValueEl.textContent = "—";
 solBalanceEl.textContent = "—";
 setText("launchWalletSummaryText", "Not Connected");
 setText("launchWalletPositionText", "Connect Wallet");
-setText("launchWalletLimitText", "—");
+setText("launchWalletLimitText", "External Route");
 return;
 }
 
@@ -3010,32 +3026,21 @@ const effectiveHolding = walletSummary.isBuilderWallet
 : walletSummary.tokenBalance;
 const remaining = maxWalletTokens > 0 ? Math.max(0, maxWalletTokens - effectiveHolding) : 0;
 
-const compliancePayload = normalizeComplianceStatusPayload(participantCompliance);
-const complianceBlocked = isParticipantComplianceBlocked(
-compliancePayload,
-connectedWallet
-);
-const complianceGateEnabled = Boolean(
-compliancePayload?.participant_gate_enabled ||
-compliancePayload?.requires_participant_approval
-);
-const complianceMessage = getParticipantComplianceMessage(compliancePayload);
-
 if (graduatedLike) {
 statePill.classList.remove("is-open", "is-restricted");
 statePill.classList.add("is-open");
-statePill.textContent = "Graduated";
+statePill.textContent = "Externalized";
 
 tierLabel.textContent = "Graduated Market";
-limitValue.textContent = "Externalized";
+limitValue.textContent = "External Venue";
 holdingValue.textContent = `${formatTokenAmount(effectiveHolding, 0)} tokens`;
 remainingValue.textContent = "No longer enforced here";
 totalSupplyValue.textContent =
 totalSupply > 0 ? `${formatTokenAmount(totalSupply, 0)} tokens` : "Pending";
 schedule.textContent =
-"This launch has graduated. Internal protected-access controls are no longer the active market regime.";
+"This launch has graduated. Trading continues externally while MSS retains lifecycle visibility and LP telemetry.";
 
-setText("launchAccessModeText", "Graduated");
+setText("launchAccessModeText", "Externalized");
 return;
 }
 
@@ -3114,37 +3119,27 @@ walletSummary.builderVestingPercentUnlocked,
 } else if (hasRestriction) {
 schedule.textContent =
 totalSupply > 0
-? `Wallet concentration controls remain active. Current cap is ${formatPercent(
+? `Wallet concentration controls remain visible here while execution routes externally. Current cap is ${formatPercent(
 localMaxWalletPct,
 2
 )} of total supply.`
-: `Wallet concentration controls remain active. Current cap is ${formatPercent(
+: `Wallet concentration controls remain visible here while execution routes externally. Current cap is ${formatPercent(
 localMaxWalletPct,
 2
 )} of total supply, with token-cap figures pending supply resolution.`;
 } else {
-schedule.textContent = "Protected wallet cap window has opened for normal market access.";
+schedule.textContent =
+"Protected wallet cap window has opened. MSS shows the policy state here while live execution routes externally.";
 }
 
-let accessModeText = walletSummary.isBuilderWallet
+setText(
+"launchAccessModeText",
+walletSummary.isBuilderWallet
 ? "Builder Vesting"
 : hasRestriction
 ? "Controlled Access"
-: "Open Access";
-
-if (complianceBlocked) {
-statePill.classList.remove("is-open", "is-restricted");
-statePill.classList.add("is-restricted");
-statePill.textContent = "Verify";
-tierLabel.textContent = "Compliance Required";
-remainingValue.textContent = "Blocked";
-schedule.textContent = complianceMessage;
-accessModeText = "Compliance Hold";
-} else if (complianceGateEnabled) {
-schedule.textContent = `${schedule.textContent} Compliance: ${complianceMessage}`;
-}
-
-setText("launchAccessModeText", accessModeText);
+: "External Access"
+);
 }
 
 function clearLiveOnlyUi() {
@@ -3159,7 +3154,7 @@ setText("marketAccessLimitValue", "—");
 setText("marketAccessHoldingValue", "—");
 setText("marketAccessRemainingValue", "—");
 setText("marketTotalSupplyValue", "—");
-setText("marketAccessSchedule", "Allocation controls activate once the launch is live.");
+setText("marketAccessSchedule", "External routing opens once the launch is live.");
 
 const recentTradesList = $("recentTradesList");
 if (recentTradesList) {
@@ -4218,6 +4213,154 @@ this._launchRefreshInFlight = null;
 }
 }
 
+getExternalMarketContext() {
+const graduatedLike = isGraduatedLike(this.launch, this.lifecycle);
+const resolvedContract = resolveContractAddress(
+this.launch || {},
+this.tokenPayload || {},
+this.commitStats || {},
+this.lifecycle || null
+);
+
+const contractAddress = cleanString(resolvedContract.value, 240);
+const raydiumPoolId = cleanString(
+this.lifecycle?.raydiumPoolId || this.lifecycle?.raydium_pool_id,
+240
+);
+
+const routeReady = Boolean(contractAddress && this.phase === PHASES.LIVE);
+const venueUrl = EXTERNAL_MARKET.url;
+
+let note = "External route unavailable.";
+if (graduatedLike && contractAddress) {
+note = `Market is externalized. Open ${EXTERNAL_MARKET.venue} and paste the contract address to trade.`;
+} else if (this.phase === PHASES.LIVE && contractAddress) {
+note = `Execution is handled on ${EXTERNAL_MARKET.venue}. Copy the contract address and trade on the external venue.`;
+} else if (this.phase === PHASES.BUILDING) {
+note =
+"External route is still being prepared. Contract address will appear once bootstrap completes.";
+} else if (this.phase === PHASES.COUNTDOWN) {
+note = "Countdown is active. External market access opens once the launch is live.";
+} else if (this.phase === PHASES.COMMIT) {
+note = "Commit phase is active. External trading is not open yet.";
+} else if (this.phase === PHASES.FAILED) {
+note = "This launch is closed.";
+}
+
+return {
+venue: EXTERNAL_MARKET.venue,
+venueUrl,
+mode: EXTERNAL_MARKET.mode,
+contractAddress,
+contractState: resolvedContract.state,
+raydiumPoolId,
+routeReady,
+graduatedLike,
+note,
+};
+}
+
+renderExternalTradeRoutePanel() {
+const route = this.getExternalMarketContext();
+const priceSol = toNumber(
+this.chartStats?.price_sol ?? this.chartStats?.price ?? this.launch?.price,
+0
+);
+
+const priceUsd = toNumber(
+this.chartStats?.price_usd,
+0
+);
+
+const amountLabel = $("tradeAmountLabel");
+const amountInput = $("tradeAmountInput");
+const primaryLabel = $("tradeQuotePrimaryLabel");
+const walletLimitLabel = $("tradeQuoteWalletLimitLabel");
+
+if (amountLabel) {
+amountLabel.textContent = "Execution Venue";
+}
+
+if (amountInput) {
+amountInput.disabled = true;
+amountInput.value = "";
+amountInput.placeholder = route.routeReady
+? `${route.venue} external route`
+: route.contractState === "Hidden"
+? "Hidden until live"
+: "Awaiting route";
+}
+
+if (primaryLabel) {
+primaryLabel.textContent = "Route";
+}
+
+if (walletLimitLabel) {
+walletLimitLabel.textContent = "Contract";
+}
+
+setText(
+"tradeQuotePrimaryValue",
+route.routeReady
+? route.graduatedLike
+? "Externalized"
+: route.venue
+: route.contractState === "Hidden"
+? "Hidden until live"
+: "Pending"
+);
+
+setText(
+"tradeQuotePriceValue",
+priceUsd > 0
+? `${formatPriceUsd(priceUsd)}${priceSol > 0 ? ` • ${formatPriceSol(priceSol)} SOL` : ""}`
+: priceSol > 0
+? `${formatPriceSol(priceSol)} SOL`
+: "Live market"
+);
+
+setText(
+"tradeQuoteFeeValue",
+route.raydiumPoolId
+? shortAddress(route.raydiumPoolId, 10, 8)
+: "Venue fees apply"
+);
+
+setText(
+"tradeQuoteWalletLimitValue",
+route.contractAddress ? shortAddress(route.contractAddress) : route.contractState
+);
+}
+
+async openExternalTradeVenue() {
+const route = this.getExternalMarketContext();
+
+if (!route.routeReady) {
+throw new Error(route.note || "External route is not ready yet.");
+}
+
+const sideLabel = this.tradeMode === TRADE_MODES.SELL ? "sell" : "buy";
+const popup = window.open(route.venueUrl, "_blank", "noopener,noreferrer");
+const copied = await copyText(route.contractAddress);
+
+if (popup) {
+setTradeMessage(
+copied
+? `Contract address copied. ${route.venue} opened in a new tab. Paste the CA there to ${sideLabel}.`
+: `${route.venue} opened in a new tab. Paste the contract address there to ${sideLabel}.`,
+"success"
+);
+return;
+}
+
+setTradeMessage(
+copied
+? `Contract address copied. Open ${route.venue} manually and paste the CA there to ${sideLabel}.`
+: `Open ${route.venue} manually and paste the contract address there to ${sideLabel}.`,
+"success"
+);
+}
+
 applyAll(previousPhaseOverride = null) {
 if (!this.launch) return;
 
@@ -4330,58 +4473,36 @@ document.querySelectorAll("#tradeQuickBuyRow .trade-quick-btn")
 const sellButtons = Array.from(
 document.querySelectorAll("#tradeQuickSellRow .trade-quick-btn")
 );
-const balance = this.getWalletTokenBalance();
-const graduatedLike = isGraduatedLike(this.launch, this.lifecycle);
-const complianceBlocked = isParticipantComplianceBlocked(
-this.participantCompliance,
-this.connectedWallet
-);
-const baseDisabled =
-this.phase !== PHASES.LIVE ||
-graduatedLike ||
-complianceBlocked ||
-this.tradeBusy ||
-this.quoteBusy;
+
+const disabled = true;
 
 buyButtons.forEach((btn) => {
-btn.disabled = baseDisabled;
+btn.disabled = disabled;
 });
 
 sellButtons.forEach((btn) => {
-const pct = getQuickSellPct(btn);
-btn.disabled = baseDisabled || balance <= 0 || pct <= 0;
+btn.disabled = disabled;
 });
 }
 
 renderTradePanel() {
 updateTradeTabUi(this.tradeMode);
+this.renderExternalTradeRoutePanel();
 
 const submitBtn = $("tradeSubmitBtn");
-const amount = this.getTradeAmountValue();
-const hasAmount = amount > 0;
 const graduatedLike = isGraduatedLike(this.launch, this.lifecycle);
-const complianceBlocked = isParticipantComplianceBlocked(
-this.participantCompliance,
-this.connectedWallet
-);
+const route = this.getExternalMarketContext();
 
 if (submitBtn) {
 submitBtn.disabled =
-this.phase !== PHASES.LIVE ||
-graduatedLike ||
-this.tradeBusy ||
-this.quoteBusy ||
-!hasAmount ||
-complianceBlocked;
-submitBtn.textContent = complianceBlocked
-? "Verification Required"
-: this.lastQuote
-? this.tradeMode === TRADE_MODES.BUY
-? "Execute Buy"
-: "Execute Sell"
-: this.tradeMode === TRADE_MODES.BUY
-? "Preview Buy"
-: "Preview Sell";
+this.phase !== PHASES.LIVE || !route.routeReady || this.tradeBusy || this.quoteBusy;
+submitBtn.textContent = this.tradeBusy
+? `Opening ${route.venue}...`
+: this.phase !== PHASES.LIVE
+? "Await Live Route"
+: graduatedLike
+? `Open ${route.venue}`
+: `Copy CA & Open ${route.venue}`;
 }
 }
 
@@ -4577,37 +4698,11 @@ this.syncSellQuickButtons();
 this.renderTradePanel();
 }
 
-handleTradeQuickClick(event) {
-if (this.tradeBusy || this.quoteBusy) return;
-
-const input = $("tradeAmountInput");
-if (!input) return;
-
-if (this.tradeMode === TRADE_MODES.BUY) {
-const amount =
-event.currentTarget?.dataset?.amount ||
-event.currentTarget?.dataset?.sol ||
-event.currentTarget?.dataset?.value ||
-"";
-
-input.value = amount;
+handleTradeQuickClick(_event) {
 this.lastQuote = null;
 resetTradeQuoteUi();
 setTradeMessage("");
 this.renderTradePanel();
-return;
-}
-
-const pct = getQuickSellPct(event.currentTarget);
-const balance = this.getWalletTokenBalance();
-
-if (pct > 0 && balance > 0) {
-input.value = String(Math.max(0, Math.floor((balance * pct) / 100)));
-this.lastQuote = null;
-resetTradeQuoteUi();
-setTradeMessage("");
-this.renderTradePanel();
-}
 }
 
 handleTradeAmountInput() {
@@ -4623,252 +4718,44 @@ return toNumber(input?.value || 0, 0);
 }
 
 async getTradeQuote() {
-const amount = this.getTradeAmountValue();
-
-if (amount <= 0) {
-throw new Error(
-this.tradeMode === TRADE_MODES.BUY ? "Enter a SOL amount" : "Enter a token amount"
-);
-}
-
-if (this.tradeMode === TRADE_MODES.BUY) {
-return this.quoteBuy(this.launchId, amount, this.connectedWallet || "");
-}
-
-return this.quoteSell(this.launchId, amount, this.connectedWallet || "");
+return this.getExternalMarketContext();
 }
 
 applyQuoteToUi(quotePayload) {
-const quote = quotePayload?.quote || quotePayload || {};
 this.lastQuote = quotePayload;
-
-if (this.tradeMode === TRADE_MODES.BUY) {
-setText(
-"tradeQuotePrimaryValue",
-`${formatTokenAmount(
-quote?.tokensBought ??
-quote?.tokenOut ??
-quote?.tokens_bought ??
-quote?.token_out ??
-0,
-0
-)} tokens`
-);
-setText("tradeQuotePriceValue", quote?.price > 0 ? `${formatPriceSol(quote.price)} SOL` : "—");
-setText("tradeQuoteFeeValue", formatSol(quote?.feeSol ?? quote?.fee_sol ?? 0, 6));
-
-if ($("tradeQuoteWalletLimitValue")) {
-if (
-quote?.maxWallet ||
-quote?.maxWalletTokens ||
-quote?.max_wallet ||
-quote?.max_wallet_tokens
-) {
-const maxWalletTokens = toInt(
-quote?.maxWallet ??
-quote?.maxWalletTokens ??
-quote?.max_wallet ??
-quote?.max_wallet_tokens,
-0
-);
-const maxWalletText = formatTokenAmount(maxWalletTokens, 0);
-const walletAfter = quote?.walletBalanceAfter ?? quote?.wallet_balance_after;
-const afterText =
-walletAfter != null ? ` / After ${formatTokenAmount(walletAfter, 0)}` : "";
-$("tradeQuoteWalletLimitValue").textContent = `${maxWalletText}${afterText}`;
-} else if ((quote?.walletBalanceAfter ?? quote?.wallet_balance_after) != null) {
-$("tradeQuoteWalletLimitValue").textContent = `After ${formatTokenAmount(
-quote?.walletBalanceAfter ?? quote?.wallet_balance_after,
-0
-)}`;
-} else {
-$("tradeQuoteWalletLimitValue").textContent = "Applies";
-}
-}
-} else {
-setText(
-"tradeQuotePrimaryValue",
-formatSol(
-quote?.netSolOut ??
-quote?.solOut ??
-quote?.solReceived ??
-quote?.net_sol_out ??
-quote?.sol_out ??
-quote?.sol_received ??
-0,
-6
-)
-);
-setText("tradeQuotePriceValue", quote?.price > 0 ? `${formatPriceSol(quote.price)} SOL` : "—");
-setText("tradeQuoteFeeValue", formatSol(quote?.feeSol ?? quote?.fee_sol ?? 0, 6));
-setText(
-"tradeQuoteWalletLimitValue",
-(quote?.walletBalanceAfter ?? quote?.wallet_balance_after) != null
-? `${formatTokenAmount(
-quote?.walletBalanceAfter ?? quote?.wallet_balance_after,
-0
-)} tokens`
-: "—"
-);
-
-if ((quote?.walletBalanceBefore ?? quote?.wallet_balance_before) != null) {
-this.walletTokenBalanceFallback = toNumber(
-quote?.walletBalanceBefore ?? quote?.wallet_balance_before,
-this.walletTokenBalanceFallback
-);
-}
-}
-
-updateAccessCard(
-this.phase,
-this.launch,
-this.tokenPayload,
-this.chartStats,
-quotePayload,
-this.connectedWallet,
-this.walletTokenBalanceFallback,
-this.participantCompliance
-);
-
+this.renderExternalTradeRoutePanel();
 this.renderTradePanel();
 }
 
 async executeTrade() {
-const amount = this.getTradeAmountValue();
-
-if (amount <= 0) {
-throw new Error(
-this.tradeMode === TRADE_MODES.BUY ? "Enter a SOL amount" : "Enter a token amount"
-);
-}
-
-if (!this.connectedWallet) {
-throw new Error("Connect wallet first");
-}
-
-if (this.tradeMode === TRADE_MODES.BUY) {
-return this.executeBuy(this.launchId, this.connectedWallet, amount);
-}
-
-return this.executeSell(this.launchId, this.connectedWallet, amount);
+return this.openExternalTradeVenue();
 }
 
 async handleTradeSubmitClick() {
 if (this.phase !== PHASES.LIVE || this.tradeBusy || this.quoteBusy) return;
-if (isGraduatedLike(this.launch, this.lifecycle)) {
-setTradeMessage("This launch has graduated. Internal market execution is no longer available.", "error");
-return;
-}
 
-if (isParticipantComplianceBlocked(this.participantCompliance, this.connectedWallet)) {
-setTradeMessage(getParticipantComplianceMessage(this.participantCompliance), "error");
+const route = this.getExternalMarketContext();
+if (!route.routeReady) {
+setTradeMessage(route.note || "External route is not ready yet.", "error");
 return;
 }
 
 const submitBtn = $("tradeSubmitBtn");
-const originalText = submitBtn?.textContent || "Preview Buy";
+const originalText = submitBtn?.textContent || `Open ${route.venue}`;
 
 try {
-setTradeMessage("");
-
-if (!this.lastQuote) {
-if (!this.connectedWallet) {
-throw new Error("Connect wallet first");
-}
-
-this.quoteBusy = true;
-this.renderTradePanel();
-
-if (submitBtn) {
-submitBtn.textContent =
-this.tradeMode === TRADE_MODES.BUY
-? "Preparing Buy Preview..."
-: "Preparing Sell Preview...";
-}
-
-const quotePayload = await this.getTradeQuote();
-this.applyQuoteToUi(quotePayload);
-setTradeMessage(
-this.tradeMode === TRADE_MODES.BUY
-? "Buy preview ready. Review execution details and submit again to execute."
-: "Sell preview ready. Review execution details and submit again to execute.",
-"success"
-);
-return;
-}
-
 this.tradeBusy = true;
 this.renderTradePanel();
 
 if (submitBtn) {
-submitBtn.textContent =
-this.tradeMode === TRADE_MODES.BUY ? "Executing Buy..." : "Executing Sell...";
+submitBtn.textContent = `Opening ${route.venue}...`;
 }
 
-const inputAmount = this.getTradeAmountValue();
-const result = await this.executeTrade();
-
-if (this.tradeMode === TRADE_MODES.BUY) {
-this.walletTokenBalanceFallback = toNumber(
-result?.walletBalanceAfter ?? result?.wallet_balance_after,
-this.walletTokenBalanceFallback +
-toNumber(
-result?.tokensReceived ??
-result?.tokenOut ??
-result?.tokens_received ??
-result?.token_out,
-0
-)
-);
-} else {
-this.walletTokenBalanceFallback = toNumber(
-result?.walletBalanceAfter ?? result?.wallet_balance_after,
-Math.max(0, this.walletTokenBalanceFallback - toNumber(inputAmount, 0))
-);
-}
-
-const message =
-this.tradeMode === TRADE_MODES.BUY
-? `Buy Executed\nReceived: ${formatTokenAmount(
-result?.tokensReceived ??
-result?.tokenOut ??
-result?.tokens_received ??
-result?.token_out ??
-0,
-0
-)} tokens\nPaid: ${formatSol(inputAmount, 6)}\nFee: ${formatSol(
-result?.feeSol ?? result?.fee_sol ?? 0,
-6
-)}`
-: `Sell Executed\nReceived: ${formatSol(
-result?.solReceived ??
-result?.netSolOut ??
-result?.solOut ??
-result?.sol_received ??
-result?.net_sol_out ??
-result?.sol_out ??
-0,
-6
-)}\nSold: ${formatTokenAmount(inputAmount, 0)} tokens\nFee: ${formatSol(
-result?.feeSol ?? result?.fee_sol ?? 0,
-6
-)}`;
-
-setTradeMessage(message, "success");
-
-this.lastQuote = null;
-resetTradeQuoteUi();
-
-const input = $("tradeAmountInput");
-if (input) input.value = "";
-
-await this.refreshLiveMarketOnly({ force: true });
-this.renderTradePanel();
+await this.executeTrade();
 } catch (error) {
 console.error("trade submit failed:", error);
-setTradeMessage(error?.message || "Trade failed", "error");
+setTradeMessage(error?.message || "Unable to open external venue.", "error");
 } finally {
-this.quoteBusy = false;
 this.tradeBusy = false;
 if (submitBtn) submitBtn.textContent = originalText;
 this.renderTradePanel();

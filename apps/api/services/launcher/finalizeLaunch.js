@@ -80,6 +80,10 @@ firstPresent(allocationResult?.unusedBonusTokensBurned, "0") ?? "0"
 );
 }
 
+function isBootstrapped(launch) {
+return safeNum(launch?.market_bootstrapped, 0) === 1;
+}
+
 function normalizeLaunch(row) {
 if (!row) return null;
 
@@ -301,6 +305,56 @@ tokenReserve,
 };
 }
 
+async function normalizeBootstrapFlagAgainstArtifacts(launchId, launch) {
+if (!launch) return null;
+
+const artifacts = await getLiveBootstrapArtifacts(launchId, launch);
+
+if (artifacts.completed) {
+if (!isBootstrapped(launch)) {
+await setLaunchMarketBootstrapped(launchId, true);
+return getLaunchById(launchId);
+}
+return launch;
+}
+
+if (isBootstrapped(launch)) {
+await setLaunchMarketBootstrapped(launchId, false);
+return getLaunchById(launchId);
+}
+
+return launch;
+}
+
+async function demoteLiveToBuildingIfArtifactsIncomplete(launchId, launch) {
+if (!launch) return null;
+
+const status = String(launch.status || "").toLowerCase();
+if (status !== "live") {
+return launch;
+}
+
+const artifacts = await getLiveBootstrapArtifacts(launchId, launch);
+if (artifacts.completed) {
+return launch;
+}
+
+await setLaunchMarketBootstrapped(launchId, false);
+
+await db.run(
+`
+UPDATE launches
+SET status = 'building',
+updated_at = CURRENT_TIMESTAMP
+WHERE id = ?
+AND status = 'live'
+`,
+[launchId]
+);
+
+return getLaunchById(launchId);
+}
+
 async function syncLaunchMarketArtifactsFromRows(launchId, launch) {
 const artifacts = await getLiveBootstrapArtifacts(launchId, launch);
 
@@ -330,7 +384,12 @@ fields.market_bootstrapped = 1;
 }
 
 await updateLaunchFieldsSafe(launchId, fields);
-return getLaunchById(launchId);
+
+let refreshed = await getLaunchById(launchId);
+refreshed = await normalizeBootstrapFlagAgainstArtifacts(launchId, refreshed);
+refreshed = await demoteLiveToBuildingIfArtifactsIncomplete(launchId, refreshed);
+
+return refreshed || launch;
 }
 
 async function syncLaunchMarketArtifactsFromBootstrap(
@@ -381,11 +440,13 @@ allocationResult?.internalPoolSol
 0
 );
 
-const internalPoolTokens = firstPresent(
+const internalPoolTokensRaw = firstPresent(
 marketBootstrap.internalPoolTokens,
 marketBootstrap.tokenReserve,
 allocationResult?.internalPoolTokens
 );
+
+const internalPoolTokensNum = safeNum(internalPoolTokensRaw, 0);
 
 const raydiumReservedTokens = firstPresent(
 marketBootstrap.raydiumReservedTokens,
@@ -395,8 +456,8 @@ allocationResult?.raydiumLiquidityTokensReserved
 
 if (liquidity > 0) fields.liquidity = liquidity;
 if (internalPoolSol > 0) fields.internal_pool_sol = internalPoolSol;
-if (internalPoolTokens != null) {
-fields.internal_pool_tokens = String(internalPoolTokens);
+if (internalPoolTokensRaw != null) {
+fields.internal_pool_tokens = String(internalPoolTokensRaw);
 }
 if (raydiumReservedTokens != null) {
 fields.raydium_liquidity_tokens_reserved = String(raydiumReservedTokens);
@@ -405,7 +466,15 @@ if (circulatingSupply > 0) fields.circulating_supply = circulatingSupply;
 if (price > 0) fields.price = price;
 if (marketCap > 0) fields.market_cap = marketCap;
 if (volume24h >= 0) fields.volume_24h = volume24h;
-if (marketBootstrap.ok !== false) fields.market_bootstrapped = 1;
+
+if (
+marketBootstrap.ok !== false &&
+mintAddress &&
+internalPoolSol > 0 &&
+internalPoolTokensNum > 0
+) {
+fields.market_bootstrapped = 1;
+}
 
 await updateLaunchFieldsSafe(launchId, fields);
 }
@@ -435,6 +504,15 @@ let marketBootstrap = null;
 let refreshedLaunch = launch || (await getLaunchById(launchId));
 
 try {
+refreshedLaunch = await normalizeBootstrapFlagAgainstArtifacts(
+launchId,
+refreshedLaunch || launch
+);
+refreshedLaunch = await demoteLiveToBuildingIfArtifactsIncomplete(
+launchId,
+refreshedLaunch || launch
+);
+
 const existingArtifacts = await getLiveBootstrapArtifacts(
 launchId,
 refreshedLaunch || launch
@@ -455,7 +533,10 @@ launchId,
 refreshedLaunch || launch
 );
 
-if (existingArtifacts.completed || marketBootstrap?.ok !== false) {
+if (
+(existingArtifacts.completed || marketBootstrap?.ok !== false) &&
+(await hasCompletedLiveBootstrap(launchId, refreshedLaunch || launch))
+) {
 await setLaunchMarketBootstrapped(launchId, true);
 refreshedLaunch = (await getLaunchById(launchId)) || refreshedLaunch;
 }
@@ -561,8 +642,8 @@ feeDistributionPending: Boolean(feeDistributionPending),
 feeDistributionError: feeDistributionError || "",
 allocationsBuilt: Boolean(allocationsBuilt),
 marketBootstrap,
-marketBootstrapped: safeNum(launch?.market_bootstrapped, 0) === 1,
-market_bootstrapped: safeNum(launch?.market_bootstrapped, 0) === 1,
+marketBootstrapped: isBootstrapped(launch),
+market_bootstrapped: isBootstrapped(launch),
 mintAddress: resolvedMint,
 mintSource: marketBootstrap?.mintSource || null,
 tokenId: marketBootstrap?.tokenId || null,
@@ -722,7 +803,7 @@ UPDATE launches
 SET status = 'building',
 updated_at = CURRENT_TIMESTAMP
 WHERE id = ?
-AND status IN ('building', 'countdown')
+AND status IN ('building', 'countdown', 'live')
 `,
 [launchId]
 );
@@ -754,7 +835,9 @@ AND status IN ('building', 'countdown', 'live')
 [launchId]
 );
 
-const liveLaunch = await getLaunchById(launchId);
+let liveLaunch = await getLaunchById(launchId);
+liveLaunch = await normalizeBootstrapFlagAgainstArtifacts(launchId, liveLaunch);
+liveLaunch = await demoteLiveToBuildingIfArtifactsIncomplete(launchId, liveLaunch);
 
 if (!liveLaunch) {
 throw new Error("launch not found after live promotion");
@@ -1039,6 +1122,9 @@ if (!launch) {
 throw new Error("Launch not found");
 }
 
+launch = await normalizeBootstrapFlagAgainstArtifacts(launchId, launch);
+launch = await demoteLiveToBuildingIfArtifactsIncomplete(launchId, launch);
+
 const status = String(launch.status || "").toLowerCase();
 
 if (!["countdown", "building", "live"].includes(status)) {
@@ -1101,6 +1187,9 @@ launch = await getLaunchById(launchId);
 if (!launch) {
 throw new Error("Launch not found after sync");
 }
+
+launch = await normalizeBootstrapFlagAgainstArtifacts(launchId, launch);
+launch = await demoteLiveToBuildingIfArtifactsIncomplete(launchId, launch);
 
 if (!isLaunchBondSatisfied(launch)) {
 if (String(launch.status || "").toLowerCase() === "countdown") {
@@ -1346,7 +1435,10 @@ allocationResult
 finalLaunch = refreshed.launch || finalLaunch;
 const finalMarketBootstrap = refreshed.marketBootstrap || marketBootstrap;
 
-if (!cleanText(finalLaunch.contract_address, 120)) {
+if (
+!cleanText(finalLaunch.contract_address, 120) ||
+!isBootstrapped(finalLaunch)
+) {
 const buildingLaunch = await refreshBuildingStateAfterBootstrapFailure(launchId);
 
 return buildFinalizeResponse({
@@ -1359,14 +1451,14 @@ feePlan,
 feeDistribution: finalLaunch.fee_distribution_json || feeDistribution,
 feeDistributionPending,
 feeDistributionError:
-feeDistributionError || "launch contract address missing after live refresh",
+feeDistributionError || "launch bootstrap not fully settled after live refresh",
 allocationsBuilt,
 marketBootstrap: finalMarketBootstrap,
 allocationResult,
 alreadyFinalized: false,
 stage: "building",
 stageLabel: "Bootstrap retry pending",
-reason: "launch contract address missing after live refresh",
+reason: "launch bootstrap not fully settled after live refresh",
 retryable: true,
 });
 }

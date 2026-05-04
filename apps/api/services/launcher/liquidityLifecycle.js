@@ -370,7 +370,61 @@ if (lifecycle.graduated === true) return true;
 return safeNum(lifecycle.graduated, 0) === 1;
 }
 
-function computeCanonicalLifecycleStatus(launch = null, lifecycle = null) {
+function hasResolvedBootstrapArtifacts({
+launch,
+lifecycle,
+token,
+pool,
+totalSupply,
+solReserve,
+tokenReserve,
+}) {
+return Boolean(
+token &&
+pool &&
+totalSupply > 0 &&
+solReserve > 0 &&
+tokenReserve > 0 &&
+hasLiveMintSignal(launch, lifecycle)
+);
+}
+
+function resolveMarketBootstrapped({
+launch,
+lifecycle,
+token,
+pool,
+totalSupply,
+solReserve,
+tokenReserve,
+}) {
+const explicit =
+launch?.market_bootstrapped ??
+lifecycle?.market_bootstrapped ??
+lifecycle?.marketBootstrapped;
+
+const artifactsResolved = hasResolvedBootstrapArtifacts({
+launch,
+lifecycle,
+token,
+pool,
+totalSupply,
+solReserve,
+tokenReserve,
+});
+
+if (isExplicitTrueish(explicit)) return true;
+if (artifactsResolved) return true;
+if (isExplicitFalseish(explicit)) return false;
+
+return false;
+}
+
+function computeCanonicalLifecycleStatus(
+launch = null,
+lifecycle = null,
+marketBootstrappedOverride = null
+) {
 if (!launch && !lifecycle) return "commit";
 
 const rawStatus = normalizePhaseStatus(launch?.status);
@@ -397,6 +451,20 @@ const countdownStillRunning =
 Number.isFinite(countdownEndsMs) && now < countdownEndsMs;
 const liveMintSignal = hasLiveMintSignal(launch, lifecycle);
 
+const explicitBootstrap =
+launch?.market_bootstrapped ??
+lifecycle?.market_bootstrapped ??
+lifecycle?.marketBootstrapped;
+
+const marketBootstrapped =
+typeof marketBootstrappedOverride === "boolean"
+? marketBootstrappedOverride
+: isExplicitTrueish(explicitBootstrap)
+? true
+: isExplicitFalseish(explicitBootstrap)
+? false
+: null;
+
 if (
 rawStatus === "failed_refunded" ||
 lifecycleLaunchStatus === "failed_refunded"
@@ -417,14 +485,8 @@ lifecycleIsGraduated(lifecycle)
 return "graduated";
 }
 
-const bootstrappedFalse = isExplicitFalseish(
-launch?.market_bootstrapped ??
-lifecycle?.market_bootstrapped ??
-lifecycle?.marketBootstrapped
-);
-
 if (rawStatus === "live" || lifecycleLaunchStatus === "live") {
-return bootstrappedFalse ? "building" : "live";
+return marketBootstrapped === false ? "building" : "live";
 }
 
 if (rawStatus === "building" || lifecycleLaunchStatus === "building") {
@@ -455,39 +517,21 @@ return "countdown";
 return "building";
 }
 
-if (!rawStatus && !lifecycleLaunchStatus && Number.isFinite(liveAtMs) && now >= liveAtMs && liveMintSignal) {
-return bootstrappedFalse ? "building" : "live";
+if (
+!rawStatus &&
+!lifecycleLaunchStatus &&
+Number.isFinite(liveAtMs) &&
+now >= liveAtMs &&
+liveMintSignal
+) {
+return marketBootstrapped === false ? "building" : "live";
 }
 
 if (!rawStatus && !lifecycleLaunchStatus && liveMintSignal) {
-return bootstrappedFalse ? "building" : "live";
+return marketBootstrapped === false ? "building" : "live";
 }
 
 return rawStatus || lifecycleLaunchStatus || "commit";
-}
-
-function resolveMarketBootstrapped({
-launch,
-lifecycle,
-token,
-pool,
-totalSupply,
-solReserve,
-tokenReserve,
-}) {
-const explicit = launch?.market_bootstrapped ?? lifecycle?.market_bootstrapped ?? lifecycle?.marketBootstrapped;
-
-if (isExplicitTrueish(explicit)) return true;
-if (isExplicitFalseish(explicit)) return false;
-
-return Boolean(
-token &&
-pool &&
-totalSupply > 0 &&
-solReserve > 0 &&
-tokenReserve > 0 &&
-hasLiveMintSignal(launch, lifecycle)
-);
 }
 
 function resolveGraduationStatus(launch, lifecycle, canonicalStatus) {
@@ -849,7 +893,6 @@ const tokenReserve = resolveInternalTokenReserve(launch, pool, context.lifecycle
 const impliedMarketcapSol = roundSol(
 computeSpotPriceSolPerToken(solReserve, tokenReserve) * totalSupply
 );
-const canonicalStatus = context.canonicalStatus || computeCanonicalLifecycleStatus(launch, context.lifecycle);
 const marketBootstrapped =
 context.marketBootstrapped ??
 resolveMarketBootstrapped({
@@ -861,6 +904,14 @@ totalSupply,
 solReserve,
 tokenReserve,
 });
+
+const canonicalStatus =
+context.canonicalStatus ||
+computeCanonicalLifecycleStatus(
+launch,
+context.lifecycle,
+marketBootstrapped
+);
 
 const defaultGraduationStatus =
 canonicalStatus === "graduated"
@@ -1095,10 +1146,6 @@ const volume24hSol = await getTrades24hVolume(launchId);
 const holderCount = await getHolderCount(launchId);
 const liveMinutes = getLiveMinutes(launch);
 
-const canonicalStatus =
-context.canonicalStatus || computeCanonicalLifecycleStatus(launch, lifecycle);
-const alreadyGraduated =
-lifecycleIsGraduated(lifecycle) || canonicalStatus === "graduated";
 const marketBootstrapped =
 context.marketBootstrapped ??
 resolveMarketBootstrapped({
@@ -1110,6 +1157,13 @@ totalSupply,
 solReserve,
 tokenReserve,
 });
+
+const canonicalStatus =
+context.canonicalStatus ||
+computeCanonicalLifecycleStatus(launch, lifecycle, marketBootstrapped);
+
+const alreadyGraduated =
+lifecycleIsGraduated(lifecycle) || canonicalStatus === "graduated";
 
 const checks = {
 liveStatus: canonicalStatus === "live" || canonicalStatus === "graduated",
@@ -1180,8 +1234,6 @@ const thresholds = getGraduationThresholds();
 const totalSupply = resolveTotalSupply(launch, token, lifecycle);
 const solReserve = resolveInternalSolReserve(launch, pool, lifecycle);
 const tokenReserve = resolveInternalTokenReserve(launch, pool, lifecycle);
-const canonicalStatus =
-context.canonicalStatus || computeCanonicalLifecycleStatus(launch, lifecycle);
 const marketBootstrapped =
 context.marketBootstrapped ??
 resolveMarketBootstrapped({
@@ -1193,6 +1245,10 @@ totalSupply,
 solReserve,
 tokenReserve,
 });
+
+const canonicalStatus =
+context.canonicalStatus ||
+computeCanonicalLifecycleStatus(launch, lifecycle, marketBootstrapped);
 
 const liveMinutes = getLiveMinutes(launch);
 const priceSol = computeSpotPriceSolPerToken(solReserve, tokenReserve);
@@ -1238,9 +1294,13 @@ alreadyGraduated,
 function buildBuilderVestingSummary({ launch, token, vesting, context = {} }) {
 const totalSupply = resolveTotalSupply(launch, token, context.lifecycle);
 const canonicalStatus =
-context.canonicalStatus || computeCanonicalLifecycleStatus(launch, context.lifecycle);
-const marketBootstrapped =
-context.marketBootstrapped ?? false;
+context.canonicalStatus ||
+computeCanonicalLifecycleStatus(
+launch,
+context.lifecycle,
+context.marketBootstrapped
+);
+const marketBootstrapped = context.marketBootstrapped ?? false;
 
 const canUnlock =
 marketBootstrapped &&
@@ -1341,13 +1401,6 @@ volume24h,
 readiness = null,
 context = {},
 }) {
-const canonicalStatus =
-context.canonicalStatus || computeCanonicalLifecycleStatus(launch, lifecycle);
-const totalSupply = resolveTotalSupply(launch, token, lifecycle);
-const solReserve = resolveInternalSolReserve(launch, pool, lifecycle);
-const tokenReserve = resolveInternalTokenReserve(launch, pool, lifecycle);
-const price = computeSpotPriceSolPerToken(solReserve, tokenReserve);
-const impliedMarketcapSol = roundSol(price * totalSupply);
 const marketBootstrapped =
 context.marketBootstrapped ??
 resolveMarketBootstrapped({
@@ -1355,10 +1408,20 @@ launch,
 lifecycle,
 token,
 pool,
-totalSupply,
-solReserve,
-tokenReserve,
+totalSupply: resolveTotalSupply(launch, token, lifecycle),
+solReserve: resolveInternalSolReserve(launch, pool, lifecycle),
+tokenReserve: resolveInternalTokenReserve(launch, pool, lifecycle),
 });
+
+const canonicalStatus =
+context.canonicalStatus ||
+computeCanonicalLifecycleStatus(launch, lifecycle, marketBootstrapped);
+
+const totalSupply = resolveTotalSupply(launch, token, lifecycle);
+const solReserve = resolveInternalSolReserve(launch, pool, lifecycle);
+const tokenReserve = resolveInternalTokenReserve(launch, pool, lifecycle);
+const price = computeSpotPriceSolPerToken(solReserve, tokenReserve);
+const impliedMarketcapSol = roundSol(price * totalSupply);
 const graduationStatus = resolveGraduationStatus(
 launch,
 lifecycle,
@@ -1450,9 +1513,11 @@ graduation_status: graduationStatus,
 
 graduated,
 graduationReason:
-clean(lifecycle?.graduation_reason ?? lifecycle?.graduationReason, 64) || null,
+clean(lifecycle?.graduation_reason ?? lifecycle?.graduationReason, 64) ||
+null,
 graduation_reason:
-clean(lifecycle?.graduation_reason ?? lifecycle?.graduationReason, 64) || null,
+clean(lifecycle?.graduation_reason ?? lifecycle?.graduationReason, 64) ||
+null,
 graduatedAt: lifecycle?.graduated_at ?? lifecycle?.graduatedAt ?? null,
 graduated_at: lifecycle?.graduated_at ?? lifecycle?.graduatedAt ?? null,
 
@@ -1460,9 +1525,11 @@ surgeStatus: graduationStatus === "graduated" ? "surged" : graduationStatus,
 surge_status: graduationStatus === "graduated" ? "surged" : graduationStatus,
 surged: graduated,
 surgeReason:
-clean(lifecycle?.graduation_reason ?? lifecycle?.graduationReason, 64) || null,
+clean(lifecycle?.graduation_reason ?? lifecycle?.graduationReason, 64) ||
+null,
 surge_reason:
-clean(lifecycle?.graduation_reason ?? lifecycle?.graduationReason, 64) || null,
+clean(lifecycle?.graduation_reason ?? lifecycle?.graduationReason, 64) ||
+null,
 
 raydiumTargetPct: safeNum(
 lifecycle?.raydium_target_pct ?? lifecycle?.raydiumTargetPct,
@@ -1502,9 +1569,11 @@ lifecycle?.raydium_token_migrated ?? lifecycle?.raydiumTokenMigrated ?? 0
 ),
 
 raydiumLpTokens:
-clean(lifecycle?.raydium_lp_tokens ?? lifecycle?.raydiumLpTokens, 500) || null,
+clean(lifecycle?.raydium_lp_tokens ?? lifecycle?.raydiumLpTokens, 500) ||
+null,
 raydium_lp_tokens:
-clean(lifecycle?.raydium_lp_tokens ?? lifecycle?.raydiumLpTokens, 500) || null,
+clean(lifecycle?.raydium_lp_tokens ?? lifecycle?.raydiumLpTokens, 500) ||
+null,
 
 raydiumMigrationTx:
 clean(
@@ -1583,10 +1652,10 @@ getBuilderVestingRow(launchId),
 ]);
 
 const volume24h = await getTrades24hVolume(launchId);
-let canonicalStatus = computeCanonicalLifecycleStatus(launch, lifecycle);
 const totalSupply = resolveTotalSupply(launch, token, lifecycle);
 const solReserve = resolveInternalSolReserve(launch, pool, lifecycle);
 const tokenReserve = resolveInternalTokenReserve(launch, pool, lifecycle);
+
 let marketBootstrapped = resolveMarketBootstrapped({
 launch,
 lifecycle,
@@ -1596,6 +1665,12 @@ totalSupply,
 solReserve,
 tokenReserve,
 });
+
+let canonicalStatus = computeCanonicalLifecycleStatus(
+launch,
+lifecycle,
+marketBootstrapped
+);
 
 if (persist && ["building", "live", "graduated"].includes(canonicalStatus)) {
 vesting = await ensureBuilderVestingRecord(launchId, launch, token, {
@@ -1610,7 +1685,6 @@ canonicalStatus,
 marketBootstrapped,
 });
 
-canonicalStatus = computeCanonicalLifecycleStatus(launch, lifecycle);
 marketBootstrapped = resolveMarketBootstrapped({
 launch,
 lifecycle,
@@ -1620,6 +1694,12 @@ totalSupply,
 solReserve,
 tokenReserve,
 });
+
+canonicalStatus = computeCanonicalLifecycleStatus(
+launch,
+lifecycle,
+marketBootstrapped
+);
 }
 
 const hasResolvedLiveState =
@@ -1701,7 +1781,6 @@ getPoolRow(launchId),
 getLifecycleRow(launchId),
 ]);
 
-const canonicalStatus = computeCanonicalLifecycleStatus(launch, lifecycle);
 const totalSupply = resolveTotalSupply(launch, token, lifecycle);
 const solReserve = resolveInternalSolReserve(launch, pool, lifecycle);
 const tokenReserve = resolveInternalTokenReserve(launch, pool, lifecycle);
@@ -1714,6 +1793,12 @@ totalSupply,
 solReserve,
 tokenReserve,
 });
+
+const canonicalStatus = computeCanonicalLifecycleStatus(
+launch,
+lifecycle,
+marketBootstrapped
+);
 
 const hasResolvedLiveState =
 marketBootstrapped && totalSupply > 0 && solReserve > 0 && tokenReserve > 0;
@@ -1886,10 +1971,7 @@ await db.run(
 `
 UPDATE launches
 SET status = 'graduated',
-market_bootstrapped = CASE
-WHEN market_bootstrapped IS NULL THEN 1
-ELSE market_bootstrapped
-END,
+market_bootstrapped = 1,
 updated_at = CURRENT_TIMESTAMP
 WHERE id = ?
 `,
@@ -1925,12 +2007,29 @@ if (!pool) {
 throw new Error("pool not found for launch");
 }
 
-const lifecycle = await ensureLifecycleRecord(launchId, launch, token, pool, {
-lifecycle: await getLifecycleRow(launchId),
-canonicalStatus: computeCanonicalLifecycleStatus(
+const existingLifecycle = await getLifecycleRow(launchId);
+const totalSupply = resolveTotalSupply(launch, token, existingLifecycle);
+const solReserve = resolveInternalSolReserve(launch, pool, existingLifecycle);
+const tokenReserve = resolveInternalTokenReserve(launch, pool, existingLifecycle);
+const marketBootstrapped = resolveMarketBootstrapped({
 launch,
-await getLifecycleRow(launchId)
-),
+lifecycle: existingLifecycle,
+token,
+pool,
+totalSupply,
+solReserve,
+tokenReserve,
+});
+const canonicalStatus = computeCanonicalLifecycleStatus(
+launch,
+existingLifecycle,
+marketBootstrapped
+);
+
+const lifecycle = await ensureLifecycleRecord(launchId, launch, token, pool, {
+lifecycle: existingLifecycle,
+canonicalStatus,
+marketBootstrapped,
 });
 
 const readiness = await buildGraduationReadiness(
@@ -1938,7 +2037,11 @@ launchId,
 launch,
 token,
 pool,
-lifecycle
+lifecycle,
+{
+canonicalStatus,
+marketBootstrapped,
+}
 );
 
 if (!allowUnsafe && !readiness.ready) {
