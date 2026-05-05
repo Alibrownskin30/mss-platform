@@ -37,6 +37,7 @@ const TEAM_PCT_PRECISION = 6;
 const RECONCILE_INTERVAL_MS = 15000;
 const REQUIRED_MINT_TAG = "MSS";
 const RESERVED_MINT_MAX_ATTEMPTS = 1000000;
+const LAUNCH_FEE_PCT = 3;
 
 function cleanEnv(value, max = 200) {
 return String(value ?? "").trim().slice(0, max);
@@ -53,9 +54,8 @@ const BUILDER_SOFT_CAP_BY_HARD_CAP = {
 };
 
 const LAUNCH_FEE_SPLIT = {
-founder: 0.5,
-buyback: 0.3,
-treasury: 0.2,
+coreTeamDevelopment: 0.6,
+ecosystemSupport: 0.4,
 };
 
 const MEMO_PROGRAM_ID = new PublicKey(
@@ -391,21 +391,34 @@ if (cap <= 0) return 0;
 return Math.max(0, Math.min(100, Math.floor((total / cap) * 100)));
 }
 
-function buildFeeBreakdown(totalCommitted, launchFeePct = 5) {
-const feeTotal = Number(totalCommitted) * (Number(launchFeePct) / 100);
-const founderFee = feeTotal * LAUNCH_FEE_SPLIT.founder;
-const buybackFee = feeTotal * LAUNCH_FEE_SPLIT.buyback;
-const treasuryFee = feeTotal * LAUNCH_FEE_SPLIT.treasury;
-const netRaiseAfterFee = Number(totalCommitted) - feeTotal;
+function buildFeeBreakdown(totalCommitted, launchFeePct = LAUNCH_FEE_PCT) {
+const total = safeNumber(totalCommitted, 0);
+const feePct = safeNumber(launchFeePct, LAUNCH_FEE_PCT);
+const feeTotal = total * (feePct / 100);
+const coreTeamDevelopmentFee =
+feeTotal * LAUNCH_FEE_SPLIT.coreTeamDevelopment;
+const ecosystemSupportFee =
+feeTotal * LAUNCH_FEE_SPLIT.ecosystemSupport;
+const netRaiseAfterFee = total - feeTotal;
 
 return {
-launchFeePct: Number(launchFeePct),
-totalCommitted: Number(totalCommitted),
+launchFeePct: feePct,
+totalCommitted: total,
 feeTotal,
-founderFee,
-buybackFee,
-treasuryFee,
+coreTeamDevelopmentFee,
+ecosystemSupportFee,
 netRaiseAfterFee,
+split: {
+coreTeamDevelopmentPct: LAUNCH_FEE_SPLIT.coreTeamDevelopment * 100,
+ecosystemSupportPct: LAUNCH_FEE_SPLIT.ecosystemSupport * 100,
+},
+
+// compatibility aliases during frontend/backend transition
+coreFee: coreTeamDevelopmentFee,
+founderFee: coreTeamDevelopmentFee,
+treasuryFee: ecosystemSupportFee,
+buybackFee: 0,
+netRaise: netRaiseAfterFee,
 };
 }
 
@@ -955,7 +968,7 @@ min_raise_sol: Number(parsed.min_raise_sol || 0),
 hard_cap_sol: hardCap,
 committed_sol: totalCommitted,
 participants_count: Number(parsed.participants_count || 0),
-launch_fee_pct: Number(parsed.launch_fee_pct || 0),
+launch_fee_pct: Number(parsed.launch_fee_pct || LAUNCH_FEE_PCT),
 liquidity_pct: Number(parsed.liquidity_pct || 0),
 participants_pct: Number(parsed.participants_pct || 0),
 reserve_pct: Number(parsed.reserve_pct || 0),
@@ -2378,7 +2391,7 @@ isBuilderTemplate(template)
 : cfg.supply,
 cfg.min_raise_sol,
 cfg.hard_cap_sol,
-5,
+LAUNCH_FEE_PCT,
 cfg.liquidity_pct,
 cfg.participants_pct,
 cfg.reserve_pct,
@@ -3050,7 +3063,7 @@ const lifecycle = await safeSyncLifecycle(launchId);
 const graduationPlan = await safeGetGraduationPlan(launchId);
 const feeBreakdown = buildFeeBreakdown(
 Number(stats.totalCommitted),
-Number(finalLaunch?.launch_fee_pct || 5)
+Number(finalLaunch?.launch_fee_pct || LAUNCH_FEE_PCT)
 );
 
 return res.json({
@@ -3499,7 +3512,7 @@ const lifecycle = await safeSyncLifecycle(launchId);
 const graduationPlan = await safeGetGraduationPlan(launchId);
 const feeBreakdown = buildFeeBreakdown(
 Number(stats.totalCommitted),
-Number(launch.launch_fee_pct || 5)
+Number(launch.launch_fee_pct || LAUNCH_FEE_PCT)
 );
 
 const updatedLaunch = sanitizeLaunchForPublic(await getLaunchWithBuilderById(launchId));

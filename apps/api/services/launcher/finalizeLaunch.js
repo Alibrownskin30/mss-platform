@@ -1,12 +1,14 @@
 import db from "../../db/index.js";
 import { buildLaunchAllocations } from "./allocationService.js";
-import {
-buildLaunchFeeBreakdown,
-distributeLaunchFees,
-} from "./feeDistributor.js";
+import { distributeLaunchFees } from "./feeDistributor.js";
 import { bootstrapLiveMarket } from "./mintLifecycle.js";
 
-const DEFAULT_LAUNCH_FEE_PCT = 5;
+const DEFAULT_LAUNCH_FEE_PCT = 3;
+const LAUNCH_FEE_SPLIT = {
+coreTeamDevelopment: 0.6,
+ecosystemSupport: 0.4,
+};
+
 const finalizeRunLocks = new Map();
 const tableColumnCache = new Map();
 
@@ -84,6 +86,130 @@ function isBootstrapped(launch) {
 return safeNum(launch?.market_bootstrapped, 0) === 1;
 }
 
+function buildNormalizedLaunchFeeBreakdown(
+totalCommitted,
+launchFeePct = DEFAULT_LAUNCH_FEE_PCT
+) {
+const committed = roundSol(safeNum(totalCommitted, 0));
+const pct = safeNum(launchFeePct, DEFAULT_LAUNCH_FEE_PCT);
+const feeTotal = roundSol(committed * (pct / 100));
+const coreTeamDevelopmentFee = roundSol(
+feeTotal * LAUNCH_FEE_SPLIT.coreTeamDevelopment
+);
+const ecosystemSupportFee = roundSol(feeTotal - coreTeamDevelopmentFee);
+const netRaiseAfterFee = roundSol(committed - feeTotal);
+
+return {
+launchFeePct: pct,
+totalCommitted: committed,
+feeTotal,
+coreTeamDevelopmentFee,
+ecosystemSupportFee,
+netRaiseAfterFee,
+split: {
+coreTeamDevelopmentPct: LAUNCH_FEE_SPLIT.coreTeamDevelopment * 100,
+ecosystemSupportPct: LAUNCH_FEE_SPLIT.ecosystemSupport * 100,
+},
+compatibility: {
+founderFee: coreTeamDevelopmentFee,
+coreFee: coreTeamDevelopmentFee,
+buybackFee: 0,
+treasuryFee: ecosystemSupportFee,
+},
+};
+}
+
+function normalizeFeePlanPayload(
+raw = null,
+totalCommitted = 0,
+launchFeePct = DEFAULT_LAUNCH_FEE_PCT
+) {
+const base = buildNormalizedLaunchFeeBreakdown(totalCommitted, launchFeePct);
+const payload = raw && typeof raw === "object" ? raw : {};
+
+return {
+...payload,
+launchFeePct: base.launchFeePct,
+totalCommitted: base.totalCommitted,
+feeTotal: base.feeTotal,
+coreTeamDevelopmentFee: base.coreTeamDevelopmentFee,
+ecosystemSupportFee: base.ecosystemSupportFee,
+netRaiseAfterFee: base.netRaiseAfterFee,
+split: base.split,
+compatibility: base.compatibility,
+founderFee: base.compatibility.founderFee,
+coreFee: base.compatibility.coreFee,
+buybackFee: base.compatibility.buybackFee,
+treasuryFee: base.compatibility.treasuryFee,
+netRaise: base.netRaiseAfterFee,
+};
+}
+
+function normalizeFeeDistributionPayload(raw = null, feePlan = null) {
+if (!raw || typeof raw !== "object") {
+return null;
+}
+
+const normalizedPlan =
+feePlan ||
+buildNormalizedLaunchFeeBreakdown(
+safeNum(raw.totalCommitted, 0),
+safeNum(raw.launchFeePct, DEFAULT_LAUNCH_FEE_PCT)
+);
+
+const coreTeamDevelopmentFee = safeNum(
+firstPresent(
+raw.coreTeamDevelopmentFee,
+raw.core_team_development_fee,
+raw.coreFee,
+raw.core_fee,
+raw.founderFee,
+raw.founder_fee
+),
+normalizedPlan.coreTeamDevelopmentFee
+);
+
+const ecosystemSupportFee = safeNum(
+firstPresent(
+raw.ecosystemSupportFee,
+raw.ecosystem_support_fee,
+raw.treasuryFee,
+raw.treasury_fee
+),
+normalizedPlan.ecosystemSupportFee
+);
+
+const buybackFee = safeNum(
+firstPresent(raw.buybackFee, raw.buyback_fee),
+0
+);
+
+return {
+...raw,
+launchFeePct: normalizedPlan.launchFeePct,
+feeTotal: normalizedPlan.feeTotal,
+totalDistributed: safeNum(
+firstPresent(raw.totalDistributed, raw.total_distributed, raw.feeTotal),
+normalizedPlan.feeTotal
+),
+coreTeamDevelopmentFee,
+ecosystemSupportFee,
+split: normalizedPlan.split,
+compatibility: {
+founderFee: coreTeamDevelopmentFee,
+coreFee: coreTeamDevelopmentFee,
+buybackFee,
+treasuryFee: ecosystemSupportFee,
+},
+founderFee: coreTeamDevelopmentFee,
+coreFee: coreTeamDevelopmentFee,
+buybackFee,
+treasuryFee: ecosystemSupportFee,
+netRaiseAfterFee: normalizedPlan.netRaiseAfterFee,
+netRaise: normalizedPlan.netRaiseAfterFee,
+};
+}
+
 function normalizeLaunch(row) {
 if (!row) return null;
 
@@ -114,7 +240,13 @@ team_wallet_breakdown: Array.isArray(row.team_wallet_breakdown)
 ? row.team_wallet_breakdown
 : parseJsonMaybe(row.team_wallet_breakdown, []),
 launch_result_json: parseJsonMaybe(row.launch_result_json, null),
-fee_distribution_json: parseJsonMaybe(row.fee_distribution_json, null),
+fee_distribution_json: normalizeFeeDistributionPayload(
+parseJsonMaybe(row.fee_distribution_json, null),
+buildNormalizedLaunchFeeBreakdown(
+safeNum(row.committed_sol, 0),
+safeNum(row.launch_fee_pct, DEFAULT_LAUNCH_FEE_PCT)
+)
+),
 contract_address: cleanText(row.contract_address, 120),
 token_mint: cleanText(row.token_mint, 120),
 final_supply: cleanText(row.final_supply, 120),
@@ -576,11 +708,15 @@ stageLabel = "",
 reason = "",
 retryable = false,
 }) {
-const resolvedFeePlan =
-feePlan ||
-buildLaunchFeeBreakdown(
+const resolvedFeePlan = normalizeFeePlanPayload(
+feePlan,
 safeNum(totalCommitted, safeNum(launch?.committed_sol, 0)),
 safeNum(launch?.launch_fee_pct, DEFAULT_LAUNCH_FEE_PCT)
+);
+
+const resolvedFeeDistribution = normalizeFeeDistributionPayload(
+launch?.fee_distribution_json || feeDistribution || null,
+resolvedFeePlan
 );
 
 const resolvedMint =
@@ -597,11 +733,6 @@ allocationResult?.unsoldParticipantTokensBurned,
 allocationResult?.totalBurned,
 "0"
 )
-);
-
-const founderFee = safeNum(
-firstPresent(resolvedFeePlan.founderFee, resolvedFeePlan.coreFee),
-0
 );
 
 return {
@@ -625,19 +756,26 @@ totalCommitted: safeNum(totalCommitted, safeNum(launch?.committed_sol, 0)),
 participants: safeNum(participants, safeNum(launch?.participants_count, 0)),
 launchFeePct: resolvedFeePlan.launchFeePct,
 feeTotal: safeNum(resolvedFeePlan.feeTotal, 0),
-founderFee,
-coreFee: founderFee,
-buybackFee: safeNum(resolvedFeePlan.buybackFee, 0),
-treasuryFee: safeNum(resolvedFeePlan.treasuryFee, 0),
-netRaise: safeNum(
-firstPresent(resolvedFeePlan.netRaiseAfterFee, resolvedFeePlan.netRaise),
+coreTeamDevelopmentFee: safeNum(
+resolvedFeePlan.coreTeamDevelopmentFee,
 0
 ),
-netRaiseAfterFee: safeNum(
-firstPresent(resolvedFeePlan.netRaiseAfterFee, resolvedFeePlan.netRaise),
-0
+ecosystemSupportFee: safeNum(resolvedFeePlan.ecosystemSupportFee, 0),
+coreTeamDevelopmentPct: safeNum(
+resolvedFeePlan.split?.coreTeamDevelopmentPct,
+60
 ),
-feeDistribution: launch?.fee_distribution_json || feeDistribution || null,
+ecosystemSupportPct: safeNum(
+resolvedFeePlan.split?.ecosystemSupportPct,
+40
+),
+founderFee: safeNum(resolvedFeePlan.compatibility?.founderFee, 0),
+coreFee: safeNum(resolvedFeePlan.compatibility?.coreFee, 0),
+buybackFee: safeNum(resolvedFeePlan.compatibility?.buybackFee, 0),
+treasuryFee: safeNum(resolvedFeePlan.compatibility?.treasuryFee, 0),
+netRaise: safeNum(resolvedFeePlan.netRaiseAfterFee, 0),
+netRaiseAfterFee: safeNum(resolvedFeePlan.netRaiseAfterFee, 0),
+feeDistribution: resolvedFeeDistribution,
 feeDistributionPending: Boolean(feeDistributionPending),
 feeDistributionError: feeDistributionError || "",
 allocationsBuilt: Boolean(allocationsBuilt),
@@ -970,8 +1108,11 @@ throw err;
 
 async function ensureFeeDistribution(launchId, launch, totalCommitted) {
 const launchFeePct = safeNum(launch.launch_fee_pct, DEFAULT_LAUNCH_FEE_PCT);
-const feePlan = buildLaunchFeeBreakdown(totalCommitted, launchFeePct);
-let feeDistribution = launch.fee_distribution_json || null;
+const feePlan = buildNormalizedLaunchFeeBreakdown(totalCommitted, launchFeePct);
+let feeDistribution = normalizeFeeDistributionPayload(
+launch.fee_distribution_json || null,
+feePlan
+);
 
 console.log("Finalizing launch", launchId);
 console.log("Template:", launch.template);
@@ -979,15 +1120,14 @@ console.log("Total committed:", totalCommitted);
 console.log("Participants:", launch.participants_count);
 console.log("Fee total:", feePlan.feeTotal);
 console.log(
-"Founder fee:",
-safeNum(firstPresent(feePlan.founderFee, feePlan.coreFee), 0)
+"Core Team Development fee:",
+safeNum(feePlan.coreTeamDevelopmentFee, 0)
 );
-console.log("Buyback fee:", feePlan.buybackFee);
-console.log("Treasury fee:", feePlan.treasuryFee);
 console.log(
-"Net raise:",
-safeNum(firstPresent(feePlan.netRaiseAfterFee, feePlan.netRaise), 0)
+"MSS Ecosystem Support fee:",
+safeNum(feePlan.ecosystemSupportFee, 0)
 );
+console.log("Net raise:", safeNum(feePlan.netRaiseAfterFee, 0));
 
 if (safeNum(launch.fees_distributed, 0) === 1) {
 console.log(`Fees already distributed for launch ${launchId}, skipping`);
@@ -1013,12 +1153,16 @@ AND COALESCE(fees_distributed, 0) = 0
 if (claim.changes === 0) {
 const latest = normalizeLaunch(
 await db.get(
-`SELECT fees_distributed, fee_distribution_json FROM launches WHERE id = ?`,
+`SELECT fees_distributed, fee_distribution_json, committed_sol, launch_fee_pct FROM launches WHERE id = ?`,
 [launchId]
 )
 );
 
-feeDistribution = latest?.fee_distribution_json || null;
+feeDistribution = normalizeFeeDistributionPayload(
+latest?.fee_distribution_json || null,
+feePlan
+);
+
 console.log(`Fee distribution already claimed for launch ${launchId}, skipping`);
 
 return {
@@ -1030,10 +1174,12 @@ feeDistributionError: "",
 }
 
 try {
-feeDistribution = await distributeLaunchFees({
+const rawFeeDistribution = await distributeLaunchFees({
 totalCommitted,
 launchFeePct,
 });
+
+feeDistribution = normalizeFeeDistributionPayload(rawFeeDistribution, feePlan);
 
 await db.run(
 `

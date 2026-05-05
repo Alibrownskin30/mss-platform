@@ -1,10 +1,17 @@
-import { Connection, Keypair, PublicKey, SystemProgram, Transaction } from "@solana/web3.js";
+import {
+Connection,
+Keypair,
+PublicKey,
+SystemProgram,
+Transaction,
+} from "@solana/web3.js";
 import bs58 from "bs58";
 
+const DEFAULT_LAUNCH_FEE_PCT = 3;
+
 const FEE_SPLIT = {
-core: 0.5,
-buyback: 0.3,
-treasury: 0.2,
+coreTeamDevelopment: 0.6,
+ecosystemSupport: 0.4,
 };
 
 const LAMPORTS_PER_SOL = 1_000_000_000;
@@ -53,12 +60,15 @@ return `https://${raw}`;
 return raw;
 }
 
-function getRequiredWallet(envName) {
+function getRequiredWallet(...envNames) {
+for (const envName of envNames) {
 const value = clean(process.env[envName], 200);
-if (!value) {
-throw new Error(`${envName} is not configured`);
-}
+if (value) {
 return value;
+}
+}
+
+throw new Error(`${envNames.join(" or ")} is not configured`);
 }
 
 function getEscrowKeypair() {
@@ -212,54 +222,71 @@ return signature;
 });
 }
 
-export function buildLaunchFeeBreakdown(totalCommitted, launchFeePct = 5) {
+export function buildLaunchFeeBreakdown(
+totalCommitted,
+launchFeePct = DEFAULT_LAUNCH_FEE_PCT
+) {
 const total = safeNum(totalCommitted, 0);
-const feePct = safeNum(launchFeePct, 5);
+const feePct = safeNum(launchFeePct, DEFAULT_LAUNCH_FEE_PCT);
 
 const feeTotal = total * (feePct / 100);
-const coreFee = feeTotal * FEE_SPLIT.core;
-const buybackFee = feeTotal * FEE_SPLIT.buyback;
-const treasuryFee = feeTotal * FEE_SPLIT.treasury;
+const coreTeamDevelopmentFee = feeTotal * FEE_SPLIT.coreTeamDevelopment;
+const ecosystemSupportFee = feeTotal * FEE_SPLIT.ecosystemSupport;
 const netRaiseAfterFee = total - feeTotal;
 
 return {
 totalCommitted: total,
 launchFeePct: feePct,
 feeTotal,
-coreFee,
-buybackFee,
-treasuryFee,
+coreTeamDevelopmentFee,
+ecosystemSupportFee,
 netRaiseAfterFee,
+split: {
+coreTeamDevelopmentPct: FEE_SPLIT.coreTeamDevelopment * 100,
+ecosystemSupportPct: FEE_SPLIT.ecosystemSupport * 100,
+},
+
+// compatibility aliases for older consumers still expecting legacy keys
+coreFee: coreTeamDevelopmentFee,
+founderFee: coreTeamDevelopmentFee,
+treasuryFee: ecosystemSupportFee,
+buybackFee: 0,
+netRaise: netRaiseAfterFee,
 };
 }
 
 function buildTransferPlan(breakdown) {
-const coreWallet = getRequiredWallet("CORE_WALLET");
-const buybackWallet = getRequiredWallet("BUYBACK_WALLET");
-const treasuryWallet = getRequiredWallet("TREASURY_WALLET");
+const coreTeamDevelopmentWallet = getRequiredWallet(
+"CORE_TEAM_DEVELOPMENT_WALLET",
+"CORE_WALLET"
+);
+const ecosystemSupportWallet = getRequiredWallet(
+"MSS_ECOSYSTEM_SUPPORT_WALLET",
+"ECOSYSTEM_SUPPORT_WALLET",
+"TREASURY_WALLET"
+);
 
-assertValidPublicKey(coreWallet, "CORE_WALLET");
-assertValidPublicKey(buybackWallet, "BUYBACK_WALLET");
-assertValidPublicKey(treasuryWallet, "TREASURY_WALLET");
+assertValidPublicKey(
+coreTeamDevelopmentWallet,
+"CORE_TEAM_DEVELOPMENT_WALLET"
+);
+assertValidPublicKey(
+ecosystemSupportWallet,
+"MSS_ECOSYSTEM_SUPPORT_WALLET"
+);
 
 const rawPlan = [
 {
-bucket: "core",
-wallet: coreWallet,
-solAmount: breakdown.coreFee,
-lamports: solToLamports(breakdown.coreFee),
+bucket: "core_team_development",
+wallet: coreTeamDevelopmentWallet,
+solAmount: breakdown.coreTeamDevelopmentFee,
+lamports: solToLamports(breakdown.coreTeamDevelopmentFee),
 },
 {
-bucket: "buyback",
-wallet: buybackWallet,
-solAmount: breakdown.buybackFee,
-lamports: solToLamports(breakdown.buybackFee),
-},
-{
-bucket: "treasury",
-wallet: treasuryWallet,
-solAmount: breakdown.treasuryFee,
-lamports: solToLamports(breakdown.treasuryFee),
+bucket: "ecosystem_support",
+wallet: ecosystemSupportWallet,
+solAmount: breakdown.ecosystemSupportFee,
+lamports: solToLamports(breakdown.ecosystemSupportFee),
 },
 ];
 
@@ -288,7 +315,7 @@ return Array.from(merged.values());
 
 export async function distributeLaunchFees({
 totalCommitted,
-launchFeePct = 5,
+launchFeePct = DEFAULT_LAUNCH_FEE_PCT,
 }) {
 const breakdown = buildLaunchFeeBreakdown(totalCommitted, launchFeePct);
 

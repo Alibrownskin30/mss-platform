@@ -9,7 +9,7 @@ getMobileWalletHelpText,
 sendSolTransfer,
 } from "../wallet.js";
 
-const LAUNCHPAD_INIT_KEY = "__mssLaunchpadInit_v3";
+const LAUNCHPAD_INIT_KEY = "__mssLaunchpadInit_v4";
 const RECENT_CACHE = new Map();
 const RECENT_CACHE_TTL_MS = 15000;
 const RECENT_FETCH_LIMIT = 12;
@@ -263,18 +263,25 @@ Number.isFinite(mintFinalizedAtMs)
 );
 }
 
+function isMarketBootstrappedFalse(launch = {}) {
+return (
+launch.market_bootstrapped === false ||
+launch.market_bootstrapped === 0 ||
+launch.market_bootstrapped === "0"
+);
+}
+
 function computeCanonicalLaunchStatus(launch = {}) {
 const rawStatus = normalizeLaunchStatus(launch.status || launch.raw_status);
 const now = Date.now();
 
+const commitEndsMs = parseTs(launch.commit_ends_at);
 const countdownStartedMs = parseTs(launch.countdown_started_at);
 const countdownEndsMs = parseTs(launch.countdown_ends_at || launch.live_at);
 const liveAtMs = parseTs(launch.live_at);
 
 const hasCountdownWindow =
 Number.isFinite(countdownStartedMs) || Number.isFinite(countdownEndsMs);
-const countdownStillRunning =
-Number.isFinite(countdownEndsMs) && now < countdownEndsMs;
 
 const liveMintSignal = hasLiveMintSignal(launch);
 
@@ -283,7 +290,7 @@ if (rawStatus === "failed") return "failed";
 if (rawStatus === "graduated") return "graduated";
 
 if (rawStatus === "live") {
-return launch.market_bootstrapped === false ? "building" : "live";
+return isMarketBootstrappedFalse(launch) ? "building" : "live";
 }
 
 /*
@@ -294,44 +301,44 @@ finalizeLaunch.js owns true live promotion.
 if (rawStatus === "building") return "building";
 
 if (rawStatus === "countdown") {
-if (!Number.isFinite(countdownEndsMs) || countdownStillRunning) {
-return "countdown";
-}
+if (Number.isFinite(countdownEndsMs) && now >= countdownEndsMs) {
 return "building";
+}
+return "countdown";
 }
 
 if (rawStatus === "commit") {
-if (hasCountdownWindow) {
-if (!Number.isFinite(countdownEndsMs) || countdownStillRunning) {
-return "countdown";
-}
-return "building";
-}
 return "commit";
 }
 
-if (!rawStatus && hasCountdownWindow) {
-if (!Number.isFinite(countdownEndsMs) || countdownStillRunning) {
+if (hasCountdownWindow) {
+if (Number.isFinite(commitEndsMs) && now < commitEndsMs) {
+return "commit";
+}
+
+if (Number.isFinite(countdownEndsMs) && now < countdownEndsMs) {
 return "countdown";
 }
+
+if (Number.isFinite(countdownEndsMs) && now >= countdownEndsMs) {
 return "building";
+}
+
+if (Number.isFinite(commitEndsMs) && now >= commitEndsMs) {
+return "countdown";
+}
 }
 
 /*
 Legacy fallback only:
 old rows with no protected phase may infer live from finalized mint/CA data.
 */
-if (
-!rawStatus &&
-Number.isFinite(liveAtMs) &&
-now >= liveAtMs &&
-liveMintSignal
-) {
-return "live";
+if (!rawStatus && Number.isFinite(liveAtMs) && now >= liveAtMs && liveMintSignal) {
+return isMarketBootstrappedFalse(launch) ? "building" : "live";
 }
 
 if (!rawStatus && liveMintSignal) {
-return "live";
+return isMarketBootstrappedFalse(launch) ? "building" : "live";
 }
 
 return rawStatus || "commit";
@@ -565,11 +572,11 @@ const softCapPct = getSoftCapPercent(launch);
 const progressPct = getCommitPercent(launch);
 
 if (status === "building") {
-return "Countdown is complete. MSS is finalizing mint, liquidity bootstrap, and live transition.";
+return "Countdown is complete. MSS is finalizing mint, liquidity bootstrap, and external market route activation.";
 }
 
 if (status === "countdown") {
-return "Commit closed. Launch is armed for market activation.";
+return "Commit closed. Launch is armed for protected market activation.";
 }
 
 if (status === "commit") {
@@ -583,7 +590,7 @@ return "Commit window is active and accepting participants.";
 }
 
 if (status === "live") {
-return "Launch is live and trading on the internal market.";
+return "Launch is live and routing externally through the live market path.";
 }
 
 if (status === "graduated") {
@@ -667,7 +674,7 @@ launch.country_rule_count
 ) > 0;
 
 if (participantComplianceRequired) {
-chips.push(`<span class="small-chip">Compliance Required</span>`);
+chips.push(`<span class="small-chip">Participant Gate</span>`);
 }
 
 if (identityCheckRequired) {

@@ -6,12 +6,12 @@
 <title>MSS Protocol — Launchpad</title>
 <meta
 name="description"
-content="MSS Protocol Launchpad — security-first launch command for commit flow, countdown integrity, public builder identity, structured live market transition, and historical launch archive."
+content="MSS Protocol Launchpad — security-first launch command for protected commit flow, countdown integrity, public builder identity, participant access controls, external live market routing, and historical launch archive."
 />
 
 <link rel="stylesheet" href="./assets/app.css?v=7" />
 <link rel="modulepreload" href="./assets/layout-shell.js" />
-<link rel="modulepreload" href="./assets/pages/launches.js?v=8" />
+<link rel="modulepreload" href="./assets/pages/launches.js?v=9" />
 
 <style>
 .launchpad-page .hidden{
@@ -1457,15 +1457,15 @@ data-shell-subtitle="Launchpad"
 <h1 class="hero-title">Security-First Launch Infrastructure</h1>
 
 <div class="hero-copy">
-Launch, monitor, and manage token releases through a premium command surface built for controlled
-commit flow, countdown integrity, public builder identity, structured live market transition, and a visible historical archive of launch outcomes.
+Launch, monitor, and manage token releases through a premium command surface built for protected
+commit flow, countdown integrity, public builder identity, participant access controls, structured live transition, external routing truth, and a visible historical archive of launch outcomes.
 </div>
 
 <div class="hero-pill-row">
 <span class="hero-pill">Minimum Raise Enforcement</span>
 <span class="hero-pill">Countdown Lock</span>
 <span class="hero-pill">Public Builder Profiles</span>
-<span class="hero-pill">Live Transition Control</span>
+<span class="hero-pill">External Live Route</span>
 </div>
 
 <div class="hero-action-row">
@@ -1490,7 +1490,7 @@ Connected wallets can jump directly into their builder profile, while public use
 <div class="ops-head">
 <div>
 <div class="ops-kicker">Operations Board</div>
-<div class="ops-title">Launcher Core Active</div>
+<div class="ops-title">Launcher Surface Online</div>
 </div>
 
 <div class="ops-state">
@@ -1504,7 +1504,7 @@ Connected wallets can jump directly into their builder profile, while public use
 <div class="ops-card">
 <div class="k">Live Markets</div>
 <div class="v" id="statLive">0</div>
-<div class="s">Active launched tokens currently trading through MSS launch flow.</div>
+<div class="s">Active launches currently in true live phase with protected external routing enabled.</div>
 </div>
 </div>
 
@@ -1513,13 +1513,13 @@ Connected wallets can jump directly into their builder profile, while public use
 <div class="ops-card">
 <div class="k">Commit Pipeline</div>
 <div class="v" id="statCommit">0</div>
-<div class="s">Launches accepting commitments.</div>
+<div class="s">Launches currently accepting commitments.</div>
 </div>
 
 <div class="ops-card">
 <div class="k">Countdown / Build Queue</div>
 <div class="v" id="statCountdown">0</div>
-<div class="s">Launches approaching activation or finalizing live bootstrap.</div>
+<div class="s">Launches approaching activation or finalizing protected live bootstrap.</div>
 </div>
 </div>
 
@@ -1611,7 +1611,7 @@ style="display:none;"
 <section class="featured-launch" aria-labelledby="featuredLaunchTitle">
 <div class="featured-head">
 <div class="section-title" id="featuredLaunchTitle">Featured Opportunity</div>
-<div class="section-note">Primary momentum launch selected from current active field activity.</div>
+<div class="section-note">Primary momentum launch selected from current active field activity and protected phase priority.</div>
 </div>
 
 <div id="featuredLaunchMount" class="featured-placeholder" aria-live="polite">
@@ -1624,7 +1624,7 @@ Featured launch coverage will surface the strongest active opportunity here, whi
 <div class="terminal-head-copy">
 <div class="terminal-title" id="launchTerminalTitle">Launch Field</div>
 <div class="terminal-subtitle">
-Commit, countdown, building, live markets, and historical archive rendered from one shared launch truth layer.
+Commit, countdown, building, live markets, and historical archive rendered from one shared launch truth layer with protected live routing.
 </div>
 </div>
 <div class="terminal-note" id="listMeta" aria-live="polite" role="status">Loading launch field and archive…</div>
@@ -1644,7 +1644,7 @@ Commit, countdown, building, live markets, and historical archive rendered from 
 <script type="module">
 import { bindSessionUi } from "./assets/auth.js";
 import { onWalletChange, getConnectedPublicKey } from "./assets/wallet.js";
-import "./assets/pages/launches.js?v=8";
+import "./assets/pages/launches.js?v=9";
 
 async function mountSharedShell() {
 try {

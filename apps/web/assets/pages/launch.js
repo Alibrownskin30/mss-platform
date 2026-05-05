@@ -1781,8 +1781,19 @@ launch.builder_trust_score,
 safeNum(launch.builder_score, safeNum(launch.trust_score, 0))
 );
 const trust = getBuilderTrust(trustScore);
-const isBuilderLaunch =
-String(launch.template || "").toLowerCase() === "builder";
+
+setHiddenByIds(
+["builderInfoSection", "builderCard", "builderProfileWrap"],
+false
+);
+
+setTextByIds(["launchBuilderAliasText"], alias);
+setTextByIds(["launchBuilderIntelSub"], trust.note);
+setTextByIds(["launchBuilderTrustPill"], trust.label);
+setTextByIds(
+["launchBuilderScoreText"],
+trustScore > 0 ? String(Math.round(trustScore)) : "—"
+);
 
 const badgeCount = pickFiniteNumber(
 launch.builder_badges_count,
@@ -1801,18 +1812,6 @@ launch.total_launches_count,
 launch.builder_launch_count
 );
 
-setHiddenByIds(
-["builderInfoSection", "builderCard", "builderProfileWrap"],
-!isBuilderLaunch
-);
-
-setTextByIds(["launchBuilderAliasText"], alias);
-setTextByIds(["launchBuilderIntelSub"], trust.note);
-setTextByIds(["launchBuilderTrustPill"], trust.label);
-setTextByIds(
-["launchBuilderScoreText"],
-trustScore > 0 ? String(Math.round(trustScore)) : "—"
-);
 setTextByIds(
 ["launchBuilderBadgesText"],
 badgeCount != null ? String(Math.round(badgeCount)) : "—"
@@ -1830,6 +1829,12 @@ const builderProfileHref = wallet
 ? `./builder.html?wallet=${encodeURIComponent(wallet)}`
 : "./builder.html";
 setHrefByIds(["launchBuilderProfileBtn2"], builderProfileHref);
+
+const builderCopyBtn = $("launchBuilderCopyWalletBtn");
+if (builderCopyBtn) {
+builderCopyBtn.classList.toggle("hidden", !wallet);
+builderCopyBtn.disabled = !wallet;
+}
 
 setTextByIds(["launchCommandBuilder"], alias);
 setTextByIds(
@@ -2314,7 +2319,7 @@ setTextByIds(
 minMet ? "Reached" : fmtSol(remainingToMin)
 );
 setTextByIds(
-["remainingToCapStat"],
+["remainingToHardCapStat", "remainingToCapStat"],
 hardCapMet ? "Filled" : fmtSol(remainingToHardCap)
 );
 setTextByIds(
