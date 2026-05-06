@@ -3,11 +3,32 @@ import { buildLaunchAllocations } from "./allocationService.js";
 import { distributeLaunchFees } from "./feeDistributor.js";
 import { bootstrapLiveMarket } from "./mintLifecycle.js";
 
-const DEFAULT_LAUNCH_FEE_PCT = 3;
+const DEFAULT_LAUNCH_FEE_PCT = 5;
 const LAUNCH_FEE_SPLIT = {
 coreTeamDevelopment: 0.6,
 ecosystemSupport: 0.4,
 };
+
+const LP_FEE_BENEFICIARY_TYPE = "builder";
+const LP_FEE_CONTROLLER_TYPE = "mss_distributor";
+const LP_FEE_CONTROL_MODE = "distributor_only";
+const LP_FEE_DISTRIBUTOR_KIND = "raydium_lp_fee_distributor";
+const LP_FEE_DISTRIBUTION_MODE = "builder_via_mss_distributor";
+const LP_FEE_CONTROL_MODEL = "mss_controlled_lp_distributor";
+const LP_FEE_REMOVAL_RIGHTS = "builder_cannot_remove_lp_directly";
+const LP_FEE_SOURCE = "raydium_lp";
+const LP_FEE_PRE_GRADUATION_SOURCE = "pending_raydium_lp";
+const LP_FEE_DISTRIBUTOR_STATUS_PENDING = "pending";
+const LP_FEE_DISTRIBUTOR_STATUS_PENDING_LIVE = "pending_live";
+const LP_FEE_DISTRIBUTOR_STATUS_BOOTSTRAPPING = "bootstrapping";
+const LP_FEE_DISTRIBUTOR_STATUS_PENDING_RAYDIUM = "pending_raydium_migration";
+const LP_FEE_DISTRIBUTOR_STATUS_CONFIGURED = "configured";
+const LP_FEE_DISTRIBUTOR_STATUS_ACTIVE = "active";
+const LP_FEE_DISTRIBUTOR_STATUS_BUILDER_WALLET_MISSING =
+"builder_wallet_missing";
+
+const LP_FEE_DISTRIBUTOR_NOTE =
+"Raydium LP fees accrue for the builder through an MSS-controlled distributor layer. The builder is the fee beneficiary, but cannot remove LP directly.";
 
 const finalizeRunLocks = new Map();
 const tableColumnCache = new Map();
@@ -210,6 +231,320 @@ netRaise: normalizedPlan.netRaiseAfterFee,
 };
 }
 
+function resolveLpFeeSourceFromStatus(status = "") {
+const normalized = cleanText(status, 40).toLowerCase();
+return normalized === "graduated"
+? LP_FEE_SOURCE
+: LP_FEE_PRE_GRADUATION_SOURCE;
+}
+
+function buildLpFeeDistributorPayload(raw = null, launch = null) {
+const payload = raw && typeof raw === "object" ? raw : {};
+const launchStatus = cleanText(launch?.status, 40).toLowerCase();
+const builderWallet = cleanText(
+firstPresent(
+payload.builderWallet,
+payload.builder_wallet,
+payload.recipientWallet,
+payload.recipient_wallet,
+payload.feeRecipientWallet,
+payload.fee_recipient_wallet,
+payload.lpFeeBeneficiaryWallet,
+payload.lp_fee_beneficiary_wallet,
+launch?.lp_fee_beneficiary_wallet,
+launch?.lp_fee_recipient_wallet,
+launch?.builder_wallet
+),
+120
+) || null;
+
+const distributorAddress = cleanText(
+firstPresent(
+payload.distributorAddress,
+payload.distributor_address,
+payload.contractAddress,
+payload.contract_address,
+payload.lpFeeDistributorAddress,
+payload.lp_fee_distributor_address,
+launch?.lp_fee_distributor_address,
+launch?.fee_distributor_address
+),
+120
+) || null;
+
+const authorityAddress = cleanText(
+firstPresent(
+payload.authorityAddress,
+payload.authority_address,
+payload.distributorAuthority,
+payload.distributor_authority,
+payload.lpFeeDistributorAuthority,
+payload.lp_fee_distributor_authority,
+launch?.lp_fee_distributor_authority
+),
+120
+) || null;
+
+const vaultAddress = cleanText(
+firstPresent(
+payload.vaultAddress,
+payload.vault_address,
+payload.distributorVault,
+payload.distributor_vault,
+payload.lpFeeDistributorVault,
+payload.lp_fee_distributor_vault,
+launch?.lp_fee_distributor_vault,
+launch?.fee_distributor_vault
+),
+120
+) || null;
+
+const programAddress = cleanText(
+firstPresent(
+payload.programAddress,
+payload.program_address,
+payload.distributorProgram,
+payload.distributor_program,
+payload.lpFeeDistributorProgram,
+payload.lp_fee_distributor_program,
+launch?.lp_fee_distributor_program,
+launch?.fee_distributor_program
+),
+120
+) || null;
+
+const programId = cleanText(
+firstPresent(
+payload.programId,
+payload.program_id,
+payload.distributorProgramId,
+payload.distributor_program_id,
+payload.lpFeeDistributorProgramId,
+payload.lp_fee_distributor_program_id,
+launch?.lp_fee_distributor_program_id,
+launch?.fee_distributor_program_id
+),
+120
+) || null;
+
+const distributorTx = cleanText(
+firstPresent(
+payload.distributorTx,
+payload.distributor_tx,
+payload.lpFeeDistributorTx,
+payload.lp_fee_distributor_tx,
+launch?.lp_fee_distributor_tx
+),
+500
+) || null;
+
+const lastDistributedAt =
+firstPresent(
+payload.lastDistributedAt,
+payload.last_distributed_at,
+payload.lpFeeLastDistributedAt,
+payload.lp_fee_last_distributed_at,
+launch?.lp_fee_last_distributed_at
+) || null;
+
+const distributionMode = cleanText(
+firstPresent(
+payload.distributionMode,
+payload.distribution_mode,
+payload.lpFeeDistributionModel,
+payload.lp_fee_distribution_model,
+launch?.lp_fee_distribution_model,
+launch?.lp_fee_distribution_mode,
+LP_FEE_DISTRIBUTION_MODE
+),
+120
+) || LP_FEE_DISTRIBUTION_MODE;
+
+const controlModel = cleanText(
+firstPresent(
+payload.controlModel,
+payload.control_model,
+payload.lpFeeControllerType,
+payload.lp_fee_controller_type,
+launch?.lp_fee_controller_type,
+launch?.lp_fee_control_model,
+LP_FEE_CONTROL_MODEL
+),
+120
+) || LP_FEE_CONTROL_MODEL;
+
+const controlMode = cleanText(
+firstPresent(
+payload.controlMode,
+payload.control_mode,
+payload.lpFeeControlMode,
+payload.lp_fee_control_mode,
+launch?.lp_fee_control_mode,
+LP_FEE_CONTROL_MODE
+),
+120
+) || LP_FEE_CONTROL_MODE;
+
+const removalRights = cleanText(
+firstPresent(
+payload.removalRights,
+payload.removal_rights,
+launch?.lp_fee_removal_rights,
+LP_FEE_REMOVAL_RIGHTS
+),
+120
+) || LP_FEE_REMOVAL_RIGHTS;
+
+const kind = cleanText(
+firstPresent(
+payload.kind,
+payload.distributorKind,
+payload.distributor_kind,
+launch?.lp_fee_distributor_kind,
+LP_FEE_DISTRIBUTOR_KIND
+),
+120
+) || LP_FEE_DISTRIBUTOR_KIND;
+
+const source = cleanText(
+firstPresent(
+payload.source,
+payload.lpFeeSource,
+payload.lp_fee_source,
+launch?.lp_fee_source,
+resolveLpFeeSourceFromStatus(launchStatus)
+),
+120
+) || resolveLpFeeSourceFromStatus(launchStatus);
+
+let enabled;
+const explicitEnabled = firstPresent(
+payload.enabled,
+payload.lpFeeDistributorEnabled,
+payload.lp_fee_distributor_enabled,
+launch?.lp_fee_distributor_enabled
+);
+
+if (explicitEnabled !== null && explicitEnabled !== undefined && explicitEnabled !== "") {
+enabled = safeNum(explicitEnabled, 0) === 1 || explicitEnabled === true;
+} else {
+enabled = Boolean(
+builderWallet &&
+["building", "live", "graduated"].includes(launchStatus)
+);
+}
+
+const beneficiaryType = cleanText(
+firstPresent(
+payload.beneficiaryType,
+payload.beneficiary_type,
+payload.lpFeeBeneficiaryType,
+payload.lp_fee_beneficiary_type,
+launch?.lp_fee_beneficiary_type,
+LP_FEE_BENEFICIARY_TYPE
+),
+120
+) || LP_FEE_BENEFICIARY_TYPE;
+
+const controllerType = cleanText(
+firstPresent(
+payload.controllerType,
+payload.controller_type,
+payload.lpFeeControllerType,
+payload.lp_fee_controller_type,
+launch?.lp_fee_controller_type,
+LP_FEE_CONTROLLER_TYPE
+),
+120
+) || LP_FEE_CONTROLLER_TYPE;
+
+const builderCanRemoveLpExplicit = firstPresent(
+payload.builderCanRemoveLp,
+payload.builder_can_remove_lp,
+payload.lpFeeCanBuilderRemoveLp,
+payload.lp_fee_can_builder_remove_lp,
+launch?.builder_can_remove_lp,
+launch?.lp_fee_can_builder_remove_lp
+);
+
+const builderCanRemoveLp =
+builderCanRemoveLpExplicit !== null &&
+builderCanRemoveLpExplicit !== undefined &&
+builderCanRemoveLpExplicit !== ""
+? safeNum(builderCanRemoveLpExplicit, 0) === 1 ||
+builderCanRemoveLpExplicit === true
+: false;
+
+const builderCanClaimLpFeesExplicit = firstPresent(
+payload.builderCanClaimLpFees,
+payload.builder_can_claim_lp_fees,
+launch?.builder_can_claim_lp_fees
+);
+
+const builderCanClaimLpFees =
+builderCanClaimLpFeesExplicit !== null &&
+builderCanClaimLpFeesExplicit !== undefined &&
+builderCanClaimLpFeesExplicit !== ""
+? safeNum(builderCanClaimLpFeesExplicit, 0) === 1 ||
+builderCanClaimLpFeesExplicit === true
+: Boolean(enabled && builderWallet && launchStatus === "graduated");
+
+let status = cleanText(
+firstPresent(
+payload.status,
+payload.distributorStatus,
+payload.distributor_status,
+payload.lpFeeDistributorStatus,
+payload.lp_fee_distributor_status,
+launch?.lp_fee_distributor_status
+),
+120
+).toLowerCase();
+
+if (!status) {
+if (!builderWallet) {
+status = LP_FEE_DISTRIBUTOR_STATUS_BUILDER_WALLET_MISSING;
+} else if (launchStatus === "graduated") {
+status = LP_FEE_DISTRIBUTOR_STATUS_ACTIVE;
+} else if (launchStatus === "live") {
+status = LP_FEE_DISTRIBUTOR_STATUS_PENDING_RAYDIUM;
+} else if (launchStatus === "building") {
+status = LP_FEE_DISTRIBUTOR_STATUS_BOOTSTRAPPING;
+} else if (launchStatus === "countdown") {
+status = LP_FEE_DISTRIBUTOR_STATUS_PENDING_LIVE;
+} else if (distributorAddress || programAddress || programId || vaultAddress) {
+status = LP_FEE_DISTRIBUTOR_STATUS_CONFIGURED;
+} else {
+status = LP_FEE_DISTRIBUTOR_STATUS_PENDING;
+}
+}
+
+return {
+kind,
+enabled,
+source,
+beneficiaryType,
+controllerType,
+controlMode,
+distributionMode,
+controlModel,
+removalRights,
+recipientWallet: builderWallet,
+builderWallet,
+distributorAddress,
+authorityAddress,
+vaultAddress,
+programAddress,
+programId,
+distributorTx,
+lastDistributedAt,
+builderCanRemoveLp,
+builderCanClaimLpFees,
+status,
+note: LP_FEE_DISTRIBUTOR_NOTE,
+};
+}
+
 function normalizeLaunch(row) {
 if (!row) return null;
 
@@ -247,6 +582,10 @@ safeNum(row.committed_sol, 0),
 safeNum(row.launch_fee_pct, DEFAULT_LAUNCH_FEE_PCT)
 )
 ),
+lp_fee_distributor_json: buildLpFeeDistributorPayload(
+parseJsonMaybe(row.lp_fee_distributor_json, null),
+row
+),
 contract_address: cleanText(row.contract_address, 120),
 token_mint: cleanText(row.token_mint, 120),
 final_supply: cleanText(row.final_supply, 120),
@@ -269,6 +608,42 @@ row.mint_reservation_status,
 ).toLowerCase(),
 mint_finalized_at: row.mint_finalized_at || null,
 status: cleanText(row.status, 40).toLowerCase(),
+lp_fee_beneficiary_wallet: cleanText(row.lp_fee_beneficiary_wallet, 120),
+lp_fee_beneficiary_type: cleanText(row.lp_fee_beneficiary_type, 120),
+lp_fee_controller_type: cleanText(row.lp_fee_controller_type, 120),
+lp_fee_control_mode: cleanText(row.lp_fee_control_mode, 120),
+lp_fee_source: cleanText(row.lp_fee_source, 120),
+lp_fee_distribution_mode: cleanText(row.lp_fee_distribution_mode, 120),
+lp_fee_distribution_model: cleanText(row.lp_fee_distribution_model, 120),
+lp_fee_control_model: cleanText(row.lp_fee_control_model, 120),
+lp_fee_removal_rights: cleanText(row.lp_fee_removal_rights, 120),
+lp_fee_recipient_wallet: cleanText(row.lp_fee_recipient_wallet, 120),
+lp_fee_distributor_address: cleanText(row.lp_fee_distributor_address, 120),
+lp_fee_distributor_authority: cleanText(
+row.lp_fee_distributor_authority,
+120
+),
+lp_fee_distributor_vault: cleanText(row.lp_fee_distributor_vault, 120),
+lp_fee_distributor_program: cleanText(row.lp_fee_distributor_program, 120),
+lp_fee_distributor_program_id: cleanText(
+row.lp_fee_distributor_program_id,
+120
+),
+lp_fee_distributor_tx: cleanText(row.lp_fee_distributor_tx, 500),
+lp_fee_last_distributed_at: row.lp_fee_last_distributed_at || null,
+lp_fee_distributor_status: cleanText(row.lp_fee_distributor_status, 120),
+lp_fee_distributor_kind: cleanText(row.lp_fee_distributor_kind, 120),
+lp_fee_distributor_enabled: safeNum(row.lp_fee_distributor_enabled, 0),
+builder_can_remove_lp: safeNum(row.builder_can_remove_lp, 0),
+builder_can_claim_lp_fees: safeNum(row.builder_can_claim_lp_fees, 0),
+fee_distributor_address: cleanText(row.fee_distributor_address, 120),
+fee_distributor_program: cleanText(row.fee_distributor_program, 120),
+fee_distributor_program_id: cleanText(
+row.fee_distributor_program_id,
+120
+),
+fee_distributor_vault: cleanText(row.fee_distributor_vault, 120),
+fee_distributor_status: cleanText(row.fee_distributor_status, 120),
 };
 }
 
@@ -308,6 +683,62 @@ WHERE id = ?
 `,
 [...values, launchId]
 );
+}
+
+async function persistLpFeeDistributorState(launchId, launch) {
+const state = buildLpFeeDistributorPayload(
+launch?.lp_fee_distributor_json || launch?.lp_fee_distributor || null,
+launch
+);
+
+const columns = await getTableColumns("launches");
+const fields = {
+lp_fee_beneficiary_wallet: state.builderWallet,
+lp_fee_beneficiary_type: state.beneficiaryType,
+lp_fee_controller_type: state.controllerType,
+lp_fee_control_mode: state.controlMode,
+lp_fee_source: state.source,
+lp_fee_distribution_model: state.distributionMode,
+lp_fee_distribution_mode: state.distributionMode,
+lp_fee_control_model: state.controlModel,
+lp_fee_removal_rights: state.removalRights,
+lp_fee_recipient_wallet: state.recipientWallet,
+lp_fee_distributor_address: state.distributorAddress,
+lp_fee_distributor_authority: state.authorityAddress,
+lp_fee_distributor_vault: state.vaultAddress,
+lp_fee_distributor_program: state.programAddress,
+lp_fee_distributor_program_id: state.programId,
+lp_fee_distributor_tx: state.distributorTx,
+lp_fee_last_distributed_at: state.lastDistributedAt,
+lp_fee_distributor_status: state.status,
+lp_fee_distributor_kind: state.kind,
+lp_fee_distributor_enabled: state.enabled ? 1 : 0,
+builder_can_remove_lp: state.builderCanRemoveLp ? 1 : 0,
+builder_can_claim_lp_fees: state.builderCanClaimLpFees ? 1 : 0,
+lp_fee_can_builder_remove_lp: state.builderCanRemoveLp ? 1 : 0,
+fee_distributor_address: state.distributorAddress,
+fee_distributor_program: state.programAddress,
+fee_distributor_program_id: state.programId,
+fee_distributor_vault: state.vaultAddress,
+fee_distributor_status: state.status,
+lp_fee_distributor_json: JSON.stringify(state),
+};
+
+const relevantEntries = Object.entries(fields).filter(([name]) =>
+columns.has(name)
+);
+
+if (!relevantEntries.length) {
+return {
+...launch,
+lp_fee_distributor_json: state,
+};
+}
+
+await updateLaunchFieldsSafe(launchId, fields);
+
+const refreshed = await getLaunchById(launchId);
+return refreshed || { ...launch, lp_fee_distributor_json: state };
 }
 
 async function setLaunchMarketBootstrapped(launchId, bootstrapped) {
@@ -497,7 +928,7 @@ return launch;
 const fields = {};
 const status = String(launch?.status || "").toLowerCase();
 
-if (artifacts.mint && status === "live") {
+if (artifacts.mint && (status === "live" || status === "graduated")) {
 fields.contract_address = artifacts.mint;
 fields.token_mint = artifacts.mint;
 }
@@ -527,9 +958,13 @@ return refreshed || launch;
 async function syncLaunchMarketArtifactsFromBootstrap(
 launchId,
 marketBootstrap,
-allocationResult = null
+allocationResult = null,
+launch = null
 ) {
 if (!marketBootstrap || typeof marketBootstrap !== "object") return;
+
+const currentLaunch = launch || (await getLaunchById(launchId));
+const status = String(currentLaunch?.status || "").toLowerCase();
 
 const mintAddress = cleanText(
 firstPresent(
@@ -543,7 +978,7 @@ marketBootstrap.contract_address
 
 const fields = {};
 
-if (mintAddress) {
+if (mintAddress && (status === "live" || status === "graduated")) {
 fields.contract_address = mintAddress;
 fields.token_mint = mintAddress;
 }
@@ -655,7 +1090,8 @@ marketBootstrap = await bootstrapLiveMarket(launchId);
 await syncLaunchMarketArtifactsFromBootstrap(
 launchId,
 marketBootstrap,
-allocationResult
+allocationResult,
+refreshedLaunch || launch
 );
 }
 
@@ -672,6 +1108,11 @@ if (
 await setLaunchMarketBootstrapped(launchId, true);
 refreshedLaunch = (await getLaunchById(launchId)) || refreshedLaunch;
 }
+
+refreshedLaunch = await persistLpFeeDistributorState(
+launchId,
+refreshedLaunch || launch
+);
 
 return {
 launch: refreshedLaunch || launch,
@@ -717,6 +1158,11 @@ safeNum(launch?.launch_fee_pct, DEFAULT_LAUNCH_FEE_PCT)
 const resolvedFeeDistribution = normalizeFeeDistributionPayload(
 launch?.fee_distribution_json || feeDistribution || null,
 resolvedFeePlan
+);
+
+const lpFeeDistributor = buildLpFeeDistributorPayload(
+launch?.lp_fee_distributor_json || launch?.lp_fee_distributor || null,
+launch
 );
 
 const resolvedMint =
@@ -778,6 +1224,28 @@ netRaiseAfterFee: safeNum(resolvedFeePlan.netRaiseAfterFee, 0),
 feeDistribution: resolvedFeeDistribution,
 feeDistributionPending: Boolean(feeDistributionPending),
 feeDistributionError: feeDistributionError || "",
+lpFeeDistributor,
+lpFeeDistributorEnabled: Boolean(lpFeeDistributor.enabled),
+lpFeeBeneficiaryType: lpFeeDistributor.beneficiaryType,
+lpFeeControllerType: lpFeeDistributor.controllerType,
+lpFeeControlMode: lpFeeDistributor.controlMode,
+lpFeeSource: lpFeeDistributor.source,
+lpFeeDistributionMode: lpFeeDistributor.distributionMode,
+lpFeeControlModel: lpFeeDistributor.controlModel,
+lpFeeRemovalRights: lpFeeDistributor.removalRights,
+lpFeeRecipientWallet: lpFeeDistributor.recipientWallet,
+lpFeeDistributorAddress: lpFeeDistributor.distributorAddress,
+lpFeeDistributorAuthority: lpFeeDistributor.authorityAddress,
+lpFeeDistributorVault: lpFeeDistributor.vaultAddress,
+lpFeeDistributorProgram: lpFeeDistributor.programAddress,
+lpFeeDistributorProgramId: lpFeeDistributor.programId,
+lpFeeDistributorTx: lpFeeDistributor.distributorTx,
+lpFeeLastDistributedAt: lpFeeDistributor.lastDistributedAt,
+lpFeeDistributorStatus: lpFeeDistributor.status,
+lpFeeDistributorKind: lpFeeDistributor.kind,
+lpFeeDistributorNote: lpFeeDistributor.note,
+builderCanRemoveLp: Boolean(lpFeeDistributor.builderCanRemoveLp),
+builderCanClaimLpFees: Boolean(lpFeeDistributor.builderCanClaimLpFees),
 allocationsBuilt: Boolean(allocationsBuilt),
 marketBootstrap,
 marketBootstrapped: isBootstrapped(launch),
@@ -1118,6 +1586,7 @@ console.log("Finalizing launch", launchId);
 console.log("Template:", launch.template);
 console.log("Total committed:", totalCommitted);
 console.log("Participants:", launch.participants_count);
+console.log("Launch fee pct:", feePlan.launchFeePct);
 console.log("Fee total:", feePlan.feeTotal);
 console.log(
 "Core Team Development fee:",
@@ -1238,7 +1707,9 @@ launch,
 allocationResult || launch?.launch_result_json || null
 );
 
-const finalLaunch = refreshed.launch || launch;
+let finalLaunch = refreshed.launch || launch;
+finalLaunch = await persistLpFeeDistributorState(launchId, finalLaunch);
+
 const finalMarketBootstrap = refreshed.marketBootstrap || marketBootstrap;
 
 console.log(`Launch ${launchId} already finalized/live, skipping re-finalize`);
@@ -1268,6 +1739,7 @@ if (!launch) {
 throw new Error("Launch not found");
 }
 
+launch = await persistLpFeeDistributorState(launchId, launch);
 launch = await normalizeBootstrapFlagAgainstArtifacts(launchId, launch);
 launch = await demoteLiveToBuildingIfArtifactsIncomplete(launchId, launch);
 
@@ -1334,6 +1806,7 @@ if (!launch) {
 throw new Error("Launch not found after sync");
 }
 
+launch = await persistLpFeeDistributorState(launchId, launch);
 launch = await normalizeBootstrapFlagAgainstArtifacts(launchId, launch);
 launch = await demoteLiveToBuildingIfArtifactsIncomplete(launchId, launch);
 
@@ -1398,12 +1871,14 @@ feeDistributionError,
 } = await ensureFeeDistribution(launchId, launch, totalCommitted);
 
 launch = await forcePromoteLaunchToBuilding(launchId);
+launch = await persistLpFeeDistributorState(launchId, launch);
 await setLaunchMarketBootstrapped(launchId, false);
 launch = await syncLaunchMarketArtifactsFromRows(launchId, launch);
 
 if (await hasCompletedLiveBootstrap(launchId, launch)) {
 await setLaunchMarketBootstrapped(launchId, true);
 launch = await forcePromoteLaunchToLive(launchId);
+launch = await persistLpFeeDistributorState(launchId, launch);
 
 const refreshed = await refreshLiveMarketAfterPromotion(
 launchId,
@@ -1503,10 +1978,15 @@ retryable: true,
 await syncLaunchMarketArtifactsFromBootstrap(
 launchId,
 marketBootstrap,
-allocationResult
+allocationResult,
+launch
 );
 
 let bootstrapReadyLaunch = await getLaunchById(launchId);
+bootstrapReadyLaunch = await persistLpFeeDistributorState(
+launchId,
+bootstrapReadyLaunch || launch
+);
 bootstrapReadyLaunch = await syncLaunchMarketArtifactsFromRows(
 launchId,
 bootstrapReadyLaunch || launch
@@ -1538,6 +2018,7 @@ retryable: true,
 
 await setLaunchMarketBootstrapped(launchId, true);
 let finalLaunch = await forcePromoteLaunchToLive(launchId);
+finalLaunch = await persistLpFeeDistributorState(launchId, finalLaunch);
 
 if (!finalLaunch) {
 throw new Error("Launch not found after market bootstrap");
@@ -1597,7 +2078,8 @@ feePlan,
 feeDistribution: finalLaunch.fee_distribution_json || feeDistribution,
 feeDistributionPending,
 feeDistributionError:
-feeDistributionError || "launch bootstrap not fully settled after live refresh",
+feeDistributionError ||
+"launch bootstrap not fully settled after live refresh",
 allocationsBuilt,
 marketBootstrap: finalMarketBootstrap,
 allocationResult,

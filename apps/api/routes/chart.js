@@ -34,6 +34,19 @@ const TEAM_CLIFF_DAYS = 14;
 const TEAM_VESTING_DAYS = 180;
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
 
+const EXTERNAL_MARKET_VENUE = "Raydium";
+const EXTERNAL_MARKET_MODE = "external_lp_only";
+
+const MARKET_SOURCE_PRELIVE = "hidden_pre_live";
+const MARKET_SOURCE_UNAVAILABLE = "unavailable";
+
+const LP_FEE_BENEFICIARY_TYPE = "builder";
+const LP_FEE_CONTROLLER_TYPE = "mss_distributor";
+const LP_FEE_CONTROL_MODE = "distributor_only";
+const LP_FEE_DISTRIBUTION_MODEL = "builder_via_mss_distributor";
+const LP_FEE_SOURCE = "raydium_lp";
+const LP_FEE_PRE_GRADUATION_SOURCE = "pending_raydium_lp";
+
 function clampInt(value, fallback, min, max) {
 const num = Number.parseInt(value, 10);
 if (!Number.isFinite(num)) return fallback;
@@ -226,6 +239,18 @@ const raw = String(value ?? "").trim().toLowerCase();
 return raw === "0" || raw === "false" || raw === "no";
 }
 
+function isTrueLike(value) {
+if (value === true || value === 1) return true;
+const raw = String(value ?? "").trim().toLowerCase();
+return raw === "1" || raw === "true" || raw === "yes";
+}
+
+function booleanLike(value, fallback = false) {
+if (isTrueLike(value)) return true;
+if (isFalseLike(value)) return false;
+return fallback;
+}
+
 function isMarketBootstrappedFalse(launch = null, lifecycle = null) {
 return isFalseLike(
 launch?.market_bootstrapped ??
@@ -285,11 +310,6 @@ if (rawStatus === "live" || lifecycleLaunchStatus === "live") {
 return isMarketBootstrappedFalse(launch, lifecycle) ? "building" : "live";
 }
 
-/*
-Protected phase rule:
-Building/countdown must not auto-promote to live just because mint, pool,
-lifecycle or contract data exists. finalizeLaunch.js owns live promotion.
-*/
 if (rawStatus === "building" || lifecycleLaunchStatus === "building") {
 return "building";
 }
@@ -322,10 +342,6 @@ return "countdown";
 return "building";
 }
 
-/*
-Legacy fallback only. This is intentionally after countdown/building checks
-so old rows can be rescued without breaking protected pre-live phases.
-*/
 if (
 !rawStatus &&
 !lifecycleLaunchStatus &&
@@ -360,7 +376,7 @@ const marketEnabled = shouldRevealContractAddress(status);
 return {
 status,
 market_enabled: marketEnabled,
-can_trade: status === "live",
+can_trade: marketEnabled,
 is_commit: status === "commit",
 is_countdown: status === "countdown",
 is_building: status === "building",
@@ -562,6 +578,11 @@ builder_vesting_rule: BUILDER_VESTING_RULE,
 };
 }
 
+function resolveLpFeeSource(status = "") {
+const normalized = normalizeLaunchStatus(status);
+return normalized === "graduated" ? LP_FEE_SOURCE : LP_FEE_PRE_GRADUATION_SOURCE;
+}
+
 function normalizeLifecycle(raw = {}, launch = null, phaseOverride = null) {
 const phase = phaseOverride || buildPhaseMeta(launch, raw);
 if (!raw || typeof raw !== "object") return null;
@@ -638,6 +659,60 @@ cleanText(raw.lock_status ?? raw.lockStatus, 120) || "not_locked",
 lock_tx: cleanText(raw.lock_tx ?? raw.lockTx, 300) || null,
 lock_expires_at: raw.lock_expires_at ?? raw.lockExpiresAt ?? null,
 
+lp_fee_beneficiary_wallet:
+cleanText(raw.lp_fee_beneficiary_wallet ?? raw.lpFeeBeneficiaryWallet, 120) ||
+null,
+lp_fee_beneficiary_type:
+cleanText(raw.lp_fee_beneficiary_type ?? raw.lpFeeBeneficiaryType, 120) ||
+LP_FEE_BENEFICIARY_TYPE,
+lp_fee_controller_type:
+cleanText(raw.lp_fee_controller_type ?? raw.lpFeeControllerType, 120) ||
+LP_FEE_CONTROLLER_TYPE,
+lp_fee_control_mode:
+cleanText(raw.lp_fee_control_mode ?? raw.lpFeeControlMode, 120) ||
+LP_FEE_CONTROL_MODE,
+lp_fee_distribution_model:
+cleanText(
+raw.lp_fee_distribution_model ?? raw.lpFeeDistributionModel,
+120
+) || LP_FEE_DISTRIBUTION_MODEL,
+lp_fee_source:
+cleanText(raw.lp_fee_source ?? raw.lpFeeSource, 120) ||
+resolveLpFeeSource(phase.status),
+lp_fee_distributor_enabled: booleanLike(
+raw.lp_fee_distributor_enabled ?? raw.lpFeeDistributorEnabled,
+false
+),
+lp_fee_distributor_status:
+cleanText(raw.lp_fee_distributor_status ?? raw.lpFeeDistributorStatus, 120) ||
+null,
+lp_fee_distributor_address:
+cleanText(raw.lp_fee_distributor_address ?? raw.lpFeeDistributorAddress, 200) ||
+null,
+lp_fee_distributor_program:
+cleanText(raw.lp_fee_distributor_program ?? raw.lpFeeDistributorProgram, 200) ||
+null,
+lp_fee_distributor_program_id:
+cleanText(
+raw.lp_fee_distributor_program_id ?? raw.lpFeeDistributorProgramId,
+200
+) || null,
+lp_fee_distributor_vault:
+cleanText(raw.lp_fee_distributor_vault ?? raw.lpFeeDistributorVault, 200) ||
+null,
+lp_fee_distributor_tx:
+cleanText(raw.lp_fee_distributor_tx ?? raw.lpFeeDistributorTx, 300) || null,
+lp_fee_last_distributed_at:
+raw.lp_fee_last_distributed_at ?? raw.lpFeeLastDistributedAt ?? null,
+builder_can_remove_lp: booleanLike(
+raw.builder_can_remove_lp ?? raw.builderCanRemoveLp,
+false
+),
+builder_can_claim_lp_fees: booleanLike(
+raw.builder_can_claim_lp_fees ?? raw.builderCanClaimLpFees,
+false
+),
+
 graduation_readiness:
 raw.graduation_readiness ?? raw.graduationReadiness ?? null,
 graduationReadiness:
@@ -645,6 +720,9 @@ raw.graduationReadiness ?? raw.graduation_readiness ?? null,
 
 builder_vesting: raw.builder_vesting ?? raw.builderVesting ?? null,
 builderVesting: raw.builderVesting ?? raw.builder_vesting ?? null,
+
+external_market_venue: EXTERNAL_MARKET_VENUE,
+external_market_mode: EXTERNAL_MARKET_MODE,
 };
 }
 
@@ -758,6 +836,10 @@ hasReserves: Boolean(
 readiness.checks.hasReserves ??
 readiness.checks.has_reserves
 ),
+marketBootstrapped: Boolean(
+readiness.checks.marketBootstrapped ??
+readiness.checks.market_bootstrapped
+),
 alreadyGraduated: Boolean(
 readiness.checks.alreadyGraduated ??
 readiness.checks.already_graduated
@@ -869,6 +951,47 @@ builder_vesting_rule: BUILDER_VESTING_RULE,
 };
 }
 
+function sanitizeSourceForResponse(source = {}, launch = null, lifecycle = null) {
+const phase = buildPhaseMeta(launch, lifecycle);
+
+if (!phase.market_enabled) {
+return {
+external_market_venue: EXTERNAL_MARKET_VENUE,
+external_market_mode: EXTERNAL_MARKET_MODE,
+chart_source: MARKET_SOURCE_PRELIVE,
+trade_source: MARKET_SOURCE_PRELIVE,
+price_source: MARKET_SOURCE_PRELIVE,
+liquidity_source: MARKET_SOURCE_PRELIVE,
+volume_source: MARKET_SOURCE_PRELIVE,
+external_sync_status: "prelive_hidden",
+market_sync_warning:
+"Market data is intentionally hidden until the launch is live.",
+last_trade_at: null,
+last_candle_at: null,
+chart_is_synthetic: false,
+};
+}
+
+return {
+external_market_venue:
+cleanText(source.external_market_venue, 80) || EXTERNAL_MARKET_VENUE,
+external_market_mode:
+cleanText(source.external_market_mode, 120) || EXTERNAL_MARKET_MODE,
+chart_source: cleanText(source.chart_source, 120) || MARKET_SOURCE_UNAVAILABLE,
+trade_source: cleanText(source.trade_source, 120) || MARKET_SOURCE_UNAVAILABLE,
+price_source: cleanText(source.price_source, 120) || MARKET_SOURCE_UNAVAILABLE,
+liquidity_source:
+cleanText(source.liquidity_source, 120) || MARKET_SOURCE_UNAVAILABLE,
+volume_source: cleanText(source.volume_source, 120) || MARKET_SOURCE_UNAVAILABLE,
+external_sync_status:
+cleanText(source.external_sync_status, 120) || "unavailable",
+market_sync_warning: cleanText(source.market_sync_warning, 500) || "",
+last_trade_at: source.last_trade_at || null,
+last_candle_at: source.last_candle_at || null,
+chart_is_synthetic: Boolean(source.chart_is_synthetic),
+};
+}
+
 async function safeGetLifecycle(launchId) {
 try {
 return await getLiquidityLifecycle(launchId);
@@ -913,11 +1036,17 @@ return null;
 }
 }
 
-function sanitizeLaunchForResponse(launch = null, stats = {}, lifecycle = null) {
+function sanitizeLaunchForResponse(
+launch = null,
+stats = {},
+lifecycle = null,
+source = null
+) {
 if (!launch) return null;
 
 const phase = buildPhaseMeta(launch, lifecycle);
 const revealContract = phase.market_enabled;
+const sourceMeta = sanitizeSourceForResponse(source || stats || {}, launch, lifecycle);
 
 const revealedMintAddress = revealContract
 ? cleanText(
@@ -986,6 +1115,20 @@ raw_status: cleanText(launch.raw_status || launch.status, 80) || null,
 phase,
 market_enabled: phase.market_enabled,
 can_trade: phase.can_trade,
+
+external_market_venue: sourceMeta.external_market_venue,
+external_market_mode: sourceMeta.external_market_mode,
+
+chart_source: sourceMeta.chart_source,
+trade_source: sourceMeta.trade_source,
+price_source: sourceMeta.price_source,
+liquidity_source: sourceMeta.liquidity_source,
+volume_source: sourceMeta.volume_source,
+external_sync_status: sourceMeta.external_sync_status,
+market_sync_warning: sourceMeta.market_sync_warning,
+last_trade_at: sourceMeta.last_trade_at,
+last_candle_at: sourceMeta.last_candle_at,
+chart_is_synthetic: sourceMeta.chart_is_synthetic,
 
 contract_address: revealContract
 ? cleanText(launch.contract_address, 120) || revealedMintAddress
@@ -1056,6 +1199,103 @@ chooseFirstFinite(stats.circulating_supply, launch.circulating_supply),
 0
 )
 : 0,
+
+lp_fee_beneficiary_wallet: revealContract
+? cleanText(
+launch.lp_fee_beneficiary_wallet ?? lifecycle?.lp_fee_beneficiary_wallet,
+120
+) || null
+: null,
+lp_fee_beneficiary_type: revealContract
+? cleanText(
+launch.lp_fee_beneficiary_type ?? lifecycle?.lp_fee_beneficiary_type,
+120
+) || LP_FEE_BENEFICIARY_TYPE
+: null,
+lp_fee_controller_type: revealContract
+? cleanText(
+launch.lp_fee_controller_type ?? lifecycle?.lp_fee_controller_type,
+120
+) || LP_FEE_CONTROLLER_TYPE
+: null,
+lp_fee_control_mode: revealContract
+? cleanText(
+launch.lp_fee_control_mode ?? lifecycle?.lp_fee_control_mode,
+120
+) || LP_FEE_CONTROL_MODE
+: null,
+lp_fee_distribution_model: revealContract
+? cleanText(
+launch.lp_fee_distribution_model ?? lifecycle?.lp_fee_distribution_model,
+120
+) || LP_FEE_DISTRIBUTION_MODEL
+: null,
+lp_fee_source: revealContract
+? cleanText(
+launch.lp_fee_source ?? lifecycle?.lp_fee_source,
+120
+) || resolveLpFeeSource(phase.status)
+: null,
+lp_fee_distributor_enabled: revealContract
+? booleanLike(
+launch.lp_fee_distributor_enabled ?? lifecycle?.lp_fee_distributor_enabled,
+false
+)
+: false,
+lp_fee_distributor_status: revealContract
+? cleanText(
+launch.lp_fee_distributor_status ?? lifecycle?.lp_fee_distributor_status,
+120
+) || null
+: null,
+lp_fee_distributor_address: revealContract
+? cleanText(
+launch.lp_fee_distributor_address ?? lifecycle?.lp_fee_distributor_address,
+200
+) || null
+: null,
+lp_fee_distributor_program: revealContract
+? cleanText(
+launch.lp_fee_distributor_program ?? lifecycle?.lp_fee_distributor_program,
+200
+) || null
+: null,
+lp_fee_distributor_program_id: revealContract
+? cleanText(
+launch.lp_fee_distributor_program_id ??
+lifecycle?.lp_fee_distributor_program_id,
+200
+) || null
+: null,
+lp_fee_distributor_vault: revealContract
+? cleanText(
+launch.lp_fee_distributor_vault ?? lifecycle?.lp_fee_distributor_vault,
+200
+) || null
+: null,
+lp_fee_distributor_tx: revealContract
+? cleanText(
+launch.lp_fee_distributor_tx ?? lifecycle?.lp_fee_distributor_tx,
+300
+) || null
+: null,
+lp_fee_last_distributed_at: revealContract
+? launch.lp_fee_last_distributed_at ??
+lifecycle?.lp_fee_last_distributed_at ??
+null
+: null,
+builder_can_remove_lp: revealContract
+? booleanLike(
+launch.builder_can_remove_lp ?? lifecycle?.builder_can_remove_lp,
+false
+)
+: false,
+builder_can_claim_lp_fees: revealContract
+? booleanLike(
+launch.builder_can_claim_lp_fees ?? lifecycle?.builder_can_claim_lp_fees,
+false
+)
+: false,
 
 lifecycle: revealContract ? launch.lifecycle || lifecycle || null : null,
 builder_vesting: revealContract ? launch.builder_vesting || null : null,
@@ -1198,9 +1438,10 @@ created_at: trade.created_at || trade.timestamp || null,
 : [];
 }
 
-function sanitizeStatsForResponse(stats = {}, launch = null, lifecycle = null) {
+function sanitizeStatsForResponse(stats = {}, launch = null, lifecycle = null, source = null) {
 const phase = buildPhaseMeta(launch, lifecycle);
 const marketActive = phase.market_enabled;
+const sourceMeta = sanitizeSourceForResponse(source || stats || {}, launch, lifecycle);
 
 const totalSupply = toNumber(
 chooseFirstFinite(stats.total_supply, launch?.total_supply, launch?.supply),
@@ -1350,6 +1591,147 @@ return {
 phase,
 market_enabled: marketActive,
 can_trade: phase.can_trade,
+
+external_market_venue: sourceMeta.external_market_venue,
+external_market_mode: sourceMeta.external_market_mode,
+
+chart_source: sourceMeta.chart_source,
+trade_source: sourceMeta.trade_source,
+price_source: sourceMeta.price_source,
+liquidity_source: sourceMeta.liquidity_source,
+volume_source: sourceMeta.volume_source,
+external_sync_status: sourceMeta.external_sync_status,
+market_sync_warning: sourceMeta.market_sync_warning,
+last_trade_at: sourceMeta.last_trade_at,
+last_candle_at: sourceMeta.last_candle_at,
+chart_is_synthetic: sourceMeta.chart_is_synthetic,
+
+lp_fee_beneficiary_wallet: marketActive
+? cleanText(
+stats.lp_fee_beneficiary_wallet ??
+lifecycle?.lp_fee_beneficiary_wallet ??
+launch?.lp_fee_beneficiary_wallet,
+120
+) || null
+: null,
+lp_fee_beneficiary_type: marketActive
+? cleanText(
+stats.lp_fee_beneficiary_type ??
+lifecycle?.lp_fee_beneficiary_type ??
+launch?.lp_fee_beneficiary_type,
+120
+) || LP_FEE_BENEFICIARY_TYPE
+: null,
+lp_fee_controller_type: marketActive
+? cleanText(
+stats.lp_fee_controller_type ??
+lifecycle?.lp_fee_controller_type ??
+launch?.lp_fee_controller_type,
+120
+) || LP_FEE_CONTROLLER_TYPE
+: null,
+lp_fee_control_mode: marketActive
+? cleanText(
+stats.lp_fee_control_mode ??
+lifecycle?.lp_fee_control_mode ??
+launch?.lp_fee_control_mode,
+120
+) || LP_FEE_CONTROL_MODE
+: null,
+lp_fee_distribution_model: marketActive
+? cleanText(
+stats.lp_fee_distribution_model ??
+lifecycle?.lp_fee_distribution_model ??
+launch?.lp_fee_distribution_model,
+120
+) || LP_FEE_DISTRIBUTION_MODEL
+: null,
+lp_fee_source: marketActive
+? cleanText(
+stats.lp_fee_source ??
+lifecycle?.lp_fee_source ??
+launch?.lp_fee_source,
+120
+) || resolveLpFeeSource(phase.status)
+: null,
+lp_fee_distributor_enabled: marketActive
+? booleanLike(
+stats.lp_fee_distributor_enabled ??
+lifecycle?.lp_fee_distributor_enabled ??
+launch?.lp_fee_distributor_enabled,
+false
+)
+: false,
+lp_fee_distributor_status: marketActive
+? cleanText(
+stats.lp_fee_distributor_status ??
+lifecycle?.lp_fee_distributor_status ??
+launch?.lp_fee_distributor_status,
+120
+) || null
+: null,
+lp_fee_distributor_address: marketActive
+? cleanText(
+stats.lp_fee_distributor_address ??
+lifecycle?.lp_fee_distributor_address ??
+launch?.lp_fee_distributor_address,
+200
+) || null
+: null,
+lp_fee_distributor_program: marketActive
+? cleanText(
+stats.lp_fee_distributor_program ??
+lifecycle?.lp_fee_distributor_program ??
+launch?.lp_fee_distributor_program,
+200
+) || null
+: null,
+lp_fee_distributor_program_id: marketActive
+? cleanText(
+stats.lp_fee_distributor_program_id ??
+lifecycle?.lp_fee_distributor_program_id ??
+launch?.lp_fee_distributor_program_id,
+200
+) || null
+: null,
+lp_fee_distributor_vault: marketActive
+? cleanText(
+stats.lp_fee_distributor_vault ??
+lifecycle?.lp_fee_distributor_vault ??
+launch?.lp_fee_distributor_vault,
+200
+) || null
+: null,
+lp_fee_distributor_tx: marketActive
+? cleanText(
+stats.lp_fee_distributor_tx ??
+lifecycle?.lp_fee_distributor_tx ??
+launch?.lp_fee_distributor_tx,
+300
+) || null
+: null,
+lp_fee_last_distributed_at: marketActive
+? stats.lp_fee_last_distributed_at ??
+lifecycle?.lp_fee_last_distributed_at ??
+launch?.lp_fee_last_distributed_at ??
+null
+: null,
+builder_can_remove_lp: marketActive
+? booleanLike(
+stats.builder_can_remove_lp ??
+lifecycle?.builder_can_remove_lp ??
+launch?.builder_can_remove_lp,
+false
+)
+: false,
+builder_can_claim_lp_fees: marketActive
+? booleanLike(
+stats.builder_can_claim_lp_fees ??
+lifecycle?.builder_can_claim_lp_fees ??
+launch?.builder_can_claim_lp_fees,
+false
+)
+: false,
 
 contract_address: revealedMintAddress,
 mint_address: revealedMintAddress,
@@ -2137,14 +2519,19 @@ can_trade: phase.can_trade,
 };
 }
 
-function buildCassiePayload(cassie = null, launch = null, lifecycle = null) {
+function buildCassiePayload(cassie = null, launch = null, lifecycle = null, source = null) {
 const phase = buildPhaseMeta(launch, lifecycle);
+const sourceMeta = sanitizeSourceForResponse(source || {}, launch, lifecycle);
 
 return {
 ...(cassie || {}),
 phase: phase.status,
 market_enabled: phase.market_enabled,
 can_trade: phase.can_trade,
+external_market_venue: sourceMeta.external_market_venue,
+external_market_mode: sourceMeta.external_market_mode,
+chart_source: sourceMeta.chart_source,
+trade_source: sourceMeta.trade_source,
 };
 }
 
@@ -2160,6 +2547,10 @@ error: "Launch not found",
 return true;
 }
 
+function rawLifecycleSeed(raw) {
+return raw && typeof raw === "object" ? raw : {};
+}
+
 async function buildResponseContext(payload = {}, wallet = "", launchId = null) {
 const rawLaunch = payload?.launch || null;
 
@@ -2171,8 +2562,18 @@ rawLaunch?.lifecycle ||
 null;
 
 const preliminaryPhase = buildPhaseMeta(rawLaunch, lifecycleRaw);
-const lifecycle = normalizeLifecycle(rawLifecycleSeed(lifecycleRaw), rawLaunch, preliminaryPhase);
+const lifecycle = normalizeLifecycle(
+rawLifecycleSeed(lifecycleRaw),
+rawLaunch,
+preliminaryPhase
+);
 const phase = buildPhaseMeta(rawLaunch, lifecycle);
+
+const source = sanitizeSourceForResponse(
+payload?.source || payload?.stats || rawLaunch || {},
+rawLaunch,
+lifecycle
+);
 
 const graduationReadiness = normalizeGraduationReadiness(
 payload?.graduationReadiness ||
@@ -2200,7 +2601,13 @@ rawLaunch,
 phase
 );
 
-const stats = sanitizeStatsForResponse(payload?.stats || {}, rawLaunch, lifecycle);
+const stats = sanitizeStatsForResponse(
+payload?.stats || {},
+rawLaunch,
+lifecycle,
+source
+);
+
 const sanitizedLaunch = sanitizeLaunchForResponse(
 {
 ...(rawLaunch || {}),
@@ -2209,7 +2616,8 @@ builder_vesting: builderVesting,
 graduation_readiness: graduationReadiness,
 },
 stats,
-lifecycle
+lifecycle,
+source
 );
 
 const requestWalletNormalized = cleanText(wallet, 120).toLowerCase();
@@ -2237,6 +2645,7 @@ return {
 rawLaunch,
 lifecycle,
 phase,
+source,
 graduationReadiness,
 builderVesting,
 stats,
@@ -2245,13 +2654,14 @@ token: sanitizeTokenForResponse(payload?.token || null, rawLaunch, lifecycle),
 pool: sanitizePoolForResponse(payload?.pool || null, rawLaunch, lifecycle),
 wallet: walletPayload,
 wallet_summary: walletPayload,
-cassie: buildCassiePayload(payload?.cassie || null, rawLaunch, lifecycle),
+cassie: buildCassiePayload(
+payload?.cassie || null,
+rawLaunch,
+lifecycle,
+source
+),
 wallet_address: wallet || null,
 };
-}
-
-function rawLifecycleSeed(raw) {
-return raw && typeof raw === "object" ? raw : {};
 }
 
 router.get("/:launchId/candles", async (req, res) => {
@@ -2289,6 +2699,7 @@ phase: ctx.phase,
 market_enabled: ctx.phase.market_enabled,
 can_trade: ctx.phase.can_trade,
 interval,
+source: ctx.source,
 candles: sanitizeCandlesForResponse(
 payload?.candles || [],
 ctx.rawLaunch,
@@ -2342,6 +2753,7 @@ status: ctx.phase.status,
 phase: ctx.phase,
 market_enabled: ctx.phase.market_enabled,
 can_trade: ctx.phase.can_trade,
+source: ctx.source,
 trades: sanitizeTradesForResponse(
 payload?.trades || [],
 ctx.rawLaunch,
@@ -2395,6 +2807,7 @@ status: ctx.phase.status,
 phase: ctx.phase,
 market_enabled: ctx.phase.market_enabled,
 can_trade: ctx.phase.can_trade,
+source: ctx.source,
 stats: ctx.stats,
 launch: ctx.launch,
 token: ctx.token,
@@ -2469,6 +2882,7 @@ phase: ctx.phase,
 market_enabled: ctx.phase.market_enabled,
 can_trade: ctx.phase.can_trade,
 interval,
+source: ctx.source,
 launch: ctx.launch,
 token: ctx.token,
 pool: ctx.pool,

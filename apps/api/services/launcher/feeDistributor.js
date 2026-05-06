@@ -7,12 +7,16 @@ Transaction,
 } from "@solana/web3.js";
 import bs58 from "bs58";
 
-const DEFAULT_LAUNCH_FEE_PCT = 3;
+const DEFAULT_LAUNCH_FEE_PCT = 5;
 
 const FEE_SPLIT = {
 coreTeamDevelopment: 0.6,
 ecosystemSupport: 0.4,
 };
+
+const DISTRIBUTION_TYPE = "launch_fee";
+const LP_FEE_NOTE =
+"Raydium LP fees are handled separately through an MSS-controlled distributor layer for the builder and are not distributed by this service.";
 
 const LAMPORTS_PER_SOL = 1_000_000_000;
 const ESCROW_FEE_BUFFER_LAMPORTS = 10000;
@@ -29,6 +33,10 @@ return String(value ?? "").trim().slice(0, max);
 function safeNum(value, fallback = 0) {
 const n = Number(value);
 return Number.isFinite(n) ? n : fallback;
+}
+
+function roundSol(value) {
+return Number(safeNum(value, 0).toFixed(9));
 }
 
 function solToLamports(solAmount) {
@@ -226,18 +234,25 @@ export function buildLaunchFeeBreakdown(
 totalCommitted,
 launchFeePct = DEFAULT_LAUNCH_FEE_PCT
 ) {
-const total = safeNum(totalCommitted, 0);
+const total = roundSol(safeNum(totalCommitted, 0));
 const feePct = safeNum(launchFeePct, DEFAULT_LAUNCH_FEE_PCT);
 
-const feeTotal = total * (feePct / 100);
-const coreTeamDevelopmentFee = feeTotal * FEE_SPLIT.coreTeamDevelopment;
-const ecosystemSupportFee = feeTotal * FEE_SPLIT.ecosystemSupport;
-const netRaiseAfterFee = total - feeTotal;
+const feeTotal = roundSol(total * (feePct / 100));
+const coreTeamDevelopmentFee = roundSol(
+feeTotal * FEE_SPLIT.coreTeamDevelopment
+);
+const ecosystemSupportFee = roundSol(feeTotal - coreTeamDevelopmentFee);
+const netRaiseAfterFee = roundSol(total - feeTotal);
 
 return {
+distributionType: DISTRIBUTION_TYPE,
+lpFeesHandledSeparately: true,
+lpFeeNote: LP_FEE_NOTE,
+
 totalCommitted: total,
 launchFeePct: feePct,
 feeTotal,
+totalDistributed: feeTotal,
 coreTeamDevelopmentFee,
 ecosystemSupportFee,
 netRaiseAfterFee,
@@ -279,13 +294,13 @@ const rawPlan = [
 {
 bucket: "core_team_development",
 wallet: coreTeamDevelopmentWallet,
-solAmount: breakdown.coreTeamDevelopmentFee,
+solAmount: roundSol(breakdown.coreTeamDevelopmentFee),
 lamports: solToLamports(breakdown.coreTeamDevelopmentFee),
 },
 {
 bucket: "ecosystem_support",
 wallet: ecosystemSupportWallet,
-solAmount: breakdown.ecosystemSupportFee,
+solAmount: roundSol(breakdown.ecosystemSupportFee),
 lamports: solToLamports(breakdown.ecosystemSupportFee),
 },
 ];
@@ -298,19 +313,26 @@ if (item.lamports <= 0) continue;
 const existing = merged.get(item.wallet);
 if (existing) {
 existing.lamports += item.lamports;
-existing.solAmount = lamportsToSol(existing.lamports);
+existing.solAmount = roundSol(lamportsToSol(existing.lamports));
 existing.buckets.push(item.bucket);
 } else {
 merged.set(item.wallet, {
 wallet: item.wallet,
 lamports: item.lamports,
-solAmount: lamportsToSol(item.lamports),
+solAmount: roundSol(lamportsToSol(item.lamports)),
 buckets: [item.bucket],
 });
 }
 }
 
-return Array.from(merged.values());
+return {
+recipients: {
+coreTeamDevelopmentWallet,
+ecosystemSupportWallet,
+},
+rawPlan,
+mergedPlan: Array.from(merged.values()),
+};
 }
 
 export async function distributeLaunchFees({
@@ -323,8 +345,35 @@ if (breakdown.feeTotal <= 0) {
 return {
 ok: true,
 skipped: true,
+distributionType: DISTRIBUTION_TYPE,
+lpFeesHandledSeparately: true,
+lpFeeNote: LP_FEE_NOTE,
+
+totalCommitted: breakdown.totalCommitted,
+launchFeePct: breakdown.launchFeePct,
+feeTotal: breakdown.feeTotal,
+totalDistributed: 0,
+coreTeamDevelopmentFee: breakdown.coreTeamDevelopmentFee,
+ecosystemSupportFee: breakdown.ecosystemSupportFee,
+netRaiseAfterFee: breakdown.netRaiseAfterFee,
+split: breakdown.split,
+
+coreFee: breakdown.coreFee,
+founderFee: breakdown.founderFee,
+treasuryFee: breakdown.treasuryFee,
+buybackFee: breakdown.buybackFee,
+netRaise: breakdown.netRaise,
+
 reason: "no fees to distribute",
 breakdown,
+transferPlan: {
+rawPlan: [],
+mergedPlan: [],
+recipients: {
+coreTeamDevelopmentWallet: null,
+ecosystemSupportWallet: null,
+},
+},
 transfers: [],
 };
 }
@@ -332,13 +381,34 @@ transfers: [],
 const connection = buildConnection();
 const signer = getEscrowKeypair();
 const transferPlan = buildTransferPlan(breakdown);
+const mergedPlan = transferPlan.mergedPlan;
 
-if (!transferPlan.length) {
+if (!mergedPlan.length) {
 return {
 ok: true,
 skipped: true,
+distributionType: DISTRIBUTION_TYPE,
+lpFeesHandledSeparately: true,
+lpFeeNote: LP_FEE_NOTE,
+
+totalCommitted: breakdown.totalCommitted,
+launchFeePct: breakdown.launchFeePct,
+feeTotal: breakdown.feeTotal,
+totalDistributed: 0,
+coreTeamDevelopmentFee: breakdown.coreTeamDevelopmentFee,
+ecosystemSupportFee: breakdown.ecosystemSupportFee,
+netRaiseAfterFee: breakdown.netRaiseAfterFee,
+split: breakdown.split,
+
+coreFee: breakdown.coreFee,
+founderFee: breakdown.founderFee,
+treasuryFee: breakdown.treasuryFee,
+buybackFee: breakdown.buybackFee,
+netRaise: breakdown.netRaise,
+
 reason: "all fee buckets rounded to zero lamports",
 breakdown,
+transferPlan,
 transfers: [],
 };
 }
@@ -349,7 +419,7 @@ signer.publicKey
 );
 
 const requiredLamports =
-transferPlan.reduce((sum, row) => sum + row.lamports, 0) +
+mergedPlan.reduce((sum, row) => sum + row.lamports, 0) +
 ESCROW_FEE_BUFFER_LAMPORTS;
 
 if (escrowBalanceLamports < requiredLamports) {
@@ -360,7 +430,7 @@ throw new Error(
 
 const transfers = [];
 
-for (const row of transferPlan) {
+for (const row of mergedPlan) {
 const txSignature = await sendLamports({
 connection,
 signer,
@@ -380,10 +450,37 @@ txSignature,
 }
 }
 
+const totalDistributedLamports = transfers.reduce(
+(sum, row) => sum + safeNum(row.lamports, 0),
+0
+);
+const totalDistributed = roundSol(lamportsToSol(totalDistributedLamports));
+
 return {
 ok: true,
 skipped: false,
+distributionType: DISTRIBUTION_TYPE,
+lpFeesHandledSeparately: true,
+lpFeeNote: LP_FEE_NOTE,
+
+totalCommitted: breakdown.totalCommitted,
+launchFeePct: breakdown.launchFeePct,
+feeTotal: breakdown.feeTotal,
+totalDistributed,
+totalDistributedLamports,
+coreTeamDevelopmentFee: breakdown.coreTeamDevelopmentFee,
+ecosystemSupportFee: breakdown.ecosystemSupportFee,
+netRaiseAfterFee: breakdown.netRaiseAfterFee,
+split: breakdown.split,
+
+coreFee: breakdown.coreFee,
+founderFee: breakdown.founderFee,
+treasuryFee: breakdown.treasuryFee,
+buybackFee: breakdown.buybackFee,
+netRaise: breakdown.netRaise,
+
 breakdown,
+transferPlan,
 transfers,
 };
 }

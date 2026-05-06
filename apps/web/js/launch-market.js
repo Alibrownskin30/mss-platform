@@ -42,6 +42,9 @@ const BUILDER_VESTING_RULE =
 
 const TRADE_MESSAGE_STICKY_MS = 3200;
 
+const MARKET_SOURCE_PRELIVE = "hidden_pre_live";
+const MARKET_SOURCE_UNAVAILABLE = "unavailable";
+
 function $(id) {
 return document.getElementById(id);
 }
@@ -809,7 +812,119 @@ updated_at: raw.updated_at ?? raw.updatedAt ?? null,
 graduationReadiness: normalizeGraduationReadinessPayload(
 raw.graduationReadiness || raw.graduation_readiness || null
 ),
+lpFeeBeneficiaryWallet: cleanString(
+raw.lpFeeBeneficiaryWallet ?? raw.lp_fee_beneficiary_wallet,
+240
+),
+lpFeeBeneficiaryType: cleanString(
+raw.lpFeeBeneficiaryType ?? raw.lp_fee_beneficiary_type,
+120
+),
+lpFeeControllerType: cleanString(
+raw.lpFeeControllerType ?? raw.lp_fee_controller_type,
+120
+),
+lpFeeControlMode: cleanString(
+raw.lpFeeControlMode ?? raw.lp_fee_control_mode,
+120
+),
+lpFeeDistributionModel: cleanString(
+raw.lpFeeDistributionModel ?? raw.lp_fee_distribution_model,
+160
+),
+lpFeeSource: cleanString(raw.lpFeeSource ?? raw.lp_fee_source, 120),
+lpFeeDistributorEnabled: toTruthyBoolean(
+raw.lpFeeDistributorEnabled ?? raw.lp_fee_distributor_enabled
+),
+lpFeeDistributorStatus: cleanString(
+raw.lpFeeDistributorStatus ?? raw.lp_fee_distributor_status,
+120
+),
+lpFeeDistributorAddress: cleanString(
+raw.lpFeeDistributorAddress ?? raw.lp_fee_distributor_address,
+240
+),
+lpFeeDistributorProgram: cleanString(
+raw.lpFeeDistributorProgram ?? raw.lp_fee_distributor_program,
+240
+),
+lpFeeDistributorProgramId: cleanString(
+raw.lpFeeDistributorProgramId ?? raw.lp_fee_distributor_program_id,
+240
+),
+lpFeeDistributorVault: cleanString(
+raw.lpFeeDistributorVault ?? raw.lp_fee_distributor_vault,
+240
+),
+lpFeeDistributorTx: cleanString(
+raw.lpFeeDistributorTx ?? raw.lp_fee_distributor_tx,
+240
+),
+lpFeeLastDistributedAt:
+raw.lpFeeLastDistributedAt ?? raw.lp_fee_last_distributed_at ?? null,
+builderCanRemoveLp: toTruthyBoolean(
+raw.builderCanRemoveLp ?? raw.builder_can_remove_lp
+),
+builderCanClaimLpFees: toTruthyBoolean(
+raw.builderCanClaimLpFees ?? raw.builder_can_claim_lp_fees
+),
 builderVesting,
+};
+}
+
+function normalizeSourcePayload(raw = {}) {
+if (!raw || typeof raw !== "object") {
+return {
+externalMarketVenue: EXTERNAL_MARKET.venue,
+externalMarketMode: EXTERNAL_MARKET.mode,
+chartSource: MARKET_SOURCE_PRELIVE,
+tradeSource: MARKET_SOURCE_PRELIVE,
+priceSource: MARKET_SOURCE_PRELIVE,
+liquiditySource: MARKET_SOURCE_PRELIVE,
+volumeSource: MARKET_SOURCE_PRELIVE,
+externalSyncStatus: "prelive_hidden",
+marketSyncWarning:
+"Market data is intentionally hidden until the launch is live.",
+lastTradeAt: null,
+lastCandleAt: null,
+chartIsSynthetic: false,
+};
+}
+
+return {
+externalMarketVenue:
+cleanString(
+raw.externalMarketVenue ?? raw.external_market_venue,
+120
+) || EXTERNAL_MARKET.venue,
+externalMarketMode:
+cleanString(
+raw.externalMarketMode ?? raw.external_market_mode,
+120
+) || EXTERNAL_MARKET.mode,
+chartSource:
+cleanString(raw.chartSource ?? raw.chart_source, 120) ||
+MARKET_SOURCE_UNAVAILABLE,
+tradeSource:
+cleanString(raw.tradeSource ?? raw.trade_source, 120) ||
+MARKET_SOURCE_UNAVAILABLE,
+priceSource:
+cleanString(raw.priceSource ?? raw.price_source, 120) ||
+MARKET_SOURCE_UNAVAILABLE,
+liquiditySource:
+cleanString(raw.liquiditySource ?? raw.liquidity_source, 120) ||
+MARKET_SOURCE_UNAVAILABLE,
+volumeSource:
+cleanString(raw.volumeSource ?? raw.volume_source, 120) ||
+MARKET_SOURCE_UNAVAILABLE,
+externalSyncStatus:
+cleanString(raw.externalSyncStatus ?? raw.external_sync_status, 120) ||
+"unavailable",
+marketSyncWarning:
+cleanString(raw.marketSyncWarning ?? raw.market_sync_warning, 500) || "",
+lastTradeAt: raw.lastTradeAt ?? raw.last_trade_at ?? null,
+lastCandleAt: raw.lastCandleAt ?? raw.last_candle_at ?? null,
+chartIsSynthetic: Boolean(raw.chartIsSynthetic ?? raw.chart_is_synthetic),
 };
 }
 
@@ -1317,6 +1432,37 @@ return PHASES.LIVE;
 return PHASES.COMMIT;
 }
 
+function getDaysSinceLive(launch = {}) {
+const liveStartMs = parseDateMs(launch?.live_at || launch?.updated_at || launch?.created_at);
+if (!liveStartMs) return 0;
+return Math.max(0, Math.floor((Date.now() - liveStartMs) / 86400000));
+}
+
+function getLocalMaxWalletPercent(launch = {}, connectedWallet = "") {
+const builderWallet = String(launch?.builder_wallet || "").trim().toLowerCase();
+const currentWallet = String(connectedWallet || "").trim().toLowerCase();
+const isBuilderWallet = Boolean(
+builderWallet && currentWallet && builderWallet === currentWallet
+);
+
+const days = getDaysSinceLive(launch);
+
+if (days >= PROTECTED_WALLET_CAP_DAYS) {
+return 100;
+}
+
+if (isBuilderWallet) return BUILDER_MAX_WALLET_PERCENT;
+
+return BASE_MAX_WALLET_PERCENT + days * DAILY_INCREASE_PERCENT;
+}
+
+function inferPhase(launch, commitStats = {}, lifecycle = null) {
+return resolveCanonicalPhase(
+canonicalizeLaunchTruth(launch, commitStats, lifecycle),
+lifecycle
+);
+}
+
 function canonicalizeLaunchTruth(launch = {}, commitStats = {}, lifecycle = null) {
 const merged = mergeLaunchTruth(
 normalizeLaunchTruth(launch || {}),
@@ -1374,37 +1520,6 @@ mergedWithLifecycle.status = "commit";
 }
 
 return normalizeLaunchTruth(mergedWithLifecycle);
-}
-
-function getDaysSinceLive(launch = {}) {
-const liveStartMs = parseDateMs(launch?.live_at || launch?.updated_at || launch?.created_at);
-if (!liveStartMs) return 0;
-return Math.max(0, Math.floor((Date.now() - liveStartMs) / 86400000));
-}
-
-function getLocalMaxWalletPercent(launch = {}, connectedWallet = "") {
-const builderWallet = String(launch?.builder_wallet || "").trim().toLowerCase();
-const currentWallet = String(connectedWallet || "").trim().toLowerCase();
-const isBuilderWallet = Boolean(
-builderWallet && currentWallet && builderWallet === currentWallet
-);
-
-const days = getDaysSinceLive(launch);
-
-if (days >= PROTECTED_WALLET_CAP_DAYS) {
-return 100;
-}
-
-if (isBuilderWallet) return BUILDER_MAX_WALLET_PERCENT;
-
-return BASE_MAX_WALLET_PERCENT + days * DAILY_INCREASE_PERCENT;
-}
-
-function inferPhase(launch, commitStats = {}, lifecycle = null) {
-return resolveCanonicalPhase(
-canonicalizeLaunchTruth(launch, commitStats, lifecycle),
-lifecycle
-);
 }
 
 function getVisualPhase(phase) {
@@ -2915,6 +3030,21 @@ stats?.builder_vesting_days_live,
 0
 );
 
+const walletSource = choosePreferredNonEmpty(
+wallet?.wallet_source,
+wallet?.wallet_source_kind,
+stats?.wallet_source,
+stats?.wallet_source_kind
+);
+const walletSourceWarning = choosePreferredNonEmpty(
+wallet?.wallet_source_warning,
+stats?.wallet_source_warning
+);
+const walletPositionConfidence = choosePreferredNonEmpty(
+wallet?.wallet_position_confidence,
+stats?.wallet_position_confidence
+);
+
 return {
 tokenBalance,
 totalBalance,
@@ -2931,6 +3061,9 @@ isTeamWallet,
 vestingActive,
 builderVestingPercentUnlocked,
 builderVestingDaysLive,
+walletSource,
+walletSourceWarning,
+walletPositionConfidence,
 };
 }
 
@@ -3044,7 +3177,11 @@ card.classList.toggle("hidden", !show);
 if (!show) return;
 
 const graduatedLike = isGraduatedLike(launch);
-const walletSummary = getWalletSummaryData(tokenPayload, chartStats, fallbackTokenBalance);
+const walletSummary = getWalletSummaryData(
+tokenPayload,
+chartStats,
+fallbackTokenBalance
+);
 const complianceState = getParticipantComplianceAccessState(
 participantCompliance,
 connectedWallet
@@ -3281,6 +3418,22 @@ lockTx: "",
 lockExpiresAt: null,
 marketBootstrapped: phase === PHASES.LIVE ? null : false,
 market_bootstrapped: phase === PHASES.LIVE ? null : false,
+lpFeeBeneficiaryWallet: "",
+lpFeeBeneficiaryType: "",
+lpFeeControllerType: "",
+lpFeeControlMode: "",
+lpFeeDistributionModel: "",
+lpFeeSource: "",
+lpFeeDistributorEnabled: false,
+lpFeeDistributorStatus: "",
+lpFeeDistributorAddress: "",
+lpFeeDistributorProgram: "",
+lpFeeDistributorProgramId: "",
+lpFeeDistributorVault: "",
+lpFeeDistributorTx: "",
+lpFeeLastDistributedAt: null,
+builderCanRemoveLp: false,
+builderCanClaimLpFees: false,
 builderVesting: normalizeBuilderVestingPayload({}),
 graduationReadiness: null,
 graduated: false,
@@ -3511,6 +3664,33 @@ cleanString(lifecycleSafe?.mssLockedLpAmount, 80) || "Tracked"
 `);
 }
 
+if (
+phase === PHASES.LIVE &&
+(lifecycleSafe?.lpFeeDistributorAddress ||
+lifecycleSafe?.lpFeeDistributorStatus ||
+lifecycleSafe?.lpFeeDistributorTx)
+) {
+items.push(`
+<div class="recent-item">
+<div>
+<div class="recent-wallet">LP Fee Distributor</div>
+<div class="recent-meta">${escapeHtml(
+lifecycleSafe?.lpFeeDistributorTx ||
+lifecycleSafe?.lpFeeDistributorStatus ||
+"Distributor metadata recorded"
+)}</div>
+</div>
+<div class="recent-wallet">${escapeHtml(
+lifecycleSafe?.lpFeeDistributorAddress
+? shortAddress(lifecycleSafe.lpFeeDistributorAddress, 10, 8)
+: lifecycleSafe?.lpFeeDistributorEnabled
+? "ENABLED"
+: "PENDING"
+)}</div>
+</div>
+`);
+}
+
 graduationProof.innerHTML = items.join("");
 }
 
@@ -3602,6 +3782,7 @@ tradeLimit
 const tokenPayload = tokenPayloadRaw || {};
 const snapshotWallet = snapshotPayload?.wallet || snapshotPayload?.wallet_summary || null;
 const snapshotStats = snapshotPayload?.stats || {};
+const snapshotSource = snapshotPayload?.source || null;
 
 const mergedTokenPayload = {
 ...tokenPayload,
@@ -3631,6 +3812,7 @@ snapshotPayload?.builderVesting ||
 snapshotPayload?.builder_vesting ||
 null,
 cassie: snapshotPayload?.cassie || tokenPayload?.cassie || null,
+source: snapshotSource || tokenPayload?.source || null,
 };
 
 return {
@@ -3648,6 +3830,7 @@ chartLaunch: snapshotPayload?.launch || snapshotPayload?.chart?.launch || null,
 pool: snapshotPayload?.pool || snapshotPayload?.chart?.pool || null,
 wallet: snapshotWallet,
 cassie: snapshotPayload?.cassie || null,
+source: snapshotSource || tokenPayload?.source || null,
 snapshotPayload,
 };
 }
@@ -3698,6 +3881,7 @@ this.graduationPlan = normalizeGraduationPlanPayload(options.graduationPlan || n
 this.participantCompliance = normalizeComplianceStatusPayload(
 options.participantCompliance || null
 );
+this.source = normalizeSourcePayload(options.source || null);
 this.phase = PHASES.COMMIT;
 this.currentInterval = options.initialInterval || "1m";
 this.candleLimit = Number(options.candleLimit || 180);
@@ -3993,12 +4177,26 @@ payload?.snapshotPayload?.cassie ||
 incomingTokenPayload?.cassie ||
 this.tokenPayload?.cassie ||
 null,
+source:
+payload?.source ||
+payload?.snapshotPayload?.source ||
+incomingTokenPayload?.source ||
+this.tokenPayload?.source ||
+null,
 };
 
 this.chartStats = {
 ...(this.tokenPayload?.stats || {}),
 ...(snapshotStats || {}),
 };
+
+this.source = normalizeSourcePayload(
+payload?.source ||
+payload?.snapshotPayload?.source ||
+this.tokenPayload?.source ||
+this.chartStats ||
+null
+);
 
 this.candles = payload?.candles || [];
 this.trades = resolveTradesFromPayload({
@@ -4222,6 +4420,10 @@ this.graduationPlan ||
 null
 );
 
+this.source = normalizeSourcePayload(
+tokenPayload?.source || this.source || null
+);
+
 this.launch = mergeLaunchTruth(this.launch || {}, incomingLaunch);
 this.launch = mergeLaunchTruth(this.launch || {}, commitStatsPatch);
 this.launch = mergeLaunchTruth(this.launch || {}, tokenLaunchPatch);
@@ -4276,6 +4478,7 @@ this.lifecycle?.raydiumPoolId || this.lifecycle?.raydium_pool_id,
 
 const routeReady = Boolean(contractAddress && this.phase === PHASES.LIVE);
 const venueUrl = EXTERNAL_MARKET.url;
+const source = normalizeSourcePayload(this.source || this.chartStats || this.tokenPayload?.source || null);
 
 let note = "External route unavailable.";
 if (graduatedLike && contractAddress) {
@@ -4294,15 +4497,16 @@ note = "This launch is closed.";
 }
 
 return {
-venue: EXTERNAL_MARKET.venue,
+venue: source.externalMarketVenue || EXTERNAL_MARKET.venue,
 venueUrl,
-mode: EXTERNAL_MARKET.mode,
+mode: source.externalMarketMode || EXTERNAL_MARKET.mode,
 contractAddress,
 contractState: resolvedContract.state,
 raydiumPoolId,
 routeReady,
 graduatedLike,
 note,
+source,
 };
 }
 
@@ -4312,6 +4516,8 @@ const complianceState = getParticipantComplianceAccessState(
 this.participantCompliance,
 this.connectedWallet
 );
+
+const syncWarning = route?.source?.marketSyncWarning || "";
 
 if (this.phase !== PHASES.LIVE) {
 const buttonText =
@@ -4421,7 +4627,9 @@ buttonText: route.graduatedLike
 ? `Open ${route.venue}`
 : `Copy CA & Open ${route.venue}`,
 helperType: "neutral",
-helperMessage: route.graduatedLike
+helperMessage: syncWarning
+? `${route.note} ${syncWarning}`
+: route.graduatedLike
 ? `${route.venue} is ready. MSS will open the venue and copy the contract address for convenience.`
 : `${route.venue} route is ready. MSS will copy the contract address and open the venue in a new tab.`,
 inputText: route.graduatedLike
@@ -4966,6 +5174,10 @@ if (options.participantCompliance !== undefined) {
 this.participantCompliance = normalizeComplianceStatusPayload(
 options.participantCompliance || null
 );
+}
+
+if (options.source) {
+this.source = normalizeSourcePayload(options.source || null);
 }
 
 this.commitStats = commitStats || this.commitStats || {};

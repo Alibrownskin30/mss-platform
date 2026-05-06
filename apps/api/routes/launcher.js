@@ -37,7 +37,7 @@ const TEAM_PCT_PRECISION = 6;
 const RECONCILE_INTERVAL_MS = 15000;
 const REQUIRED_MINT_TAG = "MSS";
 const RESERVED_MINT_MAX_ATTEMPTS = 1000000;
-const LAUNCH_FEE_PCT = 3;
+const LAUNCH_FEE_PCT = 5;
 
 function cleanEnv(value, max = 200) {
 return String(value ?? "").trim().slice(0, max);
@@ -203,9 +203,7 @@ return Array.isArray(parsed) ? parsed : [];
 
 function isBuilderTemplate(value) {
 const template =
-typeof value === "string"
-? value
-: String(value?.template || "").trim();
+typeof value === "string" ? value : String(value?.template || "").trim();
 
 return template === "builder";
 }
@@ -374,8 +372,7 @@ throw new Error(
 );
 }
 
-const minRaise =
-parsedMinRaise != null ? parsedMinRaise : expectedSoftCap;
+const minRaise = parsedMinRaise != null ? parsedMinRaise : expectedSoftCap;
 
 return {
 ...base,
@@ -397,8 +394,7 @@ const feePct = safeNumber(launchFeePct, LAUNCH_FEE_PCT);
 const feeTotal = total * (feePct / 100);
 const coreTeamDevelopmentFee =
 feeTotal * LAUNCH_FEE_SPLIT.coreTeamDevelopment;
-const ecosystemSupportFee =
-feeTotal * LAUNCH_FEE_SPLIT.ecosystemSupport;
+const ecosystemSupportFee = feeTotal * LAUNCH_FEE_SPLIT.ecosystemSupport;
 const netRaiseAfterFee = total - feeTotal;
 
 return {
@@ -545,7 +541,9 @@ throw new Error("team wallet breakdown must be an array");
 }
 
 if (builderCfg.team_wallet_breakdown.length > MAX_TEAM_WALLETS) {
-throw new Error(`team wallet breakdown cannot exceed ${MAX_TEAM_WALLETS}`);
+throw new Error(
+`team wallet breakdown cannot exceed ${MAX_TEAM_WALLETS}`
+);
 }
 
 const breakdownWallets = new Set();
@@ -586,7 +584,10 @@ throw new Error("team wallet breakdown must match team wallets");
 }
 
 if (builderCfg.team_allocation_pct === 0) {
-if (builderCfg.team_wallets.length || builderCfg.team_wallet_breakdown.length) {
+if (
+builderCfg.team_wallets.length ||
+builderCfg.team_wallet_breakdown.length
+) {
 throw new Error("team wallets are not allowed when team allocation is 0");
 }
 } else {
@@ -595,7 +596,9 @@ throw new Error("team wallets are required for builder launches");
 }
 
 if (!builderCfg.team_wallet_breakdown.length) {
-throw new Error("team wallet breakdown is required for builder launches");
+throw new Error(
+"team wallet breakdown is required for builder launches"
+);
 }
 
 if (!approxEqual(breakdownTotal, builderCfg.team_allocation_pct)) {
@@ -644,7 +647,10 @@ const parsedTeamWalletBreakdown = Array.isArray(row?.team_wallet_breakdown)
 : safeJsonParseArray(row?.team_wallet_breakdown);
 
 const contractAddress = cleanText(row?.contract_address, 120);
-const mintAddress = cleanText(row?.mint_address ?? row?.contract_address, 120);
+const mintAddress = cleanText(
+row?.mint_address ?? row?.contract_address,
+120
+);
 const tokenMint = cleanText(
 row?.token_mint ?? row?.mint_address ?? row?.contract_address,
 120
@@ -700,7 +706,9 @@ out.add(normalized);
 }
 }
 
-for (const entry of Array.isArray(launch.team_wallet_breakdown) ? launch.team_wallet_breakdown : []) {
+for (const entry of Array.isArray(launch.team_wallet_breakdown)
+? launch.team_wallet_breakdown
+: []) {
 const normalized = normalizeWalletKey(entry?.wallet);
 if (normalized) {
 out.add(normalized);
@@ -825,7 +833,8 @@ parsed?.mint,
 : null;
 
 const publicMintAddress = revealCa
-? cleanText(parsed?.mint_address || publicContractAddress, 120) || publicContractAddress
+? cleanText(parsed?.mint_address || publicContractAddress, 120) ||
+publicContractAddress
 : null;
 
 const publicTokenMint = revealCa
@@ -834,8 +843,13 @@ publicContractAddress
 : null;
 
 const publicMint = revealCa
-? cleanText(parsed?.mint || publicTokenMint || publicMintAddress || publicContractAddress, 120) ||
-publicContractAddress
+? cleanText(
+parsed?.mint ||
+publicTokenMint ||
+publicMintAddress ||
+publicContractAddress,
+120
+) || publicContractAddress
 : null;
 
 return {
@@ -1105,7 +1119,8 @@ function normalizeComplianceStatusPayload(payload = {}, { wallet = "", mode = "b
 const profile =
 payload?.profile && typeof payload.profile === "object" ? payload.profile : {};
 
-const status = cleanText(
+const status =
+cleanText(
 payload.status ?? payload.profile_status ?? profile.status,
 40
 ).toLowerCase() || "not_started";
@@ -1200,10 +1215,7 @@ return "builder access is restricted for the current jurisdiction";
 }
 
 if (compliance.manual_review_required) {
-return (
-compliance.manual_review_reason ||
-"builder profile is in manual review"
-);
+return compliance.manual_review_reason || "builder profile is in manual review";
 }
 
 if (compliance.status === "approved") {
@@ -1309,9 +1321,11 @@ payload = null;
 
 if (!response.ok || !payload) {
 const err = new Error(
-payload?.error || `failed to resolve builder compliance status (${response.status})`
+payload?.error ||
+`failed to resolve builder compliance status (${response.status})`
 );
-err.statusCode = response.status >= 400 && response.status < 500 ? response.status : 502;
+err.statusCode =
+response.status >= 400 && response.status < 500 ? response.status : 502;
 err.code =
 err.statusCode === 404
 ? "builder_compliance_unavailable"
@@ -1740,9 +1754,15 @@ const canonicalStatus = computeCanonicalLaunchStatus(launch);
 if (
 canonicalStatus &&
 canonicalStatus !== storedStatus &&
-["commit", "countdown", "building", "live", "graduated", "failed", "failed_refunded"].includes(
-canonicalStatus
-)
+[
+"commit",
+"countdown",
+"building",
+"live",
+"graduated",
+"failed",
+"failed_refunded",
+].includes(canonicalStatus)
 ) {
 launch = await forceLaunchStatus(launchId, canonicalStatus);
 }
@@ -2299,7 +2319,8 @@ builder = await ensureBuilderProfileForWallet(wallet);
 } catch (builderErr) {
 return res.status(400).json({
 ok: false,
-error: builderErr.message || "builder profile could not be created automatically",
+error:
+builderErr.message || "builder profile could not be created automatically",
 });
 }
 
@@ -2551,7 +2572,10 @@ commitEndsAt: launch.commit_ends_at || null,
 });
 } catch (err) {
 console.error("POST /api/launcher/prepare-commit failed:", err);
-return res.status(500).json({ ok: false, error: err.message || "failed to prepare commit" });
+return res.status(500).json({
+ok: false,
+error: err.message || "failed to prepare commit",
+});
 }
 });
 
@@ -2815,11 +2839,14 @@ liveAt: updatedLaunch.live_at || null,
 });
 } catch (err) {
 console.error("POST /api/launcher/confirm-commit failed:", err);
-return res.status(400).json({ ok: false, error: err.message || "commit verification failed" });
+return res.status(400).json({
+ok: false,
+error: err.message || "commit verification failed",
+});
 }
 });
 
-router.post("/commit", async (_req, res) => {
+router.post("/commit", (_req, res) => {
 return res.status(410).json({
 ok: false,
 error: "direct commit is deprecated. use prepare-commit and confirm-commit",
@@ -2896,10 +2923,7 @@ builderBondRefunded: 0,
 refundTxSignature: refundTransfer?.signature || null,
 totalCommitted: stats.totalCommitted,
 participants: stats.participants,
-commitPercent: buildCommitPercent(
-stats.totalCommitted,
-launch.hard_cap_sol
-),
+commitPercent: buildCommitPercent(stats.totalCommitted, launch.hard_cap_sol),
 status: launch.status,
 });
 } catch (err) {
@@ -2967,7 +2991,10 @@ updatedLaunch.hard_cap_sol
 });
 } catch (err) {
 console.error("POST /api/launcher/:id/start-countdown failed:", err);
-return res.status(500).json({ ok: false, error: err.message || "failed to start countdown" });
+return res.status(500).json({
+ok: false,
+error: err.message || "failed to start countdown",
+});
 }
 });
 
@@ -3321,13 +3348,26 @@ if (!launchId) {
 return res.status(400).json({ ok: false, error: "invalid launch id" });
 }
 
+const launchBefore = await getLaunchById(launchId);
+if (!launchBefore) {
+return res.status(404).json({ ok: false, error: "launch not found" });
+}
+
 const result = await bootstrapLiveMarket(launchId);
+const reconciledLaunch = await reconcileLaunchState(launchId);
+const hydratedLaunch = await getLaunchWithBuilderById(launchId);
+const publicLaunch = sanitizeLaunchForPublic(
+hydratedLaunch || reconciledLaunch || launchBefore
+);
 const lifecycle = await safeSyncLifecycle(launchId);
+const graduationPlan = await safeGetGraduationPlan(launchId);
 
 return res.json({
 ok: true,
+launch: publicLaunch,
 result,
 lifecycle,
+graduationPlan,
 });
 } catch (err) {
 console.error("POST /api/launcher/:id/bootstrap-market failed:", err);
@@ -3383,7 +3423,9 @@ countdown: current.filter((x) => x.status === "countdown"),
 building: current.filter((x) => x.status === "building"),
 live: current.filter((x) => x.status === "live"),
 graduated: history.filter((x) => x.status === "graduated"),
-failed: history.filter((x) => x.status === "failed" || x.status === "failed_refunded"),
+failed: history.filter(
+(x) => x.status === "failed" || x.status === "failed_refunded"
+),
 };
 
 return res.json({
@@ -3394,7 +3436,10 @@ history,
 });
 } catch (err) {
 console.error("GET /api/launcher/list failed:", err);
-return res.status(500).json({ ok: false, error: err.message || "failed to fetch launches" });
+return res.status(500).json({
+ok: false,
+error: err.message || "failed to fetch launches",
+});
 }
 });
 

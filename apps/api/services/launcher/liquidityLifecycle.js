@@ -15,8 +15,27 @@ const DEFAULT_GRADUATION_MIN_HOLDERS = 25;
 const DEFAULT_GRADUATION_MIN_LIVE_MINUTES = 15;
 const DEFAULT_MSS_LOCK_DAYS = 90;
 
+const LP_FEE_BENEFICIARY_TYPE = "builder";
+const LP_FEE_CONTROLLER_TYPE = "mss_distributor";
+const LP_FEE_CONTROL_MODE = "distributor_only";
+const LP_FEE_DISTRIBUTION_MODEL = "builder_via_mss_distributor";
+const LP_FEE_SOURCE = "raydium_lp";
+const LP_FEE_PRE_GRADUATION_SOURCE = "pending_raydium_lp";
+
 const BUILDER_VESTING_RULE =
 "0% unlocked at live. Builder allocation then unlocks at 0.5% of total supply per day for 10 days until the full 5% allocation is unlocked.";
+
+const TERMINAL_LOCK_STATUSES = new Set([
+"locked_pending_proof",
+"locked",
+"locked_proven",
+"lock_verified",
+"mss_locked",
+"raydium_locked",
+"graduated_locked",
+"migration_complete",
+"graduation_complete",
+]);
 
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
 const tableExistsCache = new Map();
@@ -143,6 +162,25 @@ function isExplicitTrueish(value) {
 if (value === true || value === 1) return true;
 const raw = String(value ?? "").trim().toLowerCase();
 return raw === "1" || raw === "true" || raw === "yes";
+}
+
+function resolveBooleanLike(value, fallback = false) {
+if (isExplicitTrueish(value)) return true;
+if (isExplicitFalseish(value)) return false;
+return Boolean(fallback);
+}
+
+function shouldRevealLifecycleContract(canonicalStatus) {
+return canonicalStatus === "live" || canonicalStatus === "graduated";
+}
+
+function isTerminalLifecycleLockStatus(value) {
+const normalized = clean(value, 64).toLowerCase();
+if (!normalized) return false;
+if (TERMINAL_LOCK_STATUSES.has(normalized)) return true;
+if (normalized.includes("verified")) return true;
+if (normalized.endsWith("_proof")) return true;
+return false;
 }
 
 async function tableExists(tableName) {
@@ -312,6 +350,16 @@ lifecycle?.totalSupply
 );
 }
 
+function resolveCirculatingSupply(launch, lifecycle = null) {
+return floorToken(
+firstPresent(
+launch?.circulating_supply,
+lifecycle?.circulating_supply,
+lifecycle?.circulatingSupply
+) || 0
+);
+}
+
 function resolveInternalSolReserve(launch, pool, lifecycle) {
 return roundSol(
 firstPresent(
@@ -347,6 +395,14 @@ lifecycle?.contractAddress
 ),
 120
 );
+}
+
+function resolveLifecycleContractAddress(launch = null, lifecycle = null, canonicalStatus = "") {
+if (!shouldRevealLifecycleContract(canonicalStatus)) {
+return null;
+}
+
+return getContractCandidateFromState(launch, lifecycle) || null;
 }
 
 function hasLiveMintSignal(launch = null, lifecycle = null) {
@@ -539,7 +595,10 @@ const persisted = clean(
 lifecycle?.graduation_status ?? lifecycle?.graduationStatus,
 64
 );
-if (persisted) return persisted;
+if (persisted && canonicalStatus === "graduated") return persisted;
+if (persisted && !["pending", "countdown", "building", "internal_live"].includes(persisted)) {
+return persisted;
+}
 
 if (canonicalStatus === "graduated") return "graduated";
 if (canonicalStatus === "live") return "internal_live";
@@ -556,8 +615,8 @@ canonicalStatus,
 hasReserves,
 marketBootstrapped
 ) {
-const persisted = clean(lifecycle?.lock_status ?? lifecycle?.lockStatus, 64);
-if (persisted) return persisted;
+const persisted = clean(lifecycle?.lock_status ?? lifecycle?.lockStatus, 64).toLowerCase();
+if (isTerminalLifecycleLockStatus(persisted)) return persisted;
 
 if (canonicalStatus === "graduated") {
 return "locked_pending_proof";
@@ -576,6 +635,219 @@ if (canonicalStatus === "countdown") return "pending_live";
 if (canonicalStatus === "commit") return "pending";
 
 return "pending";
+}
+
+function resolveLpFeeBeneficiaryWallet(launch, lifecycle) {
+return (
+clean(
+lifecycle?.lp_fee_beneficiary_wallet ??
+lifecycle?.lpFeeBeneficiaryWallet ??
+lifecycle?.builder_wallet ??
+lifecycle?.builderWallet ??
+launch?.builder_wallet,
+120
+) || null
+);
+}
+
+function resolveLpFeeBeneficiaryType(lifecycle = null) {
+return (
+clean(
+lifecycle?.lp_fee_beneficiary_type ?? lifecycle?.lpFeeBeneficiaryType,
+64
+) || LP_FEE_BENEFICIARY_TYPE
+);
+}
+
+function resolveLpFeeControllerType(lifecycle = null) {
+return (
+clean(
+lifecycle?.lp_fee_controller_type ?? lifecycle?.lpFeeControllerType,
+64
+) || LP_FEE_CONTROLLER_TYPE
+);
+}
+
+function resolveLpFeeControlMode(lifecycle = null) {
+return (
+clean(
+lifecycle?.lp_fee_control_mode ?? lifecycle?.lpFeeControlMode,
+64
+) || LP_FEE_CONTROL_MODE
+);
+}
+
+function resolveLpFeeDistributionModel(lifecycle = null) {
+return (
+clean(
+lifecycle?.lp_fee_distribution_model ?? lifecycle?.lpFeeDistributionModel,
+120
+) || LP_FEE_DISTRIBUTION_MODEL
+);
+}
+
+function resolveLpFeeSource(canonicalStatus, lifecycle = null) {
+const persisted = clean(
+lifecycle?.lp_fee_source ?? lifecycle?.lpFeeSource,
+64
+);
+if (persisted) return persisted;
+
+return canonicalStatus === "graduated"
+? LP_FEE_SOURCE
+: LP_FEE_PRE_GRADUATION_SOURCE;
+}
+
+function resolveLpFeeDistributorAddress(lifecycle = null) {
+return (
+clean(
+lifecycle?.lp_fee_distributor_address ??
+lifecycle?.lpFeeDistributorAddress ??
+lifecycle?.distributor_contract_address ??
+lifecycle?.distributorContractAddress ??
+lifecycle?.fee_distributor_address,
+200
+) || null
+);
+}
+
+function resolveLpFeeDistributorProgram(lifecycle = null) {
+return (
+clean(
+lifecycle?.lp_fee_distributor_program ??
+lifecycle?.lpFeeDistributorProgram ??
+lifecycle?.lp_fee_distributor_contract ??
+lifecycle?.lpFeeDistributorContract ??
+lifecycle?.fee_distributor_program,
+200
+) || null
+);
+}
+
+function resolveLpFeeDistributorProgramId(lifecycle = null) {
+return (
+clean(
+lifecycle?.lp_fee_distributor_program_id ??
+lifecycle?.lpFeeDistributorProgramId ??
+lifecycle?.fee_distributor_program_id,
+200
+) || null
+);
+}
+
+function resolveLpFeeDistributorVault(lifecycle = null) {
+return (
+clean(
+lifecycle?.lp_fee_distributor_vault ??
+lifecycle?.lpFeeDistributorVault ??
+lifecycle?.fee_distributor_vault,
+200
+) || null
+);
+}
+
+function resolveLpFeeDistributorTx(lifecycle = null) {
+return (
+clean(
+lifecycle?.lp_fee_distributor_tx ?? lifecycle?.lpFeeDistributorTx,
+500
+) || null
+);
+}
+
+function resolveLpFeeLastDistributedAt(lifecycle = null) {
+return (
+lifecycle?.lp_fee_last_distributed_at ??
+lifecycle?.lpFeeLastDistributedAt ??
+null
+);
+}
+
+function resolveLpFeeDistributorStatus({
+canonicalStatus,
+marketBootstrapped,
+beneficiaryWallet,
+lifecycle = null,
+}) {
+const persisted = clean(
+lifecycle?.lp_fee_distributor_status ?? lifecycle?.lpFeeDistributorStatus,
+64
+);
+if (persisted && canonicalStatus === "graduated") return persisted;
+if (
+persisted &&
+![
+"pending",
+"pending_live",
+"bootstrapping",
+"pending_raydium_migration",
+].includes(persisted)
+) {
+return persisted;
+}
+
+if (!beneficiaryWallet) return "builder_wallet_missing";
+if (canonicalStatus === "graduated") return "active";
+if (canonicalStatus === "live" && marketBootstrapped) {
+return "pending_raydium_migration";
+}
+if (canonicalStatus === "building") return "bootstrapping";
+if (canonicalStatus === "countdown") return "pending_live";
+return "pending";
+}
+
+function resolveLpFeeDistributorEnabled({
+canonicalStatus,
+marketBootstrapped,
+beneficiaryWallet,
+lifecycle = null,
+}) {
+const persisted =
+lifecycle?.lp_fee_distributor_enabled ?? lifecycle?.lpFeeDistributorEnabled;
+
+if (persisted !== undefined && persisted !== null && persisted !== "") {
+return resolveBooleanLike(persisted, false);
+}
+
+if (!beneficiaryWallet) return false;
+
+return Boolean(
+marketBootstrapped &&
+(canonicalStatus === "building" ||
+canonicalStatus === "live" ||
+canonicalStatus === "graduated")
+);
+}
+
+function resolveBuilderCanRemoveLp(lifecycle = null) {
+const persisted =
+lifecycle?.builder_can_remove_lp ?? lifecycle?.builderCanRemoveLp;
+
+if (persisted !== undefined && persisted !== null && persisted !== "") {
+return resolveBooleanLike(persisted, false);
+}
+
+return false;
+}
+
+function resolveBuilderCanClaimLpFees({
+canonicalStatus,
+distributorEnabled,
+beneficiaryWallet,
+lifecycle = null,
+}) {
+const persisted =
+lifecycle?.builder_can_claim_lp_fees ?? lifecycle?.builderCanClaimLpFees;
+
+if (persisted !== undefined && persisted !== null && persisted !== "") {
+return resolveBooleanLike(persisted, false);
+}
+
+return Boolean(
+distributorEnabled &&
+beneficiaryWallet &&
+canonicalStatus === "graduated"
+);
 }
 
 function getGraduationThresholds() {
@@ -690,6 +962,8 @@ LIMIT 1
 }
 
 async function getTrades24hVolume(launchId) {
+if (!(await tableExists("trades"))) return 0;
+
 const row = await db.get(
 `
 SELECT COALESCE(SUM(ABS(sol_amount)), 0) AS total
@@ -742,13 +1016,11 @@ const existingStart = clean(existing?.vesting_start_at, 120);
 if (existingStart) return existingStart;
 
 const liveAt = clean(launch?.live_at, 120);
-if (liveAt) return liveAt;
-
 if (
 marketBootstrapped &&
 (canonicalStatus === "live" || canonicalStatus === "graduated")
 ) {
-return nowIso();
+return liveAt || nowIso();
 }
 
 return null;
@@ -888,10 +1160,11 @@ const columns = await getTableColumns("launch_liquidity_lifecycle");
 const has = (name) => columns.has(name);
 
 const totalSupply = resolveTotalSupply(launch, token, context.lifecycle);
+const circulatingSupply = resolveCirculatingSupply(launch, context.lifecycle);
 const solReserve = resolveInternalSolReserve(launch, pool, context.lifecycle);
 const tokenReserve = resolveInternalTokenReserve(launch, pool, context.lifecycle);
 const impliedMarketcapSol = roundSol(
-computeSpotPriceSolPerToken(solReserve, tokenReserve) * totalSupply
+computeSpotPriceSolPerToken(solReserve, tokenReserve) * circulatingSupply
 );
 const marketBootstrapped =
 context.marketBootstrapped ??
@@ -926,9 +1199,10 @@ canonicalStatus === "graduated"
 
 const existing = await getLifecycleRow(launchId);
 const builderWallet = clean(launch?.builder_wallet, 120);
-const contractAddress = clean(
-launch?.contract_address || launch?.token_mint || launch?.mint_address,
-120
+const contractAddress = resolveLifecycleContractAddress(
+launch,
+existing || context.lifecycle,
+canonicalStatus
 );
 const lockStatus = resolveLockStatus(
 launch,
@@ -936,6 +1210,64 @@ existing || context.lifecycle,
 canonicalStatus,
 solReserve > 0 && tokenReserve > 0,
 marketBootstrapped
+);
+
+const lpFeeBeneficiaryWallet = resolveLpFeeBeneficiaryWallet(
+launch,
+existing || context.lifecycle
+);
+const lpFeeBeneficiaryType = resolveLpFeeBeneficiaryType(
+existing || context.lifecycle
+);
+const lpFeeControllerType = resolveLpFeeControllerType(
+existing || context.lifecycle
+);
+const lpFeeControlMode = resolveLpFeeControlMode(
+existing || context.lifecycle
+);
+const lpFeeDistributionModel = resolveLpFeeDistributionModel(
+existing || context.lifecycle
+);
+const lpFeeSource = resolveLpFeeSource(
+canonicalStatus,
+existing || context.lifecycle
+);
+const lpFeeDistributorStatus = resolveLpFeeDistributorStatus({
+canonicalStatus,
+marketBootstrapped,
+beneficiaryWallet: lpFeeBeneficiaryWallet,
+lifecycle: existing || context.lifecycle,
+});
+const lpFeeDistributorEnabled = resolveLpFeeDistributorEnabled({
+canonicalStatus,
+marketBootstrapped,
+beneficiaryWallet: lpFeeBeneficiaryWallet,
+lifecycle: existing || context.lifecycle,
+});
+const builderCanRemoveLp = resolveBuilderCanRemoveLp(existing || context.lifecycle);
+const builderCanClaimLpFees = resolveBuilderCanClaimLpFees({
+canonicalStatus,
+distributorEnabled: lpFeeDistributorEnabled,
+beneficiaryWallet: lpFeeBeneficiaryWallet,
+lifecycle: existing || context.lifecycle,
+});
+const lpFeeDistributorAddress = resolveLpFeeDistributorAddress(
+existing || context.lifecycle
+);
+const lpFeeDistributorProgram = resolveLpFeeDistributorProgram(
+existing || context.lifecycle
+);
+const lpFeeDistributorProgramId = resolveLpFeeDistributorProgramId(
+existing || context.lifecycle
+);
+const lpFeeDistributorVault = resolveLpFeeDistributorVault(
+existing || context.lifecycle
+);
+const lpFeeDistributorTx = resolveLpFeeDistributorTx(
+existing || context.lifecycle
+);
+const lpFeeLastDistributedAt = resolveLpFeeLastDistributedAt(
+existing || context.lifecycle
 );
 
 if (existing) {
@@ -974,9 +1306,7 @@ if (has("graduation_status")) {
 sets.push(`
 graduation_status = CASE
 WHEN COALESCE(graduated, 0) = 1 THEN graduation_status
-WHEN graduation_status IS NULL OR graduation_status IN ('pending', 'countdown', 'building', 'internal_live')
-THEN ?
-ELSE graduation_status
+ELSE ?
 END
 `);
 values.push(defaultGraduationStatus);
@@ -990,9 +1320,104 @@ sets.push("mss_locked_target_pct = COALESCE(mss_locked_target_pct, ?)");
 values.push(MSS_LOCK_SPLIT_PCT);
 }
 if (has("lock_status")) {
-sets.push("lock_status = COALESCE(lock_status, ?)");
+sets.push("lock_status = ?");
 values.push(lockStatus);
 }
+
+if (has("lp_fee_beneficiary_wallet")) {
+sets.push("lp_fee_beneficiary_wallet = ?");
+values.push(lpFeeBeneficiaryWallet);
+}
+if (has("lp_fee_beneficiary_type")) {
+sets.push("lp_fee_beneficiary_type = ?");
+values.push(lpFeeBeneficiaryType);
+}
+if (has("lp_fee_controller_type")) {
+sets.push("lp_fee_controller_type = ?");
+values.push(lpFeeControllerType);
+}
+if (has("lp_fee_control_mode")) {
+sets.push("lp_fee_control_mode = ?");
+values.push(lpFeeControlMode);
+}
+if (has("lp_fee_distribution_model")) {
+sets.push("lp_fee_distribution_model = ?");
+values.push(lpFeeDistributionModel);
+}
+if (has("lp_fee_source")) {
+sets.push("lp_fee_source = ?");
+values.push(lpFeeSource);
+}
+if (has("lp_fee_distributor_enabled")) {
+sets.push("lp_fee_distributor_enabled = ?");
+values.push(lpFeeDistributorEnabled ? 1 : 0);
+}
+if (has("lp_fee_distributor_status")) {
+sets.push("lp_fee_distributor_status = ?");
+values.push(lpFeeDistributorStatus);
+}
+if (has("builder_can_remove_lp")) {
+sets.push("builder_can_remove_lp = ?");
+values.push(builderCanRemoveLp ? 1 : 0);
+}
+if (has("lp_fee_can_builder_remove_lp")) {
+sets.push("lp_fee_can_builder_remove_lp = ?");
+values.push(builderCanRemoveLp ? 1 : 0);
+}
+if (has("builder_can_claim_lp_fees")) {
+sets.push("builder_can_claim_lp_fees = ?");
+values.push(builderCanClaimLpFees ? 1 : 0);
+}
+if (has("lp_fee_distributor_address")) {
+sets.push("lp_fee_distributor_address = COALESCE(lp_fee_distributor_address, ?)");
+values.push(lpFeeDistributorAddress);
+}
+if (has("lp_fee_distributor_program")) {
+sets.push("lp_fee_distributor_program = COALESCE(lp_fee_distributor_program, ?)");
+values.push(lpFeeDistributorProgram);
+}
+if (has("lp_fee_distributor_program_id")) {
+sets.push("lp_fee_distributor_program_id = COALESCE(lp_fee_distributor_program_id, ?)");
+values.push(lpFeeDistributorProgramId);
+}
+if (has("lp_fee_distributor_vault")) {
+sets.push("lp_fee_distributor_vault = COALESCE(lp_fee_distributor_vault, ?)");
+values.push(lpFeeDistributorVault);
+}
+if (has("lp_fee_distributor_tx")) {
+sets.push("lp_fee_distributor_tx = COALESCE(lp_fee_distributor_tx, ?)");
+values.push(lpFeeDistributorTx);
+}
+if (has("lp_fee_last_distributed_at")) {
+sets.push("lp_fee_last_distributed_at = COALESCE(lp_fee_last_distributed_at, ?)");
+values.push(lpFeeLastDistributedAt);
+}
+
+if (has("fee_distributor_status")) {
+sets.push("fee_distributor_status = ?");
+values.push(lpFeeDistributorStatus);
+}
+if (has("fee_distributor_address")) {
+sets.push("fee_distributor_address = COALESCE(fee_distributor_address, ?)");
+values.push(lpFeeDistributorAddress);
+}
+if (has("fee_distributor_wallet")) {
+sets.push("fee_distributor_wallet = COALESCE(fee_distributor_wallet, ?)");
+values.push(lpFeeDistributorAddress);
+}
+if (has("fee_distributor_program")) {
+sets.push("fee_distributor_program = COALESCE(fee_distributor_program, ?)");
+values.push(lpFeeDistributorProgram);
+}
+if (has("fee_distributor_program_id")) {
+sets.push("fee_distributor_program_id = COALESCE(fee_distributor_program_id, ?)");
+values.push(lpFeeDistributorProgramId);
+}
+if (has("fee_distributor_vault")) {
+sets.push("fee_distributor_vault = COALESCE(fee_distributor_vault, ?)");
+values.push(lpFeeDistributorVault);
+}
+
 if (has("updated_at")) {
 sets.push("updated_at = CURRENT_TIMESTAMP");
 }
@@ -1073,6 +1498,124 @@ insertColumns.push("lock_status");
 placeholders.push("?");
 values.push(lockStatus);
 }
+
+if (has("lp_fee_beneficiary_wallet")) {
+insertColumns.push("lp_fee_beneficiary_wallet");
+placeholders.push("?");
+values.push(lpFeeBeneficiaryWallet);
+}
+if (has("lp_fee_beneficiary_type")) {
+insertColumns.push("lp_fee_beneficiary_type");
+placeholders.push("?");
+values.push(lpFeeBeneficiaryType);
+}
+if (has("lp_fee_controller_type")) {
+insertColumns.push("lp_fee_controller_type");
+placeholders.push("?");
+values.push(lpFeeControllerType);
+}
+if (has("lp_fee_control_mode")) {
+insertColumns.push("lp_fee_control_mode");
+placeholders.push("?");
+values.push(lpFeeControlMode);
+}
+if (has("lp_fee_distribution_model")) {
+insertColumns.push("lp_fee_distribution_model");
+placeholders.push("?");
+values.push(lpFeeDistributionModel);
+}
+if (has("lp_fee_source")) {
+insertColumns.push("lp_fee_source");
+placeholders.push("?");
+values.push(lpFeeSource);
+}
+if (has("lp_fee_distributor_enabled")) {
+insertColumns.push("lp_fee_distributor_enabled");
+placeholders.push("?");
+values.push(lpFeeDistributorEnabled ? 1 : 0);
+}
+if (has("lp_fee_distributor_status")) {
+insertColumns.push("lp_fee_distributor_status");
+placeholders.push("?");
+values.push(lpFeeDistributorStatus);
+}
+if (has("builder_can_remove_lp")) {
+insertColumns.push("builder_can_remove_lp");
+placeholders.push("?");
+values.push(builderCanRemoveLp ? 1 : 0);
+}
+if (has("lp_fee_can_builder_remove_lp")) {
+insertColumns.push("lp_fee_can_builder_remove_lp");
+placeholders.push("?");
+values.push(builderCanRemoveLp ? 1 : 0);
+}
+if (has("builder_can_claim_lp_fees")) {
+insertColumns.push("builder_can_claim_lp_fees");
+placeholders.push("?");
+values.push(builderCanClaimLpFees ? 1 : 0);
+}
+if (has("lp_fee_distributor_address")) {
+insertColumns.push("lp_fee_distributor_address");
+placeholders.push("?");
+values.push(lpFeeDistributorAddress);
+}
+if (has("lp_fee_distributor_program")) {
+insertColumns.push("lp_fee_distributor_program");
+placeholders.push("?");
+values.push(lpFeeDistributorProgram);
+}
+if (has("lp_fee_distributor_program_id")) {
+insertColumns.push("lp_fee_distributor_program_id");
+placeholders.push("?");
+values.push(lpFeeDistributorProgramId);
+}
+if (has("lp_fee_distributor_vault")) {
+insertColumns.push("lp_fee_distributor_vault");
+placeholders.push("?");
+values.push(lpFeeDistributorVault);
+}
+if (has("lp_fee_distributor_tx")) {
+insertColumns.push("lp_fee_distributor_tx");
+placeholders.push("?");
+values.push(lpFeeDistributorTx);
+}
+if (has("lp_fee_last_distributed_at")) {
+insertColumns.push("lp_fee_last_distributed_at");
+placeholders.push("?");
+values.push(lpFeeLastDistributedAt);
+}
+
+if (has("fee_distributor_status")) {
+insertColumns.push("fee_distributor_status");
+placeholders.push("?");
+values.push(lpFeeDistributorStatus);
+}
+if (has("fee_distributor_address")) {
+insertColumns.push("fee_distributor_address");
+placeholders.push("?");
+values.push(lpFeeDistributorAddress);
+}
+if (has("fee_distributor_wallet")) {
+insertColumns.push("fee_distributor_wallet");
+placeholders.push("?");
+values.push(lpFeeDistributorAddress);
+}
+if (has("fee_distributor_program")) {
+insertColumns.push("fee_distributor_program");
+placeholders.push("?");
+values.push(lpFeeDistributorProgram);
+}
+if (has("fee_distributor_program_id")) {
+insertColumns.push("fee_distributor_program_id");
+placeholders.push("?");
+values.push(lpFeeDistributorProgramId);
+}
+if (has("fee_distributor_vault")) {
+insertColumns.push("fee_distributor_vault");
+placeholders.push("?");
+values.push(lpFeeDistributorVault);
+}
+
 if (has("created_at")) {
 insertColumns.push("created_at");
 placeholders.push("CURRENT_TIMESTAMP");
@@ -1138,10 +1681,11 @@ context = {}
 const thresholds = getGraduationThresholds();
 
 const totalSupply = resolveTotalSupply(launch, token, lifecycle);
+const circulatingSupply = resolveCirculatingSupply(launch, lifecycle);
 const solReserve = resolveInternalSolReserve(launch, pool, lifecycle);
 const tokenReserve = resolveInternalTokenReserve(launch, pool, lifecycle);
 const priceSol = computeSpotPriceSolPerToken(solReserve, tokenReserve);
-const marketcapSol = roundSol(priceSol * totalSupply);
+const marketcapSol = roundSol(priceSol * circulatingSupply);
 const volume24hSol = await getTrades24hVolume(launchId);
 const holderCount = await getHolderCount(launchId);
 const liveMinutes = getLiveMinutes(launch);
@@ -1217,6 +1761,7 @@ solReserve,
 tokenReserve,
 priceSol,
 totalSupply,
+circulatingSupply,
 },
 checks,
 };
@@ -1232,6 +1777,7 @@ context = {},
 }) {
 const thresholds = getGraduationThresholds();
 const totalSupply = resolveTotalSupply(launch, token, lifecycle);
+const circulatingSupply = resolveCirculatingSupply(launch, lifecycle);
 const solReserve = resolveInternalSolReserve(launch, pool, lifecycle);
 const tokenReserve = resolveInternalTokenReserve(launch, pool, lifecycle);
 const marketBootstrapped =
@@ -1252,7 +1798,7 @@ computeCanonicalLifecycleStatus(launch, lifecycle, marketBootstrapped);
 
 const liveMinutes = getLiveMinutes(launch);
 const priceSol = computeSpotPriceSolPerToken(solReserve, tokenReserve);
-const marketcapSol = roundSol(priceSol * totalSupply);
+const marketcapSol = roundSol(priceSol * circulatingSupply);
 const alreadyGraduated =
 lifecycleIsGraduated(lifecycle) || canonicalStatus === "graduated";
 
@@ -1277,6 +1823,7 @@ solReserve,
 tokenReserve,
 priceSol,
 totalSupply,
+circulatingSupply,
 },
 checks: {
 liveStatus: canonicalStatus === "live" || canonicalStatus === "graduated",
@@ -1418,10 +1965,11 @@ context.canonicalStatus ||
 computeCanonicalLifecycleStatus(launch, lifecycle, marketBootstrapped);
 
 const totalSupply = resolveTotalSupply(launch, token, lifecycle);
+const circulatingSupply = resolveCirculatingSupply(launch, lifecycle);
 const solReserve = resolveInternalSolReserve(launch, pool, lifecycle);
 const tokenReserve = resolveInternalTokenReserve(launch, pool, lifecycle);
 const price = computeSpotPriceSolPerToken(solReserve, tokenReserve);
-const impliedMarketcapSol = roundSol(price * totalSupply);
+const impliedMarketcapSol = roundSol(price * circulatingSupply);
 const graduationStatus = resolveGraduationStatus(
 launch,
 lifecycle,
@@ -1447,14 +1995,11 @@ canonicalStatus,
 hasReserves,
 marketBootstrapped
 );
-const contractAddress =
-clean(
-launch?.contract_address ||
-launch?.token_mint ||
-launch?.mint_address ||
-lifecycle?.contract_address,
-120
-) || null;
+const contractAddress = resolveLifecycleContractAddress(
+launch,
+lifecycle,
+canonicalStatus
+);
 const builderWallet =
 clean(
 launch?.builder_wallet ||
@@ -1462,6 +2007,38 @@ lifecycle?.builder_wallet ||
 lifecycle?.builderWallet,
 120
 ) || null;
+
+const lpFeeBeneficiaryWallet = resolveLpFeeBeneficiaryWallet(launch, lifecycle);
+const lpFeeBeneficiaryType = resolveLpFeeBeneficiaryType(lifecycle);
+const lpFeeControllerType = resolveLpFeeControllerType(lifecycle);
+const lpFeeControlMode = resolveLpFeeControlMode(lifecycle);
+const lpFeeDistributionModel = resolveLpFeeDistributionModel(lifecycle);
+const lpFeeSource = resolveLpFeeSource(canonicalStatus, lifecycle);
+const lpFeeDistributorAddress = resolveLpFeeDistributorAddress(lifecycle);
+const lpFeeDistributorProgram = resolveLpFeeDistributorProgram(lifecycle);
+const lpFeeDistributorProgramId = resolveLpFeeDistributorProgramId(lifecycle);
+const lpFeeDistributorVault = resolveLpFeeDistributorVault(lifecycle);
+const lpFeeDistributorTx = resolveLpFeeDistributorTx(lifecycle);
+const lpFeeLastDistributedAt = resolveLpFeeLastDistributedAt(lifecycle);
+const lpFeeDistributorEnabled = resolveLpFeeDistributorEnabled({
+canonicalStatus,
+marketBootstrapped,
+beneficiaryWallet: lpFeeBeneficiaryWallet,
+lifecycle,
+});
+const lpFeeDistributorStatus = resolveLpFeeDistributorStatus({
+canonicalStatus,
+marketBootstrapped,
+beneficiaryWallet: lpFeeBeneficiaryWallet,
+lifecycle,
+});
+const builderCanRemoveLp = resolveBuilderCanRemoveLp(lifecycle);
+const builderCanClaimLpFees = resolveBuilderCanClaimLpFees({
+canonicalStatus,
+distributorEnabled: lpFeeDistributorEnabled,
+beneficiaryWallet: lpFeeBeneficiaryWallet,
+lifecycle,
+});
 
 const updatedAt =
 lifecycle?.updated_at ||
@@ -1489,6 +2066,9 @@ market_bootstrapped: marketBootstrapped,
 
 totalSupply,
 total_supply: totalSupply,
+
+circulatingSupply,
+circulating_supply: circulatingSupply,
 
 priceSol: price,
 price_sol: price,
@@ -1621,6 +2201,55 @@ lockExpiresAt:
 lifecycle?.lock_expires_at ?? lifecycle?.lockExpiresAt ?? null,
 lock_expires_at:
 lifecycle?.lock_expires_at ?? lifecycle?.lockExpiresAt ?? null,
+
+lpFeeBeneficiaryWallet,
+lp_fee_beneficiary_wallet: lpFeeBeneficiaryWallet,
+
+lpFeeBeneficiaryType,
+lp_fee_beneficiary_type: lpFeeBeneficiaryType,
+
+lpFeeControllerType,
+lp_fee_controller_type: lpFeeControllerType,
+
+lpFeeControlMode,
+lp_fee_control_mode: lpFeeControlMode,
+
+lpFeeDistributionModel,
+lp_fee_distribution_model: lpFeeDistributionModel,
+
+lpFeeSource,
+lp_fee_source: lpFeeSource,
+
+lpFeeDistributorEnabled,
+lp_fee_distributor_enabled: lpFeeDistributorEnabled,
+
+lpFeeDistributorStatus,
+lp_fee_distributor_status: lpFeeDistributorStatus,
+
+lpFeeDistributorAddress,
+lp_fee_distributor_address: lpFeeDistributorAddress,
+
+lpFeeDistributorProgram,
+lp_fee_distributor_program: lpFeeDistributorProgram,
+
+lpFeeDistributorProgramId,
+lp_fee_distributor_program_id: lpFeeDistributorProgramId,
+
+lpFeeDistributorVault,
+lp_fee_distributor_vault: lpFeeDistributorVault,
+
+lpFeeDistributorTx,
+lp_fee_distributor_tx: lpFeeDistributorTx,
+
+lpFeeLastDistributedAt,
+lp_fee_last_distributed_at: lpFeeLastDistributedAt,
+
+builderCanRemoveLp,
+builder_can_remove_lp: builderCanRemoveLp,
+lp_fee_can_builder_remove_lp: builderCanRemoveLp,
+
+builderCanClaimLpFees,
+builder_can_claim_lp_fees: builderCanClaimLpFees,
 
 createdAt: lifecycle?.created_at || null,
 created_at: lifecycle?.created_at || null,
@@ -1864,9 +2493,32 @@ marketBootstrapped: true,
 lifecycle: await getLifecycleRow(launchId),
 });
 
-const plan = buildGraduationPlan(pool, launch, await getLifecycleRow(launchId));
+const existingLifecycle = await getLifecycleRow(launchId);
+const plan = buildGraduationPlan(pool, launch, existingLifecycle);
 const columns = await getTableColumns("launch_liquidity_lifecycle");
 const has = (name) => columns.has(name);
+
+const lpFeeBeneficiaryWallet = resolveLpFeeBeneficiaryWallet(
+launch,
+existingLifecycle
+);
+const lpFeeBeneficiaryType = resolveLpFeeBeneficiaryType(existingLifecycle);
+const lpFeeControllerType = resolveLpFeeControllerType(existingLifecycle);
+const lpFeeControlMode = resolveLpFeeControlMode(existingLifecycle);
+const lpFeeDistributionModel = resolveLpFeeDistributionModel(existingLifecycle);
+const lpFeeSource = resolveLpFeeSource("graduated", existingLifecycle);
+const lpFeeDistributorEnabled = Boolean(lpFeeBeneficiaryWallet);
+const lpFeeDistributorStatus = lpFeeBeneficiaryWallet
+? "active"
+: "builder_wallet_missing";
+const builderCanRemoveLp = false;
+const builderCanClaimLpFees = Boolean(lpFeeBeneficiaryWallet);
+const lpFeeDistributorAddress = resolveLpFeeDistributorAddress(existingLifecycle);
+const lpFeeDistributorProgram = resolveLpFeeDistributorProgram(existingLifecycle);
+const lpFeeDistributorProgramId = resolveLpFeeDistributorProgramId(existingLifecycle);
+const lpFeeDistributorVault = resolveLpFeeDistributorVault(existingLifecycle);
+const lpFeeDistributorTx = resolveLpFeeDistributorTx(existingLifecycle);
+const lpFeeLastDistributedAt = resolveLpFeeLastDistributedAt(existingLifecycle);
 
 const sets = [];
 const values = [];
@@ -1874,6 +2526,10 @@ const values = [];
 if (has("launch_status")) {
 sets.push("launch_status = ?");
 values.push("graduated");
+}
+if (has("contract_address")) {
+sets.push("contract_address = ?");
+values.push(resolveLifecycleContractAddress(launch, existingLifecycle, "graduated"));
 }
 if (has("market_bootstrapped")) {
 sets.push("market_bootstrapped = ?");
@@ -1938,6 +2594,101 @@ if (has("lock_expires_at")) {
 sets.push("lock_expires_at = ?");
 values.push(clean(lockExpiresAt, 120));
 }
+
+if (has("lp_fee_beneficiary_wallet")) {
+sets.push("lp_fee_beneficiary_wallet = ?");
+values.push(lpFeeBeneficiaryWallet);
+}
+if (has("lp_fee_beneficiary_type")) {
+sets.push("lp_fee_beneficiary_type = ?");
+values.push(lpFeeBeneficiaryType);
+}
+if (has("lp_fee_controller_type")) {
+sets.push("lp_fee_controller_type = ?");
+values.push(lpFeeControllerType);
+}
+if (has("lp_fee_control_mode")) {
+sets.push("lp_fee_control_mode = ?");
+values.push(lpFeeControlMode);
+}
+if (has("lp_fee_distribution_model")) {
+sets.push("lp_fee_distribution_model = ?");
+values.push(lpFeeDistributionModel);
+}
+if (has("lp_fee_source")) {
+sets.push("lp_fee_source = ?");
+values.push(lpFeeSource);
+}
+if (has("lp_fee_distributor_enabled")) {
+sets.push("lp_fee_distributor_enabled = ?");
+values.push(lpFeeDistributorEnabled ? 1 : 0);
+}
+if (has("lp_fee_distributor_status")) {
+sets.push("lp_fee_distributor_status = ?");
+values.push(lpFeeDistributorStatus);
+}
+if (has("builder_can_remove_lp")) {
+sets.push("builder_can_remove_lp = ?");
+values.push(builderCanRemoveLp ? 1 : 0);
+}
+if (has("lp_fee_can_builder_remove_lp")) {
+sets.push("lp_fee_can_builder_remove_lp = ?");
+values.push(builderCanRemoveLp ? 1 : 0);
+}
+if (has("builder_can_claim_lp_fees")) {
+sets.push("builder_can_claim_lp_fees = ?");
+values.push(builderCanClaimLpFees ? 1 : 0);
+}
+if (has("lp_fee_distributor_address")) {
+sets.push("lp_fee_distributor_address = ?");
+values.push(lpFeeDistributorAddress);
+}
+if (has("lp_fee_distributor_program")) {
+sets.push("lp_fee_distributor_program = ?");
+values.push(lpFeeDistributorProgram);
+}
+if (has("lp_fee_distributor_program_id")) {
+sets.push("lp_fee_distributor_program_id = ?");
+values.push(lpFeeDistributorProgramId);
+}
+if (has("lp_fee_distributor_vault")) {
+sets.push("lp_fee_distributor_vault = ?");
+values.push(lpFeeDistributorVault);
+}
+if (has("lp_fee_distributor_tx")) {
+sets.push("lp_fee_distributor_tx = ?");
+values.push(lpFeeDistributorTx);
+}
+if (has("lp_fee_last_distributed_at")) {
+sets.push("lp_fee_last_distributed_at = ?");
+values.push(lpFeeLastDistributedAt);
+}
+
+if (has("fee_distributor_status")) {
+sets.push("fee_distributor_status = ?");
+values.push(lpFeeDistributorStatus);
+}
+if (has("fee_distributor_address")) {
+sets.push("fee_distributor_address = ?");
+values.push(lpFeeDistributorAddress);
+}
+if (has("fee_distributor_wallet")) {
+sets.push("fee_distributor_wallet = ?");
+values.push(lpFeeDistributorAddress);
+}
+if (has("fee_distributor_program")) {
+sets.push("fee_distributor_program = ?");
+values.push(lpFeeDistributorProgram);
+}
+if (has("fee_distributor_program_id")) {
+sets.push("fee_distributor_program_id = ?");
+values.push(lpFeeDistributorProgramId);
+}
+if (has("fee_distributor_vault")) {
+sets.push("fee_distributor_vault = ?");
+values.push(lpFeeDistributorVault);
+}
+
 if (has("updated_at")) {
 sets.push("updated_at = CURRENT_TIMESTAMP");
 }
