@@ -345,6 +345,7 @@ letter-spacing: 0.08em;
 margin-top: 8px;
 font-size: 13px;
 font-weight: 700;
+line-height: 1.5;
 }
 
 .main {
@@ -611,6 +612,7 @@ letter-spacing: 0.08em;
 margin-top: 8px;
 font-size: 14px;
 font-weight: 700;
+line-height: 1.5;
 }
 
 .summary-copy {
@@ -618,6 +620,60 @@ margin-top: 8px;
 color: var(--muted);
 font-size: 13px;
 line-height: 1.55;
+}
+
+.signal-stack {
+display: grid;
+gap: 10px;
+margin-top: 14px;
+}
+
+.signal-item {
+padding: 12px 13px;
+border-radius: 12px;
+border: 1px solid rgba(104, 255, 199, 0.08);
+background: rgba(10, 18, 15, 0.74);
+}
+
+.signal-item.severity-critical,
+.signal-item.severity-high {
+border-color: rgba(255, 124, 124, 0.18);
+}
+
+.signal-item.severity-medium {
+border-color: rgba(255, 207, 102, 0.18);
+}
+
+.signal-item.severity-low {
+border-color: rgba(104, 255, 199, 0.14);
+}
+
+.signal-item-top {
+display: flex;
+align-items: center;
+justify-content: space-between;
+gap: 10px;
+margin-bottom: 8px;
+font-size: 11px;
+text-transform: uppercase;
+letter-spacing: 0.08em;
+color: var(--muted);
+}
+
+.signal-item-copy {
+font-size: 13px;
+line-height: 1.6;
+color: var(--text);
+}
+
+.signal-empty {
+padding: 12px 13px;
+border-radius: 12px;
+border: 1px solid rgba(104, 255, 199, 0.08);
+background: rgba(10, 18, 15, 0.74);
+font-size: 13px;
+line-height: 1.55;
+color: var(--muted);
 }
 
 .banner {
@@ -741,10 +797,10 @@ Connect Wallet
 <div class="eyebrow">Access Verification</div>
 <h1>Operational access control for builder and participant workflows.</h1>
 <p>
-Complete the MSS Protocol compliance profile required for gated launcher
-access. Public discovery stays open, while transaction-sensitive actions
-can be restricted based on verification status, jurisdiction, or review
-requirements.
+Complete the MSS Protocol compliance profile required for builder and
+participant workflows. Public discovery can remain open, while
+transaction-sensitive actions can be restricted, silently monitored,
+or escalated based on verification status, jurisdiction, and risk signals.
 </p>
 
 <div class="hero-points">
@@ -768,7 +824,7 @@ requirements.
 <h2 class="section-title">Current access state</h2>
 <p class="section-copy">
 This panel reflects the current compliance status tied to the connected
-wallet and determines whether builder or participant actions remain gated.
+wallet and how the active bucket model is treating access.
 </p>
 </div>
 
@@ -797,7 +853,7 @@ Connect a wallet to load or begin a compliance profile.
 <div class="status-meta-value" id="riskValue">Low</div>
 </div>
 <div class="status-meta-card">
-<div class="status-meta-label">Transactional Access</div>
+<div class="status-meta-label">Access State</div>
 <div class="status-meta-value" id="accessValue">Blocked</div>
 </div>
 </div>
@@ -805,21 +861,28 @@ Connect a wallet to load or begin a compliance profile.
 
 <div class="summary-grid">
 <div class="summary-card">
-<div class="summary-label">Builder Gate</div>
-<div class="summary-value" id="builderGateValue">Loading</div>
-<div class="summary-copy">
-Launch creation can be locked behind builder verification without
-changing the public launch discovery layer.
-</div>
+<div class="summary-label">Reason</div>
+<div class="summary-value" id="accessReasonValue">Waiting for wallet or profile.</div>
 </div>
 
 <div class="summary-card">
-<div class="summary-label">Participant Gate</div>
-<div class="summary-value" id="participantGateValue">Loading</div>
-<div class="summary-copy">
-Commit and live transaction access can remain disabled until the
-wallet profile reaches an approved state.
+<div class="summary-label">Active Mode Bucket</div>
+<div class="summary-value" id="modeBucketValue">Unknown</div>
 </div>
+
+<div class="summary-card">
+<div class="summary-label">Builder Bucket</div>
+<div class="summary-value" id="builderBucketValue">Unknown</div>
+</div>
+
+<div class="summary-card">
+<div class="summary-label">Participant Bucket</div>
+<div class="summary-value" id="participantBucketValue">Unknown</div>
+</div>
+
+<div class="summary-card">
+<div class="summary-label">Jurisdiction Bucket</div>
+<div class="summary-value" id="jurisdictionBucketValue">Unknown</div>
 </div>
 </div>
 </aside>
@@ -836,8 +899,8 @@ wallet profile reaches an approved state.
 <h2 class="section-title">Compliance profile</h2>
 <p class="section-copy">
 Use the mode toggle to switch between participant and builder access
-requirements. The same wallet can maintain one compliance profile with
-mode-specific review context.
+requirements. The same wallet can maintain one profile while mode-specific
+policy decides whether access is open, silent, required, or escalated.
 </p>
 </div>
 
@@ -872,7 +935,7 @@ autocomplete="off"
 />
 <div class="hint">
 Wallet-linked access is used to determine whether launch creation,
-commit, and live terminal actions remain gated.
+commit, and other transaction-sensitive actions remain gated.
 </div>
 </div>
 <div style="display:flex; align-items:flex-end;">
@@ -1153,6 +1216,48 @@ Submit Profile
 
 <aside class="sidebar-stack">
 <section class="panel">
+<h2 class="section-title">Bucket routing</h2>
+<p class="section-copy">
+MSS now supports required, silent, and escalation handling so access can stay smooth
+by default and only intervene when actual risk conditions trigger it.
+</p>
+
+<div class="summary-grid" style="margin-top: 14px;">
+<div class="summary-card">
+<div class="summary-label">Mode Routing</div>
+<div class="summary-value" id="summaryModeValue">Participant</div>
+<div class="summary-copy">
+The selected surface currently being evaluated.
+</div>
+</div>
+
+<div class="summary-card">
+<div class="summary-label">Review Outcome</div>
+<div class="summary-value" id="summaryOutcomeValue">Pending</div>
+<div class="summary-copy">
+Current access outcome returned by the active policy.
+</div>
+</div>
+</div>
+</section>
+
+<section id="blockingSignalsSection" class="panel hidden">
+<h2 class="section-title">Blocking signals</h2>
+<p class="section-copy">
+These conditions are actively stopping transactional access.
+</p>
+<div id="blockingSignalsList" class="signal-stack"></div>
+</section>
+
+<section id="escalationSignalsSection" class="panel hidden">
+<h2 class="section-title">Escalation signals</h2>
+<p class="section-copy">
+These conditions do not automatically close access unless the policy requires intervention.
+</p>
+<div id="escalationSignalsList" class="signal-stack"></div>
+</section>
+
+<section class="panel">
 <h2 class="section-title">Review checkpoints</h2>
 <p class="section-copy">
 This checklist reflects the practical access criteria for gated launcher flows.
@@ -1180,7 +1285,7 @@ Entity controllers or representatives added where required.
 <div class="checklist-item">
 <div class="checklist-index">4</div>
 <div class="checklist-copy">
-Manual review risk flags resolved before transactional access is enabled.
+Manual review and escalation signals resolved only when policy requires intervention.
 </div>
 </div>
 </div>
@@ -1190,23 +1295,24 @@ Manual review risk flags resolved before transactional access is enabled.
 <h2 class="section-title">Operational note</h2>
 <p class="section-copy">
 Public discovery can remain live while builder creation, commit access,
-and transactional market actions are gated behind this profile state.
+and transactional market actions are gated, silently monitored, or escalated
+behind this profile state.
 </p>
 
 <div class="summary-grid" style="margin-top: 14px;">
 <div class="summary-card">
-<div class="summary-label">Mode Routing</div>
-<div class="summary-value" id="summaryModeValue">Participant</div>
+<div class="summary-label">Builder Gate</div>
+<div class="summary-value" id="builderGateValue">Loading</div>
 <div class="summary-copy">
-Builder mode is intended for launch creation and builder profile review.
+Builder creation can be required, silently monitored, or escalated.
 </div>
 </div>
 
 <div class="summary-card">
-<div class="summary-label">Review Outcome</div>
-<div class="summary-value" id="summaryOutcomeValue">Pending</div>
+<div class="summary-label">Participant Gate</div>
+<div class="summary-value" id="participantGateValue">Loading</div>
 <div class="summary-copy">
-Transactional access only becomes available once the connected wallet is approved.
+Participant commit and live transaction access can follow a separate bucket.
 </div>
 </div>
 </div>

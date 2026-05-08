@@ -865,73 +865,158 @@ function getBuilderCompliancePayload() {
 return builderComplianceState?.payload || null;
 }
 
-function isBuilderComplianceApproved(payload = null) {
-const statusPayload = payload || getBuilderCompliancePayload();
-if (!statusPayload) return false;
+function formatComplianceBucketLabel(value = "") {
+const normalized = String(value || "").trim().toLowerCase();
+if (normalized === "required") return "Required";
+if (normalized === "silent") return "Silent";
+if (normalized === "escalation") return "Escalation";
+if (normalized === "read_only") return "Read Only";
+if (normalized === "off") return "Off";
+return "Unknown";
+}
 
-const builderGateEnabled = Boolean(
-statusPayload.builder_gate_enabled || statusPayload.requires_builder_approval
+function getBuilderComplianceAccess(payload = null) {
+const statusPayload = payload || getBuilderCompliancePayload();
+
+const approvalRequired = Boolean(
+statusPayload?.approval_required ??
+statusPayload?.builder_gate_enabled ??
+statusPayload?.requires_builder_approval
 );
 
-if (!builderGateEnabled) {
-return true;
+const status = String(statusPayload?.status || "").trim().toLowerCase();
+const bucket = String(
+statusPayload?.builder_bucket || statusPayload?.compliance_bucket || ""
+)
+.trim()
+.toLowerCase();
+
+const accessReason = String(statusPayload?.access_reason || "").trim();
+const manualReviewRequired = Boolean(
+statusPayload?.manual_review_required ||
+statusPayload?.profile?.manual_review_required
+);
+const restrictedJurisdiction = Boolean(statusPayload?.restricted_jurisdiction);
+const escalationRequired = Boolean(statusPayload?.escalation_required);
+const silentMonitoring = Boolean(statusPayload?.silent_monitoring);
+const escalationMonitoring = Boolean(statusPayload?.escalation_monitoring);
+const blockingSignals = Array.isArray(statusPayload?.blocking_signals)
+? statusPayload.blocking_signals
+: [];
+const escalationSignals = Array.isArray(statusPayload?.escalation_signals)
+? statusPayload.escalation_signals
+: [];
+
+const explicitTransactionalAccess = statusPayload?.transactional_access;
+const transactionalAccess =
+typeof explicitTransactionalAccess === "boolean"
+? explicitTransactionalAccess
+: approvalRequired
+? status === "approved" &&
+!manualReviewRequired &&
+!restrictedJurisdiction
+: true;
+
+let accessState = String(statusPayload?.access_state || "")
+.trim()
+.toLowerCase();
+
+if (!accessState) {
+if (!transactionalAccess) {
+accessState =
+status === "pending"
+? "pending"
+: approvalRequired
+? "required"
+: "blocked";
+} else if (bucket === "silent" || silentMonitoring) {
+accessState = "silent";
+} else if (bucket === "escalation" || escalationMonitoring) {
+accessState = escalationRequired ? "watch" : "open";
+} else if (approvalRequired && status === "approved") {
+accessState = "approved";
+} else {
+accessState = "open";
+}
 }
 
-if (statusPayload.restricted_jurisdiction) {
-return false;
+return {
+payload: statusPayload,
+approvalRequired,
+transactionalAccess,
+accessState,
+accessReason,
+status,
+bucket,
+manualReviewRequired,
+restrictedJurisdiction,
+escalationRequired,
+silentMonitoring,
+escalationMonitoring,
+blockingSignals,
+escalationSignals,
+};
 }
 
-if (statusPayload.profile?.manual_review_required) {
-return false;
+function isBuilderLaunchAccessAllowed(payload = null) {
+return Boolean(getBuilderComplianceAccess(payload).transactionalAccess);
 }
 
-return String(statusPayload.status || "").toLowerCase() === "approved";
+function shouldRedirectToCompliance(payload = null) {
+const access = getBuilderComplianceAccess(payload);
+
+if (!access.payload) return false;
+if (access.transactionalAccess) return false;
+
+return (
+access.approvalRequired ||
+access.accessState === "blocked" ||
+access.accessState === "pending" ||
+access.accessState === "required" ||
+access.manualReviewRequired ||
+access.restrictedJurisdiction
+);
 }
 
 function getBuilderComplianceMessage(payload = null) {
-const statusPayload = payload || getBuilderCompliancePayload();
-if (!statusPayload) {
-return "Builder verification is required before launch creation.";
+const access = getBuilderComplianceAccess(payload);
+
+if (!access.payload) {
+return "Builder monitoring status is currently unavailable.";
 }
 
-const builderGateEnabled = Boolean(
-statusPayload.builder_gate_enabled || statusPayload.requires_builder_approval
-);
-
-if (!builderGateEnabled) {
-return "Builder verification gate is currently disabled.";
+if (access.accessReason) {
+return access.accessReason;
 }
 
-if (statusPayload.restricted_jurisdiction) {
-return "Builder access is restricted for the current jurisdiction.";
+if (!access.transactionalAccess) {
+if (access.accessState === "blocked") {
+return "Builder access is currently blocked.";
 }
 
-if (statusPayload.profile?.manual_review_required) {
-return (
-statusPayload.profile?.manual_review_reason ||
-"Builder profile is in manual review."
-);
+if (access.accessState === "pending") {
+return "Builder verification is still pending review.";
 }
 
-const status = String(statusPayload.status || "").toLowerCase();
+return "Builder verification is required before launch creation can proceed.";
+}
 
-if (status === "approved") {
+if (access.accessState === "silent" || access.silentMonitoring) {
+return "Silent monitoring is active. Launch creation remains open unless explicit risk intervention is triggered.";
+}
+
+if (access.accessState === "watch" || access.escalationMonitoring) {
+if (access.escalationRequired) {
+return "Monitoring signals are elevated and should be reviewed, but launch creation remains open unless intervention is triggered.";
+}
+return "Escalation monitoring is active. Launch creation remains open unless triggered risk conditions require intervention.";
+}
+
+if (access.approvalRequired && access.status === "approved") {
 return "Builder profile approved. Launch creation is enabled.";
 }
 
-if (status === "pending") {
-return "Builder verification is pending review before launch creation can proceed.";
-}
-
-if (status === "rejected") {
-return "Builder verification was rejected. Review the compliance profile before trying again.";
-}
-
-if (status === "restricted") {
-return "Builder profile is currently restricted from launch creation.";
-}
-
-return "Complete builder verification before creating a launch.";
+return "Builder launch access is open.";
 }
 
 function renderBuilderComplianceUi(payload = null) {
@@ -940,75 +1025,92 @@ const pill = $("builderCompliancePill");
 const copy = $("builderComplianceCopy");
 const action = $("builderComplianceAction");
 const meta = $("builderComplianceMeta");
-const actionLink = buildCompliancePageUrl(getConnectedPublicKey() || "");
+const connectedWallet = getConnectedPublicKey() || "";
+const actionLink = buildCompliancePageUrl(connectedWallet);
 
-const builderGateEnabled = Boolean(
-payload?.builder_gate_enabled || payload?.requires_builder_approval
-);
+if (!card || !pill || !copy || !action || !meta) return;
 
-const approved = isBuilderComplianceApproved(payload);
-const message = getBuilderComplianceMessage(payload);
+const access = getBuilderComplianceAccess(payload);
 
-const status = String(payload?.status || "").toLowerCase();
+if (!access.payload && !connectedWallet) {
+card.classList.remove("show");
+return;
+}
+
+card.classList.add("show");
+
+if (!access.payload) {
+pill.className = "status-pill warn";
+pill.textContent = "Check Unavailable";
+copy.textContent =
+"Builder monitoring status could not be loaded right now. You can still review the compliance profile manually.";
+meta.textContent = connectedWallet
+? `Wallet: ${shortenWallet(connectedWallet)}`
+: "No wallet connected";
+action.style.display = "";
+action.href = actionLink;
+action.textContent = "Open Compliance";
+return;
+}
+
 let pillText = "Builder Verification";
 let pillClass = "warn";
 
-if (!builderGateEnabled) {
-pillText = "Verification Optional";
-pillClass = "good";
-} else if (approved) {
-pillText = "Approved";
-pillClass = "good";
-} else if (status === "pending") {
+if (!access.transactionalAccess) {
+if (access.accessState === "blocked") {
+pillText = "Access Blocked";
+pillClass = "bad";
+} else if (access.accessState === "pending") {
 pillText = "Pending Review";
 pillClass = "warn";
-} else if (status === "rejected" || status === "restricted") {
-pillText = status === "restricted" ? "Restricted" : "Rejected";
-pillClass = "bad";
 } else {
 pillText = "Verification Required";
 pillClass = "warn";
 }
-
-if (card) {
-card.classList.toggle("show", Boolean(payload) || builderGateEnabled);
+} else if (access.accessState === "watch" && access.escalationRequired) {
+pillText = "Monitoring Watch";
+pillClass = "warn";
+} else if (access.accessState === "silent" || access.silentMonitoring) {
+pillText = "Silent Monitoring";
+pillClass = "good";
+} else if (access.accessState === "watch" || access.escalationMonitoring) {
+pillText = "Escalation Monitoring";
+pillClass = "good";
+} else if (access.approvalRequired && access.status === "approved") {
+pillText = "Approved";
+pillClass = "good";
+} else {
+pillText = "Access Open";
+pillClass = "good";
 }
 
-if (pill) {
 pill.className = `status-pill ${pillClass}`;
 pill.textContent = pillText;
-}
+copy.textContent = getBuilderComplianceMessage(access.payload);
 
-if (copy) {
-copy.textContent = message;
-}
-
-if (meta) {
-const country = String(payload?.profile?.country_code || "").toUpperCase();
-const risk = String(payload?.profile?.risk_rating || "low");
+const country = String(access.payload?.profile?.country_code || "").toUpperCase();
+const risk = String(access.payload?.profile?.risk_rating || "low");
 const detailParts = [];
+
+detailParts.push(`Bucket: ${formatComplianceBucketLabel(access.bucket)}`);
+detailParts.push(`Access: ${normalizeTemplateLabel(access.accessState || "open")}`);
 
 if (country) detailParts.push(`Country: ${country}`);
 if (risk) detailParts.push(`Risk: ${risk}`);
-if (builderGateEnabled) {
-detailParts.push(`Access: ${approved ? "Allowed" : "Blocked"}`);
-} else {
-detailParts.push("Access: Open");
-}
 
 meta.textContent = detailParts.join(" • ");
-}
 
-if (action) {
-if (!builderGateEnabled) {
+const showAction =
+!access.transactionalAccess || access.escalationRequired;
+
+if (!showAction) {
 action.style.display = "none";
 } else {
 action.style.display = "";
 action.href = actionLink;
-action.textContent = approved
-? "Review Compliance Profile"
-: "Complete Builder Verification";
-}
+action.textContent = !access.transactionalAccess
+? "Complete Builder Verification"
+: "Review Compliance Signals";
 }
 }
 
@@ -1026,7 +1128,7 @@ return null;
 const data = await fetchJson(
 `/api/compliance/status?wallet=${encodeURIComponent(
 normalizedWallet
-)}&mode=builder`
+)}&mode=builder&context=builder&surface=launch_create`
 );
 
 builderComplianceState = {
@@ -1037,11 +1139,16 @@ payload: data,
 renderBuilderComplianceUi(data);
 
 if (!silent) {
-if (isBuilderComplianceApproved(data)) {
-setStatus("good", getBuilderComplianceMessage(data));
-} else if (data?.builder_gate_enabled || data?.requires_builder_approval) {
-setStatus("warn", getBuilderComplianceMessage(data));
-}
+const access = getBuilderComplianceAccess(data);
+const kind = access.transactionalAccess
+? access.accessState === "watch" && access.escalationRequired
+? "warn"
+: "good"
+: access.accessState === "blocked"
+? "bad"
+: "warn";
+
+setStatus(kind, getBuilderComplianceMessage(data));
 }
 
 return data;
@@ -1061,6 +1168,10 @@ return null;
 try {
 return await fetchBuilderComplianceStatus(wallet, { silent });
 } catch (err) {
+builderComplianceState = {
+wallet,
+payload: null,
+};
 renderBuilderComplianceUi(null);
 
 if (!silent) {
@@ -1074,20 +1185,20 @@ throw err;
 }
 }
 
-async function requireApprovedBuilderCompliance(wallet, { redirect = false } = {}) {
+async function requireBuilderLaunchAccess(wallet, { redirect = false } = {}) {
 const payload =
 builderComplianceState.wallet === wallet && builderComplianceState.payload
 ? builderComplianceState.payload
 : await fetchBuilderComplianceStatus(wallet, { silent: true });
 
-if (isBuilderComplianceApproved(payload)) {
+if (isBuilderLaunchAccessAllowed(payload)) {
 return payload;
 }
 
 const message = getBuilderComplianceMessage(payload);
 setStatus("warn", `${message} Open the compliance page to continue.`);
 
-if (redirect) {
+if (redirect && shouldRedirectToCompliance(payload)) {
 window.location.href = buildCompliancePageUrl(wallet);
 }
 
@@ -1610,8 +1721,15 @@ if (wallet?.isConnected) {
 await refreshBuilderComplianceStatus({ silent: true });
 
 const compliancePayload = getBuilderCompliancePayload();
-if (isBuilderComplianceApproved(compliancePayload)) {
-setStatus("good", `Wallet connected: ${shortenWallet(wallet.publicKey)}`);
+const access = getBuilderComplianceAccess(compliancePayload);
+
+if (access.transactionalAccess) {
+setStatus(
+access.accessState === "watch" && access.escalationRequired
+? "warn"
+: "good",
+getBuilderComplianceMessage(compliancePayload)
+);
 } else {
 setStatus("warn", getBuilderComplianceMessage(compliancePayload));
 }
@@ -1984,7 +2102,7 @@ btn.disabled = true;
 btn.textContent = "Creating Launch...";
 }
 
-await requireApprovedBuilderCompliance(values.wallet);
+await requireBuilderLaunchAccess(values.wallet);
 
 setStatus("warn", "Preparing builder profile...");
 await ensureBuilderProfile(values.wallet, values.builderAlias);
@@ -2088,9 +2206,7 @@ launch.id
 const values = getFormValues();
 const compliancePayload = getBuilderCompliancePayload();
 const shouldRouteToCompliance =
-values.wallet &&
-compliancePayload &&
-!isBuilderComplianceApproved(compliancePayload);
+values.wallet && shouldRedirectToCompliance(compliancePayload);
 
 setStatus("bad", err?.message || "Unable to create launch.");
 

@@ -20,6 +20,19 @@ const LIVE_LIFECYCLE_REFRESH_INTERVAL_MS = 20000;
 const LAUNCH_PAGE_INIT_KEY = "__mssLaunchPageInit_v3";
 const COMMIT_DEDUP_WINDOW_MS = 2000;
 
+const LIVE_LIQUIDITY_TARGET_PCT = 100;
+const PROTOCOL_RESERVE_HELD_PCT = 0;
+const FORMER_RESERVE_BURNED = true;
+const UNUSED_PARTICIPANT_ALLOCATION_BURNED = true;
+
+const BUILDER_LP_FEE_RIGHTS_PCT = 100;
+const MSS_LP_FEE_RIGHTS_PCT = 0;
+const BUILDER_LP_FEE_RIGHTS_VIA_DISTRIBUTOR = true;
+const LP_FEE_CONTROL_MODE_DEFAULT = "distributor_only";
+const LP_FEE_DISTRIBUTION_MODEL_DEFAULT = "builder_via_mss_distributor";
+const LP_FEE_BENEFICIARY_TYPE_DEFAULT = "builder";
+const LP_FEE_CONTROLLER_TYPE_DEFAULT = "mss_distributor";
+
 /*
 launch-market.js owns the live terminal and market shell.
 launch.js must not write to these IDs or it will create UI ownership drift.
@@ -917,12 +930,26 @@ raw.lockedSolReserve ?? raw.locked_sol_reserve,
 ),
 raydiumTargetPct: safeNum(
 raw.raydiumTargetPct ?? raw.raydium_target_pct,
-0
+LIVE_LIQUIDITY_TARGET_PCT
 ),
 mssLockedTargetPct: safeNum(
 raw.mssLockedTargetPct ?? raw.mss_locked_target_pct,
 0
 ),
+liveLiquidityTargetPct: safeNum(
+raw.liveLiquidityTargetPct ?? raw.live_liquidity_target_pct,
+safeNum(raw.raydiumTargetPct ?? raw.raydium_target_pct, LIVE_LIQUIDITY_TARGET_PCT)
+),
+protocolReserveHeldPct: safeNum(
+raw.protocolReserveHeldPct ?? raw.protocol_reserve_held_pct,
+PROTOCOL_RESERVE_HELD_PCT
+),
+formerReserveBurned:
+raw.formerReserveBurned ?? raw.former_reserve_burned ?? FORMER_RESERVE_BURNED,
+unusedParticipantAllocationBurned:
+raw.unusedParticipantAllocationBurned ??
+raw.unused_participant_allocation_burned ??
+UNUSED_PARTICIPANT_ALLOCATION_BURNED,
 graduationStatus: cleanString(
 raw.graduationStatus ?? raw.graduation_status,
 120
@@ -935,8 +962,92 @@ raydiumPoolId: cleanString(
 raw.raydiumPoolId ?? raw.raydium_pool_id,
 300
 ),
+raydiumSolMigrated: safeNum(
+raw.raydiumSolMigrated ?? raw.raydium_sol_migrated,
+0
+),
+raydiumTokenMigrated: safeNum(
+raw.raydiumTokenMigrated ?? raw.raydium_token_migrated,
+0
+),
+raydiumMigrationTx: cleanString(
+raw.raydiumMigrationTx ?? raw.raydium_migration_tx,
+300
+),
 lockStatus: cleanString(raw.lockStatus ?? raw.lock_status, 120),
 updated_at: cleanString(raw.updated_at, 200),
+lpFeeBeneficiaryWallet: cleanString(
+raw.lpFeeBeneficiaryWallet ?? raw.lp_fee_beneficiary_wallet,
+200
+),
+lpFeeBeneficiaryType:
+cleanString(raw.lpFeeBeneficiaryType ?? raw.lp_fee_beneficiary_type, 120) ||
+LP_FEE_BENEFICIARY_TYPE_DEFAULT,
+lpFeeControllerType:
+cleanString(raw.lpFeeControllerType ?? raw.lp_fee_controller_type, 120) ||
+LP_FEE_CONTROLLER_TYPE_DEFAULT,
+lpFeeControlMode:
+cleanString(raw.lpFeeControlMode ?? raw.lp_fee_control_mode, 120) ||
+LP_FEE_CONTROL_MODE_DEFAULT,
+lpFeeDistributionModel:
+cleanString(raw.lpFeeDistributionModel ?? raw.lp_fee_distribution_model, 160) ||
+LP_FEE_DISTRIBUTION_MODEL_DEFAULT,
+lpFeeSource: cleanString(raw.lpFeeSource ?? raw.lp_fee_source, 120),
+lpFeeDistributorEnabled: toTruthyBoolean(
+raw.lpFeeDistributorEnabled ?? raw.lp_fee_distributor_enabled
+),
+lpFeeDistributorStatus: cleanString(
+raw.lpFeeDistributorStatus ?? raw.lp_fee_distributor_status,
+120
+),
+lpFeeDistributorAddress: cleanString(
+raw.lpFeeDistributorAddress ?? raw.lp_fee_distributor_address,
+300
+),
+lpFeeDistributorProgram: cleanString(
+raw.lpFeeDistributorProgram ?? raw.lp_fee_distributor_program,
+300
+),
+lpFeeDistributorProgramId: cleanString(
+raw.lpFeeDistributorProgramId ?? raw.lp_fee_distributor_program_id,
+300
+),
+lpFeeDistributorVault: cleanString(
+raw.lpFeeDistributorVault ?? raw.lp_fee_distributor_vault,
+300
+),
+lpFeeDistributorTx: cleanString(
+raw.lpFeeDistributorTx ?? raw.lp_fee_distributor_tx,
+300
+),
+lpFeeLastDistributedAt:
+raw.lpFeeLastDistributedAt ?? raw.lp_fee_last_distributed_at ?? null,
+builderLpFeeRightsPct: safeNum(
+raw.builderLpFeeRightsPct ?? raw.builder_lp_fee_rights_pct,
+BUILDER_LP_FEE_RIGHTS_PCT
+),
+mssLpFeeRightsPct: safeNum(
+raw.mssLpFeeRightsPct ?? raw.mss_lp_fee_rights_pct,
+MSS_LP_FEE_RIGHTS_PCT
+),
+builderLpFeeRightsViaDistributor:
+raw.builderLpFeeRightsViaDistributor ??
+raw.builder_lp_fee_rights_via_distributor ??
+BUILDER_LP_FEE_RIGHTS_VIA_DISTRIBUTOR,
+builderCanRemoveLp: toTruthyBoolean(
+raw.builderCanRemoveLp ?? raw.builder_can_remove_lp
+),
+builderCanClaimLpFees: toTruthyBoolean(
+raw.builderCanClaimLpFees ?? raw.builder_can_claim_lp_fees
+),
+externalMarketVenue: cleanString(
+raw.externalMarketVenue ?? raw.external_market_venue,
+120
+),
+externalMarketMode: cleanString(
+raw.externalMarketMode ?? raw.external_market_mode,
+120
+),
 graduationReadiness: normalizeGraduationReadinessData(
 raw.graduationReadiness || raw.graduation_readiness || null
 ),
@@ -962,6 +1073,60 @@ incoming?.graduationReadiness || prev?.graduationReadiness || null,
 builderVesting:
 incoming?.builderVesting || prev?.builderVesting || null,
 };
+}
+
+function resolveLiveLiquidityTargetPct(lifecycle = null, plan = null) {
+return safeNum(
+lifecycle?.liveLiquidityTargetPct ??
+lifecycle?.raydiumTargetPct ??
+plan?.liveLiquidityTargetPct ??
+plan?.raydiumSplitPct ??
+plan?.raydiumTargetPct,
+LIVE_LIQUIDITY_TARGET_PCT
+);
+}
+
+function resolveProtocolReserveHeldPct(lifecycle = null, plan = null) {
+return safeNum(
+lifecycle?.protocolReserveHeldPct ??
+plan?.protocolReserveHeldPct,
+PROTOCOL_RESERVE_HELD_PCT
+);
+}
+
+function resolveBuilderLpFeeRightsPct(lifecycle = null) {
+return safeNum(
+lifecycle?.builderLpFeeRightsPct,
+BUILDER_LP_FEE_RIGHTS_PCT
+);
+}
+
+function resolveMssLpFeeRightsPct(lifecycle = null) {
+return safeNum(
+lifecycle?.mssLpFeeRightsPct,
+MSS_LP_FEE_RIGHTS_PCT
+);
+}
+
+function hasFormerReserveBurned(lifecycle = null, plan = null) {
+const value =
+lifecycle?.formerReserveBurned ?? plan?.formerReserveBurned;
+return value == null ? FORMER_RESERVE_BURNED : toTruthyBoolean(value);
+}
+
+function hasUnusedParticipantAllocationBurned(lifecycle = null, plan = null) {
+const value =
+lifecycle?.unusedParticipantAllocationBurned ??
+plan?.unusedParticipantAllocationBurned;
+return value == null
+? UNUSED_PARTICIPANT_ALLOCATION_BURNED
+: toTruthyBoolean(value);
+}
+
+function usesDistributorLpFeeControl(lifecycle = null) {
+const mode = cleanString(lifecycle?.lpFeeControlMode, 120);
+if (mode) return mode === LP_FEE_CONTROL_MODE_DEFAULT;
+return BUILDER_LP_FEE_RIGHTS_VIA_DISTRIBUTOR;
 }
 
 function setTextByIds(ids, value) {
@@ -1608,7 +1773,7 @@ if (status === "building") {
 return {
 kind: "warn",
 message:
-"Countdown reached zero. MSS is finalizing mint, liquidity, and live market state.",
+"Countdown reached zero. MSS is finalizing mint, Raydium liquidity routing, and live market state.",
 };
 }
 
@@ -1623,7 +1788,7 @@ const readinessLine = readiness
 
 return {
 kind: "good",
-message: `Launch is now live. Participant allocations are fully unlocked and commit/refund actions are closed.${readinessLine}`,
+message: `Launch is now live. Live liquidity routes to Raydium, participant allocations are fully unlocked, and commit/refund actions are closed.${readinessLine}`,
 };
 }
 
@@ -1631,7 +1796,7 @@ if (status === "graduated") {
 return {
 kind: "good",
 message:
-"This launch has already graduated beyond the initial launch flow.",
+"This launch has already graduated. Trading remains external and lifecycle visibility stays attached to the launch.",
 };
 }
 
@@ -1859,25 +2024,35 @@ const totalFeeSol = safeNum(
 stats?.feeTotal,
 safeNum(launch?.fee_total_sol, 0)
 );
-const founderFeeSol = safeNum(
-stats?.founderFee ?? stats?.coreFee,
-safeNum(launch?.founder_fee_sol ?? launch?.core_fee_sol, 0)
+const coreFeeSol = safeNum(
+stats?.coreFee ?? stats?.founderFee,
+safeNum(launch?.core_fee_sol ?? launch?.founder_fee_sol, 0)
 );
-const buybackFeeSol = safeNum(
-stats?.buybackFee,
-safeNum(launch?.buyback_fee_sol, 0)
+const ecosystemSupportFeeSol = safeNum(
+stats?.ecosystemSupportFee ?? stats?.ecosystemFee ?? stats?.buybackFee,
+safeNum(launch?.ecosystem_support_fee_sol ?? launch?.buyback_fee_sol, 0)
 );
-const treasuryFeeSol = safeNum(
-stats?.treasuryFee,
-safeNum(launch?.treasury_fee_sol, 0)
+const reserveHeldSol = safeNum(
+stats?.protocolReserveHeldSol,
+safeNum(launch?.protocol_reserve_held_sol, 0)
 );
 const netRaiseAfterFee = safeNum(
 stats?.netRaiseAfterFee ?? stats?.netRaise,
 safeNum(launch?.net_raise_after_fee_sol ?? launch?.net_raise_sol, 0)
 );
-const liquidityFunding = safeNum(
-lifecycle?.internalSolReserve,
-safeNum(launch?.internal_pool_sol ?? launch?.liquidity, 0)
+const liveLiquidityFunding = safeNum(
+stats?.raydiumLiquidityFundingSol ??
+stats?.liveLiquidityFundingSol ??
+lifecycle?.raydiumSolMigrated,
+safeNum(launch?.raydium_liquidity_sol ?? launch?.liquidity, 0)
+);
+const liveLiquidityTargetPct = resolveLiveLiquidityTargetPct(
+lifecycle,
+currentGraduationPlan
+);
+const reserveHeldPct = resolveProtocolReserveHeldPct(
+lifecycle,
+currentGraduationPlan
 );
 
 setTextByIds(["launchStatusBoardStatus"], phaseDisplayText(status));
@@ -1886,15 +2061,15 @@ setTextByIds(["launchFeePctStat"], fmtPct(feePct, 0));
 setTextByIds(["totalFeeSolStat"], totalFeeSol > 0 ? fmtSol(totalFeeSol, 4) : "—");
 setTextByIds(
 ["founderFeeSolStat"],
-founderFeeSol > 0 ? fmtSol(founderFeeSol, 4) : "—"
+coreFeeSol > 0 ? fmtSol(coreFeeSol, 4) : "—"
 );
 setTextByIds(
 ["buybackFeeSolStat"],
-buybackFeeSol > 0 ? fmtSol(buybackFeeSol, 4) : "—"
+ecosystemSupportFeeSol > 0 ? fmtSol(ecosystemSupportFeeSol, 4) : "—"
 );
 setTextByIds(
 ["treasuryFeeSolStat"],
-treasuryFeeSol > 0 ? fmtSol(treasuryFeeSol, 4) : "—"
+reserveHeldSol > 0 ? fmtSol(reserveHeldSol, 4) : `${fmtPct(reserveHeldPct, 0)} held`
 );
 setTextByIds(
 ["netRaiseAfterFeeStat"],
@@ -1902,7 +2077,7 @@ netRaiseAfterFee > 0 ? fmtSol(netRaiseAfterFee, 4) : "—"
 );
 setTextByIds(
 ["liquidityFundingStat"],
-liquidityFunding > 0 ? fmtSol(liquidityFunding, 4) : "—"
+liveLiquidityFunding > 0 ? fmtSol(liveLiquidityFunding, 4) : `${fmtPct(liveLiquidityTargetPct, 0)} Raydium`
 );
 
 const bondText =
@@ -1942,12 +2117,13 @@ const liquidityPct = pickFiniteNumber(
 stats?.liquidityAllocationPct,
 launch.liquidity_allocation_pct,
 launch.liquidity_pct,
-20
+LIVE_LIQUIDITY_TARGET_PCT
 );
 const reservePct = pickFiniteNumber(
 stats?.reserveAllocationPct,
 launch.reserve_allocation_pct,
-launch.reserve_pct
+launch.reserve_pct,
+PROTOCOL_RESERVE_HELD_PCT
 );
 const builderPct = isBuilderLaunch
 ? pickFiniteNumber(
@@ -1963,10 +2139,10 @@ const participantText = Number.isFinite(participantPct)
 : "LP Based";
 const liquidityText = Number.isFinite(liquidityPct)
 ? fmtPct(liquidityPct)
-: "20%";
+: `${LIVE_LIQUIDITY_TARGET_PCT}%`;
 const reserveText = Number.isFinite(reservePct)
 ? fmtPct(reservePct)
-: "Managed";
+: `${PROTOCOL_RESERVE_HELD_PCT}%`;
 const builderText = isBuilderLaunch
 ? formatAllocationStatText(builderPct, "5%")
 : "—";
@@ -1982,11 +2158,18 @@ setTextByIds(["launchOverviewTemplateText"], humanizeTemplate(launch.template));
 
 const raiseStructureParts = [
 "Participants priced from final raise",
-`${liquidityText} LP`,
-Number.isFinite(reservePct) && reservePct > 0
-? `${reserveText} Reserve`
-: "Reserve custody active",
+`${liquidityText} Raydium`,
+safeNum(reservePct, 0) > 0
+? `${reserveText} held reserve`
+: hasFormerReserveBurned(currentLifecycle, currentGraduationPlan)
+? "Former reserve burned"
+: "0% held reserve",
 ];
+
+if (hasUnusedParticipantAllocationBurned(currentLifecycle, currentGraduationPlan)) {
+raiseStructureParts.push("Unused participant allocation burned");
+}
+
 setTextByIds(["launchRaiseStructureText"], raiseStructureParts.join(" • "));
 
 const bondState = getBuilderBondState(launch, stats);
@@ -2015,6 +2198,10 @@ parts.push(`${bondLabel} ${fmtSol(bondState.amount)} Collected`);
 } else {
 parts.push(`${bondLabel} ${fmtSol(bondState.amount)} Pending`);
 }
+}
+
+if (usesDistributorLpFeeControl(currentLifecycle)) {
+parts.push("Builder LP fees via MSS distributor");
 }
 
 setTextByIds(["launchBuilderControlsText"], parts.join(" • "));
@@ -2111,17 +2298,33 @@ isLiveLikeStatus(
 getDisplayPhaseStatus(launch, currentCommitStats, lifecycle)
 )
 ) {
-if (safeNum(lifecycle.internalSolReserve, 0) > 0) {
-parts.push(`Internal LP reserve: ${fmtSol(lifecycle.internalSolReserve, 4)}`);
+const raydiumPoolId = cleanString(lifecycle.raydiumPoolId, 300);
+const raydiumLiquiditySol = safeNum(
+lifecycle.raydiumSolMigrated,
+safeNum(lifecycle.internalSolReserve, 0)
+);
+const builderLpFeeRightsPct = resolveBuilderLpFeeRightsPct(lifecycle);
+
+if (raydiumPoolId) {
+parts.push(`Raydium pool: ${shortenWallet(raydiumPoolId)}`);
 }
 
-if (
-safeNum(lifecycle.totalSupply, 0) > 0 &&
-safeNum(lifecycle.priceSol, 0) > 0
-) {
+if (raydiumLiquiditySol > 0) {
+parts.push(`Raydium liquidity: ${fmtSol(raydiumLiquiditySol, 4)}`);
+}
+
+if (usesDistributorLpFeeControl(lifecycle)) {
 parts.push(
-`Internal price: ${safeNum(lifecycle.priceSol).toFixed(8).replace(/\.?0+$/, "")} SOL`
+`Builder LP fees: ${fmtPct(builderLpFeeRightsPct, 0)} via MSS distributor`
 );
+}
+
+if (hasFormerReserveBurned(lifecycle, currentGraduationPlan)) {
+parts.push("Former reserve burned");
+}
+
+if (hasUnusedParticipantAllocationBurned(lifecycle, currentGraduationPlan)) {
+parts.push("Unused participant allocation burned");
 }
 
 if (safeNum(lifecycle?.builderVesting?.lockedAmount, 0) > 0) {
@@ -2195,11 +2398,11 @@ return `${base} Commit phase is closed and countdown lock is now controlling the
 }
 
 if (status === "building") {
-return `${base} MSS is finalizing mint assignment, internal liquidity bootstrap, and live market state.`;
+return `${base} MSS is finalizing mint assignment, Raydium route state, and live market activation.`;
 }
 
 if (status === "live" || status === "graduated") {
-return `${base} Live market state is active, participant allocations are fully unlocked, and downstream lifecycle visibility remains attached to the same terminal.`;
+return `${base} Live market state is active through Raydium, participant allocations are fully unlocked, former reserve is not held on-platform, and lifecycle visibility remains attached to this terminal.`;
 }
 
 if (status === "failed_refunded") {
@@ -2421,7 +2624,7 @@ return Number.isFinite(countdownEndsAt)
 }
 
 if (status === "building") {
-return "Mint reservation, LP bootstrap, and live market activation are in progress.";
+return "Mint reservation, Raydium liquidity routing, and live market activation are in progress.";
 }
 
 if (status === "live") {
@@ -2429,7 +2632,7 @@ if (lifecycle?.graduationReadiness?.ready) {
 return "Graduation threshold is currently satisfied.";
 }
 
-return lifecycle?.graduationReadiness?.reason || "Live market is active and participant allocations are fully unlocked.";
+return lifecycle?.graduationReadiness?.reason || "Live market is active through Raydium and participant allocations are fully unlocked.";
 }
 
 if (status === "graduated") {
@@ -2806,11 +3009,13 @@ connectedWallet,
 launch: currentLaunch || null,
 commitStats: currentCommitStats || {},
 lifecycle: currentLifecycle || null,
+graduationPlan: currentGraduationPlan || null,
 participantCompliance,
 saveLinks: defaultSaveLinksWithWallet,
 });
 
 launchMarketController.participantCompliance = participantCompliance;
+launchMarketController.graduationPlan = currentGraduationPlan || null;
 
 if (typeof launchMarketController.setComplianceState === "function") {
 launchMarketController.setComplianceState(participantCompliance);
@@ -2837,6 +3042,7 @@ launchMarketController.connectedWallet = connectedWallet;
 
 launchMarketController.saveLinks = defaultSaveLinksWithWallet;
 launchMarketController.participantCompliance = participantCompliance;
+launchMarketController.graduationPlan = currentGraduationPlan || launchMarketController.graduationPlan || null;
 
 if (typeof launchMarketController.setComplianceState === "function") {
 launchMarketController.setComplianceState(participantCompliance);
@@ -2984,17 +3190,39 @@ setClosureNote("");
 }
 } else if (displayStatus === "building") {
 setClosureNote(
-"Countdown has completed and MSS is now finalizing mint assignment, reserve bootstrap, and live market activation.",
+"Countdown has completed and MSS is now finalizing mint assignment, Raydium liquidity routing, and live market activation.",
 "warn"
 );
-} else if (displayStatus === "live" && lifecycle?.graduationReadiness?.ready) {
+} else if (displayStatus === "live") {
+const liveLiquidityPct = resolveLiveLiquidityTargetPct(
+lifecycle,
+currentGraduationPlan
+);
+const reserveHeldPct = resolveProtocolReserveHeldPct(
+lifecycle,
+currentGraduationPlan
+);
+const builderLpFeeRightsPct = resolveBuilderLpFeeRightsPct(lifecycle);
+const mssLpFeeRightsPct = resolveMssLpFeeRightsPct(lifecycle);
+const readinessNote = lifecycle?.graduationReadiness?.ready
+? " Graduation threshold is currently satisfied."
+: lifecycle?.graduationReadiness?.reason
+? ` ${lifecycle.graduationReadiness.reason}`
+: "";
+
 setClosureNote(
-`Launch is live and currently graduation-ready. Planned split: ${safeNum(lifecycle.raydiumTargetPct, 50)}% Raydium / ${safeNum(lifecycle.mssLockedTargetPct, 50)}% MSS locked.`,
+`Launch is live. ${fmtPct(liveLiquidityPct, 0)} of live liquidity routes to Raydium, ${fmtPct(
+reserveHeldPct,
+0
+)} of protocol reserve is held, former reserve is burned, and LP-fee rights are ${fmtPct(
+builderLpFeeRightsPct,
+0
+)} builder / ${fmtPct(mssLpFeeRightsPct, 0)} MSS with builder rights routed through MSS distributor control.${readinessNote}`,
 "good"
 );
 } else if (displayStatus === "graduated") {
 setClosureNote(
-`Launch has graduated. Liquidity lifecycle status: ${lifecycle?.graduationStatus || "graduated"}.`,
+`Launch has graduated. External venue remains Raydium, former reserve remains burned, and builder LP-fee rights continue through MSS distributor control.`,
 "good"
 );
 } else {

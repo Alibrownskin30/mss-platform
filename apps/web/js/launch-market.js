@@ -37,8 +37,21 @@ const BUILDER_UNLOCK_DAYS = 10;
 const BUILDER_CLIFF_DAYS = 0;
 const BUILDER_VESTING_DAYS = BUILDER_UNLOCK_DAYS;
 
+const LIVE_LIQUIDITY_TARGET_PCT = 100;
+const PROTOCOL_RESERVE_HELD_PCT = 0;
+const FORMER_RESERVE_BURNED = true;
+const UNUSED_PARTICIPANT_ALLOCATION_BURNED = true;
+
+const BUILDER_LP_FEE_RIGHTS_PCT = 100;
+const MSS_LP_FEE_RIGHTS_PCT = 0;
+const BUILDER_LP_FEE_RIGHTS_VIA_DISTRIBUTOR = true;
+const LP_FEE_CONTROL_MODE_DEFAULT = "distributor_only";
+const LP_FEE_DISTRIBUTION_MODEL_DEFAULT = "builder_via_mss_distributor";
+const LP_FEE_BENEFICIARY_TYPE_DEFAULT = "builder";
+const LP_FEE_CONTROLLER_TYPE_DEFAULT = "mss_distributor";
+
 const BUILDER_VESTING_RULE =
-"Builder allocation unlocks at 0.5% of total supply per day until the full 5% builder allocation is unlocked.";
+"0% unlocked at live. Builder allocation then unlocks at 0.5% of total supply per day for 10 days until the full 5% allocation is unlocked.";
 
 const TRADE_MESSAGE_STICKY_MS = 3200;
 
@@ -778,12 +791,26 @@ cleanString(raw.graduationReason ?? raw.graduation_reason, 200) || null,
 graduatedAt: raw.graduatedAt ?? raw.graduated_at ?? null,
 raydiumTargetPct: toNumber(
 raw.raydiumTargetPct ?? raw.raydium_target_pct,
-50
+LIVE_LIQUIDITY_TARGET_PCT
 ),
 mssLockedTargetPct: toNumber(
 raw.mssLockedTargetPct ?? raw.mss_locked_target_pct,
-50
+0
 ),
+liveLiquidityTargetPct: toNumber(
+raw.liveLiquidityTargetPct ?? raw.live_liquidity_target_pct,
+LIVE_LIQUIDITY_TARGET_PCT
+),
+protocolReserveHeldPct: toNumber(
+raw.protocolReserveHeldPct ?? raw.protocol_reserve_held_pct,
+PROTOCOL_RESERVE_HELD_PCT
+),
+formerReserveBurned:
+raw.formerReserveBurned ?? raw.former_reserve_burned ?? FORMER_RESERVE_BURNED,
+unusedParticipantAllocationBurned:
+raw.unusedParticipantAllocationBurned ??
+raw.unused_participant_allocation_burned ??
+UNUSED_PARTICIPANT_ALLOCATION_BURNED,
 raydiumPoolId: cleanString(raw.raydiumPoolId ?? raw.raydium_pool_id, 240),
 raydiumSolMigrated: toNumber(
 raw.raydiumSolMigrated ?? raw.raydium_sol_migrated,
@@ -816,22 +843,18 @@ lpFeeBeneficiaryWallet: cleanString(
 raw.lpFeeBeneficiaryWallet ?? raw.lp_fee_beneficiary_wallet,
 240
 ),
-lpFeeBeneficiaryType: cleanString(
-raw.lpFeeBeneficiaryType ?? raw.lp_fee_beneficiary_type,
-120
-),
-lpFeeControllerType: cleanString(
-raw.lpFeeControllerType ?? raw.lp_fee_controller_type,
-120
-),
-lpFeeControlMode: cleanString(
-raw.lpFeeControlMode ?? raw.lp_fee_control_mode,
-120
-),
-lpFeeDistributionModel: cleanString(
-raw.lpFeeDistributionModel ?? raw.lp_fee_distribution_model,
-160
-),
+lpFeeBeneficiaryType:
+cleanString(raw.lpFeeBeneficiaryType ?? raw.lp_fee_beneficiary_type, 120) ||
+LP_FEE_BENEFICIARY_TYPE_DEFAULT,
+lpFeeControllerType:
+cleanString(raw.lpFeeControllerType ?? raw.lp_fee_controller_type, 120) ||
+LP_FEE_CONTROLLER_TYPE_DEFAULT,
+lpFeeControlMode:
+cleanString(raw.lpFeeControlMode ?? raw.lp_fee_control_mode, 120) ||
+LP_FEE_CONTROL_MODE_DEFAULT,
+lpFeeDistributionModel:
+cleanString(raw.lpFeeDistributionModel ?? raw.lp_fee_distribution_model, 160) ||
+LP_FEE_DISTRIBUTION_MODEL_DEFAULT,
 lpFeeSource: cleanString(raw.lpFeeSource ?? raw.lp_fee_source, 120),
 lpFeeDistributorEnabled: toTruthyBoolean(
 raw.lpFeeDistributorEnabled ?? raw.lp_fee_distributor_enabled
@@ -862,6 +885,18 @@ raw.lpFeeDistributorTx ?? raw.lp_fee_distributor_tx,
 ),
 lpFeeLastDistributedAt:
 raw.lpFeeLastDistributedAt ?? raw.lp_fee_last_distributed_at ?? null,
+builderLpFeeRightsPct: toNumber(
+raw.builderLpFeeRightsPct ?? raw.builder_lp_fee_rights_pct,
+BUILDER_LP_FEE_RIGHTS_PCT
+),
+mssLpFeeRightsPct: toNumber(
+raw.mssLpFeeRightsPct ?? raw.mss_lp_fee_rights_pct,
+MSS_LP_FEE_RIGHTS_PCT
+),
+builderLpFeeRightsViaDistributor:
+raw.builderLpFeeRightsViaDistributor ??
+raw.builder_lp_fee_rights_via_distributor ??
+BUILDER_LP_FEE_RIGHTS_VIA_DISTRIBUTOR,
 builderCanRemoveLp: toTruthyBoolean(
 raw.builderCanRemoveLp ?? raw.builder_can_remove_lp
 ),
@@ -950,15 +985,29 @@ raw.raydiumSplitPct ??
 raw.raydium_split_pct ??
 raw.raydiumTargetPct ??
 raw.raydium_target_pct,
-50
+LIVE_LIQUIDITY_TARGET_PCT
 ),
 mssLockedSplitPct: toNumber(
 raw.mssLockedSplitPct ??
 raw.mss_locked_split_pct ??
 raw.mssLockedTargetPct ??
 raw.mss_locked_target_pct,
-50
+0
 ),
+liveLiquidityTargetPct: toNumber(
+raw.liveLiquidityTargetPct ?? raw.live_liquidity_target_pct,
+LIVE_LIQUIDITY_TARGET_PCT
+),
+protocolReserveHeldPct: toNumber(
+raw.protocolReserveHeldPct ?? raw.protocol_reserve_held_pct,
+PROTOCOL_RESERVE_HELD_PCT
+),
+formerReserveBurned:
+raw.formerReserveBurned ?? raw.former_reserve_burned ?? FORMER_RESERVE_BURNED,
+unusedParticipantAllocationBurned:
+raw.unusedParticipantAllocationBurned ??
+raw.unused_participant_allocation_burned ??
+UNUSED_PARTICIPANT_ALLOCATION_BURNED,
 marketcapThresholdSol: toNumber(
 raw.marketcapThresholdSol ?? raw.marketcap_threshold_sol,
 0
@@ -2297,15 +2346,19 @@ setText("stat4Value", getCountdownText(launch, commitStats));
 }
 
 function updateStatsForBuilding(launch, lifecycle = null) {
+const liquidityPrepSol = toNumber(
+lifecycle?.raydiumSolMigrated ?? lifecycle?.internalSolReserve,
+0
+);
+
 setText("stat1Label", "Market State");
 setText("stat1Value", "Building");
 
 setText("stat2Label", "Mint Status");
 setText("stat2Value", "Protected");
 
-setText("stat3Label", "Bootstrap Liquidity");
-const liq = toNumber(lifecycle?.internalSolReserve, 0);
-setText("stat3Value", liq > 0 ? formatSol(liq, 4) : "Pending");
+setText("stat3Label", "Liquidity Prep");
+setText("stat3Value", liquidityPrepSol > 0 ? formatSol(liquidityPrepSol, 4) : "Pending");
 
 setText("stat4Label", "Execution");
 setText("stat4Value", "External Route Pending");
@@ -3404,8 +3457,12 @@ graduationStatus: phase === PHASES.LIVE ? "internal_live" : "pending",
 internalSolReserve: 0,
 internalTokenReserve: 0,
 impliedMarketcapSol: 0,
-raydiumTargetPct: 50,
-mssLockedTargetPct: 50,
+raydiumTargetPct: LIVE_LIQUIDITY_TARGET_PCT,
+mssLockedTargetPct: 0,
+liveLiquidityTargetPct: LIVE_LIQUIDITY_TARGET_PCT,
+protocolReserveHeldPct: PROTOCOL_RESERVE_HELD_PCT,
+formerReserveBurned: FORMER_RESERVE_BURNED,
+unusedParticipantAllocationBurned: UNUSED_PARTICIPANT_ALLOCATION_BURNED,
 raydiumPoolId: "",
 raydiumSolMigrated: 0,
 raydiumTokenMigrated: 0,
@@ -3419,10 +3476,10 @@ lockExpiresAt: null,
 marketBootstrapped: phase === PHASES.LIVE ? null : false,
 market_bootstrapped: phase === PHASES.LIVE ? null : false,
 lpFeeBeneficiaryWallet: "",
-lpFeeBeneficiaryType: "",
-lpFeeControllerType: "",
-lpFeeControlMode: "",
-lpFeeDistributionModel: "",
+lpFeeBeneficiaryType: LP_FEE_BENEFICIARY_TYPE_DEFAULT,
+lpFeeControllerType: LP_FEE_CONTROLLER_TYPE_DEFAULT,
+lpFeeControlMode: LP_FEE_CONTROL_MODE_DEFAULT,
+lpFeeDistributionModel: LP_FEE_DISTRIBUTION_MODEL_DEFAULT,
 lpFeeSource: "",
 lpFeeDistributorEnabled: false,
 lpFeeDistributorStatus: "",
@@ -3432,6 +3489,9 @@ lpFeeDistributorProgramId: "",
 lpFeeDistributorVault: "",
 lpFeeDistributorTx: "",
 lpFeeLastDistributedAt: null,
+builderLpFeeRightsPct: BUILDER_LP_FEE_RIGHTS_PCT,
+mssLpFeeRightsPct: MSS_LP_FEE_RIGHTS_PCT,
+builderLpFeeRightsViaDistributor: BUILDER_LP_FEE_RIGHTS_VIA_DISTRIBUTOR,
 builderCanRemoveLp: false,
 builderCanClaimLpFees: false,
 builderVesting: normalizeBuilderVestingPayload({}),
@@ -3488,53 +3548,72 @@ getLifecycleStatusTone(statusText) === "good"
 }`;
 }
 
-const internalSol = toNumber(lifecycleSafe?.internalSolReserve, 0);
-const internalTokens = toInt(lifecycleSafe?.internalTokenReserve, 0);
+const liveLiquiditySol = toNumber(
+firstPositive(
+lifecycleSafe?.raydiumSolMigrated,
+graduationPlanSafe?.raydiumSol,
+lifecycleSafe?.internalSolReserve
+) ?? 0,
+0
+);
+const liveLiquidityTokens = toInt(
+firstPositive(
+lifecycleSafe?.raydiumTokenMigrated,
+graduationPlanSafe?.raydiumToken,
+lifecycleSafe?.internalTokenReserve
+) ?? 0,
+0
+);
 
 if (reservesValue) {
 reservesValue.innerHTML = `
-<div>${phase === PHASES.LIVE && internalSol > 0 ? formatSol(internalSol, 4) : "Pending"}</div>
+<div>${phase === PHASES.LIVE && liveLiquiditySol > 0 ? formatSol(liveLiquiditySol, 4) : "Pending"}</div>
 <div style="margin-top:4px;font-size:12px;opacity:.68;">${
-phase === PHASES.LIVE && internalTokens > 0
-? `${formatTokenAmount(internalTokens, 0)} tokens`
-: "Protected until live"
+phase === PHASES.LIVE && liveLiquidityTokens > 0
+? `${formatTokenAmount(liveLiquidityTokens, 0)} tokens`
+: "Raydium routing proof pending"
 }</div>
 `;
 }
 
 const raydiumPct = toNumber(
-lifecycleSafe?.raydiumTargetPct ?? graduationPlanSafe?.raydiumSplitPct,
-50
+lifecycleSafe?.raydiumTargetPct ??
+graduationPlanSafe?.raydiumSplitPct ??
+LIVE_LIQUIDITY_TARGET_PCT,
+LIVE_LIQUIDITY_TARGET_PCT
 );
-const mssPct = toNumber(
-lifecycleSafe?.mssLockedTargetPct ?? graduationPlanSafe?.mssLockedSplitPct,
-50
+const reserveHeldPct = toNumber(
+lifecycleSafe?.protocolReserveHeldPct ??
+graduationPlanSafe?.protocolReserveHeldPct ??
+PROTOCOL_RESERVE_HELD_PCT,
+PROTOCOL_RESERVE_HELD_PCT
 );
 
 if (splitValue) {
 splitValue.innerHTML = `
 <div>Raydium ${formatPercent(raydiumPct, 0)}</div>
-<div style="margin-top:4px;font-size:12px;opacity:.68;">MSS locked ${formatPercent(
-mssPct,
+<div style="margin-top:4px;font-size:12px;opacity:.68;">Reserve held ${formatPercent(
+reserveHeldPct,
 0
-)}</div>
+)} • former reserve burned</div>
 `;
 }
 
-const lockStatus = cleanString(lifecycleSafe?.lockStatus, 80) || "not_locked";
-const lockTx = cleanString(lifecycleSafe?.lockTx, 240);
-const lockExpiry = lifecycleSafe?.lockExpiresAt || null;
+const distributorMode =
+cleanString(lifecycleSafe?.lpFeeControlMode, 80) || "distributor_only";
+const distributorStatus =
+cleanString(lifecycleSafe?.lpFeeDistributorStatus, 120) || "pending";
+const distributorAddress = cleanString(lifecycleSafe?.lpFeeDistributorAddress, 240);
 
 if (lockValue) {
 lockValue.innerHTML = `
-<div>${escapeHtml(lockStatus.replaceAll("_", " "))}</div>
+<div>${escapeHtml(distributorMode.replaceAll("_", " "))}</div>
 <div style="margin-top:4px;font-size:12px;opacity:.68;">
 ${
-phase === PHASES.LIVE && lockTx
-? escapeHtml(shortAddress(lockTx, 10, 8))
-: "No lock proof yet"
-}
-${phase === PHASES.LIVE && lockExpiry ? ` • ${escapeHtml(formatDateTime(lockExpiry))}` : ""}
+phase === PHASES.LIVE && distributorAddress
+? escapeHtml(shortAddress(distributorAddress, 10, 8))
+: escapeHtml(distributorStatus.replaceAll("_", " "))
+} • Builder cannot remove LP
 </div>
 `;
 }
@@ -3636,6 +3715,18 @@ phase !== PHASES.LIVE ? "PENDING" : readiness?.ready ? "READY" : "PENDING"
 </div>
 `);
 
+items.push(`
+<div class="recent-item">
+<div>
+<div class="recent-wallet">Liquidity Structure</div>
+<div class="recent-meta">100% Raydium live liquidity • 0% held reserve • former reserve burned</div>
+</div>
+<div class="recent-wallet">${escapeHtml(
+phase === PHASES.LIVE ? "RAYDIUM" : "PENDING"
+)}</div>
+</div>
+`);
+
 if (phase === PHASES.LIVE && (raydiumPoolId || raydiumMigrationTx)) {
 items.push(`
 <div class="recent-item">
@@ -3645,20 +3736,6 @@ items.push(`
 </div>
 <div class="recent-wallet">${escapeHtml(
 raydiumPoolId ? shortAddress(raydiumPoolId, 10, 8) : "Tracked"
-)}</div>
-</div>
-`);
-}
-
-if (phase === PHASES.LIVE && (lockTx || lifecycleSafe?.mssLockedLpAmount)) {
-items.push(`
-<div class="recent-item">
-<div>
-<div class="recent-wallet">MSS Lock Proof</div>
-<div class="recent-meta">${escapeHtml(lockTx || "Lock metadata recorded")}</div>
-</div>
-<div class="recent-wallet">${escapeHtml(
-cleanString(lifecycleSafe?.mssLockedLpAmount, 80) || "Tracked"
 )}</div>
 </div>
 `);
@@ -3691,6 +3768,18 @@ lifecycleSafe?.lpFeeDistributorAddress
 `);
 }
 
+items.push(`
+<div class="recent-item">
+<div>
+<div class="recent-wallet">Builder LP Fee Rights</div>
+<div class="recent-meta">Builder benefits from Raydium LP fees through MSS distributor control only</div>
+</div>
+<div class="recent-wallet">${escapeHtml(
+phase === PHASES.LIVE ? `${formatPercent(BUILDER_LP_FEE_RIGHTS_PCT, 0)}` : "PENDING"
+)}</div>
+</div>
+`);
+
 graduationProof.innerHTML = items.join("");
 }
 
@@ -3700,11 +3789,13 @@ phase === PHASES.LIVE ? (readiness?.ready ? "Ready" : "Monitoring") : "Pending"
 );
 setText(
 "launchLpInternalText",
-phase === PHASES.LIVE && internalSol > 0 ? formatSol(internalSol, 4) : "Pending"
+phase === PHASES.LIVE && liveLiquiditySol > 0 ? formatSol(liveLiquiditySol, 4) : "Pending"
 );
 setText(
 "launchLockedLpText",
-phase === PHASES.LIVE ? cleanString(lifecycleSafe?.lockStatus, 80) || "Pending" : "Pending"
+phase === PHASES.LIVE
+? cleanString(lifecycleSafe?.lpFeeControlMode, 80).replaceAll("_", " ") || "Distributor only"
+: "Pending"
 );
 setText("launchMigrationStateText", statusText.replaceAll("_", " "));
 }
@@ -3744,8 +3835,7 @@ return {};
 
 async function defaultFetchTokenStats(launchId, wallet = "") {
 try {
-const qs = wallet ? `?wallet=${encodeURIComponent(wallet)}` : "";
-return await fetchJson(`/api/token/${encodeURIComponent(launchId)}${qs}`);
+return await fetchJson(`/api/token/${encodeURIComponent(launchId)}${wallet ? `?wallet=${encodeURIComponent(wallet)}` : ""}`);
 } catch {
 return {};
 }
@@ -4484,7 +4574,7 @@ let note = "External route unavailable.";
 if (graduatedLike && contractAddress) {
 note = `Market is externalized. Open ${EXTERNAL_MARKET.venue} and paste the contract address to trade.`;
 } else if (this.phase === PHASES.LIVE && contractAddress) {
-note = `Execution is handled on ${EXTERNAL_MARKET.venue}. Copy the contract address and trade on the external venue.`;
+note = `Execution is handled on ${EXTERNAL_MARKET.venue}. Copy the contract address and trade on the external venue. Builder LP-fee rights remain MSS-distributor controlled.`;
 } else if (this.phase === PHASES.BUILDING) {
 note =
 "External route is still being prepared. Contract address will appear once bootstrap completes.";
@@ -4638,7 +4728,7 @@ inputText: route.graduatedLike
 routeValue: route.graduatedLike ? "Externalized" : `${route.venue} Ready`,
 feeValue: route.raydiumPoolId
 ? shortAddress(route.raydiumPoolId, 10, 8)
-: `${route.venue} external LP`,
+: "Builder LP fees via MSS distributor",
 contractValue: route.contractAddress
 ? shortAddress(route.contractAddress)
 : route.contractState || "Ready",

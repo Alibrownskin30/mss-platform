@@ -15,6 +15,14 @@ const PROFILE_STATUSES = new Set([
 ]);
 const RISK_RATINGS = new Set(["low", "medium", "high", "critical"]);
 
+const {
+COMPLIANCE_BUCKETS = {
+REQUIRED: "required",
+SILENT: "silent",
+ESCALATION: "escalation",
+},
+} = featureFlags;
+
 function cleanText(value, max = 500) {
 return String(value ?? "").trim().slice(0, max);
 }
@@ -59,53 +67,382 @@ const normalized = cleanText(value, 32).toLowerCase();
 return RISK_RATINGS.has(normalized) ? normalized : fallback;
 }
 
-function buildModeFlags() {
-const config = featureFlags.getComplianceConfig();
+function normalizeMode(value, fallback = "participant") {
+const normalized = cleanText(value, 32).toLowerCase();
+if (normalized === "builder") return "builder";
+if (normalized === "participant") return "participant";
+return fallback;
+}
 
+function normalizeBucket(value, fallback = COMPLIANCE_BUCKETS.SILENT) {
+const normalized = cleanText(value, 32).toLowerCase();
+if (normalized === COMPLIANCE_BUCKETS.REQUIRED) return COMPLIANCE_BUCKETS.REQUIRED;
+if (normalized === COMPLIANCE_BUCKETS.SILENT) return COMPLIANCE_BUCKETS.SILENT;
+if (normalized === COMPLIANCE_BUCKETS.ESCALATION) return COMPLIANCE_BUCKETS.ESCALATION;
+return fallback;
+}
+
+function buildModeFlags(config = featureFlags.getComplianceConfig()) {
 return {
-compliance_mode: config.mode,
-builder_gate_enabled: config.builderGateEnabled,
-participant_gate_enabled: config.participantGateEnabled,
-manual_review_enabled: config.manualReviewEnabled,
-jurisdiction_blocking_enabled: config.jurisdictionBlockingEnabled,
+compliance_mode: config?.mode || null,
+compliance_bucket: config?.bucket || null,
+
+builder_bucket: config?.builder?.bucket || null,
+participant_bucket: config?.participant?.bucket || null,
+jurisdiction_bucket: config?.jurisdiction?.bucket || null,
+manual_review_bucket: config?.manualReview?.bucket || null,
+
+builder_gate_enabled: Boolean(config?.builder?.gateEnabled),
+participant_gate_enabled: Boolean(config?.participant?.gateEnabled),
+manual_review_enabled: Boolean(config?.manualReview?.enabled),
+jurisdiction_blocking_enabled: Boolean(config?.jurisdiction?.blockingEnabled),
+
+builder_silent_screening_enabled: Boolean(config?.builder?.silentScreeningEnabled),
+participant_silent_screening_enabled: Boolean(config?.participant?.silentScreeningEnabled),
+builder_escalation_enabled: Boolean(config?.builder?.escalationEnabled),
+participant_escalation_enabled: Boolean(config?.participant?.escalationEnabled),
+jurisdiction_escalation_enabled: Boolean(config?.jurisdiction?.escalationEnabled),
 };
+}
+
+function resolveModeConfig(config, normalizedMode) {
+if (normalizedMode === "builder") {
+return config?.builder || {};
+}
+return config?.participant || {};
+}
+
+function pushSignal(list, code, severity, message, options = {}) {
+list.push({
+code,
+severity,
+source: options.source || "system",
+blocking: Boolean(options.blocking),
+escalates: Boolean(options.escalates),
+message,
+});
+}
+
+function getAccessReason({
+normalizedMode,
+requiresApproval,
+effectiveStatus,
+hasBlockingSignals,
+firstBlockingSignal,
+hasEscalationSignals,
+escalationSignals,
+modeBucket,
+}) {
+const actorLabel = normalizedMode === "builder" ? "Builder" : "Participant";
+
+if (hasBlockingSignals && firstBlockingSignal?.message) {
+return firstBlockingSignal.message;
+}
+
+if (requiresApproval && effectiveStatus !== "approved") {
+if (effectiveStatus === "pending") {
+return `${actorLabel} approval is still pending before transactional access opens.`;
+}
+return `${actorLabel} approval is required before transactional access opens.`;
+}
+
+if (hasEscalationSignals && escalationSignals.length) {
+return escalationSignals[0].message;
+}
+
+if (modeBucket === COMPLIANCE_BUCKETS.SILENT) {
+return "Silent monitoring is active. Access remains open unless explicit risk intervention is triggered.";
+}
+
+if (modeBucket === COMPLIANCE_BUCKETS.ESCALATION) {
+return "Escalation-only monitoring is active. Access remains open until triggered risk conditions require intervention.";
+}
+
+return "Compliance checks are clear for the current bucket configuration.";
 }
 
 function buildStatusPayload(profile = null, wallet = "", mode = "participant") {
 const config = featureFlags.getComplianceConfig();
-const normalizedMode = cleanText(mode, 32).toLowerCase() || "participant";
+const normalizedMode = normalizeMode(mode, "participant");
+const modeConfig = resolveModeConfig(config, normalizedMode);
 
-const effectiveStatus = profile?.status || "not_started";
-const manualReviewRequired = Boolean(profile?.manual_review_required);
-const restrictedJurisdictions = config.restrictedJurisdictions || [];
-const highRiskJurisdictions = config.highRiskJurisdictions || [];
-const countryCode = cleanText(profile?.country_code, 8).toUpperCase();
-
-const isRestrictedJurisdiction =
-config.jurisdictionBlockingEnabled &&
-countryCode &&
-restrictedJurisdictions.includes(countryCode);
-
-const transactionalAccess =
-effectiveStatus === "approved" &&
-!manualReviewRequired &&
-!isRestrictedJurisdiction &&
-(
-config.mode === featureFlags.COMPLIANCE_MODES.GATED ||
-config.mode === featureFlags.COMPLIANCE_MODES.FULL
+const modeBucket = normalizeBucket(
+modeConfig?.bucket || config?.bucket,
+COMPLIANCE_BUCKETS.SILENT
 );
+const jurisdictionBucket = normalizeBucket(
+config?.jurisdiction?.bucket,
+COMPLIANCE_BUCKETS.ESCALATION
+);
+const manualReviewBucket = normalizeBucket(
+config?.manualReview?.bucket,
+COMPLIANCE_BUCKETS.ESCALATION
+);
+
+const effectiveStatus = normalizeStatus(profile?.status || "not_started");
+const riskRating = normalizeRiskRating(profile?.risk_rating || "low");
+const manualReviewRequired = Boolean(profile?.manual_review_required);
+const sanctionsStatus = Boolean(profile?.sanctions_status);
+const pepStatus = Boolean(profile?.pep_status);
+
+const restrictedJurisdictions = Array.isArray(config?.jurisdiction?.restrictedJurisdictions)
+? config.jurisdiction.restrictedJurisdictions
+: [];
+const highRiskJurisdictions = Array.isArray(config?.jurisdiction?.highRiskJurisdictions)
+? config.jurisdiction.highRiskJurisdictions
+: [];
+
+const countryCode = cleanText(profile?.country_code, 8).toUpperCase();
+const isRestrictedJurisdiction = Boolean(
+countryCode && restrictedJurisdictions.includes(countryCode)
+);
+const isHighRiskJurisdiction = Boolean(
+countryCode && highRiskJurisdictions.includes(countryCode)
+);
+
+const approvalRequired = modeBucket === COMPLIANCE_BUCKETS.REQUIRED;
+const silentMonitoring = Boolean(modeConfig?.silentScreeningEnabled);
+const escalationEnabled = Boolean(modeConfig?.escalationEnabled);
+
+const statusRejectedOrRestricted =
+effectiveStatus === "rejected" || effectiveStatus === "restricted";
+
+const escalationSignals = [];
+
+if (statusRejectedOrRestricted) {
+pushSignal(
+escalationSignals,
+"profile_status_block",
+"critical",
+`Compliance profile is ${effectiveStatus}. Transactional access is blocked.`,
+{
+source: "profile",
+blocking: true,
+escalates: true,
+}
+);
+}
+
+if (sanctionsStatus) {
+pushSignal(
+escalationSignals,
+"sanctions_match",
+"critical",
+"Sanctions screening is flagged on this profile. Transactional access is blocked.",
+{
+source: "screening",
+blocking: true,
+escalates: true,
+}
+);
+}
+
+if (manualReviewRequired) {
+if (manualReviewBucket === COMPLIANCE_BUCKETS.REQUIRED) {
+pushSignal(
+escalationSignals,
+"manual_review_required",
+"high",
+"Manual review is required before transactional access can open.",
+{
+source: "manual_review",
+blocking: true,
+escalates: true,
+}
+);
+} else if (manualReviewBucket === COMPLIANCE_BUCKETS.ESCALATION) {
+pushSignal(
+escalationSignals,
+"manual_review_required",
+"high",
+"Manual review has been triggered and needs intervention before transactional access can continue.",
+{
+source: "manual_review",
+blocking: true,
+escalates: true,
+}
+);
+} else {
+pushSignal(
+escalationSignals,
+"manual_review_required",
+"medium",
+"Manual review is flagged on this profile but is currently being monitored silently.",
+{
+source: "manual_review",
+blocking: false,
+escalates: false,
+}
+);
+}
+}
+
+if (isRestrictedJurisdiction) {
+if (jurisdictionBucket === COMPLIANCE_BUCKETS.REQUIRED) {
+pushSignal(
+escalationSignals,
+"restricted_jurisdiction",
+"critical",
+`Restricted jurisdiction detected (${countryCode}). Transactional access is blocked.`,
+{
+source: "jurisdiction",
+blocking: true,
+escalates: true,
+}
+);
+} else if (jurisdictionBucket === COMPLIANCE_BUCKETS.ESCALATION) {
+pushSignal(
+escalationSignals,
+"restricted_jurisdiction",
+"high",
+`Restricted jurisdiction detected (${countryCode}). Escalation is required before access can continue.`,
+{
+source: "jurisdiction",
+blocking: true,
+escalates: true,
+}
+);
+} else {
+pushSignal(
+escalationSignals,
+"restricted_jurisdiction",
+"medium",
+`Restricted jurisdiction detected (${countryCode}) and is currently being monitored silently.`,
+{
+source: "jurisdiction",
+blocking: false,
+escalates: false,
+}
+);
+}
+}
+
+if (isHighRiskJurisdiction) {
+if (jurisdictionBucket === COMPLIANCE_BUCKETS.ESCALATION) {
+pushSignal(
+escalationSignals,
+"high_risk_jurisdiction",
+"medium",
+`High-risk jurisdiction detected (${countryCode}). Review is recommended.`,
+{
+source: "jurisdiction",
+blocking: false,
+escalates: true,
+}
+);
+} else {
+pushSignal(
+escalationSignals,
+"high_risk_jurisdiction",
+"medium",
+`High-risk jurisdiction detected (${countryCode}).`,
+{
+source: "jurisdiction",
+blocking: false,
+escalates: false,
+}
+);
+}
+}
+
+if (pepStatus) {
+pushSignal(
+escalationSignals,
+"pep_flag",
+"medium",
+"PEP screening is flagged on this profile.",
+{
+source: "screening",
+blocking: false,
+escalates: modeBucket === COMPLIANCE_BUCKETS.ESCALATION,
+}
+);
+}
+
+if (riskRating === "critical") {
+pushSignal(
+escalationSignals,
+"critical_risk_rating",
+"critical",
+"Critical compliance risk rating detected. Intervention is required before transactional access can continue.",
+{
+source: "risk",
+blocking: true,
+escalates: true,
+}
+);
+} else if (riskRating === "high") {
+pushSignal(
+escalationSignals,
+"high_risk_rating",
+"high",
+"High compliance risk rating detected.",
+{
+source: "risk",
+blocking: false,
+escalates: modeBucket === COMPLIANCE_BUCKETS.ESCALATION || escalationEnabled,
+}
+);
+}
+
+const blockingSignals = escalationSignals.filter((signal) => signal.blocking);
+const firstBlockingSignal = blockingSignals[0] || null;
+
+const escalatedSignals = escalationSignals.filter((signal) => signal.escalates);
+const hasEscalationSignals = escalatedSignals.length > 0;
+const hasBlockingSignals = blockingSignals.length > 0;
+
+const profilePresent = Boolean(profile?.id);
+const approved = effectiveStatus === "approved";
+const pending = effectiveStatus === "pending";
+const notStarted = effectiveStatus === "not_started";
+
+const requiredApprovalOutstanding =
+approvalRequired && (!profilePresent || !approved);
+
+let accessState = "open";
+let transactionalAccess = true;
+
+if (hasBlockingSignals) {
+accessState = "blocked";
+transactionalAccess = false;
+} else if (requiredApprovalOutstanding) {
+accessState = pending ? "pending" : "required";
+transactionalAccess = false;
+} else if (hasEscalationSignals) {
+accessState = "watch";
+transactionalAccess = true;
+} else if (modeBucket === COMPLIANCE_BUCKETS.SILENT) {
+accessState = "silent";
+transactionalAccess = true;
+} else if (modeBucket === COMPLIANCE_BUCKETS.ESCALATION) {
+accessState = "watch";
+transactionalAccess = true;
+}
+
+const accessReason = getAccessReason({
+normalizedMode,
+requiresApproval: approvalRequired,
+effectiveStatus,
+hasBlockingSignals,
+firstBlockingSignal,
+hasEscalationSignals,
+escalationSignals: escalatedSignals,
+modeBucket,
+});
 
 return {
 ok: true,
 wallet: wallet || null,
 mode: normalizedMode,
+
 profile: profile
 ? {
 id: profile.id,
 wallet_address: profile.wallet_address,
 profile_type: profile.profile_type,
 status: effectiveStatus,
-risk_rating: profile.risk_rating,
+risk_rating: riskRating,
 legal_name: profile.legal_name,
 display_name: profile.display_name,
 entity_name: profile.entity_name,
@@ -113,8 +450,8 @@ entity_type: profile.entity_type,
 email: profile.email,
 phone: profile.phone,
 country_code: countryCode || null,
-pep_status: Boolean(profile.pep_status),
-sanctions_status: Boolean(profile.sanctions_status),
+pep_status: pepStatus,
+sanctions_status: sanctionsStatus,
 source_of_funds_summary: profile.source_of_funds_summary || null,
 source_of_wealth_summary: profile.source_of_wealth_summary || null,
 verification_started_at: profile.verification_started_at || null,
@@ -127,18 +464,41 @@ created_at: profile.created_at || null,
 updated_at: profile.updated_at || null,
 }
 : null,
+
+profile_present: profilePresent,
+approved,
+pending,
+not_started: notStarted,
 status: effectiveStatus,
-risk_rating: profile?.risk_rating || "low",
+risk_rating: riskRating,
+
+access_state: accessState,
+access_reason: accessReason,
+transactional_access: transactionalAccess,
+
+approval_required: approvalRequired,
+silent_monitoring: silentMonitoring,
+escalation_monitoring: escalationEnabled,
+
+escalation_required: hasEscalationSignals,
+escalation_signals: escalatedSignals,
+blocking_signals: blockingSignals,
+
 manual_review_required: manualReviewRequired,
 restricted_jurisdiction: isRestrictedJurisdiction,
-transactional_access: transactionalAccess,
+high_risk_jurisdiction: isHighRiskJurisdiction,
+sanctions_status: sanctionsStatus,
+pep_status: pepStatus,
+
 requires_builder_approval:
-normalizedMode === "builder" ? config.builderGateEnabled : false,
+normalizedMode === "builder" ? Boolean(config?.builder?.gateEnabled) : false,
 requires_participant_approval:
-normalizedMode === "participant" ? config.participantGateEnabled : false,
+normalizedMode === "participant" ? Boolean(config?.participant?.gateEnabled) : false,
+
 high_risk_jurisdictions: highRiskJurisdictions,
 restricted_jurisdictions: restrictedJurisdictions,
-...buildModeFlags(),
+
+...buildModeFlags(config),
 };
 }
 
@@ -262,11 +622,10 @@ setVerificationStartedAt = false,
 setVerificationCompletedAt = false,
 }) {
 const existing = await getProfileByWallet(walletAddress);
-
 const now = new Date().toISOString();
 
 if (!existing) {
-const result = await db.run(
+await db.run(
 `
 INSERT INTO compliance_profiles (
 wallet_address,
@@ -324,7 +683,7 @@ metadata ? JSON.stringify(metadata) : null,
 ]
 );
 
-return getProfileByWallet(walletAddress || result?.lastID);
+return getProfileByWallet(walletAddress);
 }
 
 const mergedMetadata = {
@@ -486,7 +845,7 @@ cleanText(rep?.notes, 1000) || null,
 router.get("/status", async (req, res) => {
 try {
 const wallet = cleanWallet(req.query.wallet);
-const mode = cleanText(req.query.mode, 32).toLowerCase() || "participant";
+const mode = normalizeMode(req.query.mode || req.query.context || "participant");
 
 if (!wallet) {
 return res.status(400).json({
@@ -524,7 +883,7 @@ message: error?.message || String(error),
 router.post("/start", async (req, res) => {
 try {
 const wallet = cleanWallet(req.body?.wallet);
-const mode = cleanText(req.body?.mode, 32).toLowerCase() || "participant";
+const mode = normalizeMode(req.body?.mode || req.body?.context || "participant");
 const profileType = normalizeProfileType(req.body?.profile_type);
 
 if (!wallet) {
@@ -589,7 +948,7 @@ message: error?.message || String(error),
 router.post("/submit", async (req, res) => {
 try {
 const wallet = cleanWallet(req.body?.wallet);
-const mode = cleanText(req.body?.mode, 32).toLowerCase() || "participant";
+const mode = normalizeMode(req.body?.mode || req.body?.context || "participant");
 
 if (!wallet) {
 return res.status(400).json({
@@ -620,8 +979,10 @@ profileType,
 legalName: cleanText(req.body?.legal_name || req.body?.legalName, 200) || null,
 displayName:
 cleanText(req.body?.display_name || req.body?.displayName, 200) || null,
-entityName: cleanText(req.body?.entity_name || req.body?.entityName, 200) || null,
-entityType: cleanText(req.body?.entity_type || req.body?.entityType, 120) || null,
+entityName:
+cleanText(req.body?.entity_name || req.body?.entityName, 200) || null,
+entityType:
+cleanText(req.body?.entity_type || req.body?.entityType, 120) || null,
 entityRegistrationNumber:
 cleanText(
 req.body?.entity_registration_number ||

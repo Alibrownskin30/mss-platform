@@ -10,6 +10,15 @@ const PROTECTED_WALLET_CAP_DAYS = 5;
 
 const EXTERNAL_MARKET_VENUE = "raydium";
 const EXTERNAL_MARKET_MODE = "external_lp_only";
+const LIVE_LIQUIDITY_TARGET_PCT = 100;
+const INTERNAL_LP_ENABLED = false;
+const INTERNAL_MARKET_ENABLED = false;
+const PROTOCOL_RESERVE_HELD_PCT = 0;
+const FORMER_RESERVE_BURNED = true;
+const UNUSED_PARTICIPANT_ALLOCATION_BURNED = true;
+const LP_FEE_BENEFICIARY = "builder";
+const LP_FEE_DISTRIBUTOR = "mss_controlled_distributor";
+const LP_REMOVAL_RIGHTS = "mss_protocol_only";
 
 function safeNum(value, fallback = 0) {
 const n = Number(value);
@@ -257,13 +266,14 @@ return normalized === "live" || normalized === "graduated";
 }
 
 function getDaysSinceLaunch(launch) {
-const launchStartMs = parseDbTime(
-launch?.live_at || launch?.updated_at || launch?.created_at
-);
+const launchStartMs = parseDbTime(launch?.live_at);
 
 if (!Number.isFinite(launchStartMs)) return 0;
 
-return Math.max(0, Math.floor((Date.now() - launchStartMs) / (24 * 60 * 60 * 1000)));
+return Math.max(
+0,
+Math.floor((Date.now() - launchStartMs) / (24 * 60 * 60 * 1000))
+);
 }
 
 function isWalletCapOpen(launch) {
@@ -441,8 +451,10 @@ venue: canTrade ? EXTERNAL_MARKET_VENUE : null,
 mode: EXTERNAL_MARKET_MODE,
 canTrade,
 can_trade: canTrade,
-internalExecutionEnabled: false,
-internal_execution_enabled: false,
+internalExecutionEnabled: INTERNAL_MARKET_ENABLED,
+internal_execution_enabled: INTERNAL_MARKET_ENABLED,
+internalLpEnabled: INTERNAL_LP_ENABLED,
+internal_lp_enabled: INTERNAL_LP_ENABLED,
 contractAddress,
 contract_address: contractAddress,
 tokenMint: contractAddress,
@@ -455,10 +467,28 @@ marketCap: safeNum(launch?.market_cap, 0),
 market_cap: safeNum(launch?.market_cap, 0),
 volume24h: roundSol(launch?.volume_24h || 0),
 volume_24h: roundSol(launch?.volume_24h || 0),
-mssLpFeeRightsPct: 100,
-mss_lp_fee_rights_pct: 100,
-builderLpFeeRightsPct: 0,
-builder_lp_fee_rights_pct: 0,
+liveLiquidityTargetPct: LIVE_LIQUIDITY_TARGET_PCT,
+live_liquidity_target_pct: LIVE_LIQUIDITY_TARGET_PCT,
+protocolReserveHeldPct: PROTOCOL_RESERVE_HELD_PCT,
+protocol_reserve_held_pct: PROTOCOL_RESERVE_HELD_PCT,
+formerReserveBurned: FORMER_RESERVE_BURNED,
+former_reserve_burned: FORMER_RESERVE_BURNED,
+unusedParticipantAllocationBurned:
+UNUSED_PARTICIPANT_ALLOCATION_BURNED,
+unused_participant_allocation_burned:
+UNUSED_PARTICIPANT_ALLOCATION_BURNED,
+lpFeeBeneficiary: LP_FEE_BENEFICIARY,
+lp_fee_beneficiary: LP_FEE_BENEFICIARY,
+lpFeeDistributor: LP_FEE_DISTRIBUTOR,
+lp_fee_distributor: LP_FEE_DISTRIBUTOR,
+lpRemovalRights: LP_REMOVAL_RIGHTS,
+lp_removal_rights: LP_REMOVAL_RIGHTS,
+mssLpFeeRightsPct: 0,
+mss_lp_fee_rights_pct: 0,
+builderLpFeeRightsPct: 100,
+builder_lp_fee_rights_pct: 100,
+builderLpFeeRightsViaDistributor: true,
+builder_lp_fee_rights_via_distributor: true,
 },
 wallet: {
 connected: Boolean(walletStr),

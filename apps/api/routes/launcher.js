@@ -38,6 +38,21 @@ const RECONCILE_INTERVAL_MS = 15000;
 const REQUIRED_MINT_TAG = "MSS";
 const RESERVED_MINT_MAX_ATTEMPTS = 1000000;
 const LAUNCH_FEE_PCT = 5;
+const REFUND_FEE_BUFFER_LAMPORTS = 10000;
+const REFUND_WORKER_BATCH_SIZE = 10;
+
+const REFUND_LEDGER_PENDING_SHARED_STATUS = "pending_shared_refund";
+const REFUND_LEDGER_PENDING_SHARED_LEGACY_STATUS =
+"pending_shared_wallet_refund";
+const REFUND_LEDGER_PENDING_PROGRAM_STATUS = "pending_program_refund";
+const REFUND_LEDGER_PROCESSING_STATUS = "processing";
+const REFUND_LEDGER_REFUNDED_STATUS = "refunded";
+const REFUND_LEDGER_FAILED_STATUS = "failed";
+const REFUND_LEDGER_CANCELLED_STATUS = "cancelled";
+
+const REFUND_REQUEST_KIND_MANUAL = "manual_refund";
+const REFUND_REQUEST_KIND_AUTO_FAILED = "failed_launch_auto";
+const REFUND_REQUEST_KIND_LATE_REJECTED = "late_rejected_commit";
 
 function cleanEnv(value, max = 200) {
 return String(value ?? "").trim().slice(0, max);
@@ -64,6 +79,9 @@ const MEMO_PROGRAM_ID = new PublicKey(
 
 const reconcileLocks = new Map();
 const finalizeLocks = new Map();
+const refundExecutionLocks = new Map();
+const tableExistsCache = new Map();
+const tableColumnsCache = new Map();
 
 function cleanText(value, max = 280) {
 return String(value ?? "").trim().slice(0, max);
@@ -102,6 +120,47 @@ return JSON.parse(String(input));
 } catch {
 return fallback;
 }
+}
+
+async function tableExists(tableName) {
+const key = String(tableName || "").trim();
+if (!key) return false;
+
+if (tableExistsCache.has(key)) {
+return tableExistsCache.get(key);
+}
+
+const row = await db.get(
+`
+SELECT name
+FROM sqlite_master
+WHERE type = 'table' AND name = ?
+LIMIT 1
+`,
+[key]
+);
+
+const exists = Boolean(row?.name);
+tableExistsCache.set(key, exists);
+return exists;
+}
+
+async function getTableColumns(tableName) {
+const key = String(tableName || "").trim();
+if (!key) return new Set();
+
+if (tableColumnsCache.has(key)) {
+return tableColumnsCache.get(key);
+}
+
+const rows = await db.all(`PRAGMA table_info(${key})`);
+const columns = new Set(rows.map((row) => String(row.name || "").trim()));
+tableColumnsCache.set(key, columns);
+return columns;
+}
+
+async function refundLedgerTableExists() {
+return tableExists("launch_refund_ledger");
 }
 
 function normalizeWallet(value) {
@@ -409,7 +468,6 @@ coreTeamDevelopmentPct: LAUNCH_FEE_SPLIT.coreTeamDevelopment * 100,
 ecosystemSupportPct: LAUNCH_FEE_SPLIT.ecosystemSupport * 100,
 },
 
-// compatibility aliases during frontend/backend transition
 coreFee: coreTeamDevelopmentFee,
 founderFee: coreTeamDevelopmentFee,
 treasuryFee: ecosystemSupportFee,
@@ -687,6 +745,16 @@ builder_wallet: cleanText(row?.builder_wallet, 120),
 builder_alias: cleanText(row?.builder_alias, 120),
 builder_score: Number(row?.builder_score || 0),
 market_bootstrapped: row?.market_bootstrapped,
+commit_escrow_address: cleanText(row?.commit_escrow_address, 120),
+launch_escrow_address: cleanText(row?.launch_escrow_address, 120),
+escrow_vault_address: cleanText(row?.escrow_vault_address, 120),
+escrow_address: cleanText(row?.escrow_address, 120),
+escrow_wallet: cleanText(row?.escrow_wallet, 120),
+vault_address: cleanText(row?.vault_address, 120),
+commit_escrow_model: cleanText(row?.commit_escrow_model, 80),
+escrow_model: cleanText(row?.escrow_model, 80),
+escrow_type: cleanText(row?.escrow_type, 80),
+funds_model: cleanText(row?.funds_model, 80),
 };
 }
 
@@ -1033,14 +1101,6 @@ const s = cleanText(status, 40).toLowerCase();
 return s === "graduated" || s === "failed" || s === "failed_refunded";
 }
 
-function getEscrowWallet() {
-const wallet = cleanText(process.env.ESCROW_WALLET, 120);
-if (!wallet) {
-throw new Error("ESCROW_WALLET is not configured");
-}
-return wallet;
-}
-
 function getRpcUrl() {
 return (
 cleanText(process.env.SOLANA_RPC, 500) ||
@@ -1049,12 +1109,7 @@ cleanText(process.env.RPC_URL, 500) ||
 );
 }
 
-function getEscrowKeypair() {
-const raw = cleanText(process.env.ESCROW_PRIVATE_KEY, 5000);
-if (!raw) {
-throw new Error("ESCROW_PRIVATE_KEY is not configured");
-}
-
+function decodeKeypairRaw(raw, label = "private key") {
 try {
 if (raw.startsWith("[")) {
 const arr = JSON.parse(raw);
@@ -1066,8 +1121,105 @@ return Keypair.fromSecretKey(Uint8Array.from(arr));
 
 return Keypair.fromSecretKey(bs58.decode(raw));
 } catch (err) {
-throw new Error(`ESCROW_PRIVATE_KEY is invalid: ${err?.message || err}`);
+throw new Error(`${label} is invalid: ${err?.message || err}`);
 }
+}
+
+function maybeGetKeypairFromEnv(envNames = [], label = "private key") {
+for (const envName of envNames) {
+const raw = cleanText(process.env[envName], 5000);
+if (!raw) continue;
+return decodeKeypairRaw(raw, `${envName}`);
+}
+return null;
+}
+
+function getEscrowWallet() {
+const wallet = cleanText(process.env.ESCROW_WALLET, 120);
+if (!wallet) {
+throw new Error("ESCROW_WALLET is not configured");
+}
+return wallet;
+}
+
+function getBuilderBondEscrowWallet() {
+return (
+cleanText(process.env.BUILDER_BOND_ESCROW_WALLET, 120) ||
+getEscrowWallet()
+);
+}
+
+function getEscrowKeypair() {
+const keypair = maybeGetKeypairFromEnv(
+["LAUNCH_ESCROW_PRIVATE_KEY", "ESCROW_PRIVATE_KEY"],
+"launch escrow signer"
+);
+
+if (!keypair) {
+throw new Error(
+"LAUNCH_ESCROW_PRIVATE_KEY or ESCROW_PRIVATE_KEY is not configured"
+);
+}
+
+return keypair;
+}
+
+function getRelayerKeypair(fallback = null) {
+return (
+maybeGetKeypairFromEnv(
+["RELAYER_PRIVATE_KEY", "REFUND_RELAYER_PRIVATE_KEY"],
+"relayer signer"
+) || fallback
+);
+}
+
+function resolveLaunchCommitEscrow(launch = null) {
+const defaultAddress = getEscrowWallet();
+
+const explicitAddress = cleanText(
+chooseFirstProvided(
+launch?.commit_escrow_address,
+launch?.launch_escrow_address,
+launch?.escrow_vault_address,
+launch?.escrow_address,
+launch?.vault_address,
+launch?.escrow_wallet
+),
+120
+);
+
+const modelHint = cleanText(
+chooseFirstProvided(
+launch?.commit_escrow_model,
+launch?.escrow_model,
+launch?.escrow_type,
+launch?.funds_model
+),
+80
+).toLowerCase();
+
+let model = "shared_wallet";
+
+if (
+modelHint.includes("vault") ||
+modelHint.includes("program") ||
+modelHint.includes("pda")
+) {
+model = "launch_vault";
+} else if (explicitAddress && explicitAddress !== defaultAddress) {
+model = "launch_vault";
+}
+
+const address = explicitAddress || defaultAddress;
+
+if (!address || !isValidSolanaAddress(address)) {
+throw new Error("launch commit escrow address is invalid");
+}
+
+return {
+address,
+model,
+};
 }
 
 function solToLamports(solAmount) {
@@ -1076,6 +1228,554 @@ return Math.round(Number(solAmount) * 1_000_000_000);
 
 function buildLaunchBondReference(wallet) {
 return `mss-launch-bond-${cleanText(wallet, 80)}`;
+}
+
+function buildCommitReference(launchId) {
+return `mss-launch-${launchId}`;
+}
+
+function buildRefundProgramReference(launchId, wallet) {
+const suffix =
+normalizeWallet(wallet).replace(/[^a-zA-Z0-9]/g, "").slice(0, 12) || "wallet";
+return `mss-refund-${launchId}-${suffix}`;
+}
+
+function normalizeRefundLedgerStatus(status = "") {
+const normalized = cleanText(status, 80).toLowerCase();
+
+if (normalized === REFUND_LEDGER_PENDING_SHARED_LEGACY_STATUS) {
+return REFUND_LEDGER_PENDING_SHARED_STATUS;
+}
+
+return normalized;
+}
+
+function resolveRefundLedgerPendingStatus(escrowModel = "shared_wallet") {
+return escrowModel === "launch_vault"
+? REFUND_LEDGER_PENDING_PROGRAM_STATUS
+: REFUND_LEDGER_PENDING_SHARED_STATUS;
+}
+
+function normalizeRefundLedgerRow(row) {
+if (!row) return null;
+
+return {
+...row,
+launch_id: safeNumber(row.launch_id, 0),
+wallet: cleanText(row.wallet, 120),
+status: normalizeRefundLedgerStatus(row.status),
+request_kind: cleanText(row.request_kind, 80).toLowerCase(),
+refund_reason: cleanText(row.refund_reason, 500),
+escrow_model: cleanText(row.escrow_model, 80).toLowerCase(),
+escrow_address: cleanText(row.escrow_address, 120),
+refund_sol: safeNumber(row.refund_sol, 0),
+refund_lamports: safeNumber(row.refund_lamports, 0),
+commit_total_sol: safeNumber(row.commit_total_sol, 0),
+commit_count: safeNumber(row.commit_count, 0),
+latest_commit_tx_signature: cleanText(row.latest_commit_tx_signature, 140),
+refund_tx_signature: cleanText(row.refund_tx_signature, 140),
+program_instruction_ref: cleanText(row.program_instruction_ref, 160),
+relayer_wallet: cleanText(row.relayer_wallet, 120),
+source_wallet: cleanText(row.source_wallet, 120),
+refund_attempts: safeNumber(row.refund_attempts, 0),
+last_error: cleanText(row.last_error, 500),
+requested_at: row.requested_at || null,
+refunded_at: row.refunded_at || null,
+failed_at: row.failed_at || null,
+created_at: row.created_at || null,
+updated_at: row.updated_at || null,
+last_attempt_at: row.last_attempt_at || null,
+};
+}
+
+function buildRefundExecutionLockKey(launchId, wallet) {
+return `${Number(launchId || 0)}:${normalizeWalletKey(wallet)}`;
+}
+
+async function runRefundExecutionLocked(lockKey, fn) {
+if (refundExecutionLocks.has(lockKey)) {
+return refundExecutionLocks.get(lockKey);
+}
+
+const promise = (async () => fn())();
+refundExecutionLocks.set(lockKey, promise);
+
+try {
+return await promise;
+} finally {
+refundExecutionLocks.delete(lockKey);
+}
+}
+
+async function getCommitRowsForLaunch(launchId) {
+return db.all(
+`
+SELECT wallet, sol_amount, tx_signature, created_at
+FROM commits
+WHERE launch_id = ?
+ORDER BY id DESC
+`,
+[launchId]
+);
+}
+
+function buildCommitAggregates(rows = []) {
+const map = new Map();
+
+for (const row of Array.isArray(rows) ? rows : []) {
+const wallet = normalizeWallet(row?.wallet);
+if (!wallet) continue;
+
+const key = normalizeWalletKey(wallet);
+if (!map.has(key)) {
+map.set(key, {
+wallet,
+commit_total_sol: 0,
+commit_count: 0,
+latest_commit_tx_signature: cleanText(row?.tx_signature, 140) || null,
+last_commit_created_at: row?.created_at || null,
+});
+}
+
+const entry = map.get(key);
+entry.commit_total_sol = Number(
+(entry.commit_total_sol + safeNumber(row?.sol_amount, 0)).toFixed(9)
+);
+entry.commit_count += 1;
+
+if (!entry.latest_commit_tx_signature && row?.tx_signature) {
+entry.latest_commit_tx_signature = cleanText(row.tx_signature, 140);
+}
+
+if (!entry.last_commit_created_at && row?.created_at) {
+entry.last_commit_created_at = row.created_at;
+}
+}
+
+return Array.from(map.values());
+}
+
+async function getLaunchCommitAggregates(launchId) {
+const rows = await getCommitRowsForLaunch(launchId);
+return buildCommitAggregates(rows);
+}
+
+async function getWalletCommitAggregate(launchId, wallet) {
+const normalizedWallet = normalizeWallet(wallet);
+if (!normalizedWallet) return null;
+
+const rows = await db.all(
+`
+SELECT wallet, sol_amount, tx_signature, created_at
+FROM commits
+WHERE launch_id = ? AND wallet = ?
+ORDER BY id DESC
+`,
+[launchId, normalizedWallet]
+);
+
+const aggregates = buildCommitAggregates(rows);
+return aggregates[0] || null;
+}
+
+async function findLatestRefundLedgerEntry(launchId, wallet, { statuses = [] } = {}) {
+if (!(await refundLedgerTableExists())) return null;
+
+const normalizedWallet = normalizeWallet(wallet);
+if (!launchId || !normalizedWallet) return null;
+
+const requestedStatusList = Array.isArray(statuses)
+? statuses.map((status) => cleanText(status, 80).toLowerCase()).filter(Boolean)
+: [];
+
+const expandedStatusSet = new Set(requestedStatusList);
+if (expandedStatusSet.has(REFUND_LEDGER_PENDING_SHARED_STATUS)) {
+expandedStatusSet.add(REFUND_LEDGER_PENDING_SHARED_LEGACY_STATUS);
+}
+
+const statusList = Array.from(expandedStatusSet);
+const statusClause = statusList.length
+? `AND LOWER(status) IN (${statusList.map(() => "?").join(", ")})`
+: "";
+
+const row = await db.get(
+`
+SELECT *
+FROM launch_refund_ledger
+WHERE launch_id = ?
+AND LOWER(wallet) = LOWER(?)
+${statusClause}
+ORDER BY id DESC
+LIMIT 1
+`,
+[launchId, normalizedWallet, ...statusList]
+);
+
+return normalizeRefundLedgerRow(row);
+}
+
+async function upsertRefundLedgerEntry({
+launchId,
+wallet,
+status = "",
+requestKind = REFUND_REQUEST_KIND_MANUAL,
+reason = "",
+escrowModel = "shared_wallet",
+escrowAddress = "",
+refundSol = 0,
+commitTotalSol = 0,
+commitCount = 0,
+latestCommitTxSignature = "",
+programInstructionRef = "",
+}) {
+if (!(await refundLedgerTableExists())) return null;
+
+const normalizedWallet = normalizeWallet(wallet);
+if (!launchId || !normalizedWallet) return null;
+
+const normalizedStatus =
+cleanText(status, 80).toLowerCase() ||
+resolveRefundLedgerPendingStatus(escrowModel);
+
+const normalizedEscrowModel = cleanText(escrowModel, 80).toLowerCase() || "shared_wallet";
+const normalizedEscrowAddress = cleanText(escrowAddress, 120);
+const normalizedReason = cleanText(reason, 500);
+const normalizedRequestKind =
+cleanText(requestKind, 80).toLowerCase() || REFUND_REQUEST_KIND_MANUAL;
+const normalizedRefundSol = safeNumber(refundSol, safeNumber(commitTotalSol, 0));
+const normalizedCommitTotalSol = safeNumber(commitTotalSol, normalizedRefundSol);
+const normalizedCommitCount = Math.max(0, Math.floor(safeNumber(commitCount, 0)));
+const normalizedLatestCommitTxSignature = cleanText(latestCommitTxSignature, 140);
+const normalizedProgramInstructionRef =
+cleanText(programInstructionRef, 160) ||
+(normalizedEscrowModel === "launch_vault"
+? buildRefundProgramReference(launchId, normalizedWallet)
+: "");
+const refundLamports = solToLamports(normalizedRefundSol);
+
+const existingActive = await findLatestRefundLedgerEntry(launchId, normalizedWallet, {
+statuses: [
+REFUND_LEDGER_PENDING_SHARED_STATUS,
+REFUND_LEDGER_PENDING_PROGRAM_STATUS,
+REFUND_LEDGER_PROCESSING_STATUS,
+],
+});
+
+if (existingActive?.id) {
+await db.run(
+`
+UPDATE launch_refund_ledger
+SET status = ?,
+request_kind = ?,
+refund_reason = ?,
+escrow_model = ?,
+escrow_address = ?,
+refund_sol = ?,
+refund_lamports = ?,
+commit_total_sol = ?,
+commit_count = ?,
+latest_commit_tx_signature = COALESCE(?, latest_commit_tx_signature),
+program_instruction_ref = COALESCE(program_instruction_ref, ?),
+updated_at = CURRENT_TIMESTAMP
+WHERE id = ?
+`,
+[
+normalizedStatus,
+normalizedRequestKind,
+normalizedReason,
+normalizedEscrowModel,
+normalizedEscrowAddress,
+normalizedRefundSol,
+refundLamports,
+normalizedCommitTotalSol,
+normalizedCommitCount,
+normalizedLatestCommitTxSignature || null,
+normalizedProgramInstructionRef || null,
+existingActive.id,
+]
+);
+
+const refreshed = await db.get(
+`SELECT * FROM launch_refund_ledger WHERE id = ? LIMIT 1`,
+[existingActive.id]
+);
+
+return normalizeRefundLedgerRow(refreshed);
+}
+
+const insert = await db.run(
+`
+INSERT INTO launch_refund_ledger (
+launch_id,
+wallet,
+status,
+request_kind,
+refund_reason,
+escrow_model,
+escrow_address,
+refund_sol,
+refund_lamports,
+commit_total_sol,
+commit_count,
+latest_commit_tx_signature,
+program_instruction_ref,
+requested_at,
+created_at,
+updated_at
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+`,
+[
+launchId,
+normalizedWallet,
+normalizedStatus,
+normalizedRequestKind,
+normalizedReason,
+normalizedEscrowModel,
+normalizedEscrowAddress,
+normalizedRefundSol,
+refundLamports,
+normalizedCommitTotalSol,
+normalizedCommitCount,
+normalizedLatestCommitTxSignature || null,
+normalizedProgramInstructionRef || null,
+]
+);
+
+const row = await db.get(
+`SELECT * FROM launch_refund_ledger WHERE id = ? LIMIT 1`,
+[insert.lastID]
+);
+
+return normalizeRefundLedgerRow(row);
+}
+
+async function markRefundLedgerProcessing(ledgerId) {
+if (!(await refundLedgerTableExists()) || !ledgerId) return null;
+
+await db.run(
+`
+UPDATE launch_refund_ledger
+SET status = ?,
+refund_attempts = COALESCE(refund_attempts, 0) + 1,
+last_attempt_at = CURRENT_TIMESTAMP,
+last_error = NULL,
+failed_at = NULL,
+updated_at = CURRENT_TIMESTAMP
+WHERE id = ?
+`,
+[REFUND_LEDGER_PROCESSING_STATUS, ledgerId]
+);
+
+const row = await db.get(
+`SELECT * FROM launch_refund_ledger WHERE id = ? LIMIT 1`,
+[ledgerId]
+);
+
+return normalizeRefundLedgerRow(row);
+}
+
+async function markRefundLedgerRefunded(ledgerId, { refundTransfer = null, refundSol = null } = {}) {
+if (!(await refundLedgerTableExists()) || !ledgerId) return null;
+
+const normalizedRefundSol = refundSol == null ? null : safeNumber(refundSol, 0);
+const refundLamports =
+normalizedRefundSol == null ? null : solToLamports(normalizedRefundSol);
+
+await db.run(
+`
+UPDATE launch_refund_ledger
+SET status = ?,
+refund_tx_signature = ?,
+relayer_wallet = ?,
+source_wallet = ?,
+refund_sol = COALESCE(?, refund_sol),
+refund_lamports = COALESCE(?, refund_lamports),
+refunded_at = CURRENT_TIMESTAMP,
+last_error = NULL,
+updated_at = CURRENT_TIMESTAMP
+WHERE id = ?
+`,
+[
+REFUND_LEDGER_REFUNDED_STATUS,
+cleanText(refundTransfer?.signature, 140) || null,
+cleanText(refundTransfer?.feePayer, 120) || null,
+cleanText(refundTransfer?.sourceWallet, 120) || null,
+normalizedRefundSol,
+refundLamports,
+ledgerId,
+]
+);
+
+const row = await db.get(
+`SELECT * FROM launch_refund_ledger WHERE id = ? LIMIT 1`,
+[ledgerId]
+);
+
+return normalizeRefundLedgerRow(row);
+}
+
+async function markRefundLedgerFailed(ledgerId, errorMessage = "") {
+if (!(await refundLedgerTableExists()) || !ledgerId) return null;
+
+await db.run(
+`
+UPDATE launch_refund_ledger
+SET status = ?,
+last_error = ?,
+failed_at = CURRENT_TIMESTAMP,
+updated_at = CURRENT_TIMESTAMP
+WHERE id = ?
+`,
+[
+REFUND_LEDGER_FAILED_STATUS,
+cleanText(errorMessage, 500) || "refund execution failed",
+ledgerId,
+]
+);
+
+const row = await db.get(
+`SELECT * FROM launch_refund_ledger WHERE id = ? LIMIT 1`,
+[ledgerId]
+);
+
+return normalizeRefundLedgerRow(row);
+}
+
+async function markRefundLedgerCancelled(ledgerId, reason = "") {
+if (!(await refundLedgerTableExists()) || !ledgerId) return null;
+
+await db.run(
+`
+UPDATE launch_refund_ledger
+SET status = ?,
+last_error = ?,
+updated_at = CURRENT_TIMESTAMP
+WHERE id = ?
+`,
+[
+REFUND_LEDGER_CANCELLED_STATUS,
+cleanText(reason, 500) || "refund no longer required",
+ledgerId,
+]
+);
+
+const row = await db.get(
+`SELECT * FROM launch_refund_ledger WHERE id = ? LIMIT 1`,
+[ledgerId]
+);
+
+return normalizeRefundLedgerRow(row);
+}
+
+async function listRefundLedgerForLaunch(launchId) {
+if (!(await refundLedgerTableExists())) return [];
+
+const rows = await db.all(
+`
+SELECT *
+FROM launch_refund_ledger
+WHERE launch_id = ?
+ORDER BY id DESC
+`,
+[launchId]
+);
+
+return rows.map((row) => normalizeRefundLedgerRow(row));
+}
+
+async function queueWalletRefundLedger({
+launchId,
+launch = null,
+wallet,
+solAmount = 0,
+latestCommitTxSignature = "",
+commitCount = 0,
+requestKind = REFUND_REQUEST_KIND_MANUAL,
+reason = "",
+forcedStatus = "",
+}) {
+if (!(await refundLedgerTableExists())) return null;
+
+const resolvedLaunch = launch || (await getLaunchById(launchId));
+const launchEscrow = resolveLaunchCommitEscrow(resolvedLaunch);
+
+const aggregate =
+safeNumber(solAmount, 0) > 0 && safeNumber(commitCount, 0) > 0
+? null
+: await getWalletCommitAggregate(launchId, wallet);
+
+const refundSol = safeNumber(solAmount, safeNumber(aggregate?.commit_total_sol, 0));
+const normalizedCommitCount = Math.max(
+0,
+Math.floor(safeNumber(commitCount, safeNumber(aggregate?.commit_count, 0)))
+);
+const latestCommitSignature =
+cleanText(latestCommitTxSignature, 140) ||
+cleanText(aggregate?.latest_commit_tx_signature, 140);
+
+if (refundSol <= 0) return null;
+
+const status =
+cleanText(forcedStatus, 80).toLowerCase() ||
+resolveRefundLedgerPendingStatus(launchEscrow.model);
+
+return upsertRefundLedgerEntry({
+launchId,
+wallet,
+status,
+requestKind,
+reason,
+escrowModel: launchEscrow.model,
+escrowAddress: launchEscrow.address,
+refundSol,
+commitTotalSol: refundSol,
+commitCount: normalizedCommitCount,
+latestCommitTxSignature: latestCommitSignature,
+programInstructionRef:
+launchEscrow.model === "launch_vault"
+? buildRefundProgramReference(launchId, wallet)
+: "",
+});
+}
+
+async function queueFailedLaunchRefundLedgerEntries(launchId) {
+if (!(await refundLedgerTableExists())) return [];
+
+const launch = await getLaunchById(launchId);
+if (!launch) return [];
+
+const aggregates = await getLaunchCommitAggregates(launchId);
+const queued = [];
+
+for (const aggregate of aggregates) {
+if (safeNumber(aggregate?.commit_total_sol, 0) <= 0) continue;
+
+const entry = await queueWalletRefundLedger({
+launchId,
+launch,
+wallet: aggregate.wallet,
+solAmount: aggregate.commit_total_sol,
+latestCommitTxSignature: aggregate.latest_commit_tx_signature || "",
+commitCount: aggregate.commit_count || 0,
+requestKind: REFUND_REQUEST_KIND_AUTO_FAILED,
+reason: "launch failed before live and refund is pending",
+});
+
+if (entry) {
+queued.push(entry);
+}
+}
+
+return queued;
+}
+
+async function safeQueueFailedLaunchRefunds(launchId) {
+try {
+return await queueFailedLaunchRefundLedgerEntries(launchId);
+} catch (err) {
+console.error(`Failed to queue refund ledger entries for launch ${launchId}:`, err);
+return [];
+}
 }
 
 function isDevnetEnvironment() {
@@ -1115,7 +1815,26 @@ params.set("wallet", wallet);
 return `./compliance.html?${params.toString()}`;
 }
 
+function normalizeComplianceBucket(value, fallback = "unknown") {
+const normalized = cleanText(value, 40).toLowerCase();
+return normalized || fallback;
+}
+
+function normalizeComplianceSignal(signal = {}) {
+return {
+code: cleanText(signal?.code, 80).toLowerCase(),
+severity: cleanText(signal?.severity, 20).toLowerCase() || "low",
+source: cleanText(signal?.source, 40).toLowerCase() || "system",
+blocking: toTruthyBoolean(signal?.blocking),
+escalates: toTruthyBoolean(signal?.escalates),
+message: cleanText(signal?.message, 500),
+};
+}
+
 function normalizeComplianceStatusPayload(payload = {}, { wallet = "", mode = "builder" } = {}) {
+const normalizedMode =
+cleanText(mode, 20).toLowerCase() === "participant" ? "participant" : "builder";
+
 const profile =
 payload?.profile && typeof payload.profile === "object" ? payload.profile : {};
 
@@ -1158,104 +1877,218 @@ payload.manualReviewReason,
 500
 );
 
-const transactionalAccess = toTruthyBoolean(
+const approvalRequired = toTruthyBoolean(
+payload.approval_required ?? payload.approvalRequired
+);
+
+const silentMonitoring = toTruthyBoolean(
+payload.silent_monitoring ?? payload.silentMonitoring
+);
+
+const escalationMonitoring = toTruthyBoolean(
+payload.escalation_monitoring ?? payload.escalationMonitoring
+);
+
+const blockingSignals = Array.isArray(payload.blocking_signals)
+? payload.blocking_signals.map(normalizeComplianceSignal)
+: [];
+
+const escalationSignals = Array.isArray(payload.escalation_signals)
+? payload.escalation_signals.map(normalizeComplianceSignal)
+: [];
+
+const escalationRequired =
+toTruthyBoolean(payload.escalation_required ?? payload.escalationRequired) ||
+blockingSignals.length > 0 ||
+escalationSignals.length > 0;
+
+const explicitTransactionalAccess =
 payload.transactional_access ??
 payload.transactionalAccess ??
 payload.allowed ??
 payload.is_allowed ??
 payload.can_create_launch ??
-payload.canCreateLaunch
+payload.canCreateLaunch;
+
+const complianceBucket = normalizeComplianceBucket(
+payload.compliance_bucket ?? payload.bucket,
+""
 );
+const builderBucket = normalizeComplianceBucket(
+payload.builder_bucket,
+complianceBucket || "silent"
+);
+const participantBucket = normalizeComplianceBucket(
+payload.participant_bucket,
+complianceBucket || "silent"
+);
+const jurisdictionBucket = normalizeComplianceBucket(
+payload.jurisdiction_bucket,
+"unknown"
+);
+const manualReviewBucket = normalizeComplianceBucket(
+payload.manual_review_bucket,
+"unknown"
+);
+const surfaceBucket =
+normalizedMode === "participant"
+? participantBucket || complianceBucket || "silent"
+: builderBucket || complianceBucket || "silent";
 
-const gateEnabled = mode === "participant" ? participantGateEnabled : builderGateEnabled;
+const gateEnabled =
+normalizedMode === "participant" ? participantGateEnabled : builderGateEnabled;
 
-let allowed = !gateEnabled;
-
-if (gateEnabled) {
-if (restrictedJurisdiction || manualReviewRequired) {
-allowed = false;
-} else if (
-payload.allowed === false ||
-payload.is_allowed === false ||
-payload.transactional_access === false ||
-payload.transactionalAccess === false ||
-payload.can_create_launch === false ||
-payload.canCreateLaunch === false
+let transactionalAccess;
+if (
+explicitTransactionalAccess !== undefined &&
+explicitTransactionalAccess !== null &&
+String(explicitTransactionalAccess).trim() !== ""
 ) {
-allowed = false;
+transactionalAccess = toTruthyBoolean(explicitTransactionalAccess);
+} else if (!gateEnabled) {
+transactionalAccess = true;
+} else if (restrictedJurisdiction || manualReviewRequired) {
+transactionalAccess = false;
+} else if (approvalRequired) {
+transactionalAccess = status === "approved";
 } else {
-allowed = transactionalAccess || status === "approved";
+transactionalAccess = true;
+}
+
+let accessState = cleanText(
+payload.access_state ?? payload.accessState,
+40
+).toLowerCase();
+
+if (!accessState) {
+if (!transactionalAccess) {
+if (status === "pending") {
+accessState = "pending";
+} else if (approvalRequired) {
+accessState = "required";
+} else {
+accessState = "blocked";
+}
+} else if (surfaceBucket === "silent" || silentMonitoring) {
+accessState = "silent";
+} else if (
+surfaceBucket === "escalation" ||
+escalationMonitoring ||
+escalationRequired
+) {
+accessState = "watch";
+} else if (approvalRequired && status === "approved") {
+accessState = "approved";
+} else {
+accessState = "open";
 }
 }
+
+const accessReason = cleanText(
+payload.access_reason ?? payload.accessReason,
+500
+);
 
 return {
 ...payload,
 profile,
 wallet: cleanText(payload.wallet, 120) || cleanText(wallet, 120),
-mode,
+mode: normalizedMode,
 status,
 builder_gate_enabled: builderGateEnabled,
 participant_gate_enabled: participantGateEnabled,
 restricted_jurisdiction: restrictedJurisdiction,
-transactional_access: transactionalAccess,
-allowed,
-gate_enabled: gateEnabled,
 manual_review_required: manualReviewRequired,
 manual_review_reason: manualReviewReason,
+approval_required: approvalRequired,
+transactional_access: transactionalAccess,
+allowed: transactionalAccess,
+gate_enabled: gateEnabled,
+silent_monitoring: silentMonitoring,
+escalation_monitoring: escalationMonitoring,
+escalation_required: escalationRequired,
+blocking_signals: blockingSignals,
+escalation_signals: escalationSignals,
+compliance_bucket: complianceBucket || surfaceBucket || "unknown",
+builder_bucket: builderBucket || complianceBucket || "unknown",
+participant_bucket: participantBucket || complianceBucket || "unknown",
+jurisdiction_bucket: jurisdictionBucket,
+manual_review_bucket: manualReviewBucket,
+surface_bucket: surfaceBucket || complianceBucket || "unknown",
+access_state: accessState || "unknown",
+access_reason: accessReason,
 };
 }
 
-function getBuilderComplianceErrorMessage(compliance = {}) {
-if (!compliance.gate_enabled) {
-return "builder verification gate is currently disabled";
+function getComplianceAccessErrorMessage(compliance = {}) {
+const actor = compliance?.mode === "participant" ? "participant" : "builder";
+
+if (cleanText(compliance?.access_reason, 500)) {
+return cleanText(compliance.access_reason, 500);
 }
 
-if (compliance.restricted_jurisdiction) {
-return "builder access is restricted for the current jurisdiction";
+if (compliance?.restricted_jurisdiction) {
+return `${actor} access is restricted for the current jurisdiction`;
 }
 
-if (compliance.manual_review_required) {
-return compliance.manual_review_reason || "builder profile is in manual review";
+if (compliance?.manual_review_required) {
+return (
+cleanText(compliance?.manual_review_reason, 500) ||
+`${actor} profile is in manual review`
+);
 }
 
-if (compliance.status === "approved") {
-return "builder profile approved";
+if (compliance?.access_state === "blocked") {
+return `${actor} access is currently blocked`;
 }
 
-if (compliance.status === "pending") {
-return "builder verification is pending review before launch creation can proceed";
+if (compliance?.access_state === "pending") {
+return `${actor} verification is pending review before transactional access can proceed`;
 }
 
-if (compliance.status === "rejected") {
-return "builder verification was rejected. review the compliance profile before trying again";
+if (compliance?.access_state === "required") {
+return `complete ${actor} verification before continuing`;
 }
 
-if (compliance.status === "restricted") {
-return "builder profile is currently restricted from launch creation";
+if (compliance?.status === "rejected") {
+return `${actor} verification was rejected. review the compliance profile before trying again`;
 }
 
-return "complete builder verification before creating a launch";
+if (compliance?.status === "restricted") {
+return `${actor} profile is currently restricted`;
 }
 
-function buildBuilderComplianceError(wallet, compliance, action = "launch_create") {
-const err = new Error(getBuilderComplianceErrorMessage(compliance));
+return `complete ${actor} verification before continuing`;
+}
+
+function buildComplianceError(wallet, compliance, action = "transaction", mode = "builder") {
+const normalizedMode =
+cleanText(mode, 20).toLowerCase() === "participant" ? "participant" : "builder";
+
+const err = new Error(getComplianceAccessErrorMessage(compliance));
 err.statusCode = 403;
-err.code = "builder_compliance_required";
+err.code = `${normalizedMode}_compliance_access_blocked`;
+err.mode = normalizedMode;
 err.action = action;
 err.wallet = cleanText(wallet, 120);
 err.compliance = compliance || null;
-err.complianceUrl = buildCompliancePagePath(wallet, "builder");
+err.complianceUrl = buildCompliancePagePath(wallet, normalizedMode);
 return err;
 }
 
 function maybeSendComplianceError(res, err) {
 if (!err) return false;
 
-if (err.code === "builder_compliance_required" || Number(err.statusCode) === 403) {
+if (
+err.code === "builder_compliance_access_blocked" ||
+err.code === "participant_compliance_access_blocked" ||
+Number(err.statusCode) === 403
+) {
 res.status(Number(err.statusCode) || 403).json({
 ok: false,
-error: err.message || "builder verification is required",
-code: err.code || "builder_compliance_required",
+error: err.message || "compliance access is blocked",
+code: err.code || "compliance_access_blocked",
+mode: err.mode || null,
 action: err.action || null,
 compliance: err.compliance || null,
 complianceUrl: err.complianceUrl || null,
@@ -1266,8 +2099,10 @@ return true;
 if (Number(err.statusCode) === 502) {
 res.status(502).json({
 ok: false,
-error: err.message || "failed to resolve builder compliance status",
-code: err.code || "builder_compliance_unavailable",
+error: err.message || "failed to resolve compliance status",
+code: err.code || "compliance_unavailable",
+mode: err.mode || null,
+complianceUrl: err.complianceUrl || null,
 });
 return true;
 }
@@ -1279,22 +2114,32 @@ async function fetchComplianceStatus(req, { wallet, mode = "builder" } = {}) {
 if (typeof fetch !== "function") {
 const err = new Error("native fetch is not available for compliance checks");
 err.statusCode = 502;
-err.code = "builder_compliance_unavailable";
+err.code = "compliance_unavailable";
+err.mode = mode;
+err.complianceUrl = buildCompliancePagePath(wallet, mode);
 throw err;
 }
 
 const normalizedWallet = cleanText(wallet, 120);
+const normalizedMode =
+cleanText(mode, 20).toLowerCase() === "participant" ? "participant" : "builder";
+
 if (!normalizedWallet) {
 const err = new Error("wallet is required for compliance checks");
 err.statusCode = 400;
 err.code = "wallet_required";
+err.mode = normalizedMode;
 throw err;
 }
 
 const origin = getInternalApiOrigin();
-const url = `${origin}/api/compliance/status?wallet=${encodeURIComponent(
+const url =
+`${origin}/api/compliance/status?wallet=${encodeURIComponent(
 normalizedWallet
-)}&mode=${encodeURIComponent(mode)}`;
+)}` +
+`&mode=${encodeURIComponent(normalizedMode)}` +
+`&context=${encodeURIComponent(normalizedMode)}` +
+`&surface=${encodeURIComponent("launcher")}`;
 
 let response;
 try {
@@ -1305,9 +2150,11 @@ Accept: "application/json",
 },
 });
 } catch (cause) {
-const err = new Error("failed to resolve builder compliance status");
+const err = new Error("failed to resolve compliance status");
 err.statusCode = 502;
-err.code = "builder_compliance_unavailable";
+err.code = "compliance_unavailable";
+err.mode = normalizedMode;
+err.complianceUrl = buildCompliancePagePath(normalizedWallet, normalizedMode);
 err.cause = cause;
 throw err;
 }
@@ -1322,41 +2169,75 @@ payload = null;
 if (!response.ok || !payload) {
 const err = new Error(
 payload?.error ||
-`failed to resolve builder compliance status (${response.status})`
+`failed to resolve compliance status (${response.status})`
 );
 err.statusCode =
 response.status >= 400 && response.status < 500 ? response.status : 502;
 err.code =
 err.statusCode === 404
-? "builder_compliance_unavailable"
-: "builder_compliance_status_failed";
+? "compliance_unavailable"
+: "compliance_status_failed";
+err.mode = normalizedMode;
+err.complianceUrl = buildCompliancePagePath(normalizedWallet, normalizedMode);
 throw err;
 }
 
 return normalizeComplianceStatusPayload(payload, {
 wallet: normalizedWallet,
-mode,
+mode: normalizedMode,
 });
 }
 
-async function requireApprovedBuilderCompliance(
+async function requireComplianceAccess(
 req,
-{ wallet, action = "launch_create" } = {}
+{ wallet, mode = "builder", action = "transaction" } = {}
 ) {
 const compliance = await fetchComplianceStatus(req, {
 wallet,
-mode: "builder",
+mode,
 });
 
 if (compliance.allowed) {
 return compliance;
 }
 
-throw buildBuilderComplianceError(wallet, compliance, action);
+throw buildComplianceError(wallet, compliance, action, mode);
 }
 
-async function buildEscrowTransferTransaction({ wallet, solAmount, reference }) {
-const escrowWallet = getEscrowWallet();
+async function requireBuilderLaunchAccess(
+req,
+{ wallet, action = "launch_create" } = {}
+) {
+return requireComplianceAccess(req, {
+wallet,
+mode: "builder",
+action,
+});
+}
+
+async function requireParticipantLaunchAccess(
+req,
+{ wallet, action = "prepare_commit" } = {}
+) {
+return requireComplianceAccess(req, {
+wallet,
+mode: "participant",
+action,
+});
+}
+
+async function buildEscrowTransferTransaction({
+wallet,
+solAmount,
+reference,
+destinationWallet = "",
+}) {
+const escrowWallet = cleanText(destinationWallet, 120) || getEscrowWallet();
+
+if (!isValidSolanaAddress(escrowWallet)) {
+throw new Error("escrow destination is invalid");
+}
+
 const expectedLamports = solToLamports(solAmount);
 
 const connection = new Connection(getRpcUrl(), "confirmed");
@@ -1404,16 +2285,32 @@ lastValidBlockHeight,
 };
 }
 
-async function sendRefundTransfer({ destinationWallet, solAmount }) {
+async function sendRefundTransfer({ launch = null, destinationWallet, solAmount }) {
 const destination = String(destinationWallet || "").trim();
 if (!isValidSolanaAddress(destination)) {
 console.log("Skipping refund for non-wallet address:", destination);
 return null;
 }
 
+const launchEscrow = resolveLaunchCommitEscrow(launch);
+
+if (launchEscrow.model === "launch_vault") {
+throw new Error(
+"launch uses a program-controlled escrow vault and refund execution must be handled by the vault program route"
+);
+}
+
 const rpcUrl = getRpcUrl();
 const connection = new Connection(rpcUrl, "confirmed");
 const escrowKeypair = getEscrowKeypair();
+const relayerKeypair = getRelayerKeypair(escrowKeypair);
+
+const configuredSourceWallet = escrowKeypair.publicKey.toBase58();
+if (configuredSourceWallet !== launchEscrow.address) {
+throw new Error(
+"configured shared escrow signer does not match the launch commit escrow destination"
+);
+}
 
 const lamports = solToLamports(solAmount);
 if (!Number.isFinite(lamports) || lamports <= 0) {
@@ -1424,20 +2321,19 @@ const destinationPubkey = new PublicKey(destination);
 const { blockhash, lastValidBlockHeight } =
 await connection.getLatestBlockhash("confirmed");
 
-const feeBufferLamports = 10000;
 const escrowBalance = await connection.getBalance(
 escrowKeypair.publicKey,
 "confirmed"
 );
 
-if (escrowBalance < lamports + feeBufferLamports) {
+if (escrowBalance < lamports + REFUND_FEE_BUFFER_LAMPORTS) {
 throw new Error(
 `escrow wallet lacks fee reserve for full refund: balance=${escrowBalance}, refund=${lamports}`
 );
 }
 
 const tx = new Transaction({
-feePayer: escrowKeypair.publicKey,
+feePayer: relayerKeypair.publicKey,
 recentBlockhash: blockhash,
 }).add(
 SystemProgram.transfer({
@@ -1447,7 +2343,12 @@ lamports,
 })
 );
 
-const signature = await connection.sendTransaction(tx, [escrowKeypair], {
+const signers =
+relayerKeypair.publicKey.toBase58() === escrowKeypair.publicKey.toBase58()
+? [escrowKeypair]
+: [relayerKeypair, escrowKeypair];
+
+const signature = await connection.sendTransaction(tx, signers, {
 skipPreflight: false,
 preflightCommitment: "confirmed",
 });
@@ -1469,10 +2370,172 @@ return {
 signature,
 refundedSol: solAmount,
 refundedLamports: lamports,
+feePayer: relayerKeypair.publicKey.toBase58(),
+sourceWallet: escrowKeypair.publicKey.toBase58(),
 };
 }
 
+async function executeSharedWalletRefundNow({
+launchId,
+launch = null,
+wallet,
+solAmount,
+txSignature = "",
+requestKind = REFUND_REQUEST_KIND_MANUAL,
+reason = "",
+}) {
+const lockKey = buildRefundExecutionLockKey(launchId, wallet);
+
+return runRefundExecutionLocked(lockKey, async () => {
+const resolvedLaunch = launch || (await getLaunchById(launchId));
+let ledger = await queueWalletRefundLedger({
+launchId,
+launch: resolvedLaunch,
+wallet,
+solAmount,
+latestCommitTxSignature: txSignature,
+requestKind,
+reason,
+forcedStatus: REFUND_LEDGER_PROCESSING_STATUS,
+});
+
+try {
+const refundTransfer = await sendRefundTransfer({
+launch: resolvedLaunch,
+destinationWallet: wallet,
+solAmount,
+});
+
+if (ledger?.id) {
+ledger = await markRefundLedgerRefunded(ledger.id, {
+refundTransfer,
+refundSol: solAmount,
+});
+}
+
+return {
+ledger,
+refundTransfer,
+};
+} catch (err) {
+if (ledger?.id) {
+await markRefundLedgerFailed(
+ledger.id,
+err?.message || "refund transfer failed"
+);
+}
+throw err;
+}
+});
+}
+
+async function processPendingSharedRefundLedgerEntry(entry) {
+const normalizedEntry = normalizeRefundLedgerRow(entry);
+if (!normalizedEntry?.id) return null;
+
+const launch = await getLaunchById(normalizedEntry.launch_id);
+if (!launch) {
+await markRefundLedgerFailed(
+normalizedEntry.id,
+"launch not found for refund processing"
+);
+return null;
+}
+
+const aggregate = await getWalletCommitAggregate(
+normalizedEntry.launch_id,
+normalizedEntry.wallet
+);
+
+if (!aggregate || safeNumber(aggregate.commit_total_sol, 0) <= 0) {
+await markRefundLedgerCancelled(
+normalizedEntry.id,
+"no remaining wallet commits to refund"
+);
+return null;
+}
+
+const refundSol = safeNumber(
+aggregate.commit_total_sol,
+normalizedEntry.refund_sol
+);
+
+try {
+const { refundTransfer } = await executeSharedWalletRefundNow({
+launchId: normalizedEntry.launch_id,
+launch,
+wallet: normalizedEntry.wallet,
+solAmount: refundSol,
+txSignature: normalizedEntry.latest_commit_tx_signature || "",
+requestKind:
+normalizedEntry.request_kind || REFUND_REQUEST_KIND_AUTO_FAILED,
+reason:
+normalizedEntry.refund_reason || "automatic failed-launch refund",
+});
+
+await db.run(
+`
+DELETE FROM commits
+WHERE launch_id = ? AND wallet = ?
+`,
+[normalizedEntry.launch_id, normalizedEntry.wallet]
+);
+
+const stats = await syncLaunchStats(normalizedEntry.launch_id);
+const refreshedLaunch = await getLaunchById(normalizedEntry.launch_id);
+
+if (
+refreshedLaunch &&
+refreshedLaunch.status === "failed" &&
+Number(stats.totalCommitted || 0) <= 0
+) {
+await maybeMarkLaunchFailedRefunded(normalizedEntry.launch_id);
+}
+
+return refundTransfer;
+} catch {
+return null;
+}
+}
+
+async function processPendingSharedRefundLedgers(limit = REFUND_WORKER_BATCH_SIZE) {
+if (!(await refundLedgerTableExists())) return;
+
+const rows = await db.all(
+`
+SELECT *
+FROM launch_refund_ledger
+WHERE LOWER(status) IN (?, ?)
+ORDER BY id ASC
+LIMIT ?
+`,
+[
+REFUND_LEDGER_PENDING_SHARED_STATUS,
+REFUND_LEDGER_PENDING_SHARED_LEGACY_STATUS,
+limit,
+]
+);
+
+for (const row of rows) {
+try {
+await processPendingSharedRefundLedgerEntry(row);
+} catch (err) {
+console.error(`Refund ledger worker failed for ledger ${row?.id}:`, err);
+}
+}
+}
+
+async function refundLedgerWorkerTick() {
+try {
+await processPendingSharedRefundLedgers();
+} catch (err) {
+console.error("Refund ledger worker tick failed:", err);
+}
+}
+
 async function refundRejectedCommit({
+launchId,
+launch = null,
 wallet,
 solAmount,
 txSignature,
@@ -1480,10 +2543,49 @@ reason,
 status = "",
 logLabel = "Late confirm refund failed",
 }) {
-try {
-const refundTransfer = await sendRefundTransfer({
-destinationWallet: wallet,
+const resolvedLaunchId = Number(launch?.id || launchId || 0);
+const launchEscrow = resolveLaunchCommitEscrow(launch);
+
+if (launchEscrow.model === "launch_vault") {
+const ledger = await queueWalletRefundLedger({
+launchId: resolvedLaunchId,
+launch,
+wallet,
 solAmount,
+latestCommitTxSignature: txSignature,
+requestKind: REFUND_REQUEST_KIND_LATE_REJECTED,
+reason: reason || "late rejected commit refund pending",
+forcedStatus: REFUND_LEDGER_PENDING_PROGRAM_STATUS,
+});
+
+return {
+httpStatus: 409,
+body: {
+ok: false,
+error: reason || "commit could not be accepted and refund is queued",
+status: status || null,
+txSignature: txSignature || null,
+refundedSol: 0,
+refundTxSignature: null,
+refundQueued: true,
+refundStatus: ledger?.status || REFUND_LEDGER_PENDING_PROGRAM_STATUS,
+refundLedgerId: ledger?.id || null,
+refundProgramReference: ledger?.program_instruction_ref || null,
+escrowModel: launchEscrow.model,
+escrowAddress: launchEscrow.address,
+},
+};
+}
+
+try {
+const { ledger, refundTransfer } = await executeSharedWalletRefundNow({
+launchId: resolvedLaunchId,
+launch,
+wallet,
+solAmount,
+txSignature,
+requestKind: REFUND_REQUEST_KIND_LATE_REJECTED,
+reason: reason || "late rejected commit refund",
 });
 
 return {
@@ -1495,6 +2597,9 @@ status: status || null,
 txSignature: txSignature || null,
 refundedSol: refundTransfer?.refundedSol || solAmount,
 refundTxSignature: refundTransfer?.signature || null,
+refundQueued: false,
+refundStatus: ledger?.status || REFUND_LEDGER_REFUNDED_STATUS,
+refundLedgerId: ledger?.id || null,
 },
 };
 } catch (refundErr) {
@@ -1509,6 +2614,7 @@ status: status || null,
 txSignature: txSignature || null,
 refundedSol: 0,
 refundTxSignature: null,
+refundQueued: false,
 refundError: refundErr?.message || "refund transfer failed",
 },
 };
@@ -1818,6 +2924,8 @@ WHERE id = ?
 [launchId]
 );
 
+await safeQueueFailedLaunchRefunds(launchId);
+
 return applyCanonicalLaunchTruth(await getLaunchById(launchId));
 }
 
@@ -2121,7 +3229,7 @@ error: `launch bond must be between ${MIN_LAUNCH_BOND_SOL} and ${MAX_LAUNCH_BOND
 });
 }
 
-await requireApprovedBuilderCompliance(req, {
+await requireBuilderLaunchAccess(req, {
 wallet,
 action: "prepare_builder_bond",
 });
@@ -2130,6 +3238,7 @@ const prepared = await buildEscrowTransferTransaction({
 wallet,
 solAmount: builderBondSol,
 reference: buildLaunchBondReference(wallet),
+destinationWallet: getBuilderBondEscrowWallet(),
 });
 
 return res.json({
@@ -2235,7 +3344,7 @@ error: "launch bond transaction already attached to another launch",
 await verifyCommitTransfer({
 txSignature,
 expectedSender: wallet,
-expectedDestination: getEscrowWallet(),
+expectedDestination: getBuilderBondEscrowWallet(),
 expectedLamports: solToLamports(builderBondSol),
 reference: buildLaunchBondReference(wallet),
 });
@@ -2308,7 +3417,7 @@ error: validationErr.message,
 });
 }
 
-await requireApprovedBuilderCompliance(req, {
+await requireBuilderLaunchAccess(req, {
 wallet,
 action: "launch_create",
 });
@@ -2349,7 +3458,7 @@ error: "launch bond transaction already used by another launch",
 await verifyCommitTransfer({
 txSignature: builderBondTxSignature,
 expectedSender: wallet,
-expectedDestination: getEscrowWallet(),
+expectedDestination: getBuilderBondEscrowWallet(),
 expectedLamports: solToLamports(builderCfg.builder_bond_sol),
 reference: buildLaunchBondReference(wallet),
 });
@@ -2523,6 +3632,11 @@ error: getRestrictedCommitWalletError(),
 });
 }
 
+await requireParticipantLaunchAccess(req, {
+wallet,
+action: "prepare_commit",
+});
+
 const existing = await db.get(
 `
 SELECT COALESCE(SUM(sol_amount), 0) AS total
@@ -2551,12 +3665,14 @@ error: "hard cap reached",
 });
 }
 
-const reference = `mss-launch-${launchId}`;
+const launchEscrow = resolveLaunchCommitEscrow(launch);
+const reference = buildCommitReference(launchId);
 
 const prepared = await buildEscrowTransferTransaction({
 wallet,
 solAmount,
 reference,
+destinationWallet: launchEscrow.address,
 });
 
 return res.json({
@@ -2564,6 +3680,7 @@ ok: true,
 launchId,
 wallet,
 ...prepared,
+escrowModel: launchEscrow.model,
 maxWalletCommitSol: MAX_WALLET_COMMIT_SOL,
 currentWalletCommitted: currentWalletTotal,
 remainingWalletCommit: Math.max(0, MAX_WALLET_COMMIT_SOL - currentWalletTotal),
@@ -2571,6 +3688,10 @@ status: launch.status,
 commitEndsAt: launch.commit_ends_at || null,
 });
 } catch (err) {
+if (maybeSendComplianceError(res, err)) {
+return;
+}
+
 console.error("POST /api/launcher/prepare-commit failed:", err);
 return res.status(500).json({
 ok: false,
@@ -2605,6 +3726,7 @@ return res.status(400).json({ ok: false, error: "solAmount must be greater than 
 
 const txWasAlreadySentByWallet = Boolean(txSignatureInput);
 let launch = await reconcileLaunchState(launchId);
+const initialLaunch = launch;
 
 if (!launch && !txWasAlreadySentByWallet) {
 return res.status(404).json({ ok: false, error: "launch not found" });
@@ -2622,6 +3744,13 @@ if (launch && isRestrictedCommitWallet(launch, wallet) && !txWasAlreadySentByWal
 return res.status(400).json({
 ok: false,
 error: getRestrictedCommitWalletError(),
+});
+}
+
+if (!txWasAlreadySentByWallet) {
+await requireParticipantLaunchAccess(req, {
+wallet,
+action: "confirm_commit",
 });
 }
 
@@ -2693,21 +3822,23 @@ if (reusedTx) {
 return res.status(400).json({ ok: false, error: "transaction already used" });
 }
 
-const escrowWallet = getEscrowWallet();
+const launchEscrow = resolveLaunchCommitEscrow(launch || initialLaunch);
 const expectedLamports = solToLamports(solAmount);
 
 await verifyCommitTransfer({
 txSignature,
 expectedSender: wallet,
-expectedDestination: escrowWallet,
+expectedDestination: launchEscrow.address,
 expectedLamports,
-reference: `mss-launch-${launchId}`,
+reference: buildCommitReference(launchId),
 });
 
 launch = await reconcileLaunchState(launchId);
 
 if (!launch) {
 const refunded = await refundRejectedCommit({
+launchId,
+launch: initialLaunch,
 wallet,
 solAmount,
 txSignature,
@@ -2719,6 +3850,8 @@ return res.status(refunded.httpStatus).json(refunded.body);
 
 if (launch.status !== "commit") {
 const refunded = await refundRejectedCommit({
+launchId,
+launch,
 wallet,
 solAmount,
 txSignature,
@@ -2731,6 +3864,8 @@ return res.status(refunded.httpStatus).json(refunded.body);
 
 if (!isBuilderBondSatisfied(launch)) {
 const refunded = await refundRejectedCommit({
+launchId,
+launch,
 wallet,
 solAmount,
 txSignature,
@@ -2743,6 +3878,8 @@ return res.status(refunded.httpStatus).json(refunded.body);
 
 if (isRestrictedCommitWallet(launch, wallet)) {
 const refunded = await refundRejectedCommit({
+launchId,
+launch,
 wallet,
 solAmount,
 txSignature,
@@ -2751,6 +3888,40 @@ status: launch.status,
 logLabel: "Late confirm refund failed after restricted wallet commit check",
 });
 return res.status(refunded.httpStatus).json(refunded.body);
+}
+
+try {
+await requireParticipantLaunchAccess(req, {
+wallet,
+action: "confirm_commit",
+});
+} catch (participantErr) {
+if (
+Number(participantErr?.statusCode) === 403 ||
+Number(participantErr?.statusCode) === 502
+) {
+const refunded = await refundRejectedCommit({
+launchId,
+launch,
+wallet,
+solAmount,
+txSignature,
+reason:
+participantErr.message ||
+"participant access could not be confirmed before commit was accepted",
+status: launch.status,
+logLabel: "Late confirm refund failed after participant compliance check",
+});
+
+return res.status(refunded.httpStatus).json({
+...refunded.body,
+code: participantErr.code || null,
+compliance: participantErr.compliance || null,
+complianceUrl: participantErr.complianceUrl || null,
+});
+}
+
+throw participantErr;
 }
 
 const existing = await db.get(
@@ -2766,6 +3937,8 @@ const currentWalletTotal = Number(existing?.total || 0);
 
 if (currentWalletTotal + solAmount > MAX_WALLET_COMMIT_SOL) {
 const refunded = await refundRejectedCommit({
+launchId,
+launch,
 wallet,
 solAmount,
 txSignature,
@@ -2781,6 +3954,8 @@ const hardCap = Number(launch.hard_cap_sol || 0);
 
 if (currentLaunchTotal + solAmount > hardCap) {
 const refunded = await refundRejectedCommit({
+launchId,
+launch,
 wallet,
 solAmount,
 txSignature,
@@ -2838,6 +4013,10 @@ countdownEndsAt: updatedLaunch.countdown_ends_at || null,
 liveAt: updatedLaunch.live_at || null,
 });
 } catch (err) {
+if (maybeSendComplianceError(res, err)) {
+return;
+}
+
 console.error("POST /api/launcher/confirm-commit failed:", err);
 return res.status(400).json({
 ok: false,
@@ -2893,9 +4072,55 @@ if (refundAmount <= 0) {
 return res.status(400).json({ ok: false, error: "nothing to refund" });
 }
 
-const refundTransfer = await sendRefundTransfer({
-destinationWallet: wallet,
+const launchEscrow = resolveLaunchCommitEscrow(launch);
+
+if (launchEscrow.model === "launch_vault") {
+const ledger = await queueWalletRefundLedger({
+launchId,
+launch,
+wallet,
 solAmount: refundAmount,
+requestKind: REFUND_REQUEST_KIND_MANUAL,
+reason:
+launch.status === "failed"
+? "failed launch refund requested"
+: "commit-phase refund requested",
+forcedStatus: REFUND_LEDGER_PENDING_PROGRAM_STATUS,
+});
+
+const stats = await getCommitStats(launchId);
+
+return res.status(202).json({
+ok: true,
+launchId,
+wallet,
+refundQueued: true,
+refundStatus: ledger?.status || REFUND_LEDGER_PENDING_PROGRAM_STATUS,
+refundLedgerId: ledger?.id || null,
+refundProgramReference: ledger?.program_instruction_ref || null,
+refundedSol: 0,
+refundedSolActual: 0,
+builderBondRefunded: 0,
+refundTxSignature: null,
+totalCommitted: stats.totalCommitted,
+participants: stats.participants,
+commitPercent: buildCommitPercent(stats.totalCommitted, launch.hard_cap_sol),
+status: launch.status,
+escrowModel: launchEscrow.model,
+escrowAddress: launchEscrow.address,
+});
+}
+
+const { ledger, refundTransfer } = await executeSharedWalletRefundNow({
+launchId,
+launch,
+wallet,
+solAmount: refundAmount,
+requestKind: REFUND_REQUEST_KIND_MANUAL,
+reason:
+launch.status === "failed"
+? "failed launch refund requested"
+: "commit-phase refund requested",
 });
 
 await db.run(
@@ -2921,6 +4146,8 @@ refundedSol: refundAmount,
 refundedSolActual: refundTransfer?.refundedSol || 0,
 builderBondRefunded: 0,
 refundTxSignature: refundTransfer?.signature || null,
+refundLedgerId: ledger?.id || null,
+refundStatus: ledger?.status || REFUND_LEDGER_REFUNDED_STATUS,
 totalCommitted: stats.totalCommitted,
 participants: stats.participants,
 commitPercent: buildCommitPercent(stats.totalCommitted, launch.hard_cap_sol),
@@ -3534,6 +4761,36 @@ return res.status(500).json({ ok: false, error: "failed to fetch commit stats" }
 }
 });
 
+router.get("/:id/refunds", async (req, res) => {
+try {
+const launchId = Number(req.params.id);
+
+if (!launchId) {
+return res.status(400).json({ ok: false, error: "invalid launch id" });
+}
+
+const launch = await getLaunchById(launchId);
+if (!launch) {
+return res.status(404).json({ ok: false, error: "launch not found" });
+}
+
+const refunds = await listRefundLedgerForLaunch(launchId);
+
+return res.json({
+ok: true,
+launchId,
+status: computeCanonicalLaunchStatus(launch),
+refunds,
+});
+} catch (err) {
+console.error("GET /api/launcher/:id/refunds failed:", err);
+return res.status(500).json({
+ok: false,
+error: err.message || "failed to fetch refund ledger",
+});
+}
+});
+
 router.post("/:id/execute", async (_req, res) => {
 try {
 const launchId = Number(_req.params.id);
@@ -3544,10 +4801,14 @@ if (!launch) {
 return res.status(404).json({ ok: false, error: "launch not found" });
 }
 
-if (launch.status !== "live" && launch.status !== "graduated") {
+if (
+launch.status !== "building" &&
+launch.status !== "live" &&
+launch.status !== "graduated"
+) {
 return res.status(400).json({
 ok: false,
-error: "launch must be live before allocations can be built",
+error: "launch must be building, live, or graduated before allocations can be built",
 });
 }
 

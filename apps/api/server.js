@@ -25,6 +25,7 @@ import {
 getSolPriceSnapshot,
 startSolPriceWatcher,
 } from "./services/sol-price.js";
+import { startRefundExecutorWorker } from "./services/launcher/refundExecutor.js";
 
 import { Connection, PublicKey } from "@solana/web3.js";
 import pkg from "@metaplex-foundation/mpl-token-metadata";
@@ -2139,6 +2140,10 @@ startGraduationWatcher();
 runBackgroundTask("launchCountdowns:start", async () => {
 startLaunchWatcher();
 await checkLaunchCountdowns();
+});
+
+runBackgroundTask("refundExecutor:start", async () => {
+startRefundExecutorWorker();
 });
 }
 }

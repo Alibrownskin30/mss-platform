@@ -6,12 +6,12 @@
 <title>MSS Protocol — Create Launch</title>
 <meta
 name="description"
-content="Create a security-first MSS launch with locked template rules, required builder bond, CassIE monitoring included, fixed launch visibility products, and structured checkout."
+content="Create a security-first MSS launch with locked template rules, required builder bond, CassIE monitoring included, risk-based builder compliance buckets, fixed launch visibility products, and structured checkout."
 />
 
 <link rel="stylesheet" href="./assets/app.css?v=7" />
 <link rel="modulepreload" href="./assets/layout-shell.js" />
-<link rel="modulepreload" href="./assets/pages/launch-create.js?v=8" />
+<link rel="modulepreload" href="./assets/pages/launch-create.js?v=9" />
 
 <style>
 .create-launch-page{
@@ -1366,12 +1366,16 @@ data-shell-subtitle="Launch Creation"
 MSS launch creation now follows a structured builder checkout flow. Template rules remain locked, CassIE monitoring stays standard on every launch, launch visibility products are optional and charged immediately, and the MSS launch fee only settles if the launch reaches live state.
 </div>
 
+<div class="hero-copy" style="margin-top:10px;">
+Builder access now runs through a smoother risk-based path. Most launches stay open under silent or escalation monitoring, while hard blocking is reserved for explicit triggered risk conditions or required review.
+</div>
+
 <div class="pill-row">
 <span class="chip">1 SOL Max Commit</span>
 <span class="chip">0.5% Max Wallet Starts</span>
 <span class="chip">CassIE Included Standard</span>
 <span class="chip">Builder Bond Required</span>
-<span class="chip">3% Launch Fee Only If Live</span>
+<span class="chip">Risk-Based Builder Access</span>
 </div>
 
 <div id="builderModeHighlight" class="builder-highlight">
@@ -1380,7 +1384,7 @@ MSS launch creation now follows a structured builder checkout flow. Template rul
 Builder launches use the locked MSS 1B supply model, approved hard-cap tiers of 250 / 500 / 750 / 1000 SOL, fixed soft-cap mapping, visible team wallet breakdowns, capped team allocation, and the same lifecycle flow used across the platform.
 </div>
 <div class="builder-bond-note">
-Every template uses a required builder bond. Builder launches also require builder verification before launch creation remains available.
+Every template uses a required builder bond. Builder monitoring now follows required / silent / escalation buckets so smooth builders can stay open while triggered risk cases can still be reviewed or blocked.
 </div>
 </div>
 </section>
@@ -1393,7 +1397,12 @@ Every template uses a required builder bond. Builder launches also require build
 
 <div class="hero-stat">
 <div class="k">Launch Visibility</div>
-<div class="v">Optional visibility products are charged immediately and confirmed immediately at checkout.</div>
+<div class="v">Optional visibility products are charged immediately, confirmed immediately, and shown in the Due Now total.</div>
+</div>
+
+<div class="hero-stat">
+<div class="k">Builder Access Flow</div>
+<div class="v">Most builders should remain open under silent or escalation monitoring. Hard blocking is reserved for explicit backend risk intervention or required review.</div>
 </div>
 
 <div class="hero-stat">
@@ -1476,7 +1485,7 @@ Template selection locks MSS launch economics, launch rules, supply posture, acc
 
 <div class="template-option" data-template-card="builder">
 <div class="template-option-title">Builder</div>
-<div class="template-option-copy">Structured project template with hard-cap tiers, team wallet visibility, and builder verification gating.</div>
+<div class="template-option-copy">Structured project template with hard-cap tiers, team wallet visibility, and risk-based builder monitoring.</div>
 <div class="template-option-meta">
 <span class="template-mini-pill">250 / 500 / 750 / 1000</span>
 <span class="template-mini-pill">Builder Controls</span>
@@ -1530,7 +1539,7 @@ This controls the public launch identity, logo preview, symbol, and launch narra
 <div class="form-section-kicker">3 · Builder Profile & Links</div>
 <div class="form-section-title">Connect builder identity</div>
 <div class="form-section-copy">
-Launch creation runs from the connected builder wallet. Builder verification status is loaded from the same wallet and external profile links can be attached to the launch.
+Launch creation runs from the connected builder wallet. Builder monitoring and access state load from that same wallet, and public profile links can be attached directly to the launch.
 </div>
 </div>
 
@@ -1555,16 +1564,16 @@ readonly
 <div id="builderComplianceCard" class="builder-compliance-card">
 <div class="builder-compliance-head">
 <div>
-<div class="builder-compliance-title">Builder Verification</div>
+<div class="builder-compliance-title">Builder Verification & Monitoring</div>
 <p id="builderComplianceCopy" class="builder-compliance-copy">
-Builder verification status will load once a wallet is connected.
+Builder verification and monitoring status will load once a wallet is connected.
 </p>
 </div>
-<div id="builderCompliancePill" class="status-pill warn">Verification Required</div>
+<div id="builderCompliancePill" class="status-pill warn">Monitoring Check</div>
 </div>
 
 <div id="builderComplianceMeta" class="builder-compliance-meta">
-Access: Blocked
+Bucket: — • Access: —
 </div>
 
 <div class="builder-compliance-actions">
@@ -1573,7 +1582,7 @@ id="builderComplianceAction"
 class="btn"
 href="./compliance.html?mode=builder"
 >
-Complete Builder Verification
+Open Compliance Profile
 </a>
 </div>
 </div>
@@ -2153,7 +2162,7 @@ console.error("Shared shell mount failed:", err);
 await mountSharedShell();
 </script>
 
-<script type="module" src="./assets/pages/launch-create.js?v=8"></script>
+<script type="module" src="./assets/pages/launch-create.js?v=9"></script>
 <script src="/assets/devnet-access-gate.js?v=7"></script>
 </body>
 </html>

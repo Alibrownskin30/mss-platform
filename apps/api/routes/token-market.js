@@ -31,12 +31,25 @@ const EXTERNAL_MARKET_MODE = "external_lp_only";
 const MARKET_SOURCE_PRELIVE = "hidden_pre_live";
 const MARKET_SOURCE_UNAVAILABLE = "unavailable";
 
+const LIVE_LIQUIDITY_TARGET_PCT = 100;
+const PROTOCOL_RESERVE_HELD_PCT = 0;
+const FORMER_RESERVE_BURNED = true;
+const UNUSED_PARTICIPANT_ALLOCATION_BURNED = true;
+
+const GRADUATION_RAYDIUM_TARGET_PCT = 100;
+const GRADUATION_MSS_LOCKED_TARGET_PCT = 0;
+
 const LP_FEE_BENEFICIARY_TYPE = "builder";
 const LP_FEE_CONTROLLER_TYPE = "mss_distributor";
 const LP_FEE_CONTROL_MODE = "distributor_only";
 const LP_FEE_DISTRIBUTION_MODEL = "builder_via_mss_distributor";
 const LP_FEE_SOURCE = "raydium_lp";
 const LP_FEE_PRE_GRADUATION_SOURCE = "pending_raydium_lp";
+const BUILDER_LP_FEE_RIGHTS_PCT = 100;
+const MSS_LP_FEE_RIGHTS_PCT = 0;
+const BUILDER_LP_FEE_RIGHTS_VIA_DISTRIBUTOR = true;
+const BUILDER_CAN_REMOVE_LP_DEFAULT = false;
+const BUILDER_CAN_CLAIM_LP_FEES_DEFAULT = false;
 
 function toNumber(value, fallback = 0) {
 if (value === null || value === undefined || value === "") return fallback;
@@ -216,6 +229,13 @@ launch?.market_bootstrapped ??
 lifecycle?.market_bootstrapped ??
 lifecycle?.marketBootstrapped
 );
+}
+
+function resolveLpFeeSource(status) {
+const normalized = normalizeLaunchStatus(status);
+return normalized === "live" || normalized === "graduated"
+? LP_FEE_SOURCE
+: LP_FEE_PRE_GRADUATION_SOURCE;
 }
 
 function computeCanonicalLaunchStatus(launch = null, lifecycle = null) {
@@ -763,6 +783,11 @@ last_trade_at: sourceMeta.last_trade_at,
 last_candle_at: sourceMeta.last_candle_at,
 chart_is_synthetic: sourceMeta.chart_is_synthetic,
 
+live_liquidity_target_pct: LIVE_LIQUIDITY_TARGET_PCT,
+protocol_reserve_held_pct: PROTOCOL_RESERVE_HELD_PCT,
+former_reserve_burned: FORMER_RESERVE_BURNED,
+unused_participant_allocation_burned: UNUSED_PARTICIPANT_ALLOCATION_BURNED,
+
 lp_fee_beneficiary_wallet: revealContract
 ? cleanText(
 launch.lp_fee_beneficiary_wallet ?? lifecycle?.lp_fee_beneficiary_wallet,
@@ -847,16 +872,21 @@ lp_fee_last_distributed_at: revealContract
 lifecycle?.lp_fee_last_distributed_at ??
 null
 : null,
+builder_lp_fee_rights_pct: revealContract ? BUILDER_LP_FEE_RIGHTS_PCT : 0,
+mss_lp_fee_rights_pct: revealContract ? MSS_LP_FEE_RIGHTS_PCT : 0,
+builder_lp_fee_rights_via_distributor: revealContract
+? BUILDER_LP_FEE_RIGHTS_VIA_DISTRIBUTOR
+: false,
 builder_can_remove_lp: revealContract
 ? booleanLike(
 launch.builder_can_remove_lp ?? lifecycle?.builder_can_remove_lp,
-false
+BUILDER_CAN_REMOVE_LP_DEFAULT
 )
 : false,
 builder_can_claim_lp_fees: revealContract
 ? booleanLike(
 launch.builder_can_claim_lp_fees ?? lifecycle?.builder_can_claim_lp_fees,
-false
+BUILDER_CAN_CLAIM_LP_FEES_DEFAULT
 )
 : false,
 };
@@ -1337,22 +1367,19 @@ last_trade_at: sourceMeta.last_trade_at,
 last_candle_at: sourceMeta.last_candle_at,
 chart_is_synthetic: sourceMeta.chart_is_synthetic,
 
-lifecycle_launch_status:
-marketActive
+lifecycle_launch_status: marketActive
 ? cleanText(
 stats.lifecycle_launch_status ?? lifecycle?.launch_status,
 64
 ) || phase.status
 : null,
-lifecycle_graduation_status:
-marketActive
+lifecycle_graduation_status: marketActive
 ? cleanText(
 stats.lifecycle_graduation_status ?? lifecycle?.graduation_status,
 120
 ) || null
 : null,
-lifecycle_lock_status:
-marketActive
+lifecycle_lock_status: marketActive
 ? cleanText(
 stats.lifecycle_lock_status ?? lifecycle?.lock_status,
 120
@@ -1365,6 +1392,13 @@ lifecycle?.market_bootstrapped ??
 launch?.market_bootstrapped,
 false
 )
+: false,
+
+live_liquidity_target_pct: marketActive ? LIVE_LIQUIDITY_TARGET_PCT : 0,
+protocol_reserve_held_pct: marketActive ? PROTOCOL_RESERVE_HELD_PCT : 0,
+former_reserve_burned: marketActive ? FORMER_RESERVE_BURNED : false,
+unused_participant_allocation_burned: marketActive
+? UNUSED_PARTICIPANT_ALLOCATION_BURNED
 : false,
 
 lp_fee_beneficiary_wallet: marketActive
@@ -1477,12 +1511,17 @@ launch?.lp_fee_last_distributed_at ??
 lifecycle?.lp_fee_last_distributed_at ??
 null
 : null,
+builder_lp_fee_rights_pct: marketActive ? BUILDER_LP_FEE_RIGHTS_PCT : 0,
+mss_lp_fee_rights_pct: marketActive ? MSS_LP_FEE_RIGHTS_PCT : 0,
+builder_lp_fee_rights_via_distributor: marketActive
+? BUILDER_LP_FEE_RIGHTS_VIA_DISTRIBUTOR
+: false,
 builder_can_remove_lp: marketActive
 ? booleanLike(
 stats.builder_can_remove_lp ??
 launch?.builder_can_remove_lp ??
 lifecycle?.builder_can_remove_lp,
-false
+BUILDER_CAN_REMOVE_LP_DEFAULT
 )
 : false,
 builder_can_claim_lp_fees: marketActive
@@ -1490,7 +1529,7 @@ builder_can_claim_lp_fees: marketActive
 stats.builder_can_claim_lp_fees ??
 launch?.builder_can_claim_lp_fees ??
 lifecycle?.builder_can_claim_lp_fees,
-false
+BUILDER_CAN_CLAIM_LP_FEES_DEFAULT
 )
 : false,
 
@@ -1733,14 +1772,12 @@ graduation_reason:
 cleanText(raw.graduation_reason ?? raw.graduationReason, 200) || null,
 graduated_at: raw.graduated_at ?? raw.graduatedAt ?? null,
 
-raydium_target_pct: toNumber(
-raw.raydium_target_pct ?? raw.raydiumTargetPct,
-50
-),
-mss_locked_target_pct: toNumber(
-raw.mss_locked_target_pct ?? raw.mssLockedTargetPct,
-50
-),
+raydium_target_pct: GRADUATION_RAYDIUM_TARGET_PCT,
+mss_locked_target_pct: GRADUATION_MSS_LOCKED_TARGET_PCT,
+live_liquidity_target_pct: LIVE_LIQUIDITY_TARGET_PCT,
+protocol_reserve_held_pct: PROTOCOL_RESERVE_HELD_PCT,
+former_reserve_burned: FORMER_RESERVE_BURNED,
+unused_participant_allocation_burned: UNUSED_PARTICIPANT_ALLOCATION_BURNED,
 
 raydium_pool_id:
 cleanText(raw.raydium_pool_id ?? raw.raydiumPoolId, 200) || null,
@@ -1757,10 +1794,9 @@ cleanText(raw.raydium_lp_tokens ?? raw.raydiumLpTokens, 200) || null,
 raydium_migration_tx:
 cleanText(raw.raydium_migration_tx ?? raw.raydiumMigrationTx, 300) || null,
 
-mss_locked_sol: toNumber(raw.mss_locked_sol ?? raw.mssLockedSol, 0),
-mss_locked_token: toInt(raw.mss_locked_token ?? raw.mssLockedToken, 0),
-mss_locked_lp_amount:
-cleanText(raw.mss_locked_lp_amount ?? raw.mssLockedLpAmount, 200) || null,
+mss_locked_sol: 0,
+mss_locked_token: 0,
+mss_locked_lp_amount: null,
 lock_status:
 cleanText(raw.lock_status ?? raw.lockStatus, 120) || "not_locked",
 lock_tx: cleanText(raw.lock_tx ?? raw.lockTx, 300) || null,
@@ -1811,13 +1847,16 @@ lp_fee_distributor_tx:
 cleanText(raw.lp_fee_distributor_tx ?? raw.lpFeeDistributorTx, 300) || null,
 lp_fee_last_distributed_at:
 raw.lp_fee_last_distributed_at ?? raw.lpFeeLastDistributedAt ?? null,
+builder_lp_fee_rights_pct: BUILDER_LP_FEE_RIGHTS_PCT,
+mss_lp_fee_rights_pct: MSS_LP_FEE_RIGHTS_PCT,
+builder_lp_fee_rights_via_distributor: BUILDER_LP_FEE_RIGHTS_VIA_DISTRIBUTOR,
 builder_can_remove_lp: booleanLike(
 raw.builder_can_remove_lp ?? raw.builderCanRemoveLp,
-false
+BUILDER_CAN_REMOVE_LP_DEFAULT
 ),
 builder_can_claim_lp_fees: booleanLike(
 raw.builder_can_claim_lp_fees ?? raw.builderCanClaimLpFees,
-false
+BUILDER_CAN_CLAIM_LP_FEES_DEFAULT
 ),
 
 graduationReadiness:
@@ -1928,7 +1967,8 @@ readiness.checks.marketcapReached ??
 readiness.checks.marketcap_reached
 ),
 volumeReached: Boolean(
-readiness.checks.volumeReached ?? readiness.checks.volume_reached
+readiness.checks.volumeReached ??
+readiness.checks.volume_reached
 ),
 holdersReached: Boolean(
 readiness.checks.holdersReached ??
@@ -2010,6 +2050,32 @@ percentUnlocked: fixed.percentUnlocked,
 
 rule: BUILDER_VESTING_RULE,
 builder_vesting_rule: BUILDER_VESTING_RULE,
+};
+}
+
+function normalizeGraduationPlan(plan = null, launch = null, phaseOverride = null) {
+const phase = phaseOverride || buildPhaseMeta(launch);
+if (!plan || typeof plan !== "object" || !phase.market_enabled) {
+return null;
+}
+
+return {
+...plan,
+raydium_target_pct: GRADUATION_RAYDIUM_TARGET_PCT,
+mss_locked_target_pct: GRADUATION_MSS_LOCKED_TARGET_PCT,
+live_liquidity_target_pct: LIVE_LIQUIDITY_TARGET_PCT,
+protocol_reserve_held_pct: PROTOCOL_RESERVE_HELD_PCT,
+former_reserve_burned: FORMER_RESERVE_BURNED,
+unused_participant_allocation_burned: UNUSED_PARTICIPANT_ALLOCATION_BURNED,
+external_market_venue: EXTERNAL_MARKET_VENUE,
+external_market_mode: EXTERNAL_MARKET_MODE,
+lp_fee_beneficiary_type: LP_FEE_BENEFICIARY_TYPE,
+lp_fee_controller_type: LP_FEE_CONTROLLER_TYPE,
+lp_fee_control_mode: LP_FEE_CONTROL_MODE,
+lp_fee_distribution_model: LP_FEE_DISTRIBUTION_MODEL,
+builder_lp_fee_rights_pct: BUILDER_LP_FEE_RIGHTS_PCT,
+mss_lp_fee_rights_pct: MSS_LP_FEE_RIGHTS_PCT,
+builder_lp_fee_rights_via_distributor: BUILDER_LP_FEE_RIGHTS_VIA_DISTRIBUTOR,
 };
 }
 
@@ -2897,12 +2963,11 @@ rawLaunch,
 phase
 );
 
-const graduationPlan =
-phase.market_enabled &&
-graduationPlanRaw &&
-typeof graduationPlanRaw === "object"
-? graduationPlanRaw
-: null;
+const graduationPlan = normalizeGraduationPlan(
+graduationPlanRaw,
+rawLaunch,
+phase
+);
 
 const resolvedMintAddress =
 cleanText(

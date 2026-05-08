@@ -798,7 +798,7 @@ ${renderLaunchMetaChips(launch)}
 <div style="font-size:12px;color:rgba(255,255,255,.62);">
 Builder score at render: ${safeNum(launch.builder_score, 0)} • Public status ${statusLabel(status)}
 </div>
-<a class="btn primary" href="./launch.html?id=${encodeURIComponent(launch.id)}">View Launch</a>
+<a class="btn primary" href="./launch-detail.html?id=${encodeURIComponent(launch.id)}">View Launch</a>
 </div>
 </div>
 `;

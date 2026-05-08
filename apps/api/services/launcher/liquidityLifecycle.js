@@ -6,14 +6,21 @@ const BUILDER_UNLOCK_DAYS = 10;
 const BUILDER_CLIFF_DAYS = 0;
 const BUILDER_VESTING_DAYS = BUILDER_UNLOCK_DAYS;
 
-const RAYDIUM_SPLIT_PCT = 50;
-const MSS_LOCK_SPLIT_PCT = 50;
+const RAYDIUM_LIVE_LIQUIDITY_PCT = 100;
+const MSS_LOCKED_LIQUIDITY_PCT = 0;
 
 const DEFAULT_GRADUATION_MARKETCAP_SOL = 120;
 const DEFAULT_GRADUATION_VOLUME_24H_SOL = 80;
 const DEFAULT_GRADUATION_MIN_HOLDERS = 25;
 const DEFAULT_GRADUATION_MIN_LIVE_MINUTES = 15;
-const DEFAULT_MSS_LOCK_DAYS = 90;
+const DEFAULT_RAYDIUM_LOCK_DAYS = 90;
+
+const LIVE_LIQUIDITY_DESTINATION = "raydium";
+const LIVE_LIQUIDITY_CONTROL_MODEL = "raydium_only";
+const LIVE_LIQUIDITY_NOTE =
+"100% of live liquidity is seeded to Raydium. MSS does not keep an internal LP.";
+const FORMER_RESERVE_NOTE =
+"The former reserve bucket is burned together with unused participant allocation and is not held by protocol.";
 
 const LP_FEE_BENEFICIARY_TYPE = "builder";
 const LP_FEE_CONTROLLER_TYPE = "mss_distributor";
@@ -30,7 +37,6 @@ const TERMINAL_LOCK_STATUSES = new Set([
 "locked",
 "locked_proven",
 "lock_verified",
-"mss_locked",
 "raydium_locked",
 "graduated_locked",
 "migration_complete",
@@ -241,17 +247,10 @@ return floorToken(
 }
 
 function resolveBuilderTotalAllocation(totalSupply, override = null) {
-return Math.max(
-computeBuilderTotalAllocation(totalSupply),
-floorToken(override)
-);
+return Math.max(computeBuilderTotalAllocation(totalSupply), floorToken(override));
 }
 
-function resolveBuilderDailyUnlock(
-totalSupply,
-totalAllocation,
-override = null
-) {
+function resolveBuilderDailyUnlock(totalSupply, totalAllocation, override = null) {
 const canonicalDailyUnlock = computeBuilderDailyUnlock(totalSupply);
 const allocationDerivedDailyUnlock = floorToken(
 safeNum(totalAllocation, 0) / BUILDER_UNLOCK_DAYS
@@ -360,27 +359,44 @@ lifecycle?.circulatingSupply
 );
 }
 
-function resolveInternalSolReserve(launch, pool, lifecycle) {
+function resolveLiveLiquiditySol(launch, pool, lifecycle) {
 return roundSol(
 firstPresent(
+launch?.live_liquidity_sol,
+launch?.raydium_live_liquidity_sol,
+lifecycle?.raydium_live_liquidity_sol,
+lifecycle?.raydiumLiveLiquiditySol,
+launch?.internal_pool_sol,
 pool?.sol_reserve,
 lifecycle?.internal_sol_reserve,
 lifecycle?.internalSolReserve,
-launch?.internal_pool_sol,
 launch?.liquidity
 ) || 0
 );
 }
 
-function resolveInternalTokenReserve(launch, pool, lifecycle) {
+function resolveLiveLiquidityTokens(launch, pool, lifecycle) {
 return floorToken(
 firstPresent(
+launch?.live_liquidity_tokens,
+launch?.raydium_live_liquidity_tokens,
+launch?.raydium_liquidity_tokens_reserved,
+lifecycle?.raydium_live_liquidity_tokens,
+lifecycle?.raydiumLiveLiquidityTokens,
+launch?.internal_pool_tokens,
 pool?.token_reserve,
 lifecycle?.internal_token_reserve,
-lifecycle?.internalTokenReserve,
-launch?.internal_pool_tokens
+lifecycle?.internalTokenReserve
 ) || 0
 );
+}
+
+function resolveInternalSolReserve(launch, pool, lifecycle) {
+return resolveLiveLiquiditySol(launch, pool, lifecycle);
+}
+
+function resolveInternalTokenReserve(launch, pool, lifecycle) {
+return resolveLiveLiquidityTokens(launch, pool, lifecycle);
 }
 
 function getContractCandidateFromState(launch = null, lifecycle = null) {
@@ -397,7 +413,11 @@ lifecycle?.contractAddress
 );
 }
 
-function resolveLifecycleContractAddress(launch = null, lifecycle = null, canonicalStatus = "") {
+function resolveLifecycleContractAddress(
+launch = null,
+lifecycle = null,
+canonicalStatus = ""
+) {
 if (!shouldRevealLifecycleContract(canonicalStatus)) {
 return null;
 }
@@ -596,7 +616,10 @@ lifecycle?.graduation_status ?? lifecycle?.graduationStatus,
 64
 );
 if (persisted && canonicalStatus === "graduated") return persisted;
-if (persisted && !["pending", "countdown", "building", "internal_live"].includes(persisted)) {
+if (
+persisted &&
+!["pending", "countdown", "building", "internal_live"].includes(persisted)
+) {
 return persisted;
 }
 
@@ -612,10 +635,13 @@ function resolveLockStatus(
 launch,
 lifecycle,
 canonicalStatus,
-hasReserves,
+hasLiquidity,
 marketBootstrapped
 ) {
-const persisted = clean(lifecycle?.lock_status ?? lifecycle?.lockStatus, 64).toLowerCase();
+const persisted = clean(
+lifecycle?.lock_status ?? lifecycle?.lockStatus,
+64
+).toLowerCase();
 if (isTerminalLifecycleLockStatus(persisted)) return persisted;
 
 if (canonicalStatus === "graduated") {
@@ -624,10 +650,10 @@ return "locked_pending_proof";
 
 if (
 (canonicalStatus === "live" || canonicalStatus === "building") &&
-hasReserves &&
+hasLiquidity &&
 marketBootstrapped
 ) {
-return "mss_held_internal";
+return canonicalStatus === "live" ? "pending_raydium_lock" : "bootstrapping";
 }
 
 if (canonicalStatus === "building") return "bootstrapping";
@@ -786,14 +812,21 @@ persisted &&
 return persisted;
 }
 
+const hasConfig = Boolean(
+resolveLpFeeDistributorAddress(lifecycle) ||
+resolveLpFeeDistributorProgram(lifecycle) ||
+resolveLpFeeDistributorProgramId(lifecycle) ||
+resolveLpFeeDistributorVault(lifecycle)
+);
+
 if (!beneficiaryWallet) return "builder_wallet_missing";
 if (canonicalStatus === "graduated") return "active";
 if (canonicalStatus === "live" && marketBootstrapped) {
-return "pending_raydium_migration";
+return hasConfig ? "configured" : "pending";
 }
 if (canonicalStatus === "building") return "bootstrapping";
 if (canonicalStatus === "countdown") return "pending_live";
-return "pending";
+return hasConfig ? "configured" : "pending";
 }
 
 function resolveLpFeeDistributorEnabled({
@@ -881,7 +914,7 @@ DEFAULT_GRADUATION_MIN_LIVE_MINUTES
 lockDays: Math.max(
 1,
 Math.floor(
-safeNum(process.env.MSS_LP_LOCK_DAYS, DEFAULT_MSS_LOCK_DAYS)
+safeNum(process.env.MSS_LP_LOCK_DAYS, DEFAULT_RAYDIUM_LOCK_DAYS)
 )
 ),
 };
@@ -1026,12 +1059,7 @@ return liveAt || nowIso();
 return null;
 }
 
-async function ensureBuilderVestingRecord(
-launchId,
-launch,
-token,
-context = {}
-) {
+async function ensureBuilderVestingRecord(launchId, launch, token, context = {}) {
 if (!(await tableExists("builder_vesting"))) return null;
 
 const columns = await getTableColumns("builder_vesting");
@@ -1161,10 +1189,11 @@ const has = (name) => columns.has(name);
 
 const totalSupply = resolveTotalSupply(launch, token, context.lifecycle);
 const circulatingSupply = resolveCirculatingSupply(launch, context.lifecycle);
-const solReserve = resolveInternalSolReserve(launch, pool, context.lifecycle);
-const tokenReserve = resolveInternalTokenReserve(launch, pool, context.lifecycle);
+const liveLiquiditySol = resolveLiveLiquiditySol(launch, pool, context.lifecycle);
+const liveLiquidityTokens = resolveLiveLiquidityTokens(launch, pool, context.lifecycle);
 const impliedMarketcapSol = roundSol(
-computeSpotPriceSolPerToken(solReserve, tokenReserve) * circulatingSupply
+computeSpotPriceSolPerToken(liveLiquiditySol, liveLiquidityTokens) *
+circulatingSupply
 );
 const marketBootstrapped =
 context.marketBootstrapped ??
@@ -1174,17 +1203,13 @@ lifecycle: context.lifecycle,
 token,
 pool,
 totalSupply,
-solReserve,
-tokenReserve,
+solReserve: liveLiquiditySol,
+tokenReserve: liveLiquidityTokens,
 });
 
 const canonicalStatus =
 context.canonicalStatus ||
-computeCanonicalLifecycleStatus(
-launch,
-context.lifecycle,
-marketBootstrapped
-);
+computeCanonicalLifecycleStatus(launch, context.lifecycle, marketBootstrapped);
 
 const defaultGraduationStatus =
 canonicalStatus === "graduated"
@@ -1208,7 +1233,7 @@ const lockStatus = resolveLockStatus(
 launch,
 existing || context.lifecycle,
 canonicalStatus,
-solReserve > 0 && tokenReserve > 0,
+liveLiquiditySol > 0 && liveLiquidityTokens > 0,
 marketBootstrapped
 );
 
@@ -1222,9 +1247,7 @@ existing || context.lifecycle
 const lpFeeControllerType = resolveLpFeeControllerType(
 existing || context.lifecycle
 );
-const lpFeeControlMode = resolveLpFeeControlMode(
-existing || context.lifecycle
-);
+const lpFeeControlMode = resolveLpFeeControlMode(existing || context.lifecycle);
 const lpFeeDistributionModel = resolveLpFeeDistributionModel(
 existing || context.lifecycle
 );
@@ -1244,7 +1267,9 @@ marketBootstrapped,
 beneficiaryWallet: lpFeeBeneficiaryWallet,
 lifecycle: existing || context.lifecycle,
 });
-const builderCanRemoveLp = resolveBuilderCanRemoveLp(existing || context.lifecycle);
+const builderCanRemoveLp = resolveBuilderCanRemoveLp(
+existing || context.lifecycle
+);
 const builderCanClaimLpFees = resolveBuilderCanClaimLpFees({
 canonicalStatus,
 distributorEnabled: lpFeeDistributorEnabled,
@@ -1270,6 +1295,13 @@ const lpFeeLastDistributedAt = resolveLpFeeLastDistributedAt(
 existing || context.lifecycle
 );
 
+const liveLiquidityFields = {
+live_liquidity_destination: LIVE_LIQUIDITY_DESTINATION,
+live_liquidity_control_model: LIVE_LIQUIDITY_CONTROL_MODEL,
+live_liquidity_note: LIVE_LIQUIDITY_NOTE,
+former_reserve_note: FORMER_RESERVE_NOTE,
+};
+
 if (existing) {
 const sets = [];
 const values = [];
@@ -1292,11 +1324,19 @@ values.push(marketBootstrapped ? 1 : 0);
 }
 if (has("internal_sol_reserve")) {
 sets.push("internal_sol_reserve = ?");
-values.push(solReserve);
+values.push(liveLiquiditySol);
 }
 if (has("internal_token_reserve")) {
 sets.push("internal_token_reserve = ?");
-values.push(tokenReserve);
+values.push(liveLiquidityTokens);
+}
+if (has("raydium_live_liquidity_sol")) {
+sets.push("raydium_live_liquidity_sol = ?");
+values.push(liveLiquiditySol);
+}
+if (has("raydium_live_liquidity_tokens")) {
+sets.push("raydium_live_liquidity_tokens = ?");
+values.push(liveLiquidityTokens);
 }
 if (has("implied_marketcap_sol")) {
 sets.push("implied_marketcap_sol = ?");
@@ -1312,16 +1352,23 @@ END
 values.push(defaultGraduationStatus);
 }
 if (has("raydium_target_pct")) {
-sets.push("raydium_target_pct = COALESCE(raydium_target_pct, ?)");
-values.push(RAYDIUM_SPLIT_PCT);
+sets.push("raydium_target_pct = ?");
+values.push(RAYDIUM_LIVE_LIQUIDITY_PCT);
 }
 if (has("mss_locked_target_pct")) {
-sets.push("mss_locked_target_pct = COALESCE(mss_locked_target_pct, ?)");
-values.push(MSS_LOCK_SPLIT_PCT);
+sets.push("mss_locked_target_pct = ?");
+values.push(MSS_LOCKED_LIQUIDITY_PCT);
 }
 if (has("lock_status")) {
 sets.push("lock_status = ?");
 values.push(lockStatus);
+}
+
+for (const [name, value] of Object.entries(liveLiquidityFields)) {
+if (has(name)) {
+sets.push(`${name} = ?`);
+values.push(value);
+}
 }
 
 if (has("lp_fee_beneficiary_wallet")) {
@@ -1461,12 +1508,22 @@ values.push(marketBootstrapped ? 1 : 0);
 if (has("internal_sol_reserve")) {
 insertColumns.push("internal_sol_reserve");
 placeholders.push("?");
-values.push(solReserve);
+values.push(liveLiquiditySol);
 }
 if (has("internal_token_reserve")) {
 insertColumns.push("internal_token_reserve");
 placeholders.push("?");
-values.push(tokenReserve);
+values.push(liveLiquidityTokens);
+}
+if (has("raydium_live_liquidity_sol")) {
+insertColumns.push("raydium_live_liquidity_sol");
+placeholders.push("?");
+values.push(liveLiquiditySol);
+}
+if (has("raydium_live_liquidity_tokens")) {
+insertColumns.push("raydium_live_liquidity_tokens");
+placeholders.push("?");
+values.push(liveLiquidityTokens);
 }
 if (has("implied_marketcap_sol")) {
 insertColumns.push("implied_marketcap_sol");
@@ -1486,17 +1543,25 @@ values.push(defaultGraduationStatus === "graduated" ? 1 : 0);
 if (has("raydium_target_pct")) {
 insertColumns.push("raydium_target_pct");
 placeholders.push("?");
-values.push(RAYDIUM_SPLIT_PCT);
+values.push(RAYDIUM_LIVE_LIQUIDITY_PCT);
 }
 if (has("mss_locked_target_pct")) {
 insertColumns.push("mss_locked_target_pct");
 placeholders.push("?");
-values.push(MSS_LOCK_SPLIT_PCT);
+values.push(MSS_LOCKED_LIQUIDITY_PCT);
 }
 if (has("lock_status")) {
 insertColumns.push("lock_status");
 placeholders.push("?");
 values.push(lockStatus);
+}
+
+for (const [name, value] of Object.entries(liveLiquidityFields)) {
+if (has(name)) {
+insertColumns.push(name);
+placeholders.push("?");
+values.push(value);
+}
 }
 
 if (has("lp_fee_beneficiary_wallet")) {
@@ -1641,10 +1706,10 @@ function buildGraduationPlanFromReserves(solReserve, tokenReserve) {
 const totalSolReserve = roundSol(solReserve);
 const totalTokenReserve = floorToken(tokenReserve);
 
-const raydiumSol = roundSol(totalSolReserve * (RAYDIUM_SPLIT_PCT / 100));
-const raydiumToken = floorToken(totalTokenReserve * (RAYDIUM_SPLIT_PCT / 100));
-const mssLockedSol = roundSol(totalSolReserve - raydiumSol);
-const mssLockedToken = floorToken(totalTokenReserve - raydiumToken);
+const raydiumSol = totalSolReserve;
+const raydiumToken = totalTokenReserve;
+const mssLockedSol = 0;
+const mssLockedToken = 0;
 
 return {
 totalSolReserve,
@@ -1653,20 +1718,27 @@ raydiumSol,
 raydiumToken,
 mssLockedSol,
 mssLockedToken,
-raydiumSplitPct: RAYDIUM_SPLIT_PCT,
-mssLockedSplitPct: MSS_LOCK_SPLIT_PCT,
-raydiumTargetPct: RAYDIUM_SPLIT_PCT,
-mssLockedTargetPct: MSS_LOCK_SPLIT_PCT,
-raydium_split_pct: RAYDIUM_SPLIT_PCT,
-mss_locked_split_pct: MSS_LOCK_SPLIT_PCT,
-raydium_target_pct: RAYDIUM_SPLIT_PCT,
-mss_locked_target_pct: MSS_LOCK_SPLIT_PCT,
+raydiumSplitPct: RAYDIUM_LIVE_LIQUIDITY_PCT,
+mssLockedSplitPct: MSS_LOCKED_LIQUIDITY_PCT,
+raydiumTargetPct: RAYDIUM_LIVE_LIQUIDITY_PCT,
+mssLockedTargetPct: MSS_LOCKED_LIQUIDITY_PCT,
+raydium_split_pct: RAYDIUM_LIVE_LIQUIDITY_PCT,
+mss_locked_split_pct: MSS_LOCKED_LIQUIDITY_PCT,
+raydium_target_pct: RAYDIUM_LIVE_LIQUIDITY_PCT,
+mss_locked_target_pct: MSS_LOCKED_LIQUIDITY_PCT,
+liveLiquidityDestination: LIVE_LIQUIDITY_DESTINATION,
+live_liquidity_destination: LIVE_LIQUIDITY_DESTINATION,
+liveLiquidityControlModel: LIVE_LIQUIDITY_CONTROL_MODEL,
+live_liquidity_control_model: LIVE_LIQUIDITY_CONTROL_MODEL,
+note: LIVE_LIQUIDITY_NOTE,
+formerReserveNote: FORMER_RESERVE_NOTE,
+former_reserve_note: FORMER_RESERVE_NOTE,
 };
 }
 
 function buildGraduationPlan(pool, launch = null, lifecycle = null) {
-const solReserve = resolveInternalSolReserve(launch, pool, lifecycle);
-const tokenReserve = resolveInternalTokenReserve(launch, pool, lifecycle);
+const solReserve = resolveLiveLiquiditySol(launch, pool, lifecycle);
+const tokenReserve = resolveLiveLiquidityTokens(launch, pool, lifecycle);
 return buildGraduationPlanFromReserves(solReserve, tokenReserve);
 }
 
@@ -1682,8 +1754,8 @@ const thresholds = getGraduationThresholds();
 
 const totalSupply = resolveTotalSupply(launch, token, lifecycle);
 const circulatingSupply = resolveCirculatingSupply(launch, lifecycle);
-const solReserve = resolveInternalSolReserve(launch, pool, lifecycle);
-const tokenReserve = resolveInternalTokenReserve(launch, pool, lifecycle);
+const solReserve = resolveLiveLiquiditySol(launch, pool, lifecycle);
+const tokenReserve = resolveLiveLiquidityTokens(launch, pool, lifecycle);
 const priceSol = computeSpotPriceSolPerToken(solReserve, tokenReserve);
 const marketcapSol = roundSol(priceSol * circulatingSupply);
 const volume24hSol = await getTrades24hVolume(launchId);
@@ -1715,7 +1787,7 @@ marketcapReached: marketcapSol >= thresholds.marketcapSol,
 volumeReached: volume24hSol >= thresholds.volume24hSol,
 holdersReached: holderCount >= thresholds.minHolders,
 minimumLiveWindowReached: liveMinutes >= thresholds.minLiveMinutes,
-hasReserves: solReserve > 0 && tokenReserve > 0,
+hasLiquidity: solReserve > 0 && tokenReserve > 0,
 marketBootstrapped,
 alreadyGraduated,
 };
@@ -1727,15 +1799,15 @@ checks.marketcapReached &&
 checks.volumeReached &&
 checks.holdersReached &&
 checks.minimumLiveWindowReached &&
-checks.hasReserves &&
+checks.hasLiquidity &&
 checks.marketBootstrapped;
 
 return {
 ready,
 reason: ready
 ? "Graduation thresholds satisfied."
-: !checks.hasReserves
-? "Internal reserves are still being established."
+: !checks.hasLiquidity
+? "Raydium live liquidity is still being established."
 : !checks.marketBootstrapped
 ? "Market bootstrap is still being completed."
 : !checks.liveStatus
@@ -1778,8 +1850,8 @@ context = {},
 const thresholds = getGraduationThresholds();
 const totalSupply = resolveTotalSupply(launch, token, lifecycle);
 const circulatingSupply = resolveCirculatingSupply(launch, lifecycle);
-const solReserve = resolveInternalSolReserve(launch, pool, lifecycle);
-const tokenReserve = resolveInternalTokenReserve(launch, pool, lifecycle);
+const solReserve = resolveLiveLiquiditySol(launch, pool, lifecycle);
+const tokenReserve = resolveLiveLiquidityTokens(launch, pool, lifecycle);
 const marketBootstrapped =
 context.marketBootstrapped ??
 resolveMarketBootstrapped({
@@ -1831,7 +1903,7 @@ marketcapReached: false,
 volumeReached: false,
 holdersReached: false,
 minimumLiveWindowReached: false,
-hasReserves: solReserve > 0 && tokenReserve > 0,
+hasLiquidity: solReserve > 0 && tokenReserve > 0,
 marketBootstrapped,
 alreadyGraduated,
 },
@@ -1948,6 +2020,9 @@ volume24h,
 readiness = null,
 context = {},
 }) {
+const totalSupply = resolveTotalSupply(launch, token, lifecycle);
+const liveLiquiditySol = resolveLiveLiquiditySol(launch, pool, lifecycle);
+const liveLiquidityTokens = resolveLiveLiquidityTokens(launch, pool, lifecycle);
 const marketBootstrapped =
 context.marketBootstrapped ??
 resolveMarketBootstrapped({
@@ -1955,20 +2030,17 @@ launch,
 lifecycle,
 token,
 pool,
-totalSupply: resolveTotalSupply(launch, token, lifecycle),
-solReserve: resolveInternalSolReserve(launch, pool, lifecycle),
-tokenReserve: resolveInternalTokenReserve(launch, pool, lifecycle),
+totalSupply,
+solReserve: liveLiquiditySol,
+tokenReserve: liveLiquidityTokens,
 });
 
 const canonicalStatus =
 context.canonicalStatus ||
 computeCanonicalLifecycleStatus(launch, lifecycle, marketBootstrapped);
 
-const totalSupply = resolveTotalSupply(launch, token, lifecycle);
 const circulatingSupply = resolveCirculatingSupply(launch, lifecycle);
-const solReserve = resolveInternalSolReserve(launch, pool, lifecycle);
-const tokenReserve = resolveInternalTokenReserve(launch, pool, lifecycle);
-const price = computeSpotPriceSolPerToken(solReserve, tokenReserve);
+const price = computeSpotPriceSolPerToken(liveLiquiditySol, liveLiquidityTokens);
 const impliedMarketcapSol = roundSol(price * circulatingSupply);
 const graduationStatus = resolveGraduationStatus(
 launch,
@@ -1977,7 +2049,7 @@ canonicalStatus
 );
 const graduated =
 lifecycleIsGraduated(lifecycle) || canonicalStatus === "graduated";
-const hasReserves = solReserve > 0 && tokenReserve > 0;
+const hasLiquidity = liveLiquiditySol > 0 && liveLiquidityTokens > 0;
 const builderVesting = buildBuilderVestingSummary({
 launch,
 token,
@@ -1992,7 +2064,7 @@ const lockStatus = resolveLockStatus(
 launch,
 lifecycle,
 canonicalStatus,
-hasReserves,
+hasLiquidity,
 marketBootstrapped
 );
 const contractAddress = resolveLifecycleContractAddress(
@@ -2082,11 +2154,29 @@ implied_marketcap_sol: impliedMarketcapSol,
 volume24hSol: roundSol(volume24h),
 volume_24h_sol: roundSol(volume24h),
 
-internalSolReserve: solReserve,
-internal_sol_reserve: solReserve,
+liveLiquidityDestination: LIVE_LIQUIDITY_DESTINATION,
+live_liquidity_destination: LIVE_LIQUIDITY_DESTINATION,
 
-internalTokenReserve: tokenReserve,
-internal_token_reserve: tokenReserve,
+liveLiquidityControlModel: LIVE_LIQUIDITY_CONTROL_MODEL,
+live_liquidity_control_model: LIVE_LIQUIDITY_CONTROL_MODEL,
+
+liveLiquidityNote: LIVE_LIQUIDITY_NOTE,
+live_liquidity_note: LIVE_LIQUIDITY_NOTE,
+
+formerReserveNote: FORMER_RESERVE_NOTE,
+former_reserve_note: FORMER_RESERVE_NOTE,
+
+raydiumLiveLiquiditySol: liveLiquiditySol,
+raydium_live_liquidity_sol: liveLiquiditySol,
+
+raydiumLiveLiquidityTokens: liveLiquidityTokens,
+raydium_live_liquidity_tokens: liveLiquidityTokens,
+
+internalSolReserve: liveLiquiditySol,
+internal_sol_reserve: liveLiquiditySol,
+
+internalTokenReserve: liveLiquidityTokens,
+internal_token_reserve: liveLiquidityTokens,
 
 graduationStatus,
 graduation_status: graduationStatus,
@@ -2113,20 +2203,20 @@ null,
 
 raydiumTargetPct: safeNum(
 lifecycle?.raydium_target_pct ?? lifecycle?.raydiumTargetPct,
-RAYDIUM_SPLIT_PCT
+RAYDIUM_LIVE_LIQUIDITY_PCT
 ),
 raydium_target_pct: safeNum(
 lifecycle?.raydium_target_pct ?? lifecycle?.raydiumTargetPct,
-RAYDIUM_SPLIT_PCT
+RAYDIUM_LIVE_LIQUIDITY_PCT
 ),
 
 mssLockedTargetPct: safeNum(
 lifecycle?.mss_locked_target_pct ?? lifecycle?.mssLockedTargetPct,
-MSS_LOCK_SPLIT_PCT
+MSS_LOCKED_LIQUIDITY_PCT
 ),
 mss_locked_target_pct: safeNum(
 lifecycle?.mss_locked_target_pct ?? lifecycle?.mssLockedTargetPct,
-MSS_LOCK_SPLIT_PCT
+MSS_LOCKED_LIQUIDITY_PCT
 ),
 
 raydiumPoolId:
@@ -2251,6 +2341,9 @@ lp_fee_can_builder_remove_lp: builderCanRemoveLp,
 builderCanClaimLpFees,
 builder_can_claim_lp_fees: builderCanClaimLpFees,
 
+hasInternalLp: false,
+has_internal_lp: false,
+
 createdAt: lifecycle?.created_at || null,
 created_at: lifecycle?.created_at || null,
 updatedAt,
@@ -2282,8 +2375,8 @@ getBuilderVestingRow(launchId),
 
 const volume24h = await getTrades24hVolume(launchId);
 const totalSupply = resolveTotalSupply(launch, token, lifecycle);
-const solReserve = resolveInternalSolReserve(launch, pool, lifecycle);
-const tokenReserve = resolveInternalTokenReserve(launch, pool, lifecycle);
+const liveLiquiditySol = resolveLiveLiquiditySol(launch, pool, lifecycle);
+const liveLiquidityTokens = resolveLiveLiquidityTokens(launch, pool, lifecycle);
 
 let marketBootstrapped = resolveMarketBootstrapped({
 launch,
@@ -2291,8 +2384,8 @@ lifecycle,
 token,
 pool,
 totalSupply,
-solReserve,
-tokenReserve,
+solReserve: liveLiquiditySol,
+tokenReserve: liveLiquidityTokens,
 });
 
 let canonicalStatus = computeCanonicalLifecycleStatus(
@@ -2320,8 +2413,8 @@ lifecycle,
 token,
 pool,
 totalSupply,
-solReserve,
-tokenReserve,
+solReserve: liveLiquiditySol,
+tokenReserve: liveLiquidityTokens,
 });
 
 canonicalStatus = computeCanonicalLifecycleStatus(
@@ -2332,7 +2425,10 @@ marketBootstrapped
 }
 
 const hasResolvedLiveState =
-marketBootstrapped && totalSupply > 0 && solReserve > 0 && tokenReserve > 0;
+marketBootstrapped &&
+totalSupply > 0 &&
+liveLiquiditySol > 0 &&
+liveLiquidityTokens > 0;
 
 const readiness =
 hasResolvedLiveState &&
@@ -2411,16 +2507,16 @@ getLifecycleRow(launchId),
 ]);
 
 const totalSupply = resolveTotalSupply(launch, token, lifecycle);
-const solReserve = resolveInternalSolReserve(launch, pool, lifecycle);
-const tokenReserve = resolveInternalTokenReserve(launch, pool, lifecycle);
+const liveLiquiditySol = resolveLiveLiquiditySol(launch, pool, lifecycle);
+const liveLiquidityTokens = resolveLiveLiquidityTokens(launch, pool, lifecycle);
 const marketBootstrapped = resolveMarketBootstrapped({
 launch,
 lifecycle,
 token,
 pool,
 totalSupply,
-solReserve,
-tokenReserve,
+solReserve: liveLiquiditySol,
+tokenReserve: liveLiquidityTokens,
 });
 
 const canonicalStatus = computeCanonicalLifecycleStatus(
@@ -2430,7 +2526,10 @@ marketBootstrapped
 );
 
 const hasResolvedLiveState =
-marketBootstrapped && totalSupply > 0 && solReserve > 0 && tokenReserve > 0;
+marketBootstrapped &&
+totalSupply > 0 &&
+liveLiquiditySol > 0 &&
+liveLiquidityTokens > 0;
 
 if (!hasResolvedLiveState) {
 return buildPendingGraduationReadiness({
@@ -2550,12 +2649,28 @@ values.push(clean(reason, 120));
 if (has("graduated_at")) {
 sets.push("graduated_at = CURRENT_TIMESTAMP");
 }
+if (has("raydium_target_pct")) {
+sets.push("raydium_target_pct = ?");
+values.push(RAYDIUM_LIVE_LIQUIDITY_PCT);
+}
+if (has("mss_locked_target_pct")) {
+sets.push("mss_locked_target_pct = ?");
+values.push(MSS_LOCKED_LIQUIDITY_PCT);
+}
 if (has("raydium_sol_migrated")) {
 sets.push("raydium_sol_migrated = ?");
 values.push(plan.raydiumSol);
 }
 if (has("raydium_token_migrated")) {
 sets.push("raydium_token_migrated = ?");
+values.push(plan.raydiumToken);
+}
+if (has("raydium_live_liquidity_sol")) {
+sets.push("raydium_live_liquidity_sol = ?");
+values.push(plan.raydiumSol);
+}
+if (has("raydium_live_liquidity_tokens")) {
+sets.push("raydium_live_liquidity_tokens = ?");
 values.push(plan.raydiumToken);
 }
 if (has("raydium_pool_id")) {
@@ -2572,11 +2687,11 @@ values.push(clean(raydiumLpTokens, 500));
 }
 if (has("mss_locked_sol")) {
 sets.push("mss_locked_sol = ?");
-values.push(plan.mssLockedSol);
+values.push(0);
 }
 if (has("mss_locked_token")) {
 sets.push("mss_locked_token = ?");
-values.push(plan.mssLockedToken);
+values.push(0);
 }
 if (has("mss_locked_lp_amount")) {
 sets.push("mss_locked_lp_amount = ?");
@@ -2584,7 +2699,7 @@ values.push(clean(mssLockedLpAmount, 500));
 }
 if (has("lock_status")) {
 sets.push("lock_status = ?");
-values.push(lockTx ? "locked" : "locked_pending_proof");
+values.push(lockTx ? "raydium_locked" : "locked_pending_proof");
 }
 if (has("lock_tx")) {
 sets.push("lock_tx = ?");
@@ -2593,6 +2708,22 @@ values.push(clean(lockTx, 500));
 if (has("lock_expires_at")) {
 sets.push("lock_expires_at = ?");
 values.push(clean(lockExpiresAt, 120));
+}
+if (has("live_liquidity_destination")) {
+sets.push("live_liquidity_destination = ?");
+values.push(LIVE_LIQUIDITY_DESTINATION);
+}
+if (has("live_liquidity_control_model")) {
+sets.push("live_liquidity_control_model = ?");
+values.push(LIVE_LIQUIDITY_CONTROL_MODEL);
+}
+if (has("live_liquidity_note")) {
+sets.push("live_liquidity_note = ?");
+values.push(LIVE_LIQUIDITY_NOTE);
+}
+if (has("former_reserve_note")) {
+sets.push("former_reserve_note = ?");
+values.push(FORMER_RESERVE_NOTE);
 }
 
 if (has("lp_fee_beneficiary_wallet")) {
@@ -2760,16 +2891,16 @@ throw new Error("pool not found for launch");
 
 const existingLifecycle = await getLifecycleRow(launchId);
 const totalSupply = resolveTotalSupply(launch, token, existingLifecycle);
-const solReserve = resolveInternalSolReserve(launch, pool, existingLifecycle);
-const tokenReserve = resolveInternalTokenReserve(launch, pool, existingLifecycle);
+const liveLiquiditySol = resolveLiveLiquiditySol(launch, pool, existingLifecycle);
+const liveLiquidityTokens = resolveLiveLiquidityTokens(launch, pool, existingLifecycle);
 const marketBootstrapped = resolveMarketBootstrapped({
 launch,
 lifecycle: existingLifecycle,
 token,
 pool,
 totalSupply,
-solReserve,
-tokenReserve,
+solReserve: liveLiquiditySol,
+tokenReserve: liveLiquidityTokens,
 });
 const canonicalStatus = computeCanonicalLifecycleStatus(
 launch,

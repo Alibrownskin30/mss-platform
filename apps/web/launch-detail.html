@@ -6,7 +6,7 @@
 <title>MSS Protocol — Launch Terminal</title>
 <meta
 name="description"
-content="MSS Protocol Launch Terminal — builder identity, protected phase truth, structured commit flow, countdown integrity, participant access controls, external LP live routing, and lifecycle / graduation telemetry."
+content="MSS Protocol Launch Terminal — builder identity, protected phase truth, structured commit flow, countdown integrity, participant verification and access controls, external Raydium live routing, and lifecycle / graduation telemetry."
 />
 
 <link rel="stylesheet" href="./assets/app.css?v=7" />
@@ -1671,7 +1671,7 @@ Awaiting launch overview state.
 <div class="terminal-section-header">
 <div>
 <div class="terminal-section-title">Allocation Structure</div>
-<div class="terminal-section-sub">Launch distribution, reserve posture, and builder / team controls.</div>
+<div class="terminal-section-sub">Launch distribution, non-circulating supply treatment, and builder / team controls.</div>
 </div>
 </div>
 
@@ -1685,7 +1685,7 @@ Awaiting launch overview state.
 <div class="v" id="liquidityAllocationPctStat">—</div>
 </div>
 <div class="stat">
-<div class="k">Reserve</div>
+<div class="k">Supply Control</div>
 <div class="v" id="reserveAllocationPctStat">—</div>
 </div>
 <div id="builderAllocationStatWrap" class="stat">
@@ -1724,8 +1724,8 @@ Awaiting launch overview state.
 <section id="lifecycleSection" class="terminal-panel panel terminal-section">
 <div class="terminal-section-header">
 <div>
-<div class="terminal-section-title">LP Lifecycle</div>
-<div class="terminal-section-sub">Internal pool truth, graduation posture, migration split, lock proof, and builder vesting.</div>
+<div class="terminal-section-title">Liquidity Lifecycle</div>
+<div class="terminal-section-sub">External LP route posture, custody / lock proof, migration telemetry, and builder vesting.</div>
 </div>
 <div class="lifecycle-action-row" style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
 <div id="lifecycleStatusPill" class="status-pill commit">pending</div>
@@ -1739,11 +1739,11 @@ Awaiting launch overview state.
 <div class="v" id="lifecycleStatusValue">—</div>
 </div>
 <div class="stat">
-<div class="k">Internal Reserves</div>
+<div class="k">LP Snapshot</div>
 <div class="v" id="lifecycleReservesValue">—</div>
 </div>
 <div class="stat">
-<div class="k">Graduation Split</div>
+<div class="k">Migration Plan</div>
 <div class="v" id="lifecycleSplitValue">—</div>
 </div>
 <div class="stat">
@@ -1751,11 +1751,11 @@ Awaiting launch overview state.
 <div class="v" id="builderVestValue">—</div>
 </div>
 <div class="stat">
-<div class="k">Raydium Migration</div>
+<div class="k">Raydium Route</div>
 <div class="v" id="lifecycleRaydiumValue">—</div>
 </div>
 <div class="stat">
-<div class="k">MSS Lock</div>
+<div class="k">Custody / Lock</div>
 <div class="v" id="lifecycleLockValue">—</div>
 </div>
 </div>
@@ -1770,7 +1770,7 @@ Graduation conditions are still being evaluated.
 
 <div class="allocation-grid">
 <div class="stat">
-<div class="k">Internal LP</div>
+<div class="k">Current LP State</div>
 <div class="v" id="launchLpInternalText">—</div>
 </div>
 <div class="stat">
@@ -1778,11 +1778,11 @@ Graduation conditions are still being evaluated.
 <div class="v" id="launchGraduationReadinessText">Pending</div>
 </div>
 <div class="stat">
-<div class="k">Locked LP</div>
+<div class="k">Lock State</div>
 <div class="v" id="launchLockedLpText">Pending</div>
 </div>
 <div class="stat">
-<div class="k">Migration State</div>
+<div class="k">Route State</div>
 <div class="v" id="launchMigrationStateText">Not Started</div>
 </div>
 </div>
@@ -1807,7 +1807,7 @@ Graduation conditions are still being evaluated.
 <div class="terminal-section-header">
 <div>
 <div class="terminal-section-title">Launch Notes</div>
-<div class="terminal-section-sub">Lifecycle logic, current launch rules, access controls, and execution protections.</div>
+<div class="terminal-section-sub">Lifecycle logic, current launch rules, access controls, and external execution protections.</div>
 </div>
 </div>
 
@@ -1818,7 +1818,7 @@ Protected wallet caps start at 0.5% and increase by 0.5% daily for 5 days.
 Builder allocation remains 5% total supply, unlocking 0.5% of total supply per day until fully unlocked after 10 days.
 Builder bond and team controls remain visible on builder launches, while contract address and live market data stay protected until true live state.
 Where participant verification gating is enabled, wallets must pass access checks before the external route opens from this terminal.
-Live execution routes externally through Raydium instead of internal buy / sell handling inside this terminal.
+Live execution routes externally through Raydium and MSS does not execute internal buys or sells inside this terminal.
 </div>
 
 <div class="allocation-grid">
@@ -1858,7 +1858,7 @@ Pattern monitoring inactive.
 </div>
 
 <div class="action-panel-topline">
-Commit and refund controls remain available through the launch flow, while live wallet state, participant verification posture, access limits, contract reveal, and external Raydium route readiness stay in sync with the market surface above once the launch reaches true live state.
+Commit and refund controls remain available through the launch flow. Once true live state is reached, this terminal shows live price, participant verification posture, wallet limits, contract reveal, and external Raydium route readiness while execution itself remains external.
 </div>
 
 <div class="terminal-wallet-block">
@@ -1928,6 +1928,15 @@ class="desc"
 style="margin-top:0;font-size:12px;color:rgba(220,230,245,.52);"
 >
 Participant verification state is shown here for visibility when access gating is enabled on this launch. External route access stays blocked until approval is satisfied.
+</div>
+
+<div class="terminal-wallet-actions">
+<a
+id="participantComplianceAction"
+class="btn primary"
+href="./compliance.html?mode=participant"
+style="display:none;"
+>Complete Participant Verification</a>
 </div>
 </div>
 
@@ -2201,87 +2210,5 @@ await mountSharedShell();
 </script>
 
 <script type="module" src="./assets/pages/launch.js?v=9"></script>
-
-<script>
-(function () {
-const mirrorMap = [
-{
-targets: ["launchStatusBoardValue", "launchStatusBoardStatus"],
-sources: ["phaseValueMirror", "launchStatusText2", "launchStatusText"],
-fallback: "—",
-},
-{
-targets: ["launchStatusBoardAccess"],
-sources: ["launchAccessModeText", "launchOverviewAccessText"],
-fallback: "Pre-Live",
-},
-{
-targets: ["launchStatusBoardBuilderWallet"],
-sources: ["launchBuilderWalletShort", "builderWalletStat", "builderWallet"],
-fallback: "Pending",
-},
-{
-targets: ["launchStatusBoardCa"],
-sources: ["launchCaState", "chartCaChipText", "launchCaText"],
-fallback: "Pending",
-},
-{
-targets: ["launchStatusBoardNote"],
-sources: ["phaseNoteMirror", "phaseSummary", "launchCommandText"],
-fallback:
-"Launch lifecycle, access posture, wallet cap state, participant verification, contract reveal, and external route readiness are reflected here as backend truth updates.",
-},
-];
-
-function readFirstMeaningfulText(sourceIds) {
-for (const id of sourceIds) {
-const el = document.getElementById(id);
-if (!el) continue;
-const text = (el.textContent || "").trim();
-if (text) return text;
-}
-return "";
-}
-
-function syncMirrors() {
-for (const entry of mirrorMap) {
-const value = readFirstMeaningfulText(entry.sources) || entry.fallback || "—";
-for (const targetId of entry.targets) {
-const target = document.getElementById(targetId);
-if (!target) continue;
-target.textContent = value;
-}
-}
-}
-
-function attachObservers() {
-syncMirrors();
-
-const observer = new MutationObserver(syncMirrors);
-const observed = new Set();
-
-for (const entry of mirrorMap) {
-for (const sourceId of entry.sources) {
-if (observed.has(sourceId)) continue;
-const source = document.getElementById(sourceId);
-if (!source) continue;
-observed.add(sourceId);
-observer.observe(source, {
-childList: true,
-subtree: true,
-characterData: true,
-});
-}
-}
-}
-
-if (document.readyState === "loading") {
-document.addEventListener("DOMContentLoaded", attachObservers, { once: true });
-} else {
-attachObservers();
-}
-})();
-</script>
-
 </body>
 </html>

@@ -2,7 +2,7 @@ import db from "../../db/index.js";
 
 const DEFAULT_PARTICIPANT_PCT = 45;
 const DEFAULT_LIQUIDITY_PCT = 20;
-const DEFAULT_RESERVE_PCT = 30;
+const DEFAULT_FORMER_RESERVE_BURN_PCT = 30;
 const DEFAULT_BUILDER_PCT = 5;
 const DEFAULT_MAX_WALLET_ALLOCATION_PCT = 0.5;
 const DEFAULT_LAUNCH_FEE_PCT = 5;
@@ -22,7 +22,7 @@ const BUILDER_VESTING_LABEL =
 const TEAM_VESTING_LABEL =
 "0% unlocked at launch, 14 day cliff, linear vesting over 180 days";
 
-const TEMPLATE_BONUS_PCT = {
+const LEGACY_TEMPLATE_BONUS_PCT = {
 degen: 20,
 degen_zone: 20,
 meme_lite: 25,
@@ -30,6 +30,16 @@ meme_pro: 30,
 community: 25,
 builder: 25,
 };
+
+const EFFECTIVE_PARTICIPANT_BONUS_PCT = 0;
+const PARTICIPANT_ALLOCATION_MODEL =
+"opening_lp_price_no_bonus_multiplier";
+const LIVE_LIQUIDITY_DESTINATION = "raydium";
+const LIVE_LIQUIDITY_ROUTING_LABEL =
+"100% of live liquidity is routed to Raydium at activation.";
+const FORMER_RESERVE_POLICY_LABEL =
+"The former reserve bucket is not held by protocol. It is burned along with unused participant allocation.";
+const BURN_WALLET = "11111111111111111111111111111111";
 
 function floorBig(n) {
 return Math.floor(Number(n || 0));
@@ -146,12 +156,16 @@ function normalizeTemplate(value) {
 return cleanText(value, 80).toLowerCase() || "meme_lite";
 }
 
-function getTemplateBonusPct(launch) {
+function getConfiguredTemplateBonusPct(launch) {
 const template = normalizeTemplate(launch?.template || launch?.launch_type);
 return safeNum(
 launch?.participant_bonus_pct,
-TEMPLATE_BONUS_PCT[template] ?? 25
+LEGACY_TEMPLATE_BONUS_PCT[template] ?? 25
 );
+}
+
+function getAppliedParticipantBonusPct() {
+return EFFECTIVE_PARTICIPANT_BONUS_PCT;
 }
 
 function getParticipantVestingProfile() {
@@ -174,7 +188,7 @@ hard_cap_sol: safeNum(row.hard_cap_sol, 0),
 launch_fee_pct: safeNum(row.launch_fee_pct, DEFAULT_LAUNCH_FEE_PCT),
 participants_pct: safeNum(row.participants_pct, DEFAULT_PARTICIPANT_PCT),
 liquidity_pct: safeNum(row.liquidity_pct, DEFAULT_LIQUIDITY_PCT),
-reserve_pct: safeNum(row.reserve_pct, DEFAULT_RESERVE_PCT),
+reserve_pct: safeNum(row.reserve_pct, DEFAULT_FORMER_RESERVE_BURN_PCT),
 builder_pct: safeNum(row.builder_pct, DEFAULT_BUILDER_PCT),
 team_allocation_pct: safeNum(row.team_allocation_pct, 0),
 builder_bond_sol: safeNum(row.builder_bond_sol, 0),
@@ -185,7 +199,8 @@ DEFAULT_MAX_WALLET_ALLOCATION_PCT
 ),
 participant_bonus_pct: safeNum(
 row.participant_bonus_pct,
-TEMPLATE_BONUS_PCT[normalizeTemplate(row.template || row.launch_type)] ?? 25
+LEGACY_TEMPLATE_BONUS_PCT[normalizeTemplate(row.template || row.launch_type)] ??
+25
 ),
 team_wallet_breakdown: parseJsonArray(row.team_wallet_breakdown),
 countdown_ends_at: row.countdown_ends_at || null,
@@ -257,6 +272,7 @@ if (!isBuilderLaunch || teamAllocationPct <= 0 || !teamWalletBreakdown.length) {
 return {
 teamTokens: 0,
 rows: [],
+cappedTeamAllocationPct: 0,
 };
 }
 
@@ -273,6 +289,7 @@ if (!validRows.length) {
 return {
 teamTokens: 0,
 rows: [],
+cappedTeamAllocationPct,
 };
 }
 
@@ -281,6 +298,7 @@ if (totalBreakdownPct <= 0) {
 return {
 teamTokens: 0,
 rows: [],
+cappedTeamAllocationPct,
 };
 }
 
@@ -318,26 +336,28 @@ label: TEAM_VESTING_LABEL,
 return {
 teamTokens,
 rows,
+cappedTeamAllocationPct,
 };
 }
 
 function buildParticipantAllocations({
 commits,
 hardCap,
-internalPoolSol,
-internalPoolTokens,
+liveLiquiditySol,
+liveLiquidityTokens,
 participantMaxTokens,
 maxWalletAllocationTokens,
 bonusPct,
+configuredBonusPct,
 vestingProfile,
 }) {
 if (!commits.length) return [];
 
-if (internalPoolSol <= 0 || internalPoolTokens <= 0) {
-throw new Error("invalid internal pool seed for participant allocation");
+if (liveLiquiditySol <= 0 || liveLiquidityTokens <= 0) {
+throw new Error("invalid live liquidity seed for participant allocation");
 }
 
-const openingPriceSol = internalPoolSol / internalPoolTokens;
+const openingPriceSol = liveLiquiditySol / liveLiquidityTokens;
 
 if (!Number.isFinite(openingPriceSol) || openingPriceSol <= 0) {
 throw new Error("invalid opening price for participant allocation");
@@ -353,11 +373,9 @@ runningCommitted += row.sol_amount;
 
 const baseTokensRaw = row.sol_amount / openingPriceSol;
 const bonusTokensRaw = baseTokensRaw * (bonusPct / 100);
-const wantedTotalRaw = baseTokensRaw + bonusTokensRaw;
-
 const wantedBaseTokens = floorBig(baseTokensRaw);
 const wantedBonusTokens = floorBig(bonusTokensRaw);
-const wantedTotalTokens = floorBig(wantedTotalRaw);
+const wantedTotalTokens = wantedBaseTokens + wantedBonusTokens;
 
 const cappedTotalTokens = Math.max(
 0,
@@ -372,7 +390,9 @@ wallet: row.wallet,
 allocation_type: "participant",
 committed_sol: row.sol_amount,
 opening_price_sol: openingPriceSol,
+configured_bonus_pct: configuredBonusPct,
 bonus_pct: bonusPct,
+bonus_model: PARTICIPANT_ALLOCATION_MODEL,
 fill_before: fillBefore,
 fill_after: fillAfter,
 
@@ -413,7 +433,7 @@ tokenAmount = floorBig((row.token_amount / wantedTotal) * participantMaxTokens);
 distributed += tokenAmount;
 }
 
-const baseTokens = Math.min(row.base_tokens, tokenAmount);
+const baseTokens = Math.min(row.wanted_base_tokens, tokenAmount);
 const bonusTokens = Math.max(0, tokenAmount - baseTokens);
 
 return {
@@ -434,11 +454,12 @@ builderWallet,
 builderTokens,
 builderDailyUnlockTokens,
 teamRows,
-reserveTokens,
-internalPoolTokens,
-internalPoolSol,
+formerReserveBurnTokens,
+liveLiquidityTokens,
+liveLiquiditySol,
 raydiumLiquidityTokensReserved,
 unusedParticipantTokensBurned,
+unallocatedRemainderBurned,
 }) {
 const rows = [];
 
@@ -465,40 +486,42 @@ for (const row of teamRows) {
 rows.push(row);
 }
 
-if (reserveTokens > 0) {
+if (liveLiquidityTokens > 0 || liveLiquiditySol > 0) {
 rows.push({
-wallet: `RESERVE_LAUNCH_${launchId}`,
-allocation_type: "reserve",
-token_amount: reserveTokens,
-sol_amount: 0,
-locked: true,
-note: "Protocol-controlled segregated reserve. Not counted as circulating supply.",
+wallet: `RAYDIUM_LIQUIDITY_LAUNCH_${launchId}`,
+allocation_type: "raydium_liquidity_seed",
+token_amount: liveLiquidityTokens,
+sol_amount: liveLiquiditySol,
+destination: LIVE_LIQUIDITY_DESTINATION,
+note: LIVE_LIQUIDITY_ROUTING_LABEL,
+raydium_liquidity_tokens_reserved: raydiumLiquidityTokensReserved,
 });
 }
 
-if (internalPoolTokens > 0 || internalPoolSol > 0) {
+if (formerReserveBurnTokens > 0) {
 rows.push({
-wallet: `INTERNAL_POOL_LAUNCH_${launchId}`,
-allocation_type: "internal_pool",
-token_amount: internalPoolTokens,
-sol_amount: internalPoolSol,
-});
-}
-
-if (raydiumLiquidityTokensReserved > 0) {
-rows.push({
-wallet: `RAYDIUM_RESERVED_LAUNCH_${launchId}`,
-allocation_type: "raydium_reserved",
-token_amount: raydiumLiquidityTokensReserved,
+wallet: BURN_WALLET,
+allocation_type: "burn_former_reserve",
+token_amount: formerReserveBurnTokens,
 sol_amount: 0,
+note: FORMER_RESERVE_POLICY_LABEL,
 });
 }
 
 if (unusedParticipantTokensBurned > 0) {
 rows.push({
-wallet: "11111111111111111111111111111111",
+wallet: BURN_WALLET,
 allocation_type: "burn_unused_participants",
 token_amount: unusedParticipantTokensBurned,
+sol_amount: 0,
+});
+}
+
+if (unallocatedRemainderBurned > 0) {
+rows.push({
+wallet: BURN_WALLET,
+allocation_type: "burn_rounding_remainder",
+token_amount: unallocatedRemainderBurned,
 sol_amount: 0,
 });
 }
@@ -510,18 +533,16 @@ function assertAllocationMath({
 totalSupply,
 participantDistributedTotal,
 unusedParticipantTokensBurned,
-internalPoolTokens,
-raydiumLiquidityTokensReserved,
-reserveTokens,
+formerReserveBurnTokens,
+liveLiquidityTokens,
 builderTokens,
 teamTokens,
 }) {
 const totalAccounted =
 participantDistributedTotal +
 unusedParticipantTokensBurned +
-internalPoolTokens +
-raydiumLiquidityTokensReserved +
-reserveTokens +
+formerReserveBurnTokens +
+liveLiquidityTokens +
 builderTokens +
 teamTokens;
 
@@ -648,12 +669,24 @@ if (netRaiseAfterFee <= 0) {
 throw new Error("net raise after fee must be greater than zero");
 }
 
-const isBuilderLaunch = String(launch.template || "") === "builder";
+const isBuilderLaunch =
+String(launch.template || "").toLowerCase() === "builder" ||
+String(launch.launch_type || "").toLowerCase() === "builder";
+
 const teamAllocationPct = safeNum(launch.team_allocation_pct, 0);
-const rawReservePct = safeNum(launch.reserve_pct, DEFAULT_RESERVE_PCT);
-const builderPct = safeNum(launch.builder_pct, DEFAULT_BUILDER_PCT);
-const liquidityPct = safeNum(launch.liquidity_pct, DEFAULT_LIQUIDITY_PCT);
-const participantMaxPct = safeNum(launch.participants_pct, DEFAULT_PARTICIPANT_PCT);
+
+/*
+Locked current model:
+- participants max pool = 45%
+- live liquidity = 20%
+- builder allocation = 5%
+- former reserve bucket = 30%, but not held
+- builder launch team allocation comes out of the former reserve bucket
+*/
+const participantMaxPct = DEFAULT_PARTICIPANT_PCT;
+const liquidityPct = DEFAULT_LIQUIDITY_PCT;
+const builderPct = DEFAULT_BUILDER_PCT;
+const rawFormerReserveBurnPct = DEFAULT_FORMER_RESERVE_BURN_PCT;
 const maxWalletAllocationPct = safeNum(
 launch.max_wallet_allocation_pct,
 DEFAULT_MAX_WALLET_ALLOCATION_PCT
@@ -667,10 +700,21 @@ if (participantMaxPct <= 0) {
 throw new Error("participant max pct must be greater than zero");
 }
 
-const effectiveReservePct =
-isBuilderLaunch && teamAllocationPct > 0
-? Math.max(0, rawReservePct - teamAllocationPct)
-: rawReservePct;
+const {
+teamTokens,
+rows: teamRows,
+cappedTeamAllocationPct,
+} = buildTeamAllocations({
+isBuilderLaunch,
+totalSupply,
+teamAllocationPct,
+teamWalletBreakdown: launch.team_wallet_breakdown,
+});
+
+const effectiveFormerReserveBurnPct =
+isBuilderLaunch && cappedTeamAllocationPct > 0
+? Math.max(0, rawFormerReserveBurnPct - cappedTeamAllocationPct)
+: rawFormerReserveBurnPct;
 
 const participantMaxTokens = toTokenAmount(totalSupply, participantMaxPct);
 const maxWalletAllocationTokens = toTokenAmount(totalSupply, maxWalletAllocationPct);
@@ -685,46 +729,46 @@ if (liquidityTokenAllocation <= 0) {
 throw new Error("liquidity token allocation is invalid");
 }
 
-const internalPoolTokens = liquidityTokenAllocation;
-const raydiumLiquidityTokensReserved = 0;
+const liveLiquidityTokens = liquidityTokenAllocation;
+const raydiumLiquidityTokensReserved = liveLiquidityTokens;
 
 /*
-MSS Option B target model:
-- launch fee is removed first
-- net raised SOL goes into internal LP
-- 20% of supply goes into internal LP
-- opening price is derived from internal LP truth
+Current live model:
+- launch fee removed first
+- net raised SOL becomes live liquidity
+- 20% of supply becomes live liquidity token side
+- that full live-liquidity seed routes to Raydium
+- opening price is derived from this LP truth
 */
 const liquiditySolAllocation = netRaiseAfterFee;
+const liveLiquiditySol = liquiditySolAllocation;
 const netRaiseRetainedOutsidePool = 0;
-const openingPriceSol = liquiditySolAllocation / internalPoolTokens;
+const openingPriceSol = liveLiquiditySol / liveLiquidityTokens;
 const openingFdvSol = openingPriceSol * totalSupply;
 
-const reserveTokens = toTokenAmount(totalSupply, effectiveReservePct);
+const formerReserveBurnTokens = toTokenAmount(
+totalSupply,
+effectiveFormerReserveBurnPct
+);
 const builderTokens = toTokenAmount(totalSupply, builderPct);
 const builderDailyUnlockTokens = toTokenAmount(
 totalSupply,
 BUILDER_DAILY_UNLOCK_PCT
 );
 
-const { teamTokens, rows: teamRows } = buildTeamAllocations({
-isBuilderLaunch,
-totalSupply,
-teamAllocationPct,
-teamWalletBreakdown: launch.team_wallet_breakdown,
-});
-
-const participantBonusPct = getTemplateBonusPct(launch);
+const configuredParticipantBonusPct = getConfiguredTemplateBonusPct(launch);
+const participantBonusPct = getAppliedParticipantBonusPct();
 const participantVesting = getParticipantVestingProfile(launch);
 
 const participantRows = buildParticipantAllocations({
 commits,
 hardCap,
-internalPoolSol: liquiditySolAllocation,
-internalPoolTokens,
+liveLiquiditySol,
+liveLiquidityTokens,
 participantMaxTokens,
 maxWalletAllocationTokens,
 bonusPct: participantBonusPct,
+configuredBonusPct: configuredParticipantBonusPct,
 vestingProfile: participantVesting,
 });
 
@@ -737,21 +781,20 @@ const unusedParticipantTokensBurned = Math.max(
 participantMaxTokens - participantDistributedTotal
 );
 
-const totalBurned = unusedParticipantTokensBurned;
-
-const totalAccounted = assertAllocationMath({
+const totalAccountedBeforeRemainder = assertAllocationMath({
 totalSupply,
 participantDistributedTotal,
 unusedParticipantTokensBurned,
-internalPoolTokens,
-raydiumLiquidityTokensReserved,
-reserveTokens,
+formerReserveBurnTokens,
+liveLiquidityTokens,
 builderTokens,
 teamTokens,
 });
 
-const unallocatedRemainder = Math.max(0, totalSupply - totalAccounted);
-const finalSupply = Math.max(0, totalSupply - totalBurned - unallocatedRemainder);
+const unallocatedRemainder = Math.max(0, totalSupply - totalAccountedBeforeRemainder);
+const totalBurned =
+unusedParticipantTokensBurned + formerReserveBurnTokens + unallocatedRemainder;
+const finalSupply = Math.max(0, totalSupply - totalBurned);
 
 const systemAllocationRows = buildSystemAllocations({
 launchId,
@@ -759,12 +802,12 @@ builderWallet,
 builderTokens,
 builderDailyUnlockTokens,
 teamRows,
-reserveTokens,
-internalPoolTokens,
-internalPoolSol: liquiditySolAllocation,
+formerReserveBurnTokens,
+liveLiquidityTokens,
+liveLiquiditySol,
 raydiumLiquidityTokensReserved,
-unusedParticipantTokensBurned:
-unusedParticipantTokensBurned + unallocatedRemainder,
+unusedParticipantTokensBurned,
+unallocatedRemainderBurned: unallocatedRemainder,
 });
 
 const allocationRows = [
@@ -811,11 +854,15 @@ netRaiseAfterFee,
 
 liquidityPct,
 liquiditySolAllocation,
+liveLiquiditySol,
+liveLiquidityTokens,
 netRaiseRetainedOutsidePool,
-internalPoolSol: liquiditySolAllocation,
-internalPoolTokens,
+internalPoolSol: liveLiquiditySol,
+internalPoolTokens: liveLiquidityTokens,
 liquidityTokenAllocation,
 raydiumLiquidityTokensReserved,
+liveLiquidityDestination: LIVE_LIQUIDITY_DESTINATION,
+liveLiquidityRoutingLabel: LIVE_LIQUIDITY_ROUTING_LABEL,
 
 openingPriceSol,
 openingFdvSol,
@@ -825,20 +872,22 @@ participantMaxTokens,
 maxWalletAllocationPct,
 maxWalletAllocationTokens,
 participantBonusPct,
+configuredParticipantBonusPct,
+participantBonusModel: PARTICIPANT_ALLOCATION_MODEL,
 participantVesting,
 
 participantDistributedBase,
 participantDistributedBonus,
 participantDistributedTotal,
 unusedParticipantTokensBurned,
+formerReserveBurnTokens,
 totalBurned,
 
-reserveTokens,
 builderTokens,
 teamTokens,
-effectiveReservePct,
+effectiveFormerReserveBurnPct,
 
-totalAccounted,
+totalAccounted: totalAccountedBeforeRemainder,
 unallocatedRemainder,
 
 builderVesting: {
@@ -862,11 +911,12 @@ label: TEAM_VESTING_LABEL,
 },
 
 reservePolicy: {
-totalReserveTokens: reserveTokens,
-locked: true,
+totalReserveTokens: formerReserveBurnTokens,
+reserveHeldTokens: 0,
+burned: true,
+held: false,
 countedAsCirculating: false,
-label:
-"Protocol-controlled segregated reserve. Any movement should require visible policy checks, audit logs, and proof.",
+label: FORMER_RESERVE_POLICY_LABEL,
 },
 
 allocations: participantRows,

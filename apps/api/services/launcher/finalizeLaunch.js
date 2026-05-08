@@ -9,6 +9,14 @@ coreTeamDevelopment: 0.6,
 ecosystemSupport: 0.4,
 };
 
+const LIVE_LIQUIDITY_DESTINATION = "raydium";
+const LIVE_LIQUIDITY_NOTE =
+"100% of launch live liquidity is seeded to Raydium. There is no internal LP.";
+const FORMER_RESERVE_NOTE =
+"The former 30% reserve bucket is burned together with unused participant allocation and is not held by protocol.";
+const COMPATIBILITY_POOL_NOTE =
+"Legacy internal_pool and pools rows remain as compatibility launch-seed truth for bootstrap and existing consumers until the repo is fully Raydium-only.";
+
 const LP_FEE_BENEFICIARY_TYPE = "builder";
 const LP_FEE_CONTROLLER_TYPE = "mss_distributor";
 const LP_FEE_CONTROL_MODE = "distributor_only";
@@ -91,7 +99,6 @@ return String(
 firstPresent(
 allocationResult?.unusedParticipantTokensBurned,
 allocationResult?.unsoldParticipantTokensBurned,
-allocationResult?.totalBurned,
 "0"
 ) ?? "0"
 );
@@ -101,6 +108,92 @@ function allocationUnusedBonusBurn(allocationResult = null) {
 return String(
 firstPresent(allocationResult?.unusedBonusTokensBurned, "0") ?? "0"
 );
+}
+
+function allocationFormerReserveBurn(allocationResult = null) {
+return String(
+firstPresent(
+allocationResult?.formerReserveBurnTokens,
+allocationResult?.former_reserve_burn_tokens,
+allocationResult?.formerReserveBurnedTokens,
+allocationResult?.former_reserve_burned_tokens,
+"0"
+) ?? "0"
+);
+}
+
+function resolveAllocationLiveLiquidity(allocationResult = null, launch = null) {
+const liveLiquiditySol = safeNum(
+firstPresent(
+allocationResult?.liveLiquiditySol,
+allocationResult?.live_liquidity_sol,
+allocationResult?.internalPoolSol,
+launch?.live_liquidity_sol,
+launch?.raydium_live_liquidity_sol,
+launch?.internal_pool_sol
+),
+0
+);
+
+const liveLiquidityTokensRaw = firstPresent(
+allocationResult?.liveLiquidityTokens,
+allocationResult?.live_liquidity_tokens,
+allocationResult?.raydiumLiquidityTokensReserved,
+allocationResult?.raydium_liquidity_tokens_reserved,
+allocationResult?.internalPoolTokens,
+launch?.live_liquidity_tokens,
+launch?.raydium_live_liquidity_tokens,
+launch?.raydium_liquidity_tokens_reserved,
+launch?.internal_pool_tokens,
+"0"
+);
+
+const liveLiquidityTokens = String(liveLiquidityTokensRaw ?? "0");
+const liveLiquidityTokensNum = safeNum(liveLiquidityTokensRaw, 0);
+
+return {
+liveLiquiditySol,
+liveLiquidityTokens,
+liveLiquidityTokensNum,
+};
+}
+
+function buildPersistedAllocationResultFromLaunch(launch = null) {
+const { liveLiquiditySol, liveLiquidityTokens } = resolveAllocationLiveLiquidity(
+null,
+launch
+);
+const formerReserveBurnedTokens = cleanText(
+firstPresent(launch?.former_reserve_burned_tokens, "0"),
+120
+) || "0";
+
+return {
+finalSupply: launch?.final_supply,
+unusedParticipantTokensBurned:
+launch?.unsold_participant_tokens_burned || "0",
+unsoldParticipantTokensBurned:
+launch?.unsold_participant_tokens_burned || "0",
+unusedBonusTokensBurned: launch?.unused_bonus_tokens_burned || "0",
+formerReserveBurnTokens: formerReserveBurnedTokens,
+formerReserveBurnedTokens: formerReserveBurnedTokens,
+former_reserve_burn_tokens: formerReserveBurnedTokens,
+former_reserve_burned_tokens: formerReserveBurnedTokens,
+liveLiquiditySol,
+liveLiquidityTokens,
+internalPoolSol: liveLiquiditySol,
+internalPoolTokens: liveLiquidityTokens,
+raydiumLiquidityTokensReserved:
+cleanText(
+firstPresent(
+launch?.raydium_liquidity_tokens_reserved,
+liveLiquidityTokens,
+"0"
+),
+120
+) || "0",
+formerReserveNote: FORMER_RESERVE_NOTE,
+};
 }
 
 function isBootstrapped(launch) {
@@ -200,10 +293,7 @@ raw.treasury_fee
 normalizedPlan.ecosystemSupportFee
 );
 
-const buybackFee = safeNum(
-firstPresent(raw.buybackFee, raw.buyback_fee),
-0
-);
+const buybackFee = safeNum(firstPresent(raw.buybackFee, raw.buyback_fee), 0);
 
 return {
 ...raw,
@@ -425,12 +515,15 @@ payload.lp_fee_distributor_enabled,
 launch?.lp_fee_distributor_enabled
 );
 
-if (explicitEnabled !== null && explicitEnabled !== undefined && explicitEnabled !== "") {
+if (
+explicitEnabled !== null &&
+explicitEnabled !== undefined &&
+explicitEnabled !== ""
+) {
 enabled = safeNum(explicitEnabled, 0) === 1 || explicitEnabled === true;
 } else {
 enabled = Boolean(
-builderWallet &&
-["building", "live", "graduated"].includes(launchStatus)
+builderWallet && ["building", "live", "graduated"].includes(launchStatus)
 );
 }
 
@@ -561,6 +654,14 @@ builder_bond_paid: safeNum(row.builder_bond_paid, 0),
 builder_bond_refunded: safeNum(row.builder_bond_refunded, 0),
 fees_distributed: safeNum(row.fees_distributed, 0),
 liquidity: safeNum(row.liquidity, 0),
+live_liquidity_sol: safeNum(
+firstPresent(
+row.live_liquidity_sol,
+row.raydium_live_liquidity_sol,
+row.internal_pool_sol
+),
+0
+),
 internal_pool_sol: safeNum(row.internal_pool_sol, 0),
 circulating_supply: safeNum(row.circulating_supply, 0),
 market_cap: safeNum(row.market_cap, 0),
@@ -589,6 +690,15 @@ row
 contract_address: cleanText(row.contract_address, 120),
 token_mint: cleanText(row.token_mint, 120),
 final_supply: cleanText(row.final_supply, 120),
+live_liquidity_tokens: cleanText(
+firstPresent(
+row.live_liquidity_tokens,
+row.raydium_live_liquidity_tokens,
+row.raydium_liquidity_tokens_reserved,
+row.internal_pool_tokens
+),
+120
+),
 internal_pool_tokens: cleanText(row.internal_pool_tokens, 120),
 raydium_liquidity_tokens_reserved: cleanText(
 row.raydium_liquidity_tokens_reserved,
@@ -598,16 +708,17 @@ unsold_participant_tokens_burned: cleanText(
 row.unsold_participant_tokens_burned,
 120
 ),
-unused_bonus_tokens_burned: cleanText(
-row.unused_bonus_tokens_burned,
-120
-),
-mint_reservation_status: cleanText(
-row.mint_reservation_status,
-40
-).toLowerCase(),
+unused_bonus_tokens_burned: cleanText(row.unused_bonus_tokens_burned, 120),
+former_reserve_burned_tokens: cleanText(row.former_reserve_burned_tokens, 120),
+mint_reservation_status: cleanText(row.mint_reservation_status, 40).toLowerCase(),
 mint_finalized_at: row.mint_finalized_at || null,
 status: cleanText(row.status, 40).toLowerCase(),
+live_liquidity_destination:
+cleanText(row.live_liquidity_destination, 120) || LIVE_LIQUIDITY_DESTINATION,
+live_liquidity_note:
+cleanText(row.live_liquidity_note, 500) || LIVE_LIQUIDITY_NOTE,
+former_reserve_note:
+cleanText(row.former_reserve_note, 500) || FORMER_RESERVE_NOTE,
 lp_fee_beneficiary_wallet: cleanText(row.lp_fee_beneficiary_wallet, 120),
 lp_fee_beneficiary_type: cleanText(row.lp_fee_beneficiary_type, 120),
 lp_fee_controller_type: cleanText(row.lp_fee_controller_type, 120),
@@ -638,10 +749,7 @@ builder_can_remove_lp: safeNum(row.builder_can_remove_lp, 0),
 builder_can_claim_lp_fees: safeNum(row.builder_can_claim_lp_fees, 0),
 fee_distributor_address: cleanText(row.fee_distributor_address, 120),
 fee_distributor_program: cleanText(row.fee_distributor_program, 120),
-fee_distributor_program_id: cleanText(
-row.fee_distributor_program_id,
-120
-),
+fee_distributor_program_id: cleanText(row.fee_distributor_program_id, 120),
 fee_distributor_vault: cleanText(row.fee_distributor_vault, 120),
 fee_distributor_status: cleanText(row.fee_distributor_status, 120),
 };
@@ -827,6 +935,8 @@ return Boolean(
 cleanText(launch.final_supply, 120) ||
 cleanText(launch.unsold_participant_tokens_burned, 120) ||
 cleanText(launch.unused_bonus_tokens_burned, 120) ||
+cleanText(launch.former_reserve_burned_tokens, 120) ||
+cleanText(launch.live_liquidity_tokens, 120) ||
 cleanText(launch.internal_pool_tokens, 120) ||
 cleanText(launch.raydium_liquidity_tokens_reserved, 120) ||
 launch.launch_result_json
@@ -935,12 +1045,19 @@ fields.token_mint = artifacts.mint;
 
 if (artifacts.solReserve > 0) {
 fields.liquidity = artifacts.solReserve;
+fields.live_liquidity_sol = artifacts.solReserve;
 fields.internal_pool_sol = artifacts.solReserve;
 }
 
 if (artifacts.tokenReserve > 0) {
+fields.live_liquidity_tokens = String(artifacts.tokenReserve);
 fields.internal_pool_tokens = String(artifacts.tokenReserve);
+fields.raydium_liquidity_tokens_reserved = String(artifacts.tokenReserve);
 }
+
+fields.live_liquidity_destination = LIVE_LIQUIDITY_DESTINATION;
+fields.live_liquidity_note = LIVE_LIQUIDITY_NOTE;
+fields.former_reserve_note = FORMER_RESERVE_NOTE;
 
 if (artifacts.completed) {
 fields.market_bootstrapped = 1;
@@ -983,14 +1100,25 @@ fields.contract_address = mintAddress;
 fields.token_mint = mintAddress;
 }
 
+const liquidityPatch = resolveAllocationLiveLiquidity(
+marketBootstrap,
+allocationResult || currentLaunch
+);
+
 const liquidity = safeNum(
 firstPresent(
 marketBootstrap.liquidity,
+marketBootstrap.liveLiquiditySol,
+marketBootstrap.live_liquidity_sol,
 marketBootstrap.internalPoolSol,
 marketBootstrap.solReserve,
-allocationResult?.internalPoolSol
+allocationResult?.liveLiquiditySol,
+allocationResult?.live_liquidity_sol,
+allocationResult?.internalPoolSol,
+currentLaunch?.live_liquidity_sol,
+currentLaunch?.internal_pool_sol
 ),
-0
+liquidityPatch.liveLiquiditySol
 );
 
 const price = safeNum(marketBootstrap.price, 0);
@@ -998,33 +1126,39 @@ const marketCap = safeNum(marketBootstrap.marketCap, 0);
 const volume24h = safeNum(marketBootstrap.volume24h, 0);
 const circulatingSupply = safeNum(marketBootstrap.circulatingSupply, 0);
 
-const internalPoolSol = safeNum(
-firstPresent(
-marketBootstrap.internalPoolSol,
-liquidity,
-allocationResult?.internalPoolSol
-),
-0
-);
-
-const internalPoolTokensRaw = firstPresent(
+const liveLiquiditySol = safeNum(liquidityPatch.liveLiquiditySol, 0);
+const liveLiquidityTokensRaw = firstPresent(
+marketBootstrap.liveLiquidityTokens,
+marketBootstrap.live_liquidity_tokens,
+marketBootstrap.raydiumReservedTokens,
+marketBootstrap.raydiumLiquidityTokensReserved,
 marketBootstrap.internalPoolTokens,
 marketBootstrap.tokenReserve,
-allocationResult?.internalPoolTokens
+allocationResult?.liveLiquidityTokens,
+allocationResult?.live_liquidity_tokens,
+allocationResult?.raydiumLiquidityTokensReserved,
+allocationResult?.internalPoolTokens,
+currentLaunch?.live_liquidity_tokens,
+currentLaunch?.raydium_liquidity_tokens_reserved,
+currentLaunch?.internal_pool_tokens
 );
-
-const internalPoolTokensNum = safeNum(internalPoolTokensRaw, 0);
+const liveLiquidityTokensNum = safeNum(liveLiquidityTokensRaw, 0);
 
 const raydiumReservedTokens = firstPresent(
 marketBootstrap.raydiumReservedTokens,
 marketBootstrap.raydiumLiquidityTokensReserved,
-allocationResult?.raydiumLiquidityTokensReserved
+allocationResult?.raydiumLiquidityTokensReserved,
+liveLiquidityTokensRaw
 );
 
 if (liquidity > 0) fields.liquidity = liquidity;
-if (internalPoolSol > 0) fields.internal_pool_sol = internalPoolSol;
-if (internalPoolTokensRaw != null) {
-fields.internal_pool_tokens = String(internalPoolTokensRaw);
+if (liveLiquiditySol > 0) {
+fields.live_liquidity_sol = liveLiquiditySol;
+fields.internal_pool_sol = liveLiquiditySol;
+}
+if (liveLiquidityTokensRaw != null) {
+fields.live_liquidity_tokens = String(liveLiquidityTokensRaw);
+fields.internal_pool_tokens = String(liveLiquidityTokensRaw);
 }
 if (raydiumReservedTokens != null) {
 fields.raydium_liquidity_tokens_reserved = String(raydiumReservedTokens);
@@ -1034,11 +1168,15 @@ if (price > 0) fields.price = price;
 if (marketCap > 0) fields.market_cap = marketCap;
 if (volume24h >= 0) fields.volume_24h = volume24h;
 
+fields.live_liquidity_destination = LIVE_LIQUIDITY_DESTINATION;
+fields.live_liquidity_note = LIVE_LIQUIDITY_NOTE;
+fields.former_reserve_note = FORMER_RESERVE_NOTE;
+
 if (
 marketBootstrap.ok !== false &&
 mintAddress &&
-internalPoolSol > 0 &&
-internalPoolTokensNum > 0
+liveLiquiditySol > 0 &&
+liveLiquidityTokensNum > 0
 ) {
 fields.market_bootstrapped = 1;
 }
@@ -1176,7 +1314,33 @@ firstPresent(
 launch?.unsold_participant_tokens_burned,
 allocationResult?.unusedParticipantTokensBurned,
 allocationResult?.unsoldParticipantTokensBurned,
-allocationResult?.totalBurned,
+"0"
+)
+);
+
+const formerReserveBurnedTokens = String(
+firstPresent(
+launch?.former_reserve_burned_tokens,
+allocationResult?.formerReserveBurnTokens,
+allocationResult?.former_reserve_burn_tokens,
+allocationResult?.formerReserveBurnedTokens,
+allocationResult?.former_reserve_burned_tokens,
+"0"
+)
+);
+
+const { liveLiquiditySol, liveLiquidityTokens } = resolveAllocationLiveLiquidity(
+marketBootstrap || allocationResult,
+launch
+);
+
+const raydiumLiquidityTokensReserved = String(
+firstPresent(
+launch?.raydium_liquidity_tokens_reserved,
+marketBootstrap?.raydiumReservedTokens,
+marketBootstrap?.raydiumLiquidityTokensReserved,
+allocationResult?.raydiumLiquidityTokensReserved,
+liveLiquidityTokens,
 "0"
 )
 );
@@ -1192,7 +1356,7 @@ status: cleanText(launch?.status, 40).toLowerCase() || stage,
 stageLabel:
 stageLabel ||
 (stage === "building"
-? "Building market"
+? "Building Raydium market"
 : stage === "live"
 ? "Live"
 : stage === "countdown"
@@ -1202,10 +1366,7 @@ totalCommitted: safeNum(totalCommitted, safeNum(launch?.committed_sol, 0)),
 participants: safeNum(participants, safeNum(launch?.participants_count, 0)),
 launchFeePct: resolvedFeePlan.launchFeePct,
 feeTotal: safeNum(resolvedFeePlan.feeTotal, 0),
-coreTeamDevelopmentFee: safeNum(
-resolvedFeePlan.coreTeamDevelopmentFee,
-0
-),
+coreTeamDevelopmentFee: safeNum(resolvedFeePlan.coreTeamDevelopmentFee, 0),
 ecosystemSupportFee: safeNum(resolvedFeePlan.ecosystemSupportFee, 0),
 coreTeamDevelopmentPct: safeNum(
 resolvedFeePlan.split?.coreTeamDevelopmentPct,
@@ -1266,18 +1427,22 @@ allocationResult?.unusedBonusTokensBurned,
 "0"
 )
 ),
-internalPoolSol: safeNum(
-launch?.internal_pool_sol,
-allocationResult?.internalPoolSol || 0
-),
-internalPoolTokens: String(
-launch?.internal_pool_tokens || allocationResult?.internalPoolTokens || "0"
-),
-raydiumLiquidityTokensReserved: String(
-launch?.raydium_liquidity_tokens_reserved ||
-allocationResult?.raydiumLiquidityTokensReserved ||
-"0"
-),
+formerReserveBurnedTokens,
+formerReserveNote: cleanText(
+launch?.former_reserve_note || allocationResult?.formerReserveNote,
+500
+) || FORMER_RESERVE_NOTE,
+liveLiquidityDestination:
+cleanText(launch?.live_liquidity_destination, 120) ||
+LIVE_LIQUIDITY_DESTINATION,
+liveLiquidityNote:
+cleanText(launch?.live_liquidity_note, 500) || LIVE_LIQUIDITY_NOTE,
+compatibilityPoolNote: COMPATIBILITY_POOL_NOTE,
+liveLiquiditySol,
+liveLiquidityTokens: String(liveLiquidityTokens || "0"),
+internalPoolSol: liveLiquiditySol,
+internalPoolTokens: String(liveLiquidityTokens || "0"),
+raydiumLiquidityTokensReserved,
 liquidity: safeNum(launch?.liquidity, 0),
 circulatingSupply: safeNum(launch?.circulating_supply, 0),
 marketCap: safeNum(launch?.market_cap, 0),
@@ -1460,31 +1625,47 @@ async function persistAllocationResult(launchId, allocationResult) {
 const unsoldParticipantTokensBurned =
 allocationUnusedParticipantBurn(allocationResult);
 const unusedBonusTokensBurned = allocationUnusedBonusBurn(allocationResult);
-
-await db.run(
-`
-UPDATE launches
-SET final_supply = ?,
-unsold_participant_tokens_burned = ?,
-unused_bonus_tokens_burned = ?,
-internal_pool_sol = ?,
-internal_pool_tokens = ?,
-raydium_liquidity_tokens_reserved = ?,
-launch_result_json = ?,
-updated_at = CURRENT_TIMESTAMP
-WHERE id = ?
-`,
-[
-String(allocationResult.finalSupply ?? ""),
-unsoldParticipantTokensBurned,
-unusedBonusTokensBurned,
-safeNum(allocationResult.internalPoolSol, 0),
-String(allocationResult.internalPoolTokens ?? "0"),
-String(allocationResult.raydiumLiquidityTokensReserved ?? "0"),
-JSON.stringify(allocationResult),
-launchId,
-]
+const formerReserveBurnedTokens = allocationFormerReserveBurn(allocationResult);
+const { liveLiquiditySol, liveLiquidityTokens } = resolveAllocationLiveLiquidity(
+allocationResult
 );
+const raydiumLiquidityTokensReserved = String(
+firstPresent(
+allocationResult?.raydiumLiquidityTokensReserved,
+allocationResult?.raydium_liquidity_tokens_reserved,
+liveLiquidityTokens,
+"0"
+)
+);
+
+await updateLaunchFieldsSafe(launchId, {
+final_supply: String(allocationResult.finalSupply ?? ""),
+unsold_participant_tokens_burned: unsoldParticipantTokensBurned,
+unused_bonus_tokens_burned: unusedBonusTokensBurned,
+former_reserve_burned_tokens: formerReserveBurnedTokens,
+live_liquidity_sol: liveLiquiditySol,
+live_liquidity_tokens: String(liveLiquidityTokens),
+raydium_liquidity_tokens_reserved: raydiumLiquidityTokensReserved,
+internal_pool_sol: liveLiquiditySol,
+internal_pool_tokens: String(liveLiquidityTokens),
+live_liquidity_destination: LIVE_LIQUIDITY_DESTINATION,
+live_liquidity_note: LIVE_LIQUIDITY_NOTE,
+former_reserve_note: FORMER_RESERVE_NOTE,
+launch_result_json: JSON.stringify({
+...allocationResult,
+formerReserveBurnTokens: formerReserveBurnedTokens,
+formerReserveBurnedTokens: formerReserveBurnedTokens,
+former_reserve_burn_tokens: formerReserveBurnedTokens,
+former_reserve_burned_tokens: formerReserveBurnedTokens,
+liveLiquiditySol,
+liveLiquidityTokens: String(liveLiquidityTokens),
+internalPoolSol: liveLiquiditySol,
+internalPoolTokens: String(liveLiquidityTokens),
+raydiumLiquidityTokensReserved,
+formerReserveNote:
+allocationResult?.formerReserveNote || FORMER_RESERVE_NOTE,
+}),
+});
 }
 
 function validateAllocationResult(allocationResult) {
@@ -1493,25 +1674,27 @@ throw new Error("allocation result missing");
 }
 
 const finalSupply = safeNum(allocationResult.finalSupply, 0);
-const internalPoolSol = safeNum(allocationResult.internalPoolSol, 0);
-const internalPoolTokens = safeNum(allocationResult.internalPoolTokens, 0);
+const { liveLiquiditySol, liveLiquidityTokens, liveLiquidityTokensNum } =
+resolveAllocationLiveLiquidity(allocationResult);
 
 if (finalSupply <= 0) {
 throw new Error("allocation result missing final supply");
 }
 
-if (internalPoolSol <= 0) {
-throw new Error("allocation result missing internal pool SOL");
+if (liveLiquiditySol <= 0) {
+throw new Error("allocation result missing live liquidity SOL");
 }
 
-if (internalPoolTokens <= 0) {
-throw new Error("allocation result missing internal pool tokens");
+if (liveLiquidityTokensNum <= 0) {
+throw new Error("allocation result missing live liquidity tokens");
 }
 
 return {
 finalSupply: String(allocationResult.finalSupply),
-internalPoolSol,
-internalPoolTokens: String(allocationResult.internalPoolTokens),
+liveLiquiditySol,
+liveLiquidityTokens: String(liveLiquidityTokens),
+internalPoolSol: liveLiquiditySol,
+internalPoolTokens: String(liveLiquidityTokens),
 };
 }
 
@@ -1521,18 +1704,8 @@ let allocationsBuilt = false;
 
 if (hasPersistedAllocationResult(launch)) {
 allocationsBuilt = true;
-allocationResult = launch.launch_result_json || {
-finalSupply: launch.final_supply,
-unusedParticipantTokensBurned:
-launch.unsold_participant_tokens_burned || "0",
-unsoldParticipantTokensBurned:
-launch.unsold_participant_tokens_burned || "0",
-unusedBonusTokensBurned: launch.unused_bonus_tokens_burned || "0",
-internalPoolSol: launch.internal_pool_sol || 0,
-internalPoolTokens: launch.internal_pool_tokens || "0",
-raydiumLiquidityTokensReserved:
-launch.raydium_liquidity_tokens_reserved || "0",
-};
+allocationResult =
+launch.launch_result_json || buildPersistedAllocationResultFromLaunch(launch);
 validateAllocationResult(allocationResult);
 console.log(`Allocations already persisted for launch ${launchId}, skipping`);
 return { allocationResult, allocationsBuilt };
@@ -1549,18 +1722,8 @@ const msg = String(err?.message || err || "").toLowerCase();
 
 if (msg.includes("already")) {
 const latest = await getLaunchById(launchId);
-allocationResult = latest?.launch_result_json || {
-finalSupply: latest?.final_supply,
-unusedParticipantTokensBurned:
-latest?.unsold_participant_tokens_burned || "0",
-unsoldParticipantTokensBurned:
-latest?.unsold_participant_tokens_burned || "0",
-unusedBonusTokensBurned: latest?.unused_bonus_tokens_burned || "0",
-internalPoolSol: latest?.internal_pool_sol || 0,
-internalPoolTokens: latest?.internal_pool_tokens || "0",
-raydiumLiquidityTokensReserved:
-latest?.raydium_liquidity_tokens_reserved || "0",
-};
+allocationResult =
+latest?.launch_result_json || buildPersistedAllocationResultFromLaunch(latest);
 validateAllocationResult(allocationResult);
 allocationsBuilt = true;
 console.log(
@@ -1942,7 +2105,7 @@ marketBootstrap: null,
 allocationResult,
 alreadyFinalized: false,
 stage: "building",
-stageLabel: "Bootstrap retry pending",
+stageLabel: "Raydium bootstrap retry pending",
 reason: err?.message || "market bootstrap failed",
 retryable: true,
 });
@@ -1969,7 +2132,7 @@ marketBootstrap,
 allocationResult,
 alreadyFinalized: false,
 stage: "building",
-stageLabel: "Bootstrap retry pending",
+stageLabel: "Raydium bootstrap retry pending",
 reason: cleanText(marketBootstrap?.error, 500) || "market bootstrap failed",
 retryable: true,
 });
@@ -2010,7 +2173,7 @@ marketBootstrap,
 allocationResult,
 alreadyFinalized: false,
 stage: "building",
-stageLabel: "Bootstrap retry pending",
+stageLabel: "Raydium bootstrap retry pending",
 reason: "market bootstrap incomplete",
 retryable: true,
 });
@@ -2047,7 +2210,7 @@ marketBootstrap,
 allocationResult,
 alreadyFinalized: false,
 stage: "building",
-stageLabel: "Bootstrap retry pending",
+stageLabel: "Raydium bootstrap retry pending",
 reason: "launch contract address missing after market bootstrap",
 retryable: true,
 });
@@ -2085,7 +2248,7 @@ marketBootstrap: finalMarketBootstrap,
 allocationResult,
 alreadyFinalized: false,
 stage: "building",
-stageLabel: "Bootstrap retry pending",
+stageLabel: "Raydium bootstrap retry pending",
 reason: "launch bootstrap not fully settled after live refresh",
 retryable: true,
 });
