@@ -25,6 +25,11 @@ const num = Number.parseFloat(value);
 return Number.isFinite(num) ? num : fallback;
 }
 
+function toNullableFloat(value, fallback = null) {
+const num = Number.parseFloat(value);
+return Number.isFinite(num) ? num : fallback;
+}
+
 function toInt(value, fallback = 0) {
 const num = Number.parseInt(value, 10);
 return Number.isFinite(num) ? num : fallback;
@@ -34,7 +39,20 @@ function clamp(value, min = 0, max = 100) {
 return Math.min(max, Math.max(min, toFloat(value, min)));
 }
 
+function hasPositiveMetric(value) {
+return Number.isFinite(Number(value)) && Number(value) > 0;
+}
+
 function normalizeStats(stats = {}) {
+const reclaimSuccessRatePct = toNullableFloat(
+stats.reclaim_success_rate_pct,
+null
+);
+const avgMarketLiquidityUsd = toNullableFloat(
+stats.avg_market_liquidity_usd,
+null
+);
+
 return {
 stat_date: cleanText(stats.stat_date, 32) || null,
 execution_mode: cleanText(stats.execution_mode, 64) || null,
@@ -42,23 +60,43 @@ execution_mode: cleanText(stats.execution_mode, 64) || null,
 daily_loss_usd: Math.max(0, toFloat(stats.daily_loss_usd, 0)),
 consecutive_failures: Math.max(0, toInt(stats.consecutive_failures, 0)),
 recent_rug_rate_pct: clamp(stats.recent_rug_rate_pct, 0, 100),
-reclaim_success_rate_pct: clamp(stats.reclaim_success_rate_pct, 0, 100),
-avg_market_liquidity_usd: Math.max(0, toFloat(stats.avg_market_liquidity_usd, 0)),
+
+reclaim_success_rate_pct:
+reclaimSuccessRatePct == null ? null : clamp(reclaimSuccessRatePct, 0, 100),
+avg_market_liquidity_usd:
+avgMarketLiquidityUsd == null ? null : Math.max(0, avgMarketLiquidityUsd),
 };
 }
 
-function buildCheck(code, actual, threshold, comparator, triggered) {
+function buildCheck(
+code,
+actual,
+threshold,
+comparator,
+triggered,
+{ skipped = false, note = null } = {}
+) {
 return {
 code,
 actual,
 threshold,
 comparator,
 triggered: Boolean(triggered),
+skipped: Boolean(skipped),
+note: cleanText(note, 500) || null,
 };
 }
 
 function collectTriggeredReasons(checks = []) {
 return checks.filter((check) => check.triggered).map((check) => check.code);
+}
+
+function hasUsableReclaimMetric(stats = {}) {
+return hasPositiveMetric(stats.reclaim_success_rate_pct);
+}
+
+function hasUsableMarketLiquidityMetric(stats = {}) {
+return hasPositiveMetric(stats.avg_market_liquidity_usd);
 }
 
 export function getKillSwitchReasonCodes() {
@@ -70,7 +108,9 @@ return KILL_SWITCH_REASON_SET.has(cleanText(code, 128));
 }
 
 export function filterKillSwitchReasons(reasonCodes = []) {
-return ensureReasonCodeArray(reasonCodes).filter((code) => isKillSwitchReason(code));
+return ensureReasonCodeArray(reasonCodes).filter((code) =>
+isKillSwitchReason(code)
+);
 }
 
 export function getKillSwitchThresholds(config = {}) {
@@ -90,6 +130,9 @@ export function evaluateKillSwitchSync(dayStats = {}, config = {}) {
 const safeConfig = getEffectiveSentinelConfig(normalizeSentinelConfig(config || {}));
 const safeStats = normalizeStats(dayStats || {});
 const thresholds = getKillSwitchThresholds(safeConfig);
+
+const reclaimMetricAvailable = hasUsableReclaimMetric(safeStats);
+const marketLiquidityMetricAvailable = hasUsableMarketLiquidityMetric(safeStats);
 
 const checks = [
 buildCheck(
@@ -125,14 +168,30 @@ REASON_CODE.RECLAIM_SUCCESS_TOO_LOW,
 safeStats.reclaim_success_rate_pct,
 thresholds.min_reclaim_success_rate_pct,
 "<=",
-safeStats.reclaim_success_rate_pct <= thresholds.min_reclaim_success_rate_pct
+reclaimMetricAvailable &&
+safeStats.reclaim_success_rate_pct <=
+thresholds.min_reclaim_success_rate_pct,
+{
+skipped: !reclaimMetricAvailable,
+note: !reclaimMetricAvailable
+? "Skipped because reclaim success regime metric is missing or uninitialized."
+: null,
+}
 ),
 buildCheck(
 REASON_CODE.MARKET_LIQUIDITY_TOO_LOW,
 safeStats.avg_market_liquidity_usd,
 thresholds.min_avg_market_liquidity_usd,
 "<=",
-safeStats.avg_market_liquidity_usd <= thresholds.min_avg_market_liquidity_usd
+marketLiquidityMetricAvailable &&
+safeStats.avg_market_liquidity_usd <=
+thresholds.min_avg_market_liquidity_usd,
+{
+skipped: !marketLiquidityMetricAvailable,
+note: !marketLiquidityMetricAvailable
+? "Skipped because average market liquidity regime metric is missing or uninitialized."
+: null,
+}
 ),
 ];
 
@@ -151,6 +210,10 @@ triggered_check_count: reasons.length,
 hard_stop_only: reasons.length > 0,
 should_halt_new_entries: reasons.length > 0,
 should_continue_runner_management: true,
+reclaim_metric_available: reclaimMetricAvailable,
+market_liquidity_metric_available: marketLiquidityMetricAvailable,
+market_regime_context_available:
+reclaimMetricAvailable || marketLiquidityMetricAvailable,
 },
 };
 }
@@ -179,6 +242,9 @@ triggered_check_count: 0,
 total_check_count: 0,
 should_halt_new_entries: false,
 should_continue_runner_management: true,
+reclaim_metric_available: false,
+market_liquidity_metric_available: false,
+market_regime_context_available: false,
 };
 }
 
@@ -190,6 +256,13 @@ total_check_count: toInt(result?.meta?.total_check_count, 0),
 should_halt_new_entries: Boolean(result?.meta?.should_halt_new_entries),
 should_continue_runner_management: Boolean(
 result?.meta?.should_continue_runner_management
+),
+reclaim_metric_available: Boolean(result?.meta?.reclaim_metric_available),
+market_liquidity_metric_available: Boolean(
+result?.meta?.market_liquidity_metric_available
+),
+market_regime_context_available: Boolean(
+result?.meta?.market_regime_context_available
 ),
 };
 }

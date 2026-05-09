@@ -56,7 +56,8 @@ return new Date().toISOString().slice(0, 10);
 
 function buildPaperExecutionRef(action, tokenId = "") {
 const safeAction = cleanText(action, 48).toLowerCase() || "paper";
-const safeToken = cleanText(tokenId, 48).replace(/[^a-zA-Z0-9_-]/g, "").slice(0, 24) || "token";
+const safeToken =
+cleanText(tokenId, 48).replace(/[^a-zA-Z0-9_-]/g, "").slice(0, 24) || "token";
 const stamp = Date.now();
 return `paper_${safeAction}_${safeToken}_${stamp}`;
 }
@@ -119,6 +120,37 @@ return hasInvalidationReason
 : Math.max(0, toInt(config.cooldown_after_close_sec, 1800) || 1800);
 }
 
+function getNonActionAuditEventType(decision) {
+if (decision === SENTINEL_DECISION.WATCHLIST) {
+return AUDIT_EVENT_TYPE?.WATCHLIST || "watchlist";
+}
+
+if (decision === SENTINEL_DECISION.HOLD) {
+return AUDIT_EVENT_TYPE?.HOLD || "hold";
+}
+
+if (decision === SENTINEL_DECISION.REJECT) {
+return AUDIT_EVENT_TYPE?.TOKEN_REJECT || "token_reject";
+}
+
+if (decision === SENTINEL_DECISION.KILL_SWITCH) {
+return AUDIT_EVENT_TYPE?.KILL_SWITCH || "kill_switch";
+}
+
+return AUDIT_EVENT_TYPE?.DECISION || "decision";
+}
+
+function getNonActionExecutionStatus(decision) {
+if (
+decision === SENTINEL_DECISION.WATCHLIST ||
+decision === SENTINEL_DECISION.HOLD
+) {
+return EXECUTION_STATUS?.SIMULATED || "simulated";
+}
+
+return EXECUTION_STATUS?.SKIPPED || "skipped";
+}
+
 async function syncDailyUnrealizedForMode(executionMode = SENTINEL_MODE.PAPER) {
 const statDate = todayUtcDate();
 await ensureDailyStats(executionMode, statDate);
@@ -142,7 +174,11 @@ return exposure;
 async function maybeRefreshPaperPositionValue(position, snapshot = {}) {
 if (!position?.id) return position;
 
-const currentValueUsd = derivePositionCurrentValue(snapshot, position, position.current_value_usd);
+const currentValueUsd = derivePositionCurrentValue(
+snapshot,
+position,
+position.current_value_usd
+);
 const priceNow = getCurrentPrice(snapshot);
 
 if (currentValueUsd == null) {
@@ -164,19 +200,25 @@ execution_mode = SENTINEL_MODE.PAPER,
 } = {}
 ) {
 const currentPosition = await maybeRefreshPaperPositionValue(position, snapshot);
-const exitValueUsd = derivePositionCurrentValue(snapshot, currentPosition, currentPosition.current_value_usd) ?? 0;
+const exitValueUsd =
+derivePositionCurrentValue(snapshot, currentPosition, currentPosition.current_value_usd) ??
+0;
 const priceNow = getCurrentPrice(snapshot);
 const reasons = ensureReasonCodeArray(reason_codes, [REASON_CODE.FULL_EXIT_EXECUTED]);
-const closeStage = reasons.some((code) => isInvalidationReason(code)) ? "invalidated" : "closed";
+const closeStage = reasons.some((code) => isInvalidationReason(code))
+? "invalidated"
+: "closed";
 const txCloseRef = buildPaperExecutionRef("exit", currentPosition.token_id);
 
 const remainingCostBasis = Math.max(
 0,
-Number(currentPosition.current_value_usd || 0) - Number(currentPosition.unrealized_pnl_usd || 0)
+Number(currentPosition.current_value_usd || 0) -
+Number(currentPosition.unrealized_pnl_usd || 0)
 );
 
 const realizedIncrement = exitValueUsd - remainingCostBasis;
-const finalRealizedPnl = Number(currentPosition.realized_pnl_usd || 0) + realizedIncrement;
+const finalRealizedPnl =
+Number(currentPosition.realized_pnl_usd || 0) + realizedIncrement;
 
 await db.run(
 `
@@ -259,7 +301,8 @@ const txOpenRef = buildPaperExecutionRef("scout", tokenId);
 const position = await createScoutPosition({
 token_id: tokenId,
 mint_address: mintAddress,
-linked_operator_cluster_id: cleanText(snapshot.linked_operator_cluster_id, 255) || null,
+linked_operator_cluster_id:
+cleanText(snapshot.linked_operator_cluster_id, 255) || null,
 execution_mode: SENTINEL_MODE.PAPER,
 size_usd: sizeUsd,
 units,
@@ -309,7 +352,8 @@ add_size_usd: sizeUsd,
 add_units: addUnits,
 add_avg_entry_price: priceNow,
 current_value_usd:
-(derivePositionCurrentValue(snapshot, refreshed, refreshed.current_value_usd) ?? 0) + sizeUsd,
+(derivePositionCurrentValue(snapshot, refreshed, refreshed.current_value_usd) ?? 0) +
+sizeUsd,
 tx_add_ref: buildPaperExecutionRef("sniper", refreshed.token_id),
 });
 
@@ -348,7 +392,10 @@ const currentValueUsd =
 derivePositionCurrentValue(snapshot, refreshed, refreshed.current_value_usd) ??
 refreshed.current_value_usd;
 const remainingValueUsd = currentValueUsd * (1 - bankFraction);
-const remainingUnits = Math.max(0, Number(refreshed.units || 0) * (1 - bankFraction));
+const remainingUnits = Math.max(
+0,
+Number(refreshed.units || 0) * (1 - bankFraction)
+);
 
 const beforeRealized = Number(refreshed.realized_pnl_usd || 0);
 const updatedPosition = await markPositionBankedAt10x(refreshed.id, {
@@ -434,13 +481,11 @@ close_stage: closed.close_stage,
 }
 
 async function maybeLogNonAction(evaluation, context = {}) {
-if (!context.log_non_actions) return null;
+const shouldLog = context.log_non_actions !== false;
+if (!shouldLog) return null;
 
 return logAuditEvent({
-event_type:
-evaluation.decision === SENTINEL_DECISION.REJECT
-? AUDIT_EVENT_TYPE.TOKEN_REJECT
-: AUDIT_EVENT_TYPE.KILL_SWITCH,
+event_type: getNonActionAuditEventType(evaluation.decision),
 token_id: evaluation.snapshot?.token_id || null,
 mint_address: evaluation.snapshot?.mint_address || null,
 position_id: evaluation.position?.id || null,
@@ -453,7 +498,7 @@ position_id: evaluation.position?.id || null,
 size_usd: evaluation.size_usd ?? null,
 bank_fraction: evaluation.bank_fraction ?? null,
 },
-execution_status: EXECUTION_STATUS.SKIPPED,
+execution_status: getNonActionExecutionStatus(evaluation.decision),
 actor_type: "system",
 actor_id: context.actor_id || "system",
 });
@@ -468,6 +513,7 @@ execution_mode: SENTINEL_MODE.PAPER,
 const safeContext = {
 ...context,
 execution_mode: SENTINEL_MODE.PAPER,
+log_non_actions: context.log_non_actions !== false,
 };
 
 const evaluation = await evaluateToken(snapshot, safeConfig, safeContext);

@@ -26,6 +26,11 @@ getSolPriceSnapshot,
 startSolPriceWatcher,
 } from "./services/sol-price.js";
 import { startRefundExecutorWorker } from "./services/launcher/refundExecutor.js";
+import {
+getSentinelEngineStatus,
+startSentinelEngine,
+} from "./services/cassie/sentinel/engine.js";
+import { createScannerCacheSnapshotProvider } from "./services/cassie/sentinel/snapshot-provider.js";
 
 import { Connection, PublicKey } from "@solana/web3.js";
 import pkg from "@metaplex-foundation/mpl-token-metadata";
@@ -62,6 +67,29 @@ const SOLANA_CLUSTER = cleanEnv(process.env.SOLANA_CLUSTER || "devnet", 80);
 const ENABLE_BACKGROUND_WORKERS =
 cleanEnv(process.env.ENABLE_BACKGROUND_WORKERS || "true", 20).toLowerCase() !==
 "false";
+const ENABLE_SENTINEL_WATCHER =
+ENABLE_BACKGROUND_WORKERS &&
+cleanEnv(process.env.ENABLE_SENTINEL_WATCHER || "true", 20).toLowerCase() !==
+"false";
+const SENTINEL_TICK_INTERVAL_MS = Math.max(
+1000,
+Number(process.env.SENTINEL_TICK_INTERVAL_MS || 5000) || 5000
+);
+const SENTINEL_SNAPSHOT_LIMIT = Math.max(
+1,
+Math.min(500, Number(process.env.SENTINEL_SNAPSHOT_LIMIT || 100) || 100)
+);
+const SENTINEL_SNAPSHOT_MAX_AGE_MINUTES = Math.max(
+1,
+Math.min(
+1440,
+Number(process.env.SENTINEL_SNAPSHOT_MAX_AGE_MINUTES || 30) || 30
+)
+);
+const SENTINEL_SNAPSHOT_MIN_LIQUIDITY_USD = Math.max(
+0,
+Number(process.env.SENTINEL_SNAPSHOT_MIN_LIQUIDITY_USD || 0) || 0
+);
 
 const TOKEN_PROGRAM_IDS = new Set([
 TOKEN_PROGRAM_ID.toBase58(),
@@ -294,6 +322,12 @@ signal: controller.signal,
 clearTimeout(timeout);
 }
 }
+
+const sentinelSnapshotProvider = createScannerCacheSnapshotProvider({
+limit: SENTINEL_SNAPSHOT_LIMIT,
+max_age_minutes: SENTINEL_SNAPSHOT_MAX_AGE_MINUTES,
+min_liquidity_usd: SENTINEL_SNAPSHOT_MIN_LIQUIDITY_USD,
+});
 
 function assertMint(mintStr) {
 try {
@@ -1623,6 +1657,7 @@ checkRpcHealth({ deep }),
 
 const scannerDbHealth = checkScannerDbHealth();
 const solPrice = getSolPriceSnapshot();
+const sentinelStatus = getSentinelEngineStatus();
 
 const ok =
 Boolean(scannerDbHealth.ok) &&
@@ -1646,6 +1681,14 @@ scanner: scannerDbHealth,
 launcher: launcherDbHealth,
 },
 solPrice,
+sentinel: {
+enabled: ENABLE_SENTINEL_WATCHER,
+intervalMs: SENTINEL_TICK_INTERVAL_MS,
+snapshotLimit: SENTINEL_SNAPSHOT_LIMIT,
+snapshotMaxAgeMinutes: SENTINEL_SNAPSHOT_MAX_AGE_MINUTES,
+snapshotMinLiquidityUsd: SENTINEL_SNAPSHOT_MIN_LIQUIDITY_USD,
+...sentinelStatus,
+},
 };
 }
 
@@ -2115,6 +2158,18 @@ console.log(`🛡️ Cassie: enabled (defensive middleware + intel layer)`);
 console.log(
 `🧠 Background workers: ${ENABLE_BACKGROUND_WORKERS ? "enabled" : "disabled"}`
 );
+console.log(
+`🛰️ Sentinel Watcher: ${
+ENABLE_SENTINEL_WATCHER
+? `enabled (scanner-cache provider, ${SENTINEL_TICK_INTERVAL_MS}ms tick)`
+: "disabled"
+}`
+);
+if (ENABLE_SENTINEL_WATCHER) {
+console.log(
+`🛰️ Sentinel snapshots: limit=${SENTINEL_SNAPSHOT_LIMIT} maxAge=${SENTINEL_SNAPSHOT_MAX_AGE_MINUTES}m minLiquidity=$${SENTINEL_SNAPSHOT_MIN_LIQUIDITY_USD}`
+);
+}
 });
 
 if (!globalThis.__mssBackgroundServicesStarted) {
@@ -2145,6 +2200,23 @@ await checkLaunchCountdowns();
 runBackgroundTask("refundExecutor:start", async () => {
 startRefundExecutorWorker();
 });
+
+if (ENABLE_SENTINEL_WATCHER) {
+runBackgroundTask("sentinelEngine:start", async () => {
+const status = await startSentinelEngine({
+intervalMs: SENTINEL_TICK_INTERVAL_MS,
+provider: sentinelSnapshotProvider,
+providerName: "scanner_cache_provider",
+runImmediate: true,
+});
+
+console.log(
+`🛰️ Sentinel Watcher started: mode=${status.current_mode || "paper"} watcher=${
+status.watcher_enabled ? "enabled" : "disabled"
+} provider=${status.snapshot_provider_name || "none"}`
+);
+});
+}
 }
 }
 }

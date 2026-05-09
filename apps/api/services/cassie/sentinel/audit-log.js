@@ -11,6 +11,8 @@ SETTINGS_UPDATE: "settings_update",
 MODE_CHANGE: "mode_change",
 EMERGENCY_STOP: "emergency_stop",
 TOKEN_REJECT: "token_reject",
+WATCHLIST: "watchlist",
+HOLD: "hold",
 SCOUT_ENTRY: "scout_entry",
 SNIPER_ADD: "sniper_add",
 PARTIAL_TAKE_PROFIT: "partial_take_profit",
@@ -346,6 +348,66 @@ execution_status: EXECUTION_STATUS.SKIPPED,
 });
 }
 
+export async function logWatchlist({
+token_id,
+mint_address = null,
+position_id = null,
+execution_mode = null,
+reason_codes = [],
+snapshot_summary = null,
+execution_status = EXECUTION_STATUS.SIMULATED,
+execution_error = null,
+actor_id = null,
+} = {}) {
+return logAuditEvent({
+event_type: AUDIT_EVENT_TYPE.WATCHLIST,
+token_id,
+mint_address,
+position_id,
+execution_mode,
+decision: "watchlist",
+reason_codes,
+snapshot_summary,
+action_payload: {
+position_id,
+},
+execution_status,
+execution_error,
+actor_type: "system",
+actor_id,
+});
+}
+
+export async function logHold({
+token_id,
+mint_address = null,
+position_id = null,
+execution_mode = null,
+reason_codes = [],
+snapshot_summary = null,
+execution_status = EXECUTION_STATUS.SIMULATED,
+execution_error = null,
+actor_id = null,
+} = {}) {
+return logAuditEvent({
+event_type: AUDIT_EVENT_TYPE.HOLD,
+token_id,
+mint_address,
+position_id,
+execution_mode,
+decision: "hold",
+reason_codes,
+snapshot_summary,
+action_payload: {
+position_id,
+},
+execution_status,
+execution_error,
+actor_type: "system",
+actor_id,
+});
+}
+
 export async function logScoutEntry({
 token_id,
 mint_address,
@@ -558,6 +620,8 @@ logSettingsUpdate,
 logModeChange,
 logEmergencyStop,
 logTokenReject,
+logWatchlist,
+logHold,
 logScoutEntry,
 logSniperAdd,
 logPartialTakeProfit,
