@@ -31,6 +31,8 @@ getSentinelEngineStatus,
 startSentinelEngine,
 } from "./services/cassie/sentinel/engine.js";
 import { createScannerCacheSnapshotProvider } from "./services/cassie/sentinel/snapshot-provider.js";
+import { createSecurityScanService } from "./services/scanner/security-scan.js";
+import { createScannerDiscoveryService } from "./services/scanner/discovery.js";
 
 import { Connection, PublicKey } from "@solana/web3.js";
 import pkg from "@metaplex-foundation/mpl-token-metadata";
@@ -55,6 +57,9 @@ import { buildSecurityModel } from "./intelligence/securityModel.js";
 
 const { Metadata } = pkg;
 
+let scanSecurityForMint = null;
+let scannerDiscoveryService = null;
+
 const app = express();
 const PORT = process.env.PORT || 8787;
 
@@ -71,6 +76,11 @@ const ENABLE_SENTINEL_WATCHER =
 ENABLE_BACKGROUND_WORKERS &&
 cleanEnv(process.env.ENABLE_SENTINEL_WATCHER || "true", 20).toLowerCase() !==
 "false";
+const ENABLE_SCANNER_DISCOVERY =
+ENABLE_BACKGROUND_WORKERS &&
+cleanEnv(process.env.ENABLE_SCANNER_DISCOVERY || "true", 20).toLowerCase() !==
+"false";
+
 const SENTINEL_TICK_INTERVAL_MS = Math.max(
 1000,
 Number(process.env.SENTINEL_TICK_INTERVAL_MS || 5000) || 5000
@@ -89,6 +99,39 @@ Number(process.env.SENTINEL_SNAPSHOT_MAX_AGE_MINUTES || 30) || 30
 const SENTINEL_SNAPSHOT_MIN_LIQUIDITY_USD = Math.max(
 0,
 Number(process.env.SENTINEL_SNAPSHOT_MIN_LIQUIDITY_USD || 0) || 0
+);
+
+const SCANNER_DISCOVERY_POLL_INTERVAL_MS = Math.max(
+1000,
+Number(process.env.SCANNER_DISCOVERY_POLL_INTERVAL_MS || 8000) || 8000
+);
+const SCANNER_DISCOVERY_STARTUP_SLOT_LOOKBACK = Math.max(
+1,
+Number(process.env.SCANNER_DISCOVERY_STARTUP_SLOT_LOOKBACK || 250) || 250
+);
+const SCANNER_DISCOVERY_MAX_SLOTS_PER_TICK = Math.max(
+1,
+Number(process.env.SCANNER_DISCOVERY_MAX_SLOTS_PER_TICK || 120) || 120
+);
+const SCANNER_DISCOVERY_MAX_SCANS_PER_TICK = Math.max(
+1,
+Number(process.env.SCANNER_DISCOVERY_MAX_SCANS_PER_TICK || 40) || 40
+);
+const SCANNER_DISCOVERY_SCAN_CONCURRENCY = Math.max(
+1,
+Number(process.env.SCANNER_DISCOVERY_SCAN_CONCURRENCY || 3) || 3
+);
+const SCANNER_DISCOVERY_SEEN_TTL_MS = Math.max(
+60_000,
+Number(
+process.env.SCANNER_DISCOVERY_SEEN_TTL_MS || 6 * 60 * 60 * 1000
+) || 6 * 60 * 60 * 1000
+);
+const SCANNER_DISCOVERY_CACHE_SKIP_WINDOW_MS = Math.max(
+60_000,
+Number(
+process.env.SCANNER_DISCOVERY_CACHE_SKIP_WINDOW_MS || 6 * 60 * 60 * 1000
+) || 6 * 60 * 60 * 1000
 );
 
 const TOKEN_PROGRAM_IDS = new Set([
@@ -1658,6 +1701,7 @@ checkRpcHealth({ deep }),
 const scannerDbHealth = checkScannerDbHealth();
 const solPrice = getSolPriceSnapshot();
 const sentinelStatus = getSentinelEngineStatus();
+const scannerDiscoveryStatus = scannerDiscoveryService?.getStatus?.() || null;
 
 const ok =
 Boolean(scannerDbHealth.ok) &&
@@ -1689,8 +1733,40 @@ snapshotMaxAgeMinutes: SENTINEL_SNAPSHOT_MAX_AGE_MINUTES,
 snapshotMinLiquidityUsd: SENTINEL_SNAPSHOT_MIN_LIQUIDITY_USD,
 ...sentinelStatus,
 },
+scannerDiscovery: {
+enabled: ENABLE_SCANNER_DISCOVERY,
+pollIntervalMs: SCANNER_DISCOVERY_POLL_INTERVAL_MS,
+startupSlotLookback: SCANNER_DISCOVERY_STARTUP_SLOT_LOOKBACK,
+maxSlotsPerTick: SCANNER_DISCOVERY_MAX_SLOTS_PER_TICK,
+maxScansPerTick: SCANNER_DISCOVERY_MAX_SCANS_PER_TICK,
+scanConcurrency: SCANNER_DISCOVERY_SCAN_CONCURRENCY,
+seenTtlMs: SCANNER_DISCOVERY_SEEN_TTL_MS,
+cacheSkipWindowMs: SCANNER_DISCOVERY_CACHE_SKIP_WINDOW_MS,
+...(scannerDiscoveryStatus || {}),
+},
 };
 }
+
+scanSecurityForMint = createSecurityScanService({
+fetchTokenData,
+fetchMarketData,
+fetchHoldersData,
+fetchClusterData,
+buildConcentration,
+getRiskTrend,
+buildSecurityModel,
+enrichSecurityModel,
+buildCassieIntelFallback,
+cassieIntel,
+upsertScanCache,
+});
+
+scannerDiscoveryService = createScannerDiscoveryService({
+connection,
+rpcRetry,
+scanSecurityForMint,
+logger: console,
+});
 
 // ---- Health ----
 app.get("/health", async (req, res) => {
@@ -1795,95 +1871,8 @@ try {
 const mint = assertMint(mintStr);
 if (!mint) return res.status(400).json({ error: "Invalid mint" });
 
-const [tokenJson, marketJson, holdersJson, clusterJson] = await Promise.all([
-fetchTokenData(mint, mintStr),
-fetchMarketData(mintStr),
-fetchHoldersData(mint, mintStr),
-fetchClusterData(mint, mintStr),
-]);
-
-if (!tokenJson || !holdersJson) {
-return res.status(404).json({ error: "Mint not found" });
-}
-
-const concentration = buildConcentration(holdersJson);
-const activity = clusterJson || {};
-const trend = getRiskTrend(mintStr);
-
-const baseSecurityModel = buildSecurityModel({
-concentration,
-token: tokenJson,
-activity,
-market: marketJson || {},
-trend,
-});
-
-const securityModel = enrichSecurityModel({
-baseModel: baseSecurityModel,
-concentration,
-token: tokenJson,
-market: marketJson || {},
-activity,
-trend,
-holdersJson,
-});
-
-let cassieIntelResult = null;
-
-try {
-if (typeof cassieIntel?.analyze === "function") {
-cassieIntelResult = cassieIntel.analyze({
-mint: mintStr,
-token: tokenJson,
-market: marketJson || {},
-concentration,
-activity,
-securityModel,
-trend,
-});
-} else {
-cassieIntelResult = buildCassieIntelFallback({
-token: tokenJson,
-market: marketJson || {},
-concentration,
-activity,
-trend,
-securityModel,
-});
-}
-} catch {
-cassieIntelResult = buildCassieIntelFallback({
-token: tokenJson,
-market: marketJson || {},
-concentration,
-activity,
-trend,
-securityModel,
-});
-}
-
-upsertScanCache({
-mint: mintStr,
-token: tokenJson,
-market: marketJson || { found: false },
-holders: holdersJson,
-activity,
-securityModel,
-cassie: cassieIntelResult,
-});
-
-return res.json({
-ok: true,
-mint: mintStr,
-token: tokenJson,
-market: marketJson || { found: false },
-holders: holdersJson,
-concentration,
-activity,
-trend,
-securityModel,
-cassie: cassieIntelResult,
-});
+const out = await scanSecurityForMint({ mint, mintStr });
+return res.json(out);
 } catch (e) {
 return respondMintRouteError(res, e);
 }
@@ -1949,8 +1938,10 @@ trend,
 securityModel,
 });
 
-const name = tokenJson?.metadata?.name || marketJson?.baseName || "Unknown Token";
-const symbol = tokenJson?.metadata?.symbol || marketJson?.baseSymbol || "TOKEN";
+const name =
+tokenJson?.metadata?.name || marketJson?.baseName || "Unknown Token";
+const symbol =
+tokenJson?.metadata?.symbol || marketJson?.baseSymbol || "TOKEN";
 
 const liquidityUsd = Number(marketJson?.liquidityUsd || 0);
 const top10 = Number(concentration?.top10 || 0);
@@ -1983,7 +1974,10 @@ return respondMintRouteError(res, e);
 // ---------- Share Image ----------
 app.get("/api/sol/share-image/:mint", async (req, res) => {
 try {
-return res.redirect(302, "https://www.mssprotocol.com/images/mss-share-card.png");
+return res.redirect(
+302,
+"https://www.mssprotocol.com/images/mss-share-card.png"
+);
 } catch (e) {
 return res.status(500).json({ error: String(e?.message || e) });
 }
@@ -2170,6 +2164,18 @@ console.log(
 `🛰️ Sentinel snapshots: limit=${SENTINEL_SNAPSHOT_LIMIT} maxAge=${SENTINEL_SNAPSHOT_MAX_AGE_MINUTES}m minLiquidity=$${SENTINEL_SNAPSHOT_MIN_LIQUIDITY_USD}`
 );
 }
+console.log(
+`🔎 Scanner Discovery: ${
+ENABLE_SCANNER_DISCOVERY
+? `enabled (${SCANNER_DISCOVERY_POLL_INTERVAL_MS}ms tick)`
+: "disabled"
+}`
+);
+if (ENABLE_SCANNER_DISCOVERY) {
+console.log(
+`🔎 Discovery config: lookback=${SCANNER_DISCOVERY_STARTUP_SLOT_LOOKBACK} maxSlots=${SCANNER_DISCOVERY_MAX_SLOTS_PER_TICK} maxScans=${SCANNER_DISCOVERY_MAX_SCANS_PER_TICK} concurrency=${SCANNER_DISCOVERY_SCAN_CONCURRENCY} seenTtlMs=${SCANNER_DISCOVERY_SEEN_TTL_MS} cacheSkipWindowMs=${SCANNER_DISCOVERY_CACHE_SKIP_WINDOW_MS}`
+);
+}
 });
 
 if (!globalThis.__mssBackgroundServicesStarted) {
@@ -2214,6 +2220,26 @@ console.log(
 `🛰️ Sentinel Watcher started: mode=${status.current_mode || "paper"} watcher=${
 status.watcher_enabled ? "enabled" : "disabled"
 } provider=${status.snapshot_provider_name || "none"}`
+);
+});
+}
+
+if (ENABLE_SCANNER_DISCOVERY) {
+runBackgroundTask("scannerDiscovery:start", async () => {
+const status = await scannerDiscoveryService.start({
+pollIntervalMs: SCANNER_DISCOVERY_POLL_INTERVAL_MS,
+startupSlotLookback: SCANNER_DISCOVERY_STARTUP_SLOT_LOOKBACK,
+maxSlotsPerTick: SCANNER_DISCOVERY_MAX_SLOTS_PER_TICK,
+maxScansPerTick: SCANNER_DISCOVERY_MAX_SCANS_PER_TICK,
+scanConcurrency: SCANNER_DISCOVERY_SCAN_CONCURRENCY,
+seenTtlMs: SCANNER_DISCOVERY_SEEN_TTL_MS,
+cacheSkipWindowMs: SCANNER_DISCOVERY_CACHE_SKIP_WINDOW_MS,
+});
+
+console.log(
+`🔎 Scanner Discovery started: lastProcessedSlot=${
+status.lastProcessedSlot ?? "none"
+} provider=${status.providerName || "unknown"}`
 );
 });
 }
