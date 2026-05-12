@@ -271,11 +271,13 @@ const trend = scan.trend || {};
 const cassie = scan.cassie || {};
 const walletNetwork = securityModel.walletNetwork || {};
 const hiddenControl = securityModel.hiddenControl || {};
-const developerNetwork = securityModel.developerNetwork || {};
 const freshWalletRisk = securityModel.freshWalletRisk || {};
 const whaleActivity = securityModel.whaleActivity || {};
 const liquidityStability = securityModel.liquidityStability || {};
 const reputation = securityModel.reputation || {};
+
+const trendRisk = toFloat(trend?.latest?.risk, null);
+const trendChange1h = toFloat(trend?.change?.["1h"], null);
 
 return normalizeSentinelSnapshot(
 {
@@ -330,9 +332,7 @@ toFloat(scan.dev_sell_score, null) ??
 
 regime_score:
 toFloat(scan.regime_score, null) ??
-toFloat(trend?.latest?.risk, null) == null
-? null
-: clamp(100 - toFloat(trend?.latest?.risk, 0), 0, 100),
+(trendRisk == null ? null : clamp(100 - trendRisk, 0, 100)),
 regime_state: cleanText(scan.regime_state, 64) || null,
 
 recent_rug_rate_pct: toFloat(scan.recent_rug_rate_pct, null),
@@ -350,9 +350,7 @@ null,
 seller_exhaustion_score: toFloat(scan.seller_exhaustion_score, null),
 reclaim_strength_score:
 toFloat(scan.reclaim_strength_score, null) ??
-toFloat(trend?.change?.["1h"], null) != null
-? clamp(50 + toFloat(trend?.change?.["1h"], 0), 0, 100)
-: null,
+(trendChange1h == null ? null : clamp(50 + trendChange1h, 0, 100)),
 buy_pressure_score:
 toFloat(scan.buy_pressure_score, null) ??
 toFloat(whaleActivity.score, null) ??
@@ -428,30 +426,40 @@ firstText(source, [
 ]) || tokenId;
 
 const hiddenControlRisk = clamp(
-firstNumber(source, [
+firstNumber(
+source,
+[
 "hidden_control_risk",
 "securityModel.hiddenControl.score",
 "hiddenControl.score",
 "raw.securityModel.hiddenControl.score",
-], 0) ?? 0,
+],
+0
+) ?? 0,
 0,
 100
 );
 
 const contaminationRisk = clamp(
-firstNumber(source, [
+firstNumber(
+source,
+[
 "contamination_risk",
 "securityModel.contamination.score",
 "raw.securityModel.contamination.score",
 "securityModel.freshWalletRisk.score",
 "raw.securityModel.freshWalletRisk.score",
-], 0) ?? 0,
+],
+0
+) ?? 0,
 0,
 100
 );
 
 const walletCoordinationRisk = deriveWalletCoordinationRisk({
-wallet_coordination_risk: firstNumber(source, [
+wallet_coordination_risk: firstNumber(
+source,
+[
 "wallet_coordination_risk",
 "activity.score",
 "securityModel.walletNetwork.riskScore",
@@ -459,90 +467,125 @@ wallet_coordination_risk: firstNumber(source, [
 "raw.activity.score",
 "raw.securityModel.walletNetwork.riskScore",
 "raw.securityModel.whaleActivity.score",
-], null),
+],
+null
+),
 cluster_score: firstNumber(source, ["activity.score", "raw.activity.score"], 0),
-whale_activity_score: firstNumber(source, [
+whale_activity_score: firstNumber(
+source,
+[
 "securityModel.whaleActivity.score",
 "raw.securityModel.whaleActivity.score",
-], 0),
-wallet_network_risk_score: firstNumber(source, [
+],
+0
+),
+wallet_network_risk_score: firstNumber(
+source,
+[
 "securityModel.walletNetwork.riskScore",
 "raw.securityModel.walletNetwork.riskScore",
-], 0),
-wallet_network_confidence: firstNumber(source, [
+],
+0
+),
+wallet_network_confidence: firstNumber(
+source,
+[
 "securityModel.walletNetwork.confidence",
 "raw.securityModel.walletNetwork.confidence",
-], 0),
+],
+0
+),
 });
 
 const insiderSellScore = clamp(
-firstNumber(source, [
+firstNumber(
+source,
+[
 "insider_sell_score",
 "dev_sell_score",
 "developer_sell_score",
 "raw.insider_sell_score",
-], 0) ?? 0,
+],
+0
+) ?? 0,
 0,
 100
 );
 
 const reclaimStrengthScore = clamp(
-firstNumber(source, [
+firstNumber(
+source,
+[
 "reclaim_strength_score",
 "reclaim_score",
 "raw.reclaim_strength_score",
-], 50) ?? 50,
+],
+50
+) ?? 50,
 0,
 100
 );
 
 const buyPressureScore = clamp(
-firstNumber(source, [
-"buy_pressure_score",
-"buy_pressure",
-"raw.buy_pressure_score",
-], 50) ?? 50,
+firstNumber(
+source,
+["buy_pressure_score", "buy_pressure", "raw.buy_pressure_score"],
+50
+) ?? 50,
 0,
 100
 );
 
 const persistenceScore = clamp(
-firstNumber(source, [
+firstNumber(
+source,
+[
 "persistence_score",
 "raw.persistence_score",
 "securityModel.reputation.score",
 "raw.securityModel.reputation.score",
-], 50) ?? 50,
+],
+50
+) ?? 50,
 0,
 100
 );
 
 const liquidityDecayScore = clamp(
-firstNumber(source, [
-"liquidity_decay_score",
-"raw.liquidity_decay_score",
-], 0) ?? 0,
+firstNumber(
+source,
+["liquidity_decay_score", "raw.liquidity_decay_score"],
+0
+) ?? 0,
 0,
 100
 );
 
 const verticalExtensionScore = clamp(
-firstNumber(source, [
+firstNumber(
+source,
+[
 "vertical_extension_score",
 "extension_score",
 "raw.vertical_extension_score",
-], 0) ?? 0,
+],
+0
+) ?? 0,
 0,
 100
 );
 
 const structuralHealthScore = deriveStructuralHealthScore({
-structural_health_score: firstNumber(source, [
+structural_health_score: firstNumber(
+source,
+[
 "structural_health_score",
 "securityModel.liquidityStability.score",
 "raw.structural_health_score",
 "raw.securityModel.liquidityStability.score",
-], null),
+],
+null
+),
 reclaim_strength_score: reclaimStrengthScore,
 buy_pressure_score: buyPressureScore,
 persistence_score: persistenceScore,
@@ -552,32 +595,43 @@ vertical_extension_score: verticalExtensionScore,
 });
 
 const avgMarketLiquidityUsd =
-firstNumber(source, [
+firstNumber(
+source,
+[
 "avg_market_liquidity_usd",
 "market.liquidityUsd",
 "raw.avg_market_liquidity_usd",
 "raw.market.liquidityUsd",
-], null) ?? null;
+],
+null
+) ?? null;
 
 const regimeDerived = deriveRegimeScore({
 regime_score: firstNumber(source, ["regime_score", "raw.regime_score"], null),
-recent_rug_rate_pct: firstNumber(source, [
-"recent_rug_rate_pct",
-"raw.recent_rug_rate_pct",
-], null),
-reclaim_success_rate_pct: firstNumber(source, [
-"reclaim_success_rate_pct",
-"raw.reclaim_success_rate_pct",
-], null),
+recent_rug_rate_pct: firstNumber(
+source,
+["recent_rug_rate_pct", "raw.recent_rug_rate_pct"],
+null
+),
+reclaim_success_rate_pct: firstNumber(
+source,
+["reclaim_success_rate_pct", "raw.reclaim_success_rate_pct"],
+null
+),
 avg_market_liquidity_usd: avgMarketLiquidityUsd,
-recent_runner_count: firstNumber(source, [
-"recent_runner_count",
-"raw.recent_runner_count",
-], null),
-breakout_follow_through_score: firstNumber(source, [
+recent_runner_count: firstNumber(
+source,
+["recent_runner_count", "raw.recent_runner_count"],
+null
+),
+breakout_follow_through_score: firstNumber(
+source,
+[
 "breakout_follow_through_score",
 "raw.breakout_follow_through_score",
-], null),
+],
+null
+),
 min_liquidity_usd: minLiquidityUsd,
 });
 
@@ -601,18 +655,25 @@ firstText(source, ["execution_mode", "mode", "raw.execution_mode"], ""),
 cleanText(options.execution_mode, 64) || SENTINEL_MODE.PAPER
 ),
 
-linked_operator_cluster_id: firstText(source, [
+linked_operator_cluster_id:
+firstText(
+source,
+[
 "linked_operator_cluster_id",
 "operator_cluster_id",
 "walletNetwork.primaryClusterId",
 "securityModel.walletNetwork.primaryClusterId",
 "raw.linked_operator_cluster_id",
 "raw.securityModel.walletNetwork.primaryClusterId",
-], "") || null,
+],
+""
+) || null,
 
 marketcap_usd: Math.max(
 0,
-firstNumber(source, [
+firstNumber(
+source,
+[
 "marketcap_usd",
 "marketcap",
 "mcap",
@@ -620,19 +681,27 @@ firstNumber(source, [
 "market.marketCapUsd",
 "raw.marketcap_usd",
 "raw.market.mcapUsd",
-], 0) ?? 0
+],
+0
+) ?? 0
 ),
 liquidity_usd: Math.max(
 0,
-firstNumber(source, [
+firstNumber(
+source,
+[
 "liquidity_usd",
 "market.liquidityUsd",
 "raw.liquidity_usd",
 "raw.market.liquidityUsd",
-], 0) ?? 0
+],
+0
+) ?? 0
 ),
 current_price:
-firstNumber(source, [
+firstNumber(
+source,
+[
 "current_price",
 "price_now",
 "current_price_usd",
@@ -640,54 +709,73 @@ firstNumber(source, [
 "market.priceUsd",
 "raw.current_price",
 "raw.market.priceUsd",
-], null) ?? null,
+],
+null
+) ?? null,
 
 spread_bps: Math.max(
 0,
-firstNumber(source, [
+firstNumber(
+source,
+[
 "spread_bps",
 "spreadBps",
 "execution.spreadBps",
 "raw.spread_bps",
-], 0) ?? 0
+],
+0
+) ?? 0
 ),
 price_impact_bps: Math.max(
 0,
-firstNumber(source, [
+firstNumber(
+source,
+[
 "price_impact_bps",
 "priceImpactBps",
 "execution.priceImpactBps",
 "raw.price_impact_bps",
-], 0) ?? 0
+],
+0
+) ?? 0
 ),
 
 top_holder_pct: clamp(
-firstNumber(source, [
+firstNumber(
+source,
+[
 "top_holder_pct",
 "concentration.top1",
 "raw.top_holder_pct",
 "raw.concentration.top1",
-], 0) ?? 0,
+],
+0
+) ?? 0,
 0,
 100
 ),
 top_5_holder_pct: clamp(
-firstNumber(source, [
+firstNumber(
+source,
+[
 "top_5_holder_pct",
 "top5_holder_pct",
 "concentration.top5",
 "raw.top_5_holder_pct",
 "raw.concentration.top5",
-], 0) ?? 0,
+],
+0
+) ?? 0,
 0,
 100
 ),
 
 transfer_restriction_risk: clamp(
-firstNumber(source, [
-"transfer_restriction_risk",
-"raw.transfer_restriction_risk",
-], 0) ?? 0,
+firstNumber(
+source,
+["transfer_restriction_risk", "raw.transfer_restriction_risk"],
+0
+) ?? 0,
 0,
 100
 ),
@@ -697,18 +785,20 @@ firstNumber(source, ["honeypot_risk", "raw.honeypot_risk"], 0) ?? 0,
 100
 ),
 liquidity_break_risk: clamp(
-firstNumber(source, [
-"liquidity_break_risk",
-"raw.liquidity_break_risk",
-], 0) ?? 0,
+firstNumber(
+source,
+["liquidity_break_risk", "raw.liquidity_break_risk"],
+0
+) ?? 0,
 0,
 100
 ),
 spoofed_volume_risk: clamp(
-firstNumber(source, [
-"spoofed_volume_risk",
-"raw.spoofed_volume_risk",
-], 0) ?? 0,
+firstNumber(
+source,
+["spoofed_volume_risk", "raw.spoofed_volume_risk"],
+0
+) ?? 0,
 0,
 100
 ),
@@ -718,15 +808,20 @@ contamination_risk: contaminationRisk,
 wallet_coordination_risk: walletCoordinationRisk,
 
 operator_quality_score: deriveOperatorQualityScore({
-operator_quality_score: firstNumber(source, [
-"operator_quality_score",
-"raw.operator_quality_score",
-], null),
-reputation_score: firstNumber(source, [
+operator_quality_score: firstNumber(
+source,
+["operator_quality_score", "raw.operator_quality_score"],
+null
+),
+reputation_score: firstNumber(
+source,
+[
 "securityModel.reputation.score",
 "reputation.score",
 "raw.securityModel.reputation.score",
-], 50),
+],
+50
+),
 hidden_control_risk: hiddenControlRisk,
 contamination_risk: contaminationRisk,
 insider_sell_score: insiderSellScore,
@@ -738,36 +833,45 @@ insider_sell_score: insiderSellScore,
 regime_score: regimeDerived.score,
 regime_state: regimeState,
 recent_rug_rate_pct:
-firstNumber(source, [
-"recent_rug_rate_pct",
-"raw.recent_rug_rate_pct",
-], null) ?? null,
+firstNumber(
+source,
+["recent_rug_rate_pct", "raw.recent_rug_rate_pct"],
+null
+) ?? null,
 reclaim_success_rate_pct:
-firstNumber(source, [
-"reclaim_success_rate_pct",
-"raw.reclaim_success_rate_pct",
-], null) ?? null,
+firstNumber(
+source,
+["reclaim_success_rate_pct", "raw.reclaim_success_rate_pct"],
+null
+) ?? null,
 avg_market_liquidity_usd: avgMarketLiquidityUsd,
 recent_runner_count:
-firstNumber(source, [
-"recent_runner_count",
-"raw.recent_runner_count",
-], null) ?? null,
+firstNumber(
+source,
+["recent_runner_count", "raw.recent_runner_count"],
+null
+) ?? null,
 breakout_follow_through_score:
-firstNumber(source, [
+firstNumber(
+source,
+[
 "breakout_follow_through_score",
 "raw.breakout_follow_through_score",
-], null) ?? null,
+],
+null
+) ?? null,
 
 seller_exhaustion_score: deriveSellerExhaustionScore({
-seller_exhaustion_score: firstNumber(source, [
-"seller_exhaustion_score",
-"raw.seller_exhaustion_score",
-], null),
-sell_pressure_score: firstNumber(source, [
-"sell_pressure_score",
-"raw.sell_pressure_score",
-], null),
+seller_exhaustion_score: firstNumber(
+source,
+["seller_exhaustion_score", "raw.seller_exhaustion_score"],
+null
+),
+sell_pressure_score: firstNumber(
+source,
+["sell_pressure_score", "raw.sell_pressure_score"],
+null
+),
 reclaim_strength_score: reclaimStrengthScore,
 buy_pressure_score: buyPressureScore,
 liquidity_decay_score: liquidityDecayScore,
@@ -783,44 +887,42 @@ liquidity_decay_score: liquidityDecayScore,
 
 bars_since_launch: Math.max(
 0,
-firstInteger(source, [
-"bars_since_launch",
-"raw.bars_since_launch",
-], 0) ?? 0
+firstInteger(source, ["bars_since_launch", "raw.bars_since_launch"], 0) ?? 0
 ),
 bars_since_local_low: Math.max(
 0,
-firstInteger(source, [
-"bars_since_local_low",
-"raw.bars_since_local_low",
-], 0) ?? 0
+firstInteger(
+source,
+["bars_since_local_low", "raw.bars_since_local_low"],
+0
+) ?? 0
 ),
 failed_breakout_count: Math.max(
 0,
-firstInteger(source, [
-"failed_breakout_count",
-"raw.failed_breakout_count",
-], 0) ?? 0
+firstInteger(
+source,
+["failed_breakout_count", "raw.failed_breakout_count"],
+0
+) ?? 0
 ),
 
 current_value_usd:
-firstNumber(source, [
-"current_value_usd",
-"position_value_usd",
-"raw.current_value_usd",
-], null) ?? null,
+firstNumber(
+source,
+["current_value_usd", "position_value_usd", "raw.current_value_usd"],
+null
+) ?? null,
 current_multiple:
-firstNumber(source, [
-"current_multiple",
-"raw.current_multiple",
-], null) ?? null,
+firstNumber(source, ["current_multiple", "raw.current_multiple"], null) ??
+null,
 
-has_live_position_context: firstBoolean(source, [
-"has_live_position_context",
-"raw.has_live_position_context",
-], false),
+has_live_position_context: firstBoolean(
+source,
+["has_live_position_context", "raw.has_live_position_context"],
+false
+),
 
-raw: source,
+raw: source.raw ?? source,
 meta: {
 snapshot_version: SENTINEL_SNAPSHOT_VERSION,
 used_provided_regime_score: Boolean(regimeDerived.used_provided_score),

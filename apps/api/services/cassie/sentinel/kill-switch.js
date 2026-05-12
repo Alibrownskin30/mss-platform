@@ -39,30 +39,75 @@ function clamp(value, min = 0, max = 100) {
 return Math.min(max, Math.max(min, toFloat(value, min)));
 }
 
+function firstDefined(...values) {
+for (const value of values) {
+if (value !== undefined && value !== null && value !== "") {
+return value;
+}
+}
+return undefined;
+}
+
+function resolveExecutionMode(...values) {
+for (const value of values) {
+const mode = cleanText(value, 64).toLowerCase();
+if (mode) return mode;
+}
+return null;
+}
+
 function hasPositiveMetric(value) {
 return Number.isFinite(Number(value)) && Number(value) > 0;
 }
 
 function normalizeStats(stats = {}) {
 const reclaimSuccessRatePct = toNullableFloat(
+firstDefined(
 stats.reclaim_success_rate_pct,
+stats.reclaim_success_rate,
+stats.reclaimSuccessRatePct,
+stats.reclaimSuccessRate
+),
 null
 );
+
 const avgMarketLiquidityUsd = toNullableFloat(
+firstDefined(
 stats.avg_market_liquidity_usd,
+stats.avg_market_liquidity,
+stats.avgMarketLiquidityUsd,
+stats.avgMarketLiquidity
+),
 null
 );
 
 return {
-stat_date: cleanText(stats.stat_date, 32) || null,
-execution_mode: cleanText(stats.execution_mode, 64) || null,
+...stats,
+stat_date: cleanText(firstDefined(stats.stat_date, stats.statDate), 32) || null,
+execution_mode:
+resolveExecutionMode(
+stats.execution_mode,
+stats.executionMode,
+stats.mode
+) || null,
 
-daily_loss_usd: Math.max(0, toFloat(stats.daily_loss_usd, 0)),
-consecutive_failures: Math.max(0, toInt(stats.consecutive_failures, 0)),
-recent_rug_rate_pct: clamp(stats.recent_rug_rate_pct, 0, 100),
+daily_loss_usd: Math.max(
+0,
+toFloat(firstDefined(stats.daily_loss_usd, stats.dailyLossUsd), 0)
+),
+consecutive_failures: Math.max(
+0,
+toInt(firstDefined(stats.consecutive_failures, stats.consecutiveFailures), 0)
+),
+recent_rug_rate_pct: clamp(
+firstDefined(stats.recent_rug_rate_pct, stats.recentRugRatePct),
+0,
+100
+),
 
 reclaim_success_rate_pct:
 reclaimSuccessRatePct == null ? null : clamp(reclaimSuccessRatePct, 0, 100),
+
 avg_market_liquidity_usd:
 avgMarketLiquidityUsd == null ? null : Math.max(0, avgMarketLiquidityUsd),
 };
@@ -113,11 +158,21 @@ isKillSwitchReason(code)
 );
 }
 
-export function getKillSwitchThresholds(config = {}) {
-const safe = getEffectiveSentinelConfig(normalizeSentinelConfig(config || {}));
+export function getKillSwitchThresholds(config = {}, runtime = {}) {
+const runtimeExecutionMode = resolveExecutionMode(
+runtime?.execution_mode,
+config?.execution_mode
+);
+
+const safe = getEffectiveSentinelConfig(
+normalizeSentinelConfig({
+...(config || {}),
+...(runtimeExecutionMode ? { execution_mode: runtimeExecutionMode } : {}),
+})
+);
 
 return {
-execution_mode: safe.execution_mode,
+execution_mode: runtimeExecutionMode || safe.execution_mode,
 max_daily_loss_usd: safe.max_daily_loss_usd,
 max_consecutive_failures: safe.max_consecutive_failures,
 max_recent_rug_rate_pct: 35,
@@ -127,9 +182,22 @@ min_avg_market_liquidity_usd: 600,
 }
 
 export function evaluateKillSwitchSync(dayStats = {}, config = {}) {
-const safeConfig = getEffectiveSentinelConfig(normalizeSentinelConfig(config || {}));
 const safeStats = normalizeStats(dayStats || {});
-const thresholds = getKillSwitchThresholds(safeConfig);
+const executionMode = resolveExecutionMode(
+safeStats.execution_mode,
+config?.execution_mode
+);
+
+const safeConfig = getEffectiveSentinelConfig(
+normalizeSentinelConfig({
+...(config || {}),
+...(executionMode ? { execution_mode: executionMode } : {}),
+})
+);
+
+const thresholds = getKillSwitchThresholds(safeConfig, {
+execution_mode: executionMode,
+});
 
 const reclaimMetricAvailable = hasUsableReclaimMetric(safeStats);
 const marketLiquidityMetricAvailable = hasUsableMarketLiquidityMetric(safeStats);
@@ -195,37 +263,55 @@ note: !marketLiquidityMetricAvailable
 ),
 ];
 
-const reasons = collectTriggeredReasons(checks);
+const triggeredReasons = collectTriggeredReasons(checks);
+const active = triggeredReasons.length > 0;
+const reasons = active
+? Array.from(new Set([...triggeredReasons, REASON_CODE.KILL_SWITCH_TRIGGERED]))
+: [];
 
 return {
-active: reasons.length > 0,
-reasons: reasons.length ? reasons : [],
+active,
+reasons,
 checks,
 thresholds,
 stats: safeStats,
 meta: {
-execution_mode: safeConfig.execution_mode,
+execution_mode: thresholds.execution_mode,
 total_check_count: checks.length,
-triggered_check_count: reasons.length,
-hard_stop_only: reasons.length > 0,
-should_halt_new_entries: reasons.length > 0,
+triggered_check_count: triggeredReasons.length,
+hard_stop_only: active,
+should_halt_new_entries: active,
 should_continue_runner_management: true,
 reclaim_metric_available: reclaimMetricAvailable,
 market_liquidity_metric_available: marketLiquidityMetricAvailable,
 market_regime_context_available:
 reclaimMetricAvailable || marketLiquidityMetricAvailable,
+triggered_reasons: triggeredReasons,
 },
 };
 }
 
 export async function evaluateKillSwitch(dayStats = null, config = {}) {
 const safeConfig = getEffectiveSentinelConfig(normalizeSentinelConfig(config || {}));
-const stats =
-dayStats && Object.keys(dayStats).length
-? normalizeStats(dayStats)
-: await getDailyStats(safeConfig.execution_mode || "paper");
+const executionMode = resolveExecutionMode(
+dayStats?.execution_mode,
+dayStats?.executionMode,
+dayStats?.mode,
+safeConfig.execution_mode
+);
 
-return evaluateKillSwitchSync(stats, safeConfig);
+const stats =
+dayStats && typeof dayStats === "object" && Object.keys(dayStats).length
+? normalizeStats({
+...dayStats,
+execution_mode: executionMode,
+})
+: await getDailyStats(executionMode || safeConfig.execution_mode || "paper");
+
+return evaluateKillSwitchSync(stats, {
+...safeConfig,
+execution_mode: executionMode || safeConfig.execution_mode,
+});
 }
 
 export async function isKillSwitchActive(dayStats = null, config = {}) {
@@ -245,6 +331,7 @@ should_continue_runner_management: true,
 reclaim_metric_available: false,
 market_liquidity_metric_available: false,
 market_regime_context_available: false,
+execution_mode: null,
 };
 }
 
@@ -264,6 +351,7 @@ result?.meta?.market_liquidity_metric_available
 market_regime_context_available: Boolean(
 result?.meta?.market_regime_context_available
 ),
+execution_mode: cleanText(result?.meta?.execution_mode, 64) || null,
 };
 }
 

@@ -1,4 +1,5 @@
 import {
+canOpenNewPositions,
 getEffectiveSentinelConfig,
 normalizeSentinelConfig,
 } from "./config.js";
@@ -44,25 +45,138 @@ const normalized = cleanText(value, 64).toLowerCase();
 return VALID_DECISIONS.has(normalized) ? normalized : fallback;
 }
 
+function firstDefined(...values) {
+for (const value of values) {
+if (value !== undefined && value !== null && value !== "") {
+return value;
+}
+}
+return undefined;
+}
+
+function resolveExecutionMode(...values) {
+for (const value of values) {
+const mode = cleanText(value, 64).toLowerCase();
+if (mode) return mode;
+}
+return null;
+}
+
 function normalizeSnapshot(snapshot = {}) {
+const tokenId = cleanText(
+firstDefined(
+snapshot.token_id,
+snapshot.tokenId,
+snapshot.mint,
+snapshot.mint_address,
+snapshot.mintAddress
+),
+255
+);
+
+const mintAddress = cleanText(
+firstDefined(
+snapshot.mint_address,
+snapshot.mintAddress,
+snapshot.mint,
+snapshot.token_id,
+snapshot.tokenId
+),
+255
+);
+
 return {
-token_id: cleanText(snapshot.token_id, 255),
-mint_address: cleanText(snapshot.mint_address, 255),
-execution_mode: cleanText(snapshot.execution_mode, 64) || null,
 ...snapshot,
+token_id: tokenId || mintAddress || "",
+mint_address: mintAddress || tokenId || "",
+execution_mode:
+resolveExecutionMode(
+snapshot.execution_mode,
+snapshot.executionMode,
+snapshot.mode
+) || null,
+linked_operator_cluster_id: cleanText(
+firstDefined(
+snapshot.linked_operator_cluster_id,
+snapshot.linkedOperatorClusterId,
+snapshot.operator_cluster_id,
+snapshot.operatorClusterId,
+snapshot.primary_cluster_id,
+snapshot.primaryClusterId
+),
+255
+),
+current_multiple:
+firstDefined(snapshot.current_multiple, snapshot.currentMultiple) == null
+? null
+: Math.max(
+0,
+toFloat(
+firstDefined(snapshot.current_multiple, snapshot.currentMultiple),
+0
+)
+),
+current_value_usd:
+firstDefined(snapshot.current_value_usd, snapshot.currentValueUsd) == null
+? null
+: Math.max(
+0,
+toFloat(
+firstDefined(snapshot.current_value_usd, snapshot.currentValueUsd),
+0
+)
+),
 };
 }
 
 function normalizePosition(position = {}) {
 if (!position || typeof position !== "object") return null;
 
+const tokenId = cleanText(
+firstDefined(
+position.token_id,
+position.tokenId,
+position.mint,
+position.mint_address,
+position.mintAddress
+),
+255
+);
+
+const mintAddress = cleanText(
+firstDefined(
+position.mint_address,
+position.mintAddress,
+position.mint,
+position.token_id,
+position.tokenId
+),
+255
+);
+
 return {
 ...position,
 id: toInt(position.id, 0) || null,
-token_id: cleanText(position.token_id, 255),
-mint_address: cleanText(position.mint_address, 255),
+token_id: tokenId || mintAddress || "",
+mint_address: mintAddress || tokenId || "",
 stage: cleanText(position.stage, 64),
-execution_mode: cleanText(position.execution_mode, 64) || null,
+execution_mode:
+resolveExecutionMode(
+position.execution_mode,
+position.executionMode,
+position.mode
+) || null,
+linked_operator_cluster_id: cleanText(
+firstDefined(
+position.linked_operator_cluster_id,
+position.linkedOperatorClusterId,
+position.operator_cluster_id,
+position.operatorClusterId,
+position.primary_cluster_id,
+position.primaryClusterId
+),
+255
+),
 total_size_usd: Math.max(0, toFloat(position.total_size_usd, 0)),
 total_cost_usd: Math.max(0, toFloat(position.total_cost_usd, 0)),
 current_value_usd: Math.max(0, toFloat(position.current_value_usd, 0)),
@@ -73,8 +187,36 @@ has_banked_10x: Boolean(position.has_banked_10x),
 function normalizeContext(context = {}) {
 return {
 ...context,
-execution_mode: cleanText(context.execution_mode, 64) || null,
+execution_mode:
+resolveExecutionMode(
+context.execution_mode,
+context.executionMode,
+context.mode
+) || null,
 position_id: toInt(context.position_id, 0) || null,
+};
+}
+
+function buildSnapshotWithGateOverrides(snapshot = {}, gateResult = null) {
+return normalizeSnapshot({
+...(snapshot || {}),
+regime_state: gateResult?.snapshot?.regime_state ?? snapshot?.regime_state ?? null,
+regime_score: gateResult?.snapshot?.regime_score ?? snapshot?.regime_score ?? null,
+execution_mode:
+gateResult?.snapshot?.execution_mode ?? snapshot?.execution_mode ?? null,
+});
+}
+
+function mergeStages(stages = {}) {
+return {
+kill_switch: stages.kill_switch || null,
+hard_rejects: stages.hard_rejects || null,
+operator_gate: stages.operator_gate || null,
+regime_gate: stages.regime_gate || null,
+scout: stages.scout || null,
+sniper: stages.sniper || null,
+exits: stages.exits || null,
+runner: stages.runner || null,
 };
 }
 
@@ -93,31 +235,37 @@ decision: normalizeDecision(decision),
 reason_codes: ensureReasonCodeArray(reason_codes, []),
 size_usd: size_usd == null ? null : Math.max(0, toFloat(size_usd, 0)),
 bank_fraction:
-bank_fraction == null ? null : Math.min(1, Math.max(0, toFloat(bank_fraction, 0))),
-snapshot,
-position,
+bank_fraction == null
+? null
+: Math.min(1, Math.max(0, toFloat(bank_fraction, 0))),
+snapshot: snapshot ? normalizeSnapshot(snapshot) : null,
+position: position ? normalizePosition(position) : null,
 meta: {
 ...meta,
-stages,
+stages: mergeStages(stages),
 },
 };
 }
 
-function decisionFromGateFailure(
-gateName,
-result,
-fallbackDecision = SENTINEL_DECISION.REJECT
-) {
-return buildBaseResult({
-decision: fallbackDecision,
-reason_codes: ensureReasonCodeArray(result?.reasons || []),
-snapshot: result?.snapshot || null,
-meta: {
-halt_reason: gateName,
-passed: false,
-stage_result: result || null,
-},
-});
+function deriveCurrentMultiple(position = {}, snapshot = {}) {
+const explicitMultiple = toFloat(
+firstDefined(snapshot.current_multiple, snapshot.currentMultiple),
+null
+);
+if (explicitMultiple != null && explicitMultiple > 0) {
+return explicitMultiple;
+}
+
+const currentValueUsd = Math.max(
+0,
+toFloat(
+firstDefined(snapshot.current_value_usd, snapshot.currentValueUsd),
+position.current_value_usd || 0
+)
+);
+const totalCostUsd = Math.max(0.0000001, toFloat(position.total_cost_usd, 0));
+
+return currentValueUsd / totalCostUsd;
 }
 
 function shouldAttemptTakeProfit(position = {}, snapshot = {}, config = {}) {
@@ -125,13 +273,7 @@ if (!position?.id) return false;
 if (position.has_banked_10x) return false;
 if (!config?.auto_bank_enabled) return false;
 
-const currentValueUsd = Math.max(
-0,
-toFloat(snapshot.current_value_usd, position.current_value_usd || 0)
-);
-const totalCostUsd = Math.max(0.0000001, toFloat(position.total_cost_usd, 0));
-
-const multiple = currentValueUsd / totalCostUsd;
+const multiple = deriveCurrentMultiple(position, snapshot);
 return multiple >= Math.max(1, toFloat(config.auto_bank_multiple, 10));
 }
 
@@ -144,13 +286,7 @@ if (position?.has_banked_10x) {
 return [REASON_CODE.ALREADY_BANKED];
 }
 
-const currentValueUsd = Math.max(
-0,
-toFloat(snapshot.current_value_usd, position.current_value_usd || 0)
-);
-const totalCostUsd = Math.max(0.0000001, toFloat(position.total_cost_usd, 0));
-const multiple = currentValueUsd / totalCostUsd;
-
+const multiple = deriveCurrentMultiple(position, snapshot);
 if (multiple >= Math.max(1, toFloat(config.auto_bank_multiple, 10))) {
 return [REASON_CODE.TEN_X_REACHED];
 }
@@ -158,26 +294,19 @@ return [REASON_CODE.TEN_X_REACHED];
 return [REASON_CODE.TEN_X_NOT_REACHED];
 }
 
-function mergeStages(stages = {}) {
-return {
-kill_switch: stages.kill_switch || null,
-hard_rejects: stages.hard_rejects || null,
-operator_gate: stages.operator_gate || null,
-regime_gate: stages.regime_gate || null,
-scout: stages.scout || null,
-sniper: stages.sniper || null,
-exits: stages.exits || null,
-runner: stages.runner || null,
-};
+function hasUsableTokenReference(snapshot = {}, position = null) {
+if (cleanText(snapshot?.token_id, 255)) return true;
+if (cleanText(snapshot?.mint_address, 255)) return true;
+if (cleanText(position?.token_id, 255)) return true;
+if (cleanText(position?.mint_address, 255)) return true;
+return false;
 }
 
-export async function evaluateToken(
-snapshot = {},
-config = {},
-context = {}
-) {
+export async function evaluateToken(snapshot = {}, config = {}, context = {}) {
 const safeSnapshot = normalizeSnapshot(snapshot || {});
-const safeConfig = getEffectiveSentinelConfig(normalizeSentinelConfig(config || {}));
+const safeConfig = getEffectiveSentinelConfig(
+normalizeSentinelConfig(config || {})
+);
 const safeContext = normalizeContext(context || {});
 const safePosition = normalizePosition(safeContext.position || null);
 
@@ -189,9 +318,27 @@ safeConfig.execution_mode ||
 "paper";
 
 const stages = {};
+const hasPosition = Boolean(safePosition?.id);
+
+if (!hasUsableTokenReference(safeSnapshot, safePosition)) {
+return buildBaseResult({
+decision: hasPosition ? SENTINEL_DECISION.HOLD : SENTINEL_DECISION.WATCHLIST,
+reason_codes: [REASON_CODE.INVALID_TOKEN_SNAPSHOT],
+snapshot: {
+...safeSnapshot,
+execution_mode: executionMode,
+},
+position: safePosition,
+meta: {
+halt_reason: "invalid_snapshot",
+execution_mode: executionMode,
+},
+stages,
+});
+}
 
 stages.kill_switch = await evaluateKillSwitch(
-safeContext.day_stats || null,
+safeContext.day_stats || safeContext.dayStats || safeContext,
 {
 ...safeConfig,
 execution_mode: executionMode,
@@ -201,59 +348,111 @@ execution_mode: executionMode,
 if (stages.kill_switch?.active) {
 return buildBaseResult({
 decision: SENTINEL_DECISION.KILL_SWITCH,
-reason_codes: ensureReasonCodeArray(stages.kill_switch.reasons || [
-REASON_CODE.KILL_SWITCH_TRIGGERED,
-]),
-snapshot: safeSnapshot,
+reason_codes: ensureReasonCodeArray(
+stages.kill_switch.reasons || [REASON_CODE.KILL_SWITCH_TRIGGERED]
+),
+snapshot: {
+...safeSnapshot,
+execution_mode: executionMode,
+},
 position: safePosition,
 meta: {
 halt_reason: "kill_switch",
+execution_mode: executionMode,
 },
-stages: mergeStages(stages),
+stages,
 });
 }
 
-stages.hard_rejects = evaluateHardRejects(safeSnapshot, safeConfig);
+if (!hasPosition) {
+stages.hard_rejects = evaluateHardRejects(
+{
+...safeSnapshot,
+execution_mode: executionMode,
+},
+{
+...safeConfig,
+execution_mode: executionMode,
+}
+);
+
 if (stages.hard_rejects?.rejected) {
 return buildBaseResult({
 decision: SENTINEL_DECISION.REJECT,
-reason_codes: stages.hard_rejects.reasons || [REASON_CODE.TOKEN_REJECTED],
-snapshot: safeSnapshot,
-position: safePosition,
+reason_codes:
+stages.hard_rejects.reasons || [REASON_CODE.TOKEN_REJECTED],
+snapshot: {
+...safeSnapshot,
+execution_mode: executionMode,
+},
+position: null,
 meta: {
 halt_reason: "hard_rejects",
+execution_mode: executionMode,
 },
-stages: mergeStages(stages),
+stages,
 });
 }
 
 stages.operator_gate = await evaluateOperatorGate(
-safeSnapshot,
-safeConfig,
+{
+...safeSnapshot,
+execution_mode: executionMode,
+},
+{
+...safeConfig,
+execution_mode: executionMode,
+},
 {
 ...safeContext,
 execution_mode: executionMode,
 }
 );
+
 if (!stages.operator_gate?.passed) {
 return buildBaseResult({
 decision: SENTINEL_DECISION.REJECT,
-reason_codes: stages.operator_gate.reasons || [REASON_CODE.OPERATOR_QUALITY_TOO_LOW],
-snapshot: safeSnapshot,
-position: safePosition,
+reason_codes:
+stages.operator_gate.reasons || [REASON_CODE.OPERATOR_QUALITY_TOO_LOW],
+snapshot: {
+...safeSnapshot,
+execution_mode: executionMode,
+},
+position: null,
 meta: {
 halt_reason: "operator_gate",
+execution_mode: executionMode,
 },
-stages: mergeStages(stages),
+stages,
 });
 }
 
-const hasPosition = Boolean(safePosition?.id);
+if (!canOpenNewPositions({ ...safeConfig, execution_mode: executionMode })) {
+return buildBaseResult({
+decision: SENTINEL_DECISION.WATCHLIST,
+reason_codes: [REASON_CODE.WATCHLIST_ONLY],
+snapshot: {
+...safeSnapshot,
+execution_mode: executionMode,
+},
+position: null,
+meta: {
+halt_reason: "new_entries_disabled",
+execution_mode: executionMode,
+},
+stages,
+});
+}
 
-if (!hasPosition) {
 stages.regime_gate = await evaluateRegimeGate(
-safeSnapshot,
-safeConfig,
+{
+...safeSnapshot,
+execution_mode: executionMode,
+},
+{
+...safeConfig,
+execution_mode: executionMode,
+},
 {
 ...safeContext,
 execution_mode: executionMode,
@@ -264,25 +463,33 @@ action_type: "scout",
 if (!stages.regime_gate?.passed) {
 return buildBaseResult({
 decision: SENTINEL_DECISION.WATCHLIST,
-reason_codes: stages.regime_gate.reasons || [REASON_CODE.REGIME_SCORE_TOO_LOW],
-snapshot: {
+reason_codes:
+stages.regime_gate.reasons || [REASON_CODE.REGIME_SCORE_TOO_LOW],
+snapshot: buildSnapshotWithGateOverrides(
+{
 ...safeSnapshot,
-regime_state:
-stages.regime_gate?.snapshot?.regime_state || safeSnapshot.regime_state,
-regime_score:
-stages.regime_gate?.snapshot?.regime_score ?? safeSnapshot.regime_score,
+execution_mode: executionMode,
 },
+stages.regime_gate
+),
 position: null,
 meta: {
 halt_reason: "regime_gate",
+execution_mode: executionMode,
 },
-stages: mergeStages(stages),
+stages,
 });
 }
 
 stages.scout = await evaluateScoutEntry(
-safeSnapshot,
-safeConfig,
+{
+...safeSnapshot,
+execution_mode: executionMode,
+},
+{
+...safeConfig,
+execution_mode: executionMode,
+},
 {
 ...safeContext,
 execution_mode: executionMode,
@@ -292,14 +499,19 @@ execution_mode: executionMode,
 if (stages.scout?.allow) {
 return buildBaseResult({
 decision: SENTINEL_DECISION.SCOUT_ENTRY,
-reason_codes: stages.scout.reasons || [REASON_CODE.SCOUT_ENTRY_APPROVED],
+reason_codes:
+stages.scout.reasons || [REASON_CODE.SCOUT_ENTRY_APPROVED],
 size_usd: stages.scout.size_usd,
-snapshot: safeSnapshot,
+snapshot: {
+...safeSnapshot,
+execution_mode: executionMode,
+},
 position: null,
 meta: {
 halt_reason: null,
+execution_mode: executionMode,
 },
-stages: mergeStages(stages),
+stages,
 });
 }
 
@@ -307,19 +519,60 @@ return buildBaseResult({
 decision: SENTINEL_DECISION.WATCHLIST,
 reason_codes: stages.scout?.reasons || [REASON_CODE.WATCHLIST_ONLY],
 size_usd: stages.scout?.size_usd ?? null,
-snapshot: safeSnapshot,
+snapshot: {
+...safeSnapshot,
+execution_mode: executionMode,
+},
 position: null,
 meta: {
 halt_reason: "scout",
+execution_mode: executionMode,
 },
-stages: mergeStages(stages),
+stages,
+});
+}
+
+stages.hard_rejects = evaluateHardRejects(
+{
+...safeSnapshot,
+execution_mode: executionMode,
+},
+{
+...safeConfig,
+execution_mode: executionMode,
+}
+);
+
+if (stages.hard_rejects?.rejected) {
+return buildBaseResult({
+decision: SENTINEL_DECISION.FULL_EXIT,
+reason_codes:
+stages.hard_rejects.reasons || [REASON_CODE.FULL_EXIT_EXECUTED],
+snapshot: {
+...safeSnapshot,
+execution_mode: executionMode,
+},
+position: safePosition,
+meta: {
+halt_reason: "hard_rejects",
+execution_mode: executionMode,
+invalidate: false,
+exit_type: "closed",
+},
+stages,
 });
 }
 
 stages.exits = await evaluateEarlyExit(
-safeSnapshot,
+{
+...safeSnapshot,
+execution_mode: executionMode,
+},
 safePosition,
-safeConfig,
+{
+...safeConfig,
+execution_mode: executionMode,
+},
 {
 ...safeContext,
 execution_mode: executionMode,
@@ -330,23 +583,76 @@ position_id: safePosition.id,
 if (stages.exits?.exit) {
 return buildBaseResult({
 decision: SENTINEL_DECISION.FULL_EXIT,
-reason_codes: stages.exits.reasons || [REASON_CODE.FULL_EXIT_EXECUTED],
-snapshot: safeSnapshot,
+reason_codes:
+stages.exits.reasons || [REASON_CODE.FULL_EXIT_EXECUTED],
+snapshot: {
+...safeSnapshot,
+execution_mode: executionMode,
+},
 position: safePosition,
 meta: {
 halt_reason: "exits",
+execution_mode: executionMode,
 invalidate: Boolean(stages.exits.invalidate),
 exit_type: stages.exits?.meta?.exit_type || null,
 },
-stages: mergeStages(stages),
+stages,
+});
+}
+
+if (shouldAttemptTakeProfit(safePosition, safeSnapshot, safeConfig)) {
+return buildBaseResult({
+decision: SENTINEL_DECISION.PARTIAL_TAKE_PROFIT,
+reason_codes: getTakeProfitReasonCodes(
+safePosition,
+safeSnapshot,
+safeConfig
+),
+bank_fraction: Math.min(
+1,
+Math.max(0.01, toFloat(safeConfig.auto_bank_fraction, 0.5))
+),
+snapshot: {
+...safeSnapshot,
+execution_mode: executionMode,
+},
+position: safePosition,
+meta: {
+halt_reason: null,
+execution_mode: executionMode,
+},
+stages,
 });
 }
 
 if (safePosition.has_banked_10x) {
+if (!safeConfig.enable_runner_management) {
+return buildBaseResult({
+decision: SENTINEL_DECISION.HOLD,
+reason_codes: [REASON_CODE.HOLD_POSITION],
+snapshot: {
+...safeSnapshot,
+execution_mode: executionMode,
+},
+position: safePosition,
+meta: {
+halt_reason: "runner_disabled",
+execution_mode: executionMode,
+},
+stages,
+});
+}
+
 stages.runner = await evaluateRunnerExit(
-safeSnapshot,
+{
+...safeSnapshot,
+execution_mode: executionMode,
+},
 safePosition,
-safeConfig,
+{
+...safeConfig,
+execution_mode: executionMode,
+},
 {
 ...safeContext,
 execution_mode: executionMode,
@@ -357,45 +663,95 @@ position_id: safePosition.id,
 if (stages.runner?.exit) {
 return buildBaseResult({
 decision: SENTINEL_DECISION.FULL_EXIT,
-reason_codes: stages.runner.reasons || [REASON_CODE.RUNNER_EXIT_EXECUTED],
-snapshot: safeSnapshot,
+reason_codes:
+stages.runner.reasons || [REASON_CODE.RUNNER_EXIT_EXECUTED],
+snapshot: {
+...safeSnapshot,
+execution_mode: executionMode,
+},
 position: safePosition,
 meta: {
 halt_reason: "runner",
+execution_mode: executionMode,
 },
-stages: mergeStages(stages),
+stages,
 });
 }
 
 return buildBaseResult({
 decision: SENTINEL_DECISION.HOLD,
 reason_codes: stages.runner?.reasons || [REASON_CODE.RUNNER_HEALTHY],
-snapshot: safeSnapshot,
+snapshot: {
+...safeSnapshot,
+execution_mode: executionMode,
+},
 position: safePosition,
 meta: {
 halt_reason: null,
+execution_mode: executionMode,
 },
-stages: mergeStages(stages),
+stages,
 });
 }
 
-if (shouldAttemptTakeProfit(safePosition, safeSnapshot, safeConfig)) {
+stages.operator_gate = await evaluateOperatorGate(
+{
+...safeSnapshot,
+execution_mode: executionMode,
+},
+{
+...safeConfig,
+execution_mode: executionMode,
+},
+{
+...safeContext,
+execution_mode: executionMode,
+}
+);
+
+if (!stages.operator_gate?.passed) {
 return buildBaseResult({
-decision: SENTINEL_DECISION.PARTIAL_TAKE_PROFIT,
-reason_codes: getTakeProfitReasonCodes(safePosition, safeSnapshot, safeConfig),
-bank_fraction: Math.min(1, Math.max(0.01, toFloat(safeConfig.auto_bank_fraction, 0.5))),
-snapshot: safeSnapshot,
+decision: SENTINEL_DECISION.HOLD,
+reason_codes: stages.operator_gate.reasons || [REASON_CODE.HOLD_POSITION],
+snapshot: {
+...safeSnapshot,
+execution_mode: executionMode,
+},
 position: safePosition,
 meta: {
-halt_reason: null,
+halt_reason: "operator_gate",
+execution_mode: executionMode,
 },
-stages: mergeStages(stages),
+stages,
+});
+}
+
+if (!safeConfig.enable_sniper) {
+return buildBaseResult({
+decision: SENTINEL_DECISION.HOLD,
+reason_codes: [REASON_CODE.HOLD_POSITION],
+snapshot: {
+...safeSnapshot,
+execution_mode: executionMode,
+},
+position: safePosition,
+meta: {
+halt_reason: "sniper_disabled",
+execution_mode: executionMode,
+},
+stages,
 });
 }
 
 stages.regime_gate = await evaluateRegimeGate(
-safeSnapshot,
-safeConfig,
+{
+...safeSnapshot,
+execution_mode: executionMode,
+},
+{
+...safeConfig,
+execution_mode: executionMode,
+},
 {
 ...safeContext,
 execution_mode: executionMode,
@@ -406,26 +762,34 @@ action_type: "sniper",
 if (!stages.regime_gate?.passed) {
 return buildBaseResult({
 decision: SENTINEL_DECISION.HOLD,
-reason_codes: stages.regime_gate.reasons || [REASON_CODE.REGIME_SCORE_TOO_LOW],
-snapshot: {
+reason_codes:
+stages.regime_gate.reasons || [REASON_CODE.REGIME_SCORE_TOO_LOW],
+snapshot: buildSnapshotWithGateOverrides(
+{
 ...safeSnapshot,
-regime_state:
-stages.regime_gate?.snapshot?.regime_state || safeSnapshot.regime_state,
-regime_score:
-stages.regime_gate?.snapshot?.regime_score ?? safeSnapshot.regime_score,
+execution_mode: executionMode,
 },
+stages.regime_gate
+),
 position: safePosition,
 meta: {
 halt_reason: "regime_gate",
+execution_mode: executionMode,
 },
-stages: mergeStages(stages),
+stages,
 });
 }
 
 stages.sniper = await evaluateSniperAdd(
-safeSnapshot,
+{
+...safeSnapshot,
+execution_mode: executionMode,
+},
 safePosition,
-safeConfig,
+{
+...safeConfig,
+execution_mode: executionMode,
+},
 {
 ...safeContext,
 execution_mode: executionMode,
@@ -436,14 +800,19 @@ position_id: safePosition.id,
 if (stages.sniper?.allow) {
 return buildBaseResult({
 decision: SENTINEL_DECISION.SNIPER_ADD,
-reason_codes: stages.sniper.reasons || [REASON_CODE.SNIPER_ADD_APPROVED],
+reason_codes:
+stages.sniper.reasons || [REASON_CODE.SNIPER_ADD_APPROVED],
 size_usd: stages.sniper.size_usd,
-snapshot: safeSnapshot,
+snapshot: {
+...safeSnapshot,
+execution_mode: executionMode,
+},
 position: safePosition,
 meta: {
 halt_reason: null,
+execution_mode: executionMode,
 },
-stages: mergeStages(stages),
+stages,
 });
 }
 
@@ -451,12 +820,16 @@ return buildBaseResult({
 decision: SENTINEL_DECISION.HOLD,
 reason_codes: stages.sniper?.reasons || [REASON_CODE.HOLD_POSITION],
 size_usd: stages.sniper?.size_usd ?? null,
-snapshot: safeSnapshot,
+snapshot: {
+...safeSnapshot,
+execution_mode: executionMode,
+},
 position: safePosition,
 meta: {
 halt_reason: "sniper",
+execution_mode: executionMode,
 },
-stages: mergeStages(stages),
+stages,
 });
 }
 
@@ -523,6 +896,7 @@ bank_fraction: null,
 halt_reason: null,
 invalidate: false,
 exit_type: null,
+execution_mode: null,
 };
 }
 
@@ -538,6 +912,7 @@ result.bank_fraction == null
 halt_reason: cleanText(result?.meta?.halt_reason, 64) || null,
 invalidate: Boolean(result?.meta?.invalidate),
 exit_type: cleanText(result?.meta?.exit_type, 32) || null,
+execution_mode: cleanText(result?.meta?.execution_mode, 64) || null,
 };
 }
 

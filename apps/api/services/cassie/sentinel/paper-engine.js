@@ -15,7 +15,9 @@ ensureDailyStats,
 incrementDailyStats,
 resetDailyFailureStreak,
 snapshotOpenPositionExposure,
-getPositionById,
+getOpenPositionByToken,
+getDailyStats,
+closePosition,
 } from "./position-store.js";
 import {
 AUDIT_EVENT_TYPE,
@@ -32,6 +34,9 @@ logKillSwitch,
 import { evaluateToken, SENTINEL_DECISION } from "./evaluator.js";
 import { isInvalidationReason } from "./exits.js";
 
+const NON_ACTION_AUDIT_COOLDOWN_MS = 60 * 1000;
+const nonActionAuditCache = new Map();
+
 function cleanText(value, max = 255) {
 return String(value ?? "").trim().slice(0, max);
 }
@@ -46,10 +51,6 @@ const num = Number.parseInt(value, 10);
 return Number.isFinite(num) ? num : fallback;
 }
 
-function nowIso() {
-return new Date().toISOString();
-}
-
 function todayUtcDate() {
 return new Date().toISOString().slice(0, 10);
 }
@@ -60,6 +61,15 @@ const safeToken =
 cleanText(tokenId, 48).replace(/[^a-zA-Z0-9_-]/g, "").slice(0, 24) || "token";
 const stamp = Date.now();
 return `paper_${safeAction}_${safeToken}_${stamp}`;
+}
+
+function getSnapshotTokenLookupValue(snapshot = {}) {
+return (
+cleanText(snapshot.token_id, 255) ||
+cleanText(snapshot.mint_address, 255) ||
+cleanText(snapshot.mint, 255) ||
+""
+);
 }
 
 function getCurrentPrice(snapshot = {}) {
@@ -86,7 +96,10 @@ return Math.max(0, priceNow * Math.max(0, Number(position.units) || 0));
 
 const multiple = toFloat(snapshot.current_multiple, null);
 if (multiple != null && position?.total_cost_usd != null) {
-return Math.max(0, multiple * Math.max(0, Number(position.total_cost_usd) || 0));
+return Math.max(
+0,
+multiple * Math.max(0, Number(position.total_cost_usd) || 0)
+);
 }
 
 if (position?.current_value_usd != null) {
@@ -151,6 +164,40 @@ return EXECUTION_STATUS?.SIMULATED || "simulated";
 return EXECUTION_STATUS?.SKIPPED || "skipped";
 }
 
+function pruneNonActionAuditCache() {
+const cutoff = Date.now() - NON_ACTION_AUDIT_COOLDOWN_MS;
+for (const [key, ts] of nonActionAuditCache.entries()) {
+if (!Number.isFinite(ts) || ts < cutoff) {
+nonActionAuditCache.delete(key);
+}
+}
+}
+
+function buildNonActionAuditKey(evaluation = {}) {
+const decision = cleanText(evaluation?.decision, 64).toLowerCase() || "decision";
+const tokenId =
+cleanText(evaluation?.snapshot?.token_id, 255) ||
+cleanText(evaluation?.snapshot?.mint_address, 255) ||
+"unknown";
+const reasons = ensureReasonCodeArray(evaluation?.reason_codes || []).join("|");
+return `${decision}:${tokenId}:${reasons}`;
+}
+
+function shouldLogNonActionAudit(evaluation = {}, context = {}) {
+if (context.log_non_actions === false) return false;
+
+pruneNonActionAuditCache();
+
+const key = buildNonActionAuditKey(evaluation);
+const lastLoggedAt = nonActionAuditCache.get(key);
+if (lastLoggedAt && Date.now() - lastLoggedAt < NON_ACTION_AUDIT_COOLDOWN_MS) {
+return false;
+}
+
+nonActionAuditCache.set(key, Date.now());
+return true;
+}
+
 async function syncDailyUnrealizedForMode(executionMode = SENTINEL_MODE.PAPER) {
 const statDate = todayUtcDate();
 await ensureDailyStats(executionMode, statDate);
@@ -165,7 +212,7 @@ updated_at = CURRENT_TIMESTAMP
 WHERE stat_date = ?
 AND execution_mode = ?
 `,
-[Math.max(0, Number(exposure.unrealized_pnl_usd) || 0), statDate, executionMode]
+[Number(exposure.unrealized_pnl_usd) || 0, statDate, executionMode]
 );
 
 return exposure;
@@ -191,82 +238,83 @@ avg_exit_price: priceNow ?? position.avg_exit_price ?? null,
 });
 }
 
+async function refreshPassiveEvaluationPosition(
+evaluation = {},
+snapshot = {},
+executionMode = SENTINEL_MODE.PAPER
+) {
+let refreshedPosition = evaluation?.position || null;
+
+if (refreshedPosition?.id) {
+refreshedPosition = await maybeRefreshPaperPositionValue(refreshedPosition, snapshot);
+await syncDailyUnrealizedForMode(executionMode);
+}
+
+return refreshedPosition;
+}
+
+async function buildPaperEvaluationContext(snapshot = {}, context = {}) {
+const suppliedPosition =
+context?.position && typeof context.position === "object" && context.position.id
+? context.position
+: null;
+
+const tokenLookup = getSnapshotTokenLookupValue(snapshot);
+
+const openPosition =
+suppliedPosition ||
+(tokenLookup
+? await getOpenPositionByToken(tokenLookup, SENTINEL_MODE.PAPER)
+: null);
+
+const dayStats =
+context?.day_stats && typeof context.day_stats === "object"
+? context.day_stats
+: await getDailyStats(SENTINEL_MODE.PAPER);
+
+return {
+...context,
+execution_mode: SENTINEL_MODE.PAPER,
+log_non_actions: context.log_non_actions !== false,
+position: openPosition || null,
+position_id: openPosition?.id || null,
+day_stats: dayStats,
+};
+}
+
 async function closePaperPosition(
 position,
 {
 snapshot = {},
+config = {},
 reason_codes = [REASON_CODE.FULL_EXIT_EXECUTED],
 execution_mode = SENTINEL_MODE.PAPER,
 } = {}
 ) {
 const currentPosition = await maybeRefreshPaperPositionValue(position, snapshot);
 const exitValueUsd =
-derivePositionCurrentValue(snapshot, currentPosition, currentPosition.current_value_usd) ??
-0;
+derivePositionCurrentValue(
+snapshot,
+currentPosition,
+currentPosition.current_value_usd
+) ?? 0;
 const priceNow = getCurrentPrice(snapshot);
 const reasons = ensureReasonCodeArray(reason_codes, [REASON_CODE.FULL_EXIT_EXECUTED]);
-const closeStage = reasons.some((code) => isInvalidationReason(code))
-? "invalidated"
-: "closed";
 const txCloseRef = buildPaperExecutionRef("exit", currentPosition.token_id);
 
-const remainingCostBasis = Math.max(
-0,
-Number(currentPosition.current_value_usd || 0) -
-Number(currentPosition.unrealized_pnl_usd || 0)
-);
+const beforeRealized = Number(currentPosition.realized_pnl_usd || 0);
 
-const realizedIncrement = exitValueUsd - remainingCostBasis;
-const finalRealizedPnl =
-Number(currentPosition.realized_pnl_usd || 0) + realizedIncrement;
-
-await db.run(
-`
-UPDATE cassie_sentinel_positions
-SET
-stage = ?,
-current_value_usd = 0,
-units = 0,
-avg_exit_price = ?,
-realized_pnl_usd = ?,
-unrealized_pnl_usd = 0,
-close_reason_codes = ?,
-closed_at = CURRENT_TIMESTAMP,
-invalidated_at = CASE WHEN ? = 'invalidated' THEN CURRENT_TIMESTAMP ELSE invalidated_at END,
-tx_close_ref = ?
-WHERE id = ?
-`,
-[
-closeStage,
-priceNow ?? currentPosition.avg_exit_price ?? null,
-finalRealizedPnl,
-JSON.stringify(reasons),
-closeStage,
-txCloseRef,
-currentPosition.id,
-]
-);
-
-await incrementDailyStats(executionMode, {
-positions_closed: 1,
-invalidations: closeStage === "invalidated" ? 1 : 0,
-daily_realized_pnl_usd: realizedIncrement,
-daily_loss_usd: realizedIncrement < 0 ? Math.abs(realizedIncrement) : 0,
-consecutive_failures: realizedIncrement < 0 ? 1 : 0,
+const closedPosition = await closePosition(currentPosition.id, {
+exit_value_usd: exitValueUsd,
+avg_exit_price: priceNow ?? currentPosition.avg_exit_price ?? null,
+tx_close_ref: txCloseRef,
+close_reason_codes: reasons,
 });
 
-if (realizedIncrement >= 0) {
-await resetDailyFailureStreak(executionMode);
-}
+const realizedIncrement =
+Number(closedPosition?.realized_pnl_usd || 0) - beforeRealized;
 
-const cooldownSeconds = getCooldownSeconds(
-{
-cooldown_after_close_sec: 1800,
-cooldown_after_invalidation_sec: 3600,
-execution_mode,
-},
-reasons
-);
+const cooldownSeconds = getCooldownSeconds(config, reasons);
 
 if (cooldownSeconds > 0) {
 const cooldownUntil = new Date(Date.now() + cooldownSeconds * 1000).toISOString();
@@ -278,21 +326,22 @@ cooldown_until: cooldownUntil,
 });
 }
 
-const closedPosition = await getPositionById(currentPosition.id);
 await syncDailyUnrealizedForMode(executionMode);
 
 return {
 position: closedPosition,
 tx_close_ref: txCloseRef,
 realized_increment_usd: realizedIncrement,
-close_stage: closeStage,
+close_stage: closedPosition?.stage || "closed",
 };
 }
 
 async function executePaperScoutEntry(evaluation, config, context = {}) {
 const snapshot = evaluation.snapshot || {};
-const tokenId = cleanText(snapshot.token_id, 255);
-const mintAddress = cleanText(snapshot.mint_address, 255);
+const tokenId =
+cleanText(snapshot.token_id, 255) || cleanText(snapshot.mint_address, 255);
+const mintAddress =
+cleanText(snapshot.mint_address, 255) || cleanText(snapshot.token_id, 255);
 const sizeUsd = Math.max(0, Number(evaluation.size_usd || config.scout_usd) || 0);
 const priceNow = getCurrentPrice(snapshot);
 const units = deriveEntryUnits(sizeUsd, snapshot);
@@ -352,8 +401,8 @@ add_size_usd: sizeUsd,
 add_units: addUnits,
 add_avg_entry_price: priceNow,
 current_value_usd:
-(derivePositionCurrentValue(snapshot, refreshed, refreshed.current_value_usd) ?? 0) +
-sizeUsd,
+(derivePositionCurrentValue(snapshot, refreshed, refreshed.current_value_usd) ??
+0) + sizeUsd,
 tx_add_ref: buildPaperExecutionRef("sniper", refreshed.token_id),
 });
 
@@ -385,7 +434,10 @@ const position = evaluation.position;
 const refreshed = await maybeRefreshPaperPositionValue(position, snapshot);
 const bankFraction = Math.min(
 1,
-Math.max(0.01, Number(evaluation.bank_fraction || config.auto_bank_fraction) || 0.5)
+Math.max(
+0.01,
+Number(evaluation.bank_fraction || config.auto_bank_fraction) || 0.5
+)
 );
 
 const currentValueUsd =
@@ -406,14 +458,16 @@ remaining_units: remainingUnits,
 tx_bank_ref: buildPaperExecutionRef("bank", refreshed.token_id),
 });
 
-const realizedIncrement = Math.max(
-0,
-Number(updatedPosition?.realized_pnl_usd || 0) - beforeRealized
-);
+const realizedIncrement =
+Number(updatedPosition?.realized_pnl_usd || 0) - beforeRealized;
 
+if (realizedIncrement < 0) {
 await incrementDailyStats(SENTINEL_MODE.PAPER, {
-daily_realized_pnl_usd: realizedIncrement,
+consecutive_failures: 1,
 });
+} else if (realizedIncrement > 0) {
+await resetDailyFailureStreak(SENTINEL_MODE.PAPER);
+}
 
 await syncDailyUnrealizedForMode(SENTINEL_MODE.PAPER);
 
@@ -442,6 +496,7 @@ const snapshot = evaluation.snapshot || {};
 const position = evaluation.position;
 const closed = await closePaperPosition(position, {
 snapshot,
+config,
 reason_codes: evaluation.reason_codes,
 execution_mode: SENTINEL_MODE.PAPER,
 });
@@ -481,8 +536,9 @@ close_stage: closed.close_stage,
 }
 
 async function maybeLogNonAction(evaluation, context = {}) {
-const shouldLog = context.log_non_actions !== false;
-if (!shouldLog) return null;
+if (!shouldLogNonActionAudit(evaluation, context)) {
+return null;
+}
 
 return logAuditEvent({
 event_type: getNonActionAuditEventType(evaluation.decision),
@@ -510,46 +566,63 @@ const safeConfig = getEffectiveSentinelConfig({
 execution_mode: SENTINEL_MODE.PAPER,
 });
 
-const safeContext = {
-...context,
-execution_mode: SENTINEL_MODE.PAPER,
-log_non_actions: context.log_non_actions !== false,
-};
-
+const safeContext = await buildPaperEvaluationContext(snapshot, context);
 const evaluation = await evaluateToken(snapshot, safeConfig, safeContext);
 
 switch (evaluation.decision) {
 case SENTINEL_DECISION.KILL_SWITCH: {
-const auditEvent = await logKillSwitch({
+const refreshedPosition = await refreshPassiveEvaluationPosition(
+evaluation,
+snapshot,
+SENTINEL_MODE.PAPER
+);
+
+const auditEvent = shouldLogNonActionAudit(evaluation, safeContext)
+? await logKillSwitch({
 execution_mode: SENTINEL_MODE.PAPER,
 reason_codes: evaluation.reason_codes,
 actor_id: safeContext.actor_id || "system",
-});
+})
+: null;
 
 return {
 ok: true,
 execution_mode: SENTINEL_MODE.PAPER,
 simulated: true,
-evaluation,
+evaluation: {
+...evaluation,
+position: refreshedPosition,
+},
 audit_event: auditEvent,
 };
 }
 
 case SENTINEL_DECISION.REJECT: {
-const auditEvent = await logTokenReject({
+const refreshedPosition = await refreshPassiveEvaluationPosition(
+evaluation,
+snapshot,
+SENTINEL_MODE.PAPER
+);
+
+const auditEvent = shouldLogNonActionAudit(evaluation, safeContext)
+? await logTokenReject({
 token_id: evaluation.snapshot?.token_id || null,
 mint_address: evaluation.snapshot?.mint_address || null,
 execution_mode: SENTINEL_MODE.PAPER,
 reason_codes: evaluation.reason_codes,
 snapshot_summary: evaluation.snapshot || null,
 actor_id: safeContext.actor_id || "system",
-});
+})
+: null;
 
 return {
 ok: true,
 execution_mode: SENTINEL_MODE.PAPER,
 simulated: true,
-evaluation,
+evaluation: {
+...evaluation,
+position: refreshedPosition,
+},
 audit_event: auditEvent,
 };
 }
@@ -601,12 +674,11 @@ evaluation,
 case SENTINEL_DECISION.HOLD:
 case SENTINEL_DECISION.WATCHLIST:
 default: {
-let refreshedPosition = evaluation.position || null;
-
-if (evaluation.position?.id) {
-refreshedPosition = await maybeRefreshPaperPositionValue(evaluation.position, snapshot);
-await syncDailyUnrealizedForMode(SENTINEL_MODE.PAPER);
-}
+const refreshedPosition = await refreshPassiveEvaluationPosition(
+evaluation,
+snapshot,
+SENTINEL_MODE.PAPER
+);
 
 const auditEvent = await maybeLogNonAction(
 {
@@ -640,10 +712,12 @@ config = {},
 context = {}
 ) {
 const results = [];
+
 for (const snapshot of Array.isArray(snapshots) ? snapshots : []) {
 const result = await processPaperSnapshot(snapshot, config, context);
 results.push(result);
 }
+
 return results;
 }
 

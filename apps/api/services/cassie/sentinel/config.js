@@ -118,15 +118,98 @@ const FLOAT_FIELDS = new Set([
 "max_liquidity_decay_score",
 ]);
 
+const CONFIG_ALIASES = {
+watcher_enabled: ["watcher_enabled", "enabled", "is_enabled"],
+execution_mode: ["execution_mode", "mode"],
+
+auto_bank_enabled: ["auto_bank_enabled"],
+auto_bank_multiple: ["auto_bank_multiple", "bank_multiple"],
+auto_bank_fraction: ["auto_bank_fraction", "bank_fraction"],
+
+scout_usd: ["scout_usd", "scout_size_usd"],
+sniper_add_usd: ["sniper_add_usd", "sniper_size_usd", "sniper_usd"],
+max_total_position_usd: ["max_total_position_usd", "max_position_usd"],
+max_open_positions: ["max_open_positions"],
+max_positions_per_operator_cluster: [
+"max_positions_per_operator_cluster",
+"max_positions_per_cluster",
+],
+
+max_daily_loss_usd: ["max_daily_loss_usd"],
+max_daily_scout_spend_usd: ["max_daily_scout_spend_usd"],
+max_daily_sniper_spend_usd: ["max_daily_sniper_spend_usd"],
+max_consecutive_failures: ["max_consecutive_failures"],
+max_tokens_per_hour: ["max_tokens_per_hour"],
+
+cooldown_after_close_sec: ["cooldown_after_close_sec"],
+cooldown_after_invalidation_sec: ["cooldown_after_invalidation_sec"],
+early_fail_timeout_sec: ["early_fail_timeout_sec"],
+weak_stall_timeout_sec: ["weak_stall_timeout_sec"],
+runner_failed_breakout_limit: ["runner_failed_breakout_limit"],
+
+min_operator_quality_score: ["min_operator_quality_score"],
+max_hidden_control_risk: [
+"max_hidden_control_risk",
+"max_hidden_control_score",
+],
+max_contamination_risk: ["max_contamination_risk", "max_contamination_score"],
+max_wallet_coordination_risk: [
+"max_wallet_coordination_risk",
+"max_coordination_risk",
+],
+
+min_regime_score_for_scout: [
+"min_regime_score_for_scout",
+"min_regime_score",
+],
+min_regime_score_for_sniper: ["min_regime_score_for_sniper"],
+
+max_top_holder_pct: ["max_top_holder_pct"],
+max_top_5_holder_pct: ["max_top_5_holder_pct"],
+min_liquidity_usd: ["min_liquidity_usd"],
+max_spread_bps: ["max_spread_bps"],
+max_price_impact_bps: ["max_price_impact_bps"],
+
+min_reclaim_strength_score: ["min_reclaim_strength_score"],
+min_buy_pressure_score: ["min_buy_pressure_score"],
+min_persistence_score: ["min_persistence_score"],
+min_post_entry_health_score: [
+"min_post_entry_health_score",
+"min_structural_health_score",
+"min_structure_health_score",
+],
+max_vertical_extension_score_for_add: ["max_vertical_extension_score_for_add"],
+max_insider_sell_score: ["max_insider_sell_score"],
+max_liquidity_decay_score: ["max_liquidity_decay_score"],
+
+risk_off_disable_new_entries: ["risk_off_disable_new_entries"],
+
+enable_scout: ["enable_scout"],
+enable_sniper: ["enable_sniper"],
+enable_runner_management: ["enable_runner_management"],
+enable_market_regime_filter: ["enable_market_regime_filter"],
+enable_operator_filter: ["enable_operator_filter"],
+enable_hard_rejects: ["enable_hard_rejects"],
+};
+
+function cleanText(value, max = 255) {
+return String(value ?? "").trim().slice(0, max);
+}
+
 function cleanMode(value) {
-const mode = String(value ?? "").trim().toLowerCase();
-return Object.values(SENTINEL_MODE).includes(mode) ? mode : SENTINEL_MODE.PAPER;
+const mode = cleanText(value, 64).toLowerCase();
+return Object.values(SENTINEL_MODE).includes(mode)
+? mode
+: SENTINEL_MODE.PAPER;
 }
 
 function toBool(value, fallback = false) {
 if (typeof value === "boolean") return value;
-if (value === 1 || value === "1" || value === "true") return true;
-if (value === 0 || value === "0" || value === "false") return false;
+
+const normalized = cleanText(value, 32).toLowerCase();
+if (normalized === "1" || normalized === "true") return true;
+if (normalized === "0" || normalized === "false") return false;
+
 return fallback;
 }
 
@@ -138,6 +221,21 @@ return Number.isFinite(num) ? num : fallback;
 function toFloat(value, fallback = 0) {
 const num = Number.parseFloat(value);
 return Number.isFinite(num) ? num : fallback;
+}
+
+function getRawConfigValue(raw = {}, key) {
+const aliasKeys = CONFIG_ALIASES[key] || [key];
+
+for (const aliasKey of aliasKeys) {
+if (Object.prototype.hasOwnProperty.call(raw, aliasKey)) {
+const value = raw[aliasKey];
+if (value !== undefined && value !== null && value !== "") {
+return value;
+}
+}
+}
+
+return undefined;
 }
 
 function normalizeField(key, value, fallbackValue) {
@@ -176,12 +274,18 @@ next.max_total_position_usd
 next.max_open_positions = Math.max(1, next.max_open_positions);
 next.max_positions_per_operator_cluster = Math.max(
 1,
-next.max_positions_per_operator_cluster
+Math.min(next.max_positions_per_operator_cluster, next.max_open_positions)
 );
 
 next.max_daily_loss_usd = Math.max(0, next.max_daily_loss_usd);
-next.max_daily_scout_spend_usd = Math.max(0, next.max_daily_scout_spend_usd);
-next.max_daily_sniper_spend_usd = Math.max(0, next.max_daily_sniper_spend_usd);
+next.max_daily_scout_spend_usd = Math.max(
+next.scout_usd,
+next.max_daily_scout_spend_usd
+);
+next.max_daily_sniper_spend_usd = Math.max(
+next.sniper_add_usd,
+next.max_daily_sniper_spend_usd
+);
 next.max_consecutive_failures = Math.max(0, next.max_consecutive_failures);
 next.max_tokens_per_hour = Math.max(0, next.max_tokens_per_hour);
 
@@ -192,7 +296,10 @@ next.cooldown_after_invalidation_sec
 );
 next.early_fail_timeout_sec = Math.max(0, next.early_fail_timeout_sec);
 next.weak_stall_timeout_sec = Math.max(0, next.weak_stall_timeout_sec);
-next.runner_failed_breakout_limit = Math.max(0, next.runner_failed_breakout_limit);
+next.runner_failed_breakout_limit = Math.max(
+0,
+next.runner_failed_breakout_limit
+);
 
 [
 "min_operator_quality_score",
@@ -214,6 +321,11 @@ next.runner_failed_breakout_limit = Math.max(0, next.runner_failed_breakout_limi
 next[field] = Math.min(100, Math.max(0, next[field]));
 });
 
+next.max_top_5_holder_pct = Math.max(
+next.max_top_holder_pct,
+next.max_top_5_holder_pct
+);
+
 next.min_liquidity_usd = Math.max(0, next.min_liquidity_usd);
 next.max_spread_bps = Math.max(0, next.max_spread_bps);
 next.max_price_impact_bps = Math.max(0, next.max_price_impact_bps);
@@ -222,11 +334,11 @@ return next;
 }
 
 export function normalizeSentinelConfig(raw = {}) {
-const merged = { ...DEFAULT_SENTINEL_CONFIG, ...(raw || {}) };
 const normalized = {};
 
 for (const [key, defaultValue] of Object.entries(DEFAULT_SENTINEL_CONFIG)) {
-normalized[key] = normalizeField(key, merged[key], defaultValue);
+const rawValue = getRawConfigValue(raw || {}, key);
+normalized[key] = normalizeField(key, rawValue, defaultValue);
 }
 
 normalized.execution_mode = cleanMode(normalized.execution_mode);
@@ -275,14 +387,15 @@ return cleanMode(config?.execution_mode) === SENTINEL_MODE.EMERGENCY_STOP;
 }
 
 export function canEvaluateSentinel(config) {
-const safe = normalizeSentinelConfig(config || {});
+const safe = getEffectiveSentinelConfig(config || {});
 return safe.watcher_enabled === true;
 }
 
 export function canOpenNewPositions(config) {
-const safe = normalizeSentinelConfig(config || {});
+const safe = getEffectiveSentinelConfig(config || {});
 if (!safe.watcher_enabled) return false;
 if (safe.execution_mode === SENTINEL_MODE.EMERGENCY_STOP) return false;
+if (!safe.enable_scout && !safe.enable_sniper) return false;
 return true;
 }
 

@@ -25,7 +25,7 @@ content="Internal compliance review queue and Sentinel Watcher control center fo
 --shadow: 0 24px 60px rgba(0, 0, 0, 0.34);
 --radius: 18px;
 --radius-sm: 12px;
---max: 1380px;
+--max: 1480px;
 }
 
 * {
@@ -260,6 +260,8 @@ letter-spacing: 0.08em;
 margin-top: 8px;
 font-size: 14px;
 font-weight: 700;
+line-height: 1.45;
+word-break: break-word;
 }
 
 .section-title {
@@ -299,6 +301,7 @@ letter-spacing: 0.08em;
 margin-top: 8px;
 font-size: 15px;
 font-weight: 700;
+line-height: 1.35;
 }
 
 .summary-copy {
@@ -316,7 +319,7 @@ gap: 18px;
 
 .layout {
 display: grid;
-grid-template-columns: minmax(0, 1.1fr) minmax(360px, 0.9fr);
+grid-template-columns: minmax(0, 1.1fr) minmax(380px, 0.9fr);
 gap: 18px;
 }
 
@@ -433,7 +436,7 @@ font-size: 11px;
 text-transform: uppercase;
 letter-spacing: 0.08em;
 text-align: left;
-padding: 14px 14px;
+padding: 14px;
 border-bottom: 1px solid rgba(104, 255, 199, 0.08);
 }
 
@@ -600,7 +603,7 @@ flex-wrap: wrap;
 
 .sentinel-grid {
 display: grid;
-grid-template-columns: minmax(0, 1.1fr) minmax(360px, 0.9fr);
+grid-template-columns: minmax(0, 1.12fr) minmax(380px, 0.88fr);
 gap: 18px;
 }
 
@@ -641,6 +644,7 @@ margin-top: 8px;
 font-size: 16px;
 font-weight: 700;
 line-height: 1.35;
+word-break: break-word;
 }
 
 .settings-grid {
@@ -696,6 +700,13 @@ gap: 10px;
 margin-top: 16px;
 }
 
+.toolbar-compact-3 {
+display: grid;
+grid-template-columns: repeat(3, minmax(0, 1fr));
+gap: 10px;
+margin-top: 16px;
+}
+
 .stats-grid {
 margin-top: 18px;
 display: grid;
@@ -731,7 +742,9 @@ grid-template-columns: 1fr;
 .mini-grid,
 .settings-grid,
 .toggle-grid,
-.stats-grid {
+.stats-grid,
+.toolbar-compact,
+.toolbar-compact-3 {
 grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 }
@@ -755,6 +768,7 @@ padding-top: 24px;
 .settings-grid,
 .toggle-grid,
 .toolbar-compact,
+.toolbar-compact-3,
 .stats-grid {
 grid-template-columns: 1fr;
 }
@@ -875,10 +889,11 @@ Closed decisions affecting builder or participant access eligibility.
 <div class="section-header-row">
 <div>
 <div class="eyebrow">Sentinel Watcher</div>
-<h2 class="section-anchor-title" style="margin-top:14px;">Execution control center</h2>
-<p class="section-copy" style="margin-top:10px;">
+<h2 class="section-anchor-title" style="margin-top: 14px;">Execution control center</h2>
+<p class="section-copy" style="margin-top: 10px;">
 Switch between paper, armed, live, and emergency-stop modes, manage core
-Sentinel thresholds, and monitor active positions, audit events, and daily engine state.
+Sentinel thresholds, and monitor active positions, audit events, admin actions,
+and engine state.
 </p>
 </div>
 
@@ -892,13 +907,13 @@ Save Settings
 </div>
 </div>
 
-<div class="sentinel-grid" style="margin-top:18px;">
+<div class="sentinel-grid" style="margin-top: 18px;">
 <section class="stack">
 <div class="subpanel">
 <h3 class="section-title">Execution mode</h3>
 <p class="section-copy">
 Paper mode should remain default until evaluator quality, audit accuracy, and
-guardrails are verified. Mainnet modes should require explicit confirmation in JS flow.
+guardrails are verified. Mainnet modes require explicit confirmation in the admin flow.
 </p>
 
 <div class="mini-grid">
@@ -935,7 +950,7 @@ Emergency Stop
 </button>
 </div>
 
-<div class="field" style="margin-top:16px;">
+<div class="field" style="margin-top: 16px;">
 <label for="sentinelModeReasonInput">Mode Change Reason</label>
 <input
 id="sentinelModeReasonInput"
@@ -948,9 +963,51 @@ autocomplete="off"
 </div>
 
 <div class="subpanel">
+<h3 class="section-title">Engine state</h3>
+<p class="section-copy">
+Runtime status returned from Sentinel engine wiring, including tick timing and last error.
+</p>
+
+<div class="mini-grid">
+<div class="mini-card">
+<div class="mini-card-label">Engine Started</div>
+<div class="mini-card-value" id="sentinelEngineStartedValue">—</div>
+</div>
+<div class="mini-card">
+<div class="mini-card-label">Engine Running</div>
+<div class="mini-card-value" id="sentinelEngineRunningValue">—</div>
+</div>
+<div class="mini-card">
+<div class="mini-card-label">Tick Count</div>
+<div class="mini-card-value" id="sentinelTickCountValue">—</div>
+</div>
+<div class="mini-card">
+<div class="mini-card-label">Snapshot Provider</div>
+<div class="mini-card-value" id="sentinelSnapshotProviderValue">—</div>
+</div>
+<div class="mini-card">
+<div class="mini-card-label">Last Tick Started</div>
+<div class="mini-card-value" id="sentinelLastTickStartedValue">—</div>
+</div>
+<div class="mini-card">
+<div class="mini-card-label">Last Tick Finished</div>
+<div class="mini-card-value" id="sentinelLastTickFinishedValue">—</div>
+</div>
+<div class="mini-card" style="grid-column: span 2;">
+<div class="mini-card-label">Last Error</div>
+<div class="mini-card-value" id="sentinelLastErrorValue">—</div>
+</div>
+<div class="mini-card" style="grid-column: span 2;">
+<div class="mini-card-label">Last Tick Summary</div>
+<div class="mini-card-value" id="sentinelLastTickSummaryValue">—</div>
+</div>
+</div>
+</div>
+
+<div class="subpanel">
 <h3 class="section-title">Core Sentinel settings</h3>
 <p class="section-copy">
-These inputs map to the primary control fields already exposed in the Sentinel admin API.
+Primary control inputs already wired into the Sentinel admin API.
 </p>
 
 <div class="settings-grid">
@@ -1107,6 +1164,132 @@ These inputs map to the primary control fields already exposed in the Sentinel a
 </div>
 </div>
 </div>
+
+<div class="subpanel">
+<h3 class="section-title">Advanced Sentinel thresholds</h3>
+<p class="section-copy">
+Full threshold surface aligned to the current config service and admin patch route.
+</p>
+
+<div class="settings-grid">
+<div class="field">
+<label for="sentinelMaxPositionsPerOperatorClusterInput">Max Positions Per Operator Cluster</label>
+<input id="sentinelMaxPositionsPerOperatorClusterInput" class="input" type="number" step="1" min="1" />
+</div>
+
+<div class="field">
+<label for="sentinelMaxTokensPerHourInput">Max Tokens Per Hour</label>
+<input id="sentinelMaxTokensPerHourInput" class="input" type="number" step="1" min="0" />
+</div>
+
+<div class="field">
+<label for="sentinelCooldownAfterCloseSecInput">Cooldown After Close Sec</label>
+<input id="sentinelCooldownAfterCloseSecInput" class="input" type="number" step="1" min="0" />
+</div>
+
+<div class="field">
+<label for="sentinelCooldownAfterInvalidationSecInput">Cooldown After Invalidation Sec</label>
+<input id="sentinelCooldownAfterInvalidationSecInput" class="input" type="number" step="1" min="0" />
+</div>
+
+<div class="field">
+<label for="sentinelEarlyFailTimeoutSecInput">Early Fail Timeout Sec</label>
+<input id="sentinelEarlyFailTimeoutSecInput" class="input" type="number" step="1" min="0" />
+</div>
+
+<div class="field">
+<label for="sentinelWeakStallTimeoutSecInput">Weak Stall Timeout Sec</label>
+<input id="sentinelWeakStallTimeoutSecInput" class="input" type="number" step="1" min="0" />
+</div>
+
+<div class="field">
+<label for="sentinelRunnerFailedBreakoutLimitInput">Runner Failed Breakout Limit</label>
+<input id="sentinelRunnerFailedBreakoutLimitInput" class="input" type="number" step="1" min="0" />
+</div>
+
+<div class="field">
+<label for="sentinelMaxContaminationRiskInput">Max Contamination Risk</label>
+<input id="sentinelMaxContaminationRiskInput" class="input" type="number" step="0.1" min="0" max="100" />
+</div>
+
+<div class="field">
+<label for="sentinelMaxWalletCoordinationRiskInput">Max Wallet Coordination Risk</label>
+<input id="sentinelMaxWalletCoordinationRiskInput" class="input" type="number" step="0.1" min="0" max="100" />
+</div>
+
+<div class="field">
+<label for="sentinelMaxTopHolderPctInput">Max Top Holder %</label>
+<input id="sentinelMaxTopHolderPctInput" class="input" type="number" step="0.1" min="0" max="100" />
+</div>
+
+<div class="field">
+<label for="sentinelMaxTop5HolderPctInput">Max Top 5 Holder %</label>
+<input id="sentinelMaxTop5HolderPctInput" class="input" type="number" step="0.1" min="0" max="100" />
+</div>
+
+<div class="field">
+<label for="sentinelMinLiquidityUsdInput">Min Liquidity USD</label>
+<input id="sentinelMinLiquidityUsdInput" class="input" type="number" step="0.01" min="0" />
+</div>
+
+<div class="field">
+<label for="sentinelMaxSpreadBpsInput">Max Spread BPS</label>
+<input id="sentinelMaxSpreadBpsInput" class="input" type="number" step="0.1" min="0" />
+</div>
+
+<div class="field">
+<label for="sentinelMaxPriceImpactBpsInput">Max Price Impact BPS</label>
+<input id="sentinelMaxPriceImpactBpsInput" class="input" type="number" step="0.1" min="0" />
+</div>
+
+<div class="field">
+<label for="sentinelMaxVerticalExtensionScoreForAddInput">Max Vertical Extension For Add</label>
+<input id="sentinelMaxVerticalExtensionScoreForAddInput" class="input" type="number" step="0.1" min="0" max="100" />
+</div>
+
+<div class="field">
+<label for="sentinelMaxInsiderSellScoreInput">Max Insider Sell Score</label>
+<input id="sentinelMaxInsiderSellScoreInput" class="input" type="number" step="0.1" min="0" max="100" />
+</div>
+
+<div class="field">
+<label for="sentinelMaxLiquidityDecayScoreInput">Max Liquidity Decay Score</label>
+<input id="sentinelMaxLiquidityDecayScoreInput" class="input" type="number" step="0.1" min="0" max="100" />
+</div>
+</div>
+
+<div class="toggle-grid">
+<div class="toggle-card">
+<div class="field">
+<label for="sentinelEnableMarketRegimeFilterInput">Enable Market Regime Filter</label>
+<select id="sentinelEnableMarketRegimeFilterInput" class="select">
+<option value="true">Enabled</option>
+<option value="false">Disabled</option>
+</select>
+</div>
+</div>
+
+<div class="toggle-card">
+<div class="field">
+<label for="sentinelEnableOperatorFilterInput">Enable Operator Filter</label>
+<select id="sentinelEnableOperatorFilterInput" class="select">
+<option value="true">Enabled</option>
+<option value="false">Disabled</option>
+</select>
+</div>
+</div>
+
+<div class="toggle-card">
+<div class="field">
+<label for="sentinelEnableHardRejectsInput">Enable Hard Rejects</label>
+<select id="sentinelEnableHardRejectsInput" class="select">
+<option value="true">Enabled</option>
+<option value="false">Disabled</option>
+</select>
+</div>
+</div>
+</div>
+</div>
 </section>
 
 <aside class="stack">
@@ -1167,7 +1350,7 @@ Live snapshot of the currently active execution mode.
 </select>
 </div>
 
-<div class="field" style="justify-content:flex-end;">
+<div class="field" style="justify-content: flex-end;">
 <label>&nbsp;</label>
 <button id="refreshSentinelStatsButton" class="button button-secondary" type="button">
 Refresh Stats
@@ -1257,7 +1440,7 @@ Active and historical scout, sniper, banked, runner, closed, and invalidated pos
 <input id="sentinelPositionsTokenFilter" class="input" type="text" placeholder="Optional token id" />
 </div>
 
-<div class="field" style="justify-content:flex-end;">
+<div class="field" style="justify-content: flex-end;">
 <label>&nbsp;</label>
 <button id="refreshSentinelPositionsButton" class="button button-secondary" type="button">
 Refresh Positions
@@ -1304,6 +1487,8 @@ Decision trail for settings updates, mode changes, rejects, entries, exits, and 
 <option value="mode_change">Mode Change</option>
 <option value="emergency_stop">Emergency Stop</option>
 <option value="token_reject">Token Reject</option>
+<option value="watchlist">Watchlist</option>
+<option value="hold">Hold</option>
 <option value="scout_entry">Scout Entry</option>
 <option value="sniper_add">Sniper Add</option>
 <option value="partial_take_profit">Partial Take Profit</option>
@@ -1323,7 +1508,7 @@ Decision trail for settings updates, mode changes, rejects, entries, exits, and 
 <input id="sentinelAuditTokenFilter" class="input" type="text" placeholder="Optional token id" />
 </div>
 
-<div class="field" style="justify-content:flex-end;">
+<div class="field" style="justify-content: flex-end;">
 <label>&nbsp;</label>
 <button id="refreshSentinelAuditButton" class="button button-secondary" type="button">
 Refresh Audit
@@ -1348,6 +1533,57 @@ Refresh Audit
 </table>
 </div>
 </section>
+
+<section class="subpanel">
+<div class="table-title-row">
+<div>
+<h3 class="section-title">Sentinel admin audit</h3>
+<p class="section-copy">
+Internal admin-control log for mode changes, settings changes, and emergency stop actions.
+</p>
+</div>
+</div>
+
+<div class="toolbar-compact-3">
+<div class="field">
+<label for="sentinelAdminAuditActionFilter">Action</label>
+<input id="sentinelAdminAuditActionFilter" class="input" type="text" placeholder="Optional action" />
+</div>
+
+<div class="field">
+<label for="sentinelAdminAuditActorFilter">Actor ID</label>
+<input id="sentinelAdminAuditActorFilter" class="input" type="text" placeholder="Optional actor id" />
+</div>
+
+<div class="field">
+<label for="sentinelAdminAuditTargetTypeFilter">Target Type</label>
+<input id="sentinelAdminAuditTargetTypeFilter" class="input" type="text" placeholder="Optional target type" />
+</div>
+
+<div class="field" style="justify-content: flex-end;">
+<label>&nbsp;</label>
+<button id="refreshSentinelAdminAuditButton" class="button button-secondary" type="button">
+Refresh Admin Audit
+</button>
+</div>
+</div>
+
+<div class="table-wrap">
+<table>
+<thead>
+<tr>
+<th>Time</th>
+<th>Action</th>
+<th>Actor</th>
+<th>Target</th>
+<th>Details</th>
+<th>State</th>
+</tr>
+</thead>
+<tbody id="sentinelAdminAuditTableBody"></tbody>
+</table>
+</div>
+</section>
 </div>
 </section>
 </section>
@@ -1359,8 +1595,8 @@ Refresh Audit
 <div class="section-header-row">
 <div>
 <div class="eyebrow">Compliance Cases</div>
-<h2 class="section-anchor-title" style="margin-top:14px;">Case review queue</h2>
-<p class="section-copy" style="margin-top:10px;">
+<h2 class="section-anchor-title" style="margin-top: 14px;">Case review queue</h2>
+<p class="section-copy" style="margin-top: 10px;">
 Filter the queue by current status, type, risk level, or assignment,
 then review and resolve cases without leaving the admin shell.
 </p>
@@ -1385,6 +1621,7 @@ then review and resolve cases without leaving the admin shell.
 <label for="filterCaseType">Case Type</label>
 <select id="filterCaseType" class="select">
 <option value="">All</option>
+<option value="participant">Participant</option>
 <option value="customer">Customer</option>
 <option value="builder">Builder</option>
 <option value="launch">Launch</option>
@@ -1414,7 +1651,7 @@ autocomplete="off"
 />
 </div>
 
-<div class="field" style="justify-content:flex-end;">
+<div class="field" style="justify-content: flex-end;">
 <label>&nbsp;</label>
 <button id="applyFiltersButton" class="button button-primary" type="button">
 Apply
@@ -1459,7 +1696,7 @@ Select a case from the queue to load full detail and review controls.
 </div>
 </div>
 
-<div id="caseDetailPanel" class="detail-card" style="display:none;">
+<div id="caseDetailPanel" class="detail-card" style="display: none;">
 <div class="detail-section">
 <h3>Case overview</h3>
 <div class="detail-grid">

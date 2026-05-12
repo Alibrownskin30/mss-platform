@@ -1,12 +1,9 @@
 import db from "../../../db/index.js";
 import { SENTINEL_MODE } from "./config.js";
-import {
-REASON_CODE,
-ensureReasonCode,
-ensureReasonCodeArray,
-} from "./reason-codes.js";
+import { REASON_CODE, ensureReasonCodeArray } from "./reason-codes.js";
 
 export const AUDIT_EVENT_TYPE = {
+DECISION: "decision",
 SETTINGS_UPDATE: "settings_update",
 MODE_CHANGE: "mode_change",
 EMERGENCY_STOP: "emergency_stop",
@@ -48,11 +45,42 @@ const num = Number.parseInt(value, 10);
 return Number.isFinite(num) ? num : fallback;
 }
 
+function firstDefined(...values) {
+for (const value of values) {
+if (value !== undefined && value !== null && value !== "") {
+return value;
+}
+}
+return undefined;
+}
+
+function safeJsonParse(value, fallback = null) {
+if (!value) return fallback;
+if (typeof value === "object") return value;
+try {
+return JSON.parse(value);
+} catch {
+return fallback;
+}
+}
+
+function getInsertId(result) {
+const candidate =
+result?.lastID ??
+result?.lastId ??
+result?.lastInsertRowid ??
+result?.insertId ??
+null;
+
+const id = Number(candidate);
+return Number.isFinite(id) && id > 0 ? id : null;
+}
+
 function normalizeEventType(value) {
 const normalized = cleanText(value, 64).toLowerCase();
 return VALID_EVENT_TYPES.has(normalized)
 ? normalized
-: AUDIT_EVENT_TYPE.SETTINGS_UPDATE;
+: AUDIT_EVENT_TYPE.DECISION;
 }
 
 function normalizeExecutionStatus(value) {
@@ -68,23 +96,61 @@ if (VALID_MODES.has(normalized)) return normalized;
 return fallback;
 }
 
+function normalizeDecision(value, fallback = "hold") {
+return cleanText(value, 64).toLowerCase() || fallback;
+}
+
+function normalizeActorType(value, fallback = "system") {
+return cleanText(value, 32).toLowerCase() || fallback;
+}
+
 function extractSnapshotSummary(snapshot = {}) {
 return {
-marketcap_usd: toFloat(snapshot.marketcap_usd, null),
-liquidity_usd: toFloat(snapshot.liquidity_usd, null),
-regime_state: cleanText(snapshot.regime_state, 64) || null,
-regime_score: toFloat(snapshot.regime_score, null),
-operator_quality_score: toFloat(snapshot.operator_quality_score, null),
-hidden_control_risk: toFloat(snapshot.hidden_control_risk, null),
-buy_pressure_score: toFloat(snapshot.buy_pressure_score, null),
-reclaim_strength_score: toFloat(snapshot.reclaim_strength_score, null),
-structural_health_score: toFloat(snapshot.structural_health_score, null),
+marketcap_usd: toFloat(
+firstDefined(snapshot.marketcap_usd, snapshot.marketcapUsd, snapshot.mcap_usd, snapshot.mcapUsd),
+null
+),
+liquidity_usd: toFloat(
+firstDefined(snapshot.liquidity_usd, snapshot.liquidityUsd, snapshot.market?.liquidity_usd, snapshot.market?.liquidityUsd),
+null
+),
+regime_state: cleanText(
+firstDefined(snapshot.regime_state, snapshot.regimeState),
+64
+) || null,
+regime_score: toFloat(
+firstDefined(snapshot.regime_score, snapshot.regimeScore),
+null
+),
+operator_quality_score: toFloat(
+firstDefined(snapshot.operator_quality_score, snapshot.operatorQualityScore),
+null
+),
+hidden_control_risk: toFloat(
+firstDefined(snapshot.hidden_control_risk, snapshot.hiddenControlRisk),
+null
+),
+buy_pressure_score: toFloat(
+firstDefined(snapshot.buy_pressure_score, snapshot.buyPressureScore),
+null
+),
+reclaim_strength_score: toFloat(
+firstDefined(snapshot.reclaim_strength_score, snapshot.reclaimStrengthScore),
+null
+),
+structural_health_score: toFloat(
+firstDefined(snapshot.structural_health_score, snapshot.structuralHealthScore),
+null
+),
 };
 }
 
 function extractActionPayload(payload = {}) {
 return {
-action_size_usd: toFloat(payload.size_usd ?? payload.action_size_usd, null),
+action_size_usd: toFloat(
+firstDefined(payload.size_usd, payload.action_size_usd),
+null
+),
 bank_fraction: toFloat(payload.bank_fraction, null),
 position_id: toInt(payload.position_id, null),
 };
@@ -94,17 +160,17 @@ function serializeAuditRow(row) {
 if (!row) return null;
 
 return {
-id: row.id,
-event_type: row.event_type,
-token_id: row.token_id || null,
-mint_address: row.mint_address || null,
+id: toInt(row.id, null),
+event_type: cleanText(row.event_type, 64) || null,
+token_id: cleanText(row.token_id, 255) || null,
+mint_address: cleanText(row.mint_address, 255) || null,
 position_id: row.position_id == null ? null : Number(row.position_id),
-execution_mode: row.execution_mode || null,
-decision: row.decision,
-reason_codes: safeJsonParse(row.reason_codes, []),
+execution_mode: cleanText(row.execution_mode, 64) || null,
+decision: cleanText(row.decision, 64) || null,
+reason_codes: ensureReasonCodeArray(safeJsonParse(row.reason_codes, []), []),
 marketcap_usd: row.marketcap_usd == null ? null : Number(row.marketcap_usd),
 liquidity_usd: row.liquidity_usd == null ? null : Number(row.liquidity_usd),
-regime_state: row.regime_state || null,
+regime_state: cleanText(row.regime_state, 64) || null,
 regime_score: row.regime_score == null ? null : Number(row.regime_score),
 operator_quality_score:
 row.operator_quality_score == null ? null : Number(row.operator_quality_score),
@@ -118,25 +184,16 @@ structural_health_score:
 row.structural_health_score == null ? null : Number(row.structural_health_score),
 action_size_usd: row.action_size_usd == null ? null : Number(row.action_size_usd),
 bank_fraction: row.bank_fraction == null ? null : Number(row.bank_fraction),
-execution_status: row.execution_status,
-execution_error: row.execution_error || null,
-actor_type: row.actor_type,
-actor_id: row.actor_id || null,
+execution_status: cleanText(row.execution_status, 32) || null,
+execution_error: cleanText(row.execution_error, 1000) || null,
+actor_type: cleanText(row.actor_type, 32) || null,
+actor_id: cleanText(row.actor_id, 255) || null,
 created_at: row.created_at || null,
 };
 }
 
-function safeJsonParse(value, fallback = null) {
-if (!value) return fallback;
-try {
-return JSON.parse(value);
-} catch {
-return fallback;
-}
-}
-
 export async function logAuditEvent({
-event_type = AUDIT_EVENT_TYPE.SETTINGS_UPDATE,
+event_type = AUDIT_EVENT_TYPE.DECISION,
 token_id = null,
 mint_address = null,
 position_id = null,
@@ -154,8 +211,8 @@ const eventType = normalizeEventType(event_type);
 const snapshot = extractSnapshotSummary(snapshot_summary || {});
 const action = extractActionPayload(action_payload || {});
 const safeReasonCodes = ensureReasonCodeArray(reason_codes, []);
-const safeDecision = cleanText(decision, 64) || "hold";
-const safeActorType = cleanText(actor_type, 32) || "system";
+const safeDecision = normalizeDecision(decision, "hold");
+const safeActorType = normalizeActorType(actor_type, "system");
 const safeActorId = cleanText(actor_id, 255) || null;
 const safeMode = normalizeMode(execution_mode, null);
 const safePositionId = toInt(position_id, null);
@@ -213,7 +270,8 @@ safeActorId,
 ]
 );
 
-return getAuditEventById(result?.lastID);
+const eventId = getInsertId(result);
+return eventId ? getAuditEventById(eventId) : null;
 }
 
 export async function getAuditEventById(eventId) {
@@ -232,7 +290,9 @@ export async function listRecentAuditEvents({
 event_type = null,
 execution_mode = null,
 token_id = null,
+mint_address = null,
 position_id = null,
+decision = null,
 limit = 100,
 } = {}) {
 const filters = [];
@@ -256,10 +316,22 @@ filters.push(`token_id = ?`);
 params.push(safeTokenId);
 }
 
+const safeMintAddress = cleanText(mint_address, 255);
+if (safeMintAddress) {
+filters.push(`mint_address = ?`);
+params.push(safeMintAddress);
+}
+
 const safePositionId = toInt(position_id, null);
 if (safePositionId) {
 filters.push(`position_id = ?`);
 params.push(safePositionId);
+}
+
+const safeDecision = cleanText(decision, 64).toLowerCase();
+if (safeDecision) {
+filters.push(`decision = ?`);
+params.push(safeDecision);
 }
 
 const whereSql = filters.length ? `WHERE ${filters.join(" AND ")}` : "";
@@ -270,7 +342,7 @@ const rows = await db.all(
 SELECT *
 FROM cassie_sentinel_audit_events
 ${whereSql}
-ORDER BY created_at DESC, id DESC
+ORDER BY datetime(created_at) DESC, id DESC
 LIMIT ?
 `,
 [...params, safeLimit]
@@ -587,7 +659,7 @@ mint_address = null,
 position_id = null,
 execution_mode = null,
 decision = "hold",
-reason_codes = [ensureReasonCode(REASON_CODE.INVALID_POSITION_STATE)],
+reason_codes = [REASON_CODE.INVALID_POSITION_STATE],
 snapshot_summary = null,
 action_payload = null,
 execution_error = "Execution failed.",

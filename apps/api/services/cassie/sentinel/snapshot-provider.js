@@ -50,7 +50,7 @@ return String(path || "")
 function firstValue(source, paths = [], fallback = undefined) {
 for (const path of paths) {
 const value = getPath(source, path);
-if (value != null) return value;
+if (value != null && value !== "") return value;
 }
 return fallback;
 }
@@ -65,12 +65,32 @@ const value = firstValue(source, paths, fallback);
 return toFloat(value, fallback);
 }
 
+function resolveExecutionMode(...values) {
+for (const value of values) {
+const mode = cleanText(value, 64).toLowerCase();
+if (mode) return mode;
+}
+return SENTINEL_MODE.PAPER;
+}
+
+function normalizeLimit(value, fallback = DEFAULT_SNAPSHOT_PROVIDER_LIMIT) {
+return Math.max(1, Math.min(500, toInt(value, fallback) || fallback));
+}
+
+function normalizeMaxAgeMinutes(
+value,
+fallback = DEFAULT_SNAPSHOT_PROVIDER_MAX_AGE_MINUTES
+) {
+return Math.max(1, toInt(value, fallback) || fallback);
+}
+
 function rowTimestampMs(row = {}) {
 const candidates = [
 row.updated_at,
 row.created_at,
 row.scanned_at,
 row.last_seen_at,
+row.detected_at,
 row.ts,
 ];
 
@@ -83,13 +103,22 @@ if (!Number.isNaN(parsed)) return parsed;
 return 0;
 }
 
-function isRowFreshEnough(row = {}, maxAgeMinutes = DEFAULT_SNAPSHOT_PROVIDER_MAX_AGE_MINUTES) {
-const safeMaxAgeMinutes = Math.max(1, toInt(maxAgeMinutes, DEFAULT_SNAPSHOT_PROVIDER_MAX_AGE_MINUTES) || DEFAULT_SNAPSHOT_PROVIDER_MAX_AGE_MINUTES);
+function isRowFreshEnough(
+row = {},
+maxAgeMinutes = DEFAULT_SNAPSHOT_PROVIDER_MAX_AGE_MINUTES
+) {
+const safeMaxAgeMinutes = normalizeMaxAgeMinutes(maxAgeMinutes);
 const ts = rowTimestampMs(row);
 if (!ts) return true;
 
 const ageMs = Date.now() - ts;
 return ageMs <= safeMaxAgeMinutes * 60 * 1000;
+}
+
+function sortRowsNewestFirst(rows = []) {
+return [...(Array.isArray(rows) ? rows : [])].sort(
+(a, b) => rowTimestampMs(b) - rowTimestampMs(a)
+);
 }
 
 function extractJsonPayload(row = {}, keys = []) {
@@ -124,25 +153,59 @@ extractJsonPayload(row, [
 "snapshot_json",
 "payload_json",
 "security_scan_json",
+"result_json",
 ]) || null;
 
-if (rawScan && typeof rawScan === "object" && (rawScan.mint || rawScan.token || rawScan.market)) {
+if (
+rawScan &&
+typeof rawScan === "object" &&
+(rawScan.mint || rawScan.token || rawScan.market)
+) {
 return {
 ...rawScan,
 mint: cleanText(rawScan.mint || mint, 255) || mint,
+execution_mode: resolveExecutionMode(
+rawScan.execution_mode,
+row.execution_mode,
+row.mode
+),
 };
 }
 
 const token =
-extractJsonPayload(row, ["token_json", "token", "token_payload_json"]) || {};
+extractJsonPayload(row, [
+"token_json",
+"token",
+"token_payload_json",
+"token_data_json",
+]) || {};
+
 const market =
-extractJsonPayload(row, ["market_json", "market", "market_payload_json"]) || {};
+extractJsonPayload(row, [
+"market_json",
+"market",
+"market_payload_json",
+"market_data_json",
+]) || {};
+
 const holders =
-extractJsonPayload(row, ["holders_json", "holders", "holders_payload_json"]) || {};
+extractJsonPayload(row, [
+"holders_json",
+"holders",
+"holders_payload_json",
+]) || {};
+
 const concentration =
 extractJsonPayload(row, ["concentration_json", "concentration"]) || {};
+
 const activity =
-extractJsonPayload(row, ["activity_json", "activity", "cluster_json"]) || {};
+extractJsonPayload(row, [
+"activity_json",
+"activity",
+"cluster_json",
+"clusters_json",
+]) || {};
+
 const securityModel =
 extractJsonPayload(row, [
 "security_model_json",
@@ -150,8 +213,10 @@ extractJsonPayload(row, [
 "securityModel",
 "security_model",
 ]) || {};
+
 const cassie =
 extractJsonPayload(row, ["cassie_json", "cassie", "cassie_payload_json"]) || {};
+
 const trend =
 extractJsonPayload(row, ["trend_json", "trend"]) || {};
 
@@ -160,7 +225,11 @@ mint,
 token: {
 mint,
 mintAuthority: firstValue(row, ["mint_authority", "mintAuthority"], null),
-freezeAuthority: firstValue(row, ["freeze_authority", "freezeAuthority"], null),
+freezeAuthority: firstValue(
+row,
+["freeze_authority", "freezeAuthority"],
+null
+),
 ...token,
 },
 market: {
@@ -176,6 +245,12 @@ firstNumber(market, ["priceUsd"], null),
 fdv:
 firstNumber(row, ["fdv", "fdv_usd"], null) ??
 firstNumber(market, ["fdv"], null),
+spreadBps:
+firstNumber(row, ["spread_bps", "spread_bps_value"], null) ??
+firstNumber(market, ["spreadBps", "spread_bps"], null),
+priceImpactBps:
+firstNumber(row, ["price_impact_bps"], null) ??
+firstNumber(market, ["priceImpactBps", "price_impact_bps"], null),
 ...market,
 },
 holders,
@@ -217,10 +292,10 @@ firstNumber(securityModel, ["score"], null),
 },
 cassie,
 trend,
-execution_mode:
-firstText(row, ["execution_mode", "mode"], "") || SENTINEL_MODE.PAPER,
+execution_mode: resolveExecutionMode(row.execution_mode, row.mode),
 linked_operator_cluster_id:
-firstText(row, ["linked_operator_cluster_id", "operator_cluster_id"], "") || null,
+firstText(row, ["linked_operator_cluster_id", "operator_cluster_id"], "") ||
+null,
 seller_exhaustion_score: firstNumber(row, ["seller_exhaustion_score"], null),
 reclaim_strength_score: firstNumber(row, ["reclaim_strength_score"], null),
 buy_pressure_score: firstNumber(row, ["buy_pressure_score"], null),
@@ -229,14 +304,34 @@ structural_health_score: firstNumber(row, ["structural_health_score"], null),
 regime_score: firstNumber(row, ["regime_score"], null),
 regime_state: firstText(row, ["regime_state"], "") || null,
 recent_rug_rate_pct: firstNumber(row, ["recent_rug_rate_pct"], null),
-reclaim_success_rate_pct: firstNumber(row, ["reclaim_success_rate_pct"], null),
+reclaim_success_rate_pct: firstNumber(
+row,
+["reclaim_success_rate_pct"],
+null
+),
 recent_runner_count: firstNumber(row, ["recent_runner_count"], null),
-breakout_follow_through_score: firstNumber(row, ["breakout_follow_through_score"], null),
+breakout_follow_through_score: firstNumber(
+row,
+["breakout_follow_through_score"],
+null
+),
 vertical_extension_score: firstNumber(row, ["vertical_extension_score"], null),
+operator_quality_score: firstNumber(row, ["operator_quality_score"], null),
+hidden_control_risk: firstNumber(row, ["hidden_control_risk"], null),
+contamination_risk: firstNumber(row, ["contamination_risk"], null),
+wallet_coordination_risk: firstNumber(
+row,
+["wallet_coordination_risk"],
+null
+),
 insider_sell_score:
 firstNumber(row, ["insider_sell_score", "dev_sell_score"], null) ?? 0,
 liquidity_decay_score: firstNumber(row, ["liquidity_decay_score"], null),
-transfer_restriction_risk: firstNumber(row, ["transfer_restriction_risk"], null),
+transfer_restriction_risk: firstNumber(
+row,
+["transfer_restriction_risk"],
+null
+),
 honeypot_risk: firstNumber(row, ["honeypot_risk"], null),
 liquidity_break_risk: firstNumber(row, ["liquidity_break_risk"], null),
 spoofed_volume_risk: firstNumber(row, ["spoofed_volume_risk"], null),
@@ -252,11 +347,18 @@ function buildSnapshotFromRow(row = {}, options = {}) {
 const directSnapshot =
 extractJsonPayload(row, ["sentinel_snapshot_json", "sentinel_json"]) || null;
 
+const execution_mode = resolveExecutionMode(
+options.execution_mode,
+row.execution_mode,
+row.mode
+);
+
 if (directSnapshot && typeof directSnapshot === "object") {
 return normalizeSentinelSnapshot(
 {
 ...directSnapshot,
 source: cleanText(directSnapshot.source, 120) || "sentinel_cache",
+execution_mode,
 },
 options
 );
@@ -265,10 +367,7 @@ options
 const scan = extractScanObjectFromRow(row);
 return buildSentinelSnapshotFromSecurityScan(scan, {
 source: "scanner_cache",
-execution_mode:
-cleanText(options.execution_mode, 64) ||
-cleanText(scan.execution_mode, 64) ||
-SENTINEL_MODE.PAPER,
+execution_mode,
 min_liquidity_usd: options.min_liquidity_usd,
 });
 }
@@ -300,6 +399,14 @@ return true;
 });
 }
 
+function resolveContextArray(context = {}, keys = []) {
+for (const key of keys) {
+const value = context?.[key];
+if (Array.isArray(value)) return value;
+}
+return null;
+}
+
 export function summarizeSnapshotBatch(snapshots = []) {
 const safeSnapshots = Array.isArray(snapshots) ? snapshots : [];
 
@@ -312,8 +419,9 @@ summaries: safeSnapshots.slice(0, 20).map((item) => summarizeSentinelSnapshot(it
 
 export function buildSnapshotsFromRows(rows = [], options = {}) {
 const normalized = [];
+const sortedRows = sortRowsNewestFirst(rows);
 
-for (const row of Array.isArray(rows) ? rows : []) {
+for (const row of sortedRows) {
 try {
 if (!isRowFreshEnough(row, options.max_age_minutes)) continue;
 const snapshot = buildSnapshotFromRow(row, options);
@@ -346,7 +454,7 @@ filterSnapshots(normalizeSentinelSnapshots(snapshots, options), options)
 export function readRecentScanCacheRows({
 limit = DEFAULT_SNAPSHOT_PROVIDER_LIMIT,
 } = {}) {
-const safeLimit = Math.max(1, Math.min(500, toInt(limit, DEFAULT_SNAPSHOT_PROVIDER_LIMIT) || DEFAULT_SNAPSHOT_PROVIDER_LIMIT));
+const safeLimit = normalizeLimit(limit);
 
 const candidateQueries = [
 `SELECT * FROM scan_cache ORDER BY updated_at DESC LIMIT ?`,
@@ -388,6 +496,8 @@ const baseOptions = {
 limit: DEFAULT_SNAPSHOT_PROVIDER_LIMIT,
 max_age_minutes: DEFAULT_SNAPSHOT_PROVIDER_MAX_AGE_MINUTES,
 min_liquidity_usd: 0,
+require_usable: true,
+execution_mode: SENTINEL_MODE.PAPER,
 ...providerOptions,
 };
 
@@ -395,20 +505,50 @@ return async function scannerCacheSnapshotProvider(runtime = {}) {
 const config = runtime?.config || {};
 const context = runtime?.context || {};
 
-if (Array.isArray(context.snapshots)) {
+const execution_mode = resolveExecutionMode(
+config.execution_mode,
+baseOptions.execution_mode,
+SENTINEL_MODE.PAPER
+);
+
+const min_liquidity_usd =
+toFloat(context.min_liquidity_usd, null) ??
+toFloat(context.snapshot_min_liquidity_usd, null) ??
+toFloat(baseOptions.min_liquidity_usd, null) ??
+toFloat(config.min_liquidity_usd, null) ??
+0;
+
+const max_age_minutes =
+toInt(context.max_age_minutes, null) ??
+toInt(context.snapshot_max_age_minutes, null) ??
+toInt(baseOptions.max_age_minutes, null) ??
+DEFAULT_SNAPSHOT_PROVIDER_MAX_AGE_MINUTES;
+
+const limit =
+toInt(context.limit, null) ??
+toInt(context.snapshot_limit, null) ??
+toInt(baseOptions.limit, null) ??
+DEFAULT_SNAPSHOT_PROVIDER_LIMIT;
+
+const require_usable =
+context.require_usable == null
+? baseOptions.require_usable !== false
+: Boolean(context.require_usable);
+
+const directSnapshots = resolveContextArray(context, [
+"snapshots",
+"sentinel_snapshots",
+]);
+
+if (directSnapshots) {
 const snapshots = dedupeSnapshotsByToken(
 filterSnapshots(
-normalizeSentinelSnapshots(context.snapshots, {
-execution_mode:
-cleanText(config.execution_mode, 64) ||
-cleanText(baseOptions.execution_mode, 64) ||
-SENTINEL_MODE.PAPER,
+normalizeSentinelSnapshots(directSnapshots, {
+execution_mode,
 }),
 {
-min_liquidity_usd:
-toFloat(baseOptions.min_liquidity_usd, 0) ||
-toFloat(config.min_liquidity_usd, 0) ||
-0,
+min_liquidity_usd,
+require_usable,
 }
 )
 );
@@ -422,17 +562,13 @@ summary: summarizeSnapshotBatch(snapshots),
 };
 }
 
-if (Array.isArray(context.scans)) {
-const snapshots = buildSnapshotsFromScans(context.scans, {
+const directScans = resolveContextArray(context, ["scans", "security_scans"]);
+if (directScans) {
+const snapshots = buildSnapshotsFromScans(directScans, {
 source: "context.scans",
-execution_mode:
-cleanText(config.execution_mode, 64) ||
-cleanText(baseOptions.execution_mode, 64) ||
-SENTINEL_MODE.PAPER,
-min_liquidity_usd:
-toFloat(baseOptions.min_liquidity_usd, 0) ||
-toFloat(config.min_liquidity_usd, 0) ||
-0,
+execution_mode,
+min_liquidity_usd,
+require_usable,
 });
 
 return {
@@ -444,19 +580,18 @@ summary: summarizeSnapshotBatch(snapshots),
 };
 }
 
-if (Array.isArray(context.scan_cache_rows)) {
-const snapshots = buildSnapshotsFromRows(context.scan_cache_rows, {
-max_age_minutes:
-toInt(baseOptions.max_age_minutes, DEFAULT_SNAPSHOT_PROVIDER_MAX_AGE_MINUTES) ||
-DEFAULT_SNAPSHOT_PROVIDER_MAX_AGE_MINUTES,
-min_liquidity_usd:
-toFloat(baseOptions.min_liquidity_usd, 0) ||
-toFloat(config.min_liquidity_usd, 0) ||
-0,
-execution_mode:
-cleanText(config.execution_mode, 64) ||
-cleanText(baseOptions.execution_mode, 64) ||
-SENTINEL_MODE.PAPER,
+const directRows = resolveContextArray(context, [
+"scan_cache_rows",
+"rows",
+"scan_rows",
+]);
+
+if (directRows) {
+const snapshots = buildSnapshotsFromRows(directRows, {
+max_age_minutes,
+min_liquidity_usd,
+execution_mode,
+require_usable,
 });
 
 return {
@@ -469,22 +604,10 @@ summary: summarizeSnapshotBatch(snapshots),
 }
 
 const snapshots = await loadScannerCacheSnapshots({
-limit:
-toInt(context.limit, null) ??
-toInt(baseOptions.limit, DEFAULT_SNAPSHOT_PROVIDER_LIMIT) ??
-DEFAULT_SNAPSHOT_PROVIDER_LIMIT,
-max_age_minutes:
-toInt(context.max_age_minutes, null) ??
-toInt(baseOptions.max_age_minutes, DEFAULT_SNAPSHOT_PROVIDER_MAX_AGE_MINUTES) ??
-DEFAULT_SNAPSHOT_PROVIDER_MAX_AGE_MINUTES,
-min_liquidity_usd:
-toFloat(context.min_liquidity_usd, null) ??
-toFloat(baseOptions.min_liquidity_usd, 0) ??
-0,
-execution_mode:
-cleanText(config.execution_mode, 64) ||
-cleanText(baseOptions.execution_mode, 64) ||
-SENTINEL_MODE.PAPER,
+limit,
+max_age_minutes,
+min_liquidity_usd,
+execution_mode,
 });
 
 return {

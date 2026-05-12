@@ -10,11 +10,14 @@ assignedTo: "",
 },
 
 sentinel: {
+status: null,
 settings: null,
+engine: null,
 summary: null,
 stats: null,
 positions: [],
 audit: [],
+adminAudit: [],
 filters: {
 statsDate: new Date().toISOString().slice(0, 10),
 statsMode: "paper",
@@ -24,6 +27,9 @@ positionTokenId: "",
 auditEventType: "",
 auditDecision: "",
 auditTokenId: "",
+adminAuditAction: "",
+adminAuditActorId: "",
+adminAuditTargetType: "",
 },
 },
 
@@ -164,6 +170,71 @@ sentinelAuditDecisionFilter: document.getElementById("sentinelAuditDecisionFilte
 sentinelAuditTokenFilter: document.getElementById("sentinelAuditTokenFilter"),
 refreshSentinelAuditButton: document.getElementById("refreshSentinelAuditButton"),
 sentinelAuditTableBody: document.getElementById("sentinelAuditTableBody"),
+
+// Optional advanced sentinel settings inputs
+sentinelMaxPositionsPerOperatorClusterInput: document.getElementById(
+"sentinelMaxPositionsPerOperatorClusterInput"
+),
+sentinelMaxTokensPerHourInput: document.getElementById("sentinelMaxTokensPerHourInput"),
+sentinelCooldownAfterCloseSecInput: document.getElementById(
+"sentinelCooldownAfterCloseSecInput"
+),
+sentinelCooldownAfterInvalidationSecInput: document.getElementById(
+"sentinelCooldownAfterInvalidationSecInput"
+),
+sentinelEarlyFailTimeoutSecInput: document.getElementById("sentinelEarlyFailTimeoutSecInput"),
+sentinelWeakStallTimeoutSecInput: document.getElementById("sentinelWeakStallTimeoutSecInput"),
+sentinelRunnerFailedBreakoutLimitInput: document.getElementById(
+"sentinelRunnerFailedBreakoutLimitInput"
+),
+sentinelMaxContaminationRiskInput: document.getElementById(
+"sentinelMaxContaminationRiskInput"
+),
+sentinelMaxWalletCoordinationRiskInput: document.getElementById(
+"sentinelMaxWalletCoordinationRiskInput"
+),
+sentinelMaxTopHolderPctInput: document.getElementById("sentinelMaxTopHolderPctInput"),
+sentinelMaxTop5HolderPctInput: document.getElementById("sentinelMaxTop5HolderPctInput"),
+sentinelMinLiquidityUsdInput: document.getElementById("sentinelMinLiquidityUsdInput"),
+sentinelMaxSpreadBpsInput: document.getElementById("sentinelMaxSpreadBpsInput"),
+sentinelMaxPriceImpactBpsInput: document.getElementById("sentinelMaxPriceImpactBpsInput"),
+sentinelMaxVerticalExtensionScoreForAddInput: document.getElementById(
+"sentinelMaxVerticalExtensionScoreForAddInput"
+),
+sentinelMaxInsiderSellScoreInput: document.getElementById(
+"sentinelMaxInsiderSellScoreInput"
+),
+sentinelMaxLiquidityDecayScoreInput: document.getElementById(
+"sentinelMaxLiquidityDecayScoreInput"
+),
+sentinelEnableMarketRegimeFilterInput: document.getElementById(
+"sentinelEnableMarketRegimeFilterInput"
+),
+sentinelEnableOperatorFilterInput: document.getElementById(
+"sentinelEnableOperatorFilterInput"
+),
+sentinelEnableHardRejectsInput: document.getElementById("sentinelEnableHardRejectsInput"),
+
+// Optional engine/status surface
+sentinelEngineStartedValue: document.getElementById("sentinelEngineStartedValue"),
+sentinelEngineRunningValue: document.getElementById("sentinelEngineRunningValue"),
+sentinelLastTickStartedValue: document.getElementById("sentinelLastTickStartedValue"),
+sentinelLastTickFinishedValue: document.getElementById("sentinelLastTickFinishedValue"),
+sentinelLastErrorValue: document.getElementById("sentinelLastErrorValue"),
+sentinelTickCountValue: document.getElementById("sentinelTickCountValue"),
+sentinelSnapshotProviderValue: document.getElementById("sentinelSnapshotProviderValue"),
+sentinelLastTickSummaryValue: document.getElementById("sentinelLastTickSummaryValue"),
+
+// Optional admin audit surface
+sentinelAdminAuditActionFilter: document.getElementById("sentinelAdminAuditActionFilter"),
+sentinelAdminAuditActorFilter: document.getElementById("sentinelAdminAuditActorFilter"),
+sentinelAdminAuditTargetTypeFilter: document.getElementById(
+"sentinelAdminAuditTargetTypeFilter"
+),
+refreshSentinelAdminAuditButton: document.getElementById(
+"refreshSentinelAdminAuditButton"
+),
+sentinelAdminAuditTableBody: document.getElementById("sentinelAdminAuditTableBody"),
 };
 
 function cleanText(value, max = 500) {
@@ -228,6 +299,30 @@ minimumFractionDigits: fractionDigits,
 function safeNumber(value, fallback = 0) {
 const num = Number(value);
 return Number.isFinite(num) ? num : fallback;
+}
+
+function setText(el, value) {
+if (!el) return;
+el.textContent = value == null || value === "" ? "—" : String(value);
+}
+
+function setValue(el, value) {
+if (!el) return;
+el.value = value == null ? "" : String(value);
+}
+
+function setBoolSelect(el, value) {
+if (!el) return;
+el.value = String(Boolean(value));
+}
+
+function stringifyCompact(value) {
+if (value == null) return "—";
+try {
+return JSON.stringify(value);
+} catch {
+return String(value);
+}
 }
 
 function getApiBase() {
@@ -362,6 +457,7 @@ els.sentinelEmergencyStopButton,
 els.refreshSentinelStatsButton,
 els.refreshSentinelPositionsButton,
 els.refreshSentinelAuditButton,
+els.refreshSentinelAdminAuditButton,
 ].forEach((button) => {
 if (button) button.disabled = disabled;
 });
@@ -412,6 +508,7 @@ const normalized = cleanText(mode, 64).toLowerCase();
 if (normalized === "live_mainnet") return "good";
 if (normalized === "armed_mainnet") return "warn";
 if (normalized === "emergency_stop") return "bad";
+if (normalized === "paper") return "neutral";
 return "neutral";
 }
 
@@ -530,68 +627,142 @@ el.className = `button ${base}`;
 function applySentinelSettingsToInputs(settings) {
 if (!settings) return;
 
-els.sentinelScoutUsdInput.value = safeNumber(settings.scout_usd, 0.5);
-els.sentinelSniperAddUsdInput.value = safeNumber(settings.sniper_add_usd, 1);
-els.sentinelMaxTotalPositionUsdInput.value = safeNumber(settings.max_total_position_usd, 1.5);
-els.sentinelMaxOpenPositionsInput.value = safeNumber(settings.max_open_positions, 30);
-els.sentinelMaxDailyLossUsdInput.value = safeNumber(settings.max_daily_loss_usd, 25);
-els.sentinelMaxConsecutiveFailuresInput.value = safeNumber(
-settings.max_consecutive_failures,
-8
+state.sentinel.settings = settings;
+
+setValue(els.sentinelScoutUsdInput, safeNumber(settings.scout_usd, 0.5));
+setValue(els.sentinelSniperAddUsdInput, safeNumber(settings.sniper_add_usd, 1));
+setValue(
+els.sentinelMaxTotalPositionUsdInput,
+safeNumber(settings.max_total_position_usd, 1.5)
 );
-els.sentinelMaxDailyScoutSpendUsdInput.value = safeNumber(
-settings.max_daily_scout_spend_usd,
-20
+setValue(els.sentinelMaxOpenPositionsInput, safeNumber(settings.max_open_positions, 30));
+setValue(els.sentinelMaxDailyLossUsdInput, safeNumber(settings.max_daily_loss_usd, 25));
+setValue(
+els.sentinelMaxConsecutiveFailuresInput,
+safeNumber(settings.max_consecutive_failures, 8)
 );
-els.sentinelMaxDailySniperSpendUsdInput.value = safeNumber(
-settings.max_daily_sniper_spend_usd,
-30
+setValue(
+els.sentinelMaxDailyScoutSpendUsdInput,
+safeNumber(settings.max_daily_scout_spend_usd, 20)
 );
-els.sentinelAutoBankMultipleInput.value = safeNumber(settings.auto_bank_multiple, 10);
-els.sentinelAutoBankFractionInput.value = safeNumber(settings.auto_bank_fraction, 0.5);
-els.sentinelMinOperatorQualityScoreInput.value = safeNumber(
-settings.min_operator_quality_score,
-70
+setValue(
+els.sentinelMaxDailySniperSpendUsdInput,
+safeNumber(settings.max_daily_sniper_spend_usd, 30)
 );
-els.sentinelMaxHiddenControlRiskInput.value = safeNumber(
-settings.max_hidden_control_risk,
-30
+setValue(els.sentinelAutoBankMultipleInput, safeNumber(settings.auto_bank_multiple, 10));
+setValue(els.sentinelAutoBankFractionInput, safeNumber(settings.auto_bank_fraction, 0.5));
+setValue(
+els.sentinelMinOperatorQualityScoreInput,
+safeNumber(settings.min_operator_quality_score, 70)
 );
-els.sentinelMinRegimeScoreScoutInput.value = safeNumber(
-settings.min_regime_score_for_scout,
-55
+setValue(
+els.sentinelMaxHiddenControlRiskInput,
+safeNumber(settings.max_hidden_control_risk, 30)
 );
-els.sentinelMinRegimeScoreSniperInput.value = safeNumber(
-settings.min_regime_score_for_sniper,
-65
+setValue(
+els.sentinelMinRegimeScoreScoutInput,
+safeNumber(settings.min_regime_score_for_scout, 55)
 );
-els.sentinelMinReclaimStrengthScoreInput.value = safeNumber(
-settings.min_reclaim_strength_score,
-60
+setValue(
+els.sentinelMinRegimeScoreSniperInput,
+safeNumber(settings.min_regime_score_for_sniper, 65)
 );
-els.sentinelMinBuyPressureScoreInput.value = safeNumber(
-settings.min_buy_pressure_score,
-62
+setValue(
+els.sentinelMinReclaimStrengthScoreInput,
+safeNumber(settings.min_reclaim_strength_score, 60)
 );
-els.sentinelMinPersistenceScoreInput.value = safeNumber(
-settings.min_persistence_score,
-58
+setValue(
+els.sentinelMinBuyPressureScoreInput,
+safeNumber(settings.min_buy_pressure_score, 62)
 );
-els.sentinelMinPostEntryHealthScoreInput.value = safeNumber(
-settings.min_post_entry_health_score,
-55
+setValue(
+els.sentinelMinPersistenceScoreInput,
+safeNumber(settings.min_persistence_score, 58)
+);
+setValue(
+els.sentinelMinPostEntryHealthScoreInput,
+safeNumber(settings.min_post_entry_health_score, 55)
 );
 
-els.sentinelWatcherEnabledInput.value = String(Boolean(settings.watcher_enabled));
-els.sentinelAutoBankEnabledInput.value = String(Boolean(settings.auto_bank_enabled));
-els.sentinelEnableScoutInput.value = String(Boolean(settings.enable_scout));
-els.sentinelEnableSniperInput.value = String(Boolean(settings.enable_sniper));
-els.sentinelEnableRunnerManagementInput.value = String(
-Boolean(settings.enable_runner_management)
+setBoolSelect(els.sentinelWatcherEnabledInput, settings.watcher_enabled);
+setBoolSelect(els.sentinelAutoBankEnabledInput, settings.auto_bank_enabled);
+setBoolSelect(els.sentinelEnableScoutInput, settings.enable_scout);
+setBoolSelect(els.sentinelEnableSniperInput, settings.enable_sniper);
+setBoolSelect(
+els.sentinelEnableRunnerManagementInput,
+settings.enable_runner_management
 );
-els.sentinelRiskOffDisableNewEntriesInput.value = String(
-Boolean(settings.risk_off_disable_new_entries)
+setBoolSelect(
+els.sentinelRiskOffDisableNewEntriesInput,
+settings.risk_off_disable_new_entries
 );
+
+// Optional advanced settings
+setValue(
+els.sentinelMaxPositionsPerOperatorClusterInput,
+safeNumber(settings.max_positions_per_operator_cluster, 2)
+);
+setValue(els.sentinelMaxTokensPerHourInput, safeNumber(settings.max_tokens_per_hour, 12));
+setValue(
+els.sentinelCooldownAfterCloseSecInput,
+safeNumber(settings.cooldown_after_close_sec, 1800)
+);
+setValue(
+els.sentinelCooldownAfterInvalidationSecInput,
+safeNumber(settings.cooldown_after_invalidation_sec, 3600)
+);
+setValue(
+els.sentinelEarlyFailTimeoutSecInput,
+safeNumber(settings.early_fail_timeout_sec, 180)
+);
+setValue(
+els.sentinelWeakStallTimeoutSecInput,
+safeNumber(settings.weak_stall_timeout_sec, 420)
+);
+setValue(
+els.sentinelRunnerFailedBreakoutLimitInput,
+safeNumber(settings.runner_failed_breakout_limit, 2)
+);
+setValue(
+els.sentinelMaxContaminationRiskInput,
+safeNumber(settings.max_contamination_risk, 35)
+);
+setValue(
+els.sentinelMaxWalletCoordinationRiskInput,
+safeNumber(settings.max_wallet_coordination_risk, 40)
+);
+setValue(
+els.sentinelMaxTopHolderPctInput,
+safeNumber(settings.max_top_holder_pct, 18)
+);
+setValue(
+els.sentinelMaxTop5HolderPctInput,
+safeNumber(settings.max_top_5_holder_pct, 45)
+);
+setValue(els.sentinelMinLiquidityUsdInput, safeNumber(settings.min_liquidity_usd, 800));
+setValue(els.sentinelMaxSpreadBpsInput, safeNumber(settings.max_spread_bps, 350));
+setValue(
+els.sentinelMaxPriceImpactBpsInput,
+safeNumber(settings.max_price_impact_bps, 500)
+);
+setValue(
+els.sentinelMaxVerticalExtensionScoreForAddInput,
+safeNumber(settings.max_vertical_extension_score_for_add, 75)
+);
+setValue(
+els.sentinelMaxInsiderSellScoreInput,
+safeNumber(settings.max_insider_sell_score, 45)
+);
+setValue(
+els.sentinelMaxLiquidityDecayScoreInput,
+safeNumber(settings.max_liquidity_decay_score, 50)
+);
+setBoolSelect(
+els.sentinelEnableMarketRegimeFilterInput,
+settings.enable_market_regime_filter
+);
+setBoolSelect(els.sentinelEnableOperatorFilterInput, settings.enable_operator_filter);
+setBoolSelect(els.sentinelEnableHardRejectsInput, settings.enable_hard_rejects);
 
 if (els.sentinelWatcherEnabledValue) {
 els.sentinelWatcherEnabledValue.textContent = settings.watcher_enabled ? "Yes" : "No";
@@ -604,8 +775,9 @@ cleanText(settings.execution_mode, 64) === "emergency_stop" ? "Active" : "Inacti
 applySentinelModeToUi(settings.execution_mode || "paper");
 }
 
-function renderSentinelSummary(summary) {
+function renderSentinelSummary(summary, engine = null) {
 state.sentinel.summary = summary || null;
+state.sentinel.engine = engine || state.sentinel.engine;
 
 const openPositions = safeNumber(summary?.open_positions, 0);
 const realized = safeNumber(summary?.daily_realized_pnl_usd, 0);
@@ -635,6 +807,94 @@ applySentinelModeToUi(summary.execution_mode);
 
 if (els.sentinelKillSwitchValue) {
 els.sentinelKillSwitchValue.textContent = summary?.kill_switch_active ? "Active" : "Inactive";
+}
+}
+
+function renderSentinelEngine(engine = null) {
+state.sentinel.engine = engine || null;
+
+const currentMode =
+cleanText(engine?.current_mode, 64) ||
+cleanText(state.sentinel.summary?.execution_mode, 64) ||
+cleanText(state.sentinel.settings?.execution_mode, 64) ||
+"paper";
+
+applySentinelModeToUi(currentMode);
+
+setText(els.sentinelEngineStartedValue, engine ? (engine.started ? "Yes" : "No") : "—");
+setText(els.sentinelEngineRunningValue, engine ? (engine.running ? "Yes" : "No") : "—");
+setText(els.sentinelLastTickStartedValue, formatDateTime(engine?.last_tick_started_at));
+setText(els.sentinelLastTickFinishedValue, formatDateTime(engine?.last_tick_finished_at));
+setText(els.sentinelTickCountValue, formatNumber(engine?.tick_count, 0));
+setText(
+els.sentinelSnapshotProviderValue,
+cleanText(engine?.snapshot_provider_name, 120) || "—"
+);
+
+const lastErrorText =
+cleanText(engine?.last_error?.message, 500) ||
+cleanText(engine?.last_error, 500) ||
+"None";
+setText(els.sentinelLastErrorValue, lastErrorText);
+
+const lastTickSummary = engine?.last_tick_summary;
+if (els.sentinelLastTickSummaryValue) {
+if (!lastTickSummary) {
+els.sentinelLastTickSummaryValue.textContent = "—";
+} else {
+const summaryParts = [];
+if (lastTickSummary.total != null) summaryParts.push(`total:${lastTickSummary.total}`);
+if (lastTickSummary.scout_entry != null) {
+summaryParts.push(`scout:${lastTickSummary.scout_entry}`);
+}
+if (lastTickSummary.sniper_add != null) {
+summaryParts.push(`sniper:${lastTickSummary.sniper_add}`);
+}
+if (lastTickSummary.partial_take_profit != null) {
+summaryParts.push(`tp:${lastTickSummary.partial_take_profit}`);
+}
+if (lastTickSummary.full_exit != null) {
+summaryParts.push(`exit:${lastTickSummary.full_exit}`);
+}
+if (lastTickSummary.reject != null) summaryParts.push(`reject:${lastTickSummary.reject}`);
+if (lastTickSummary.watchlist != null) {
+summaryParts.push(`watchlist:${lastTickSummary.watchlist}`);
+}
+if (lastTickSummary.hold != null) summaryParts.push(`hold:${lastTickSummary.hold}`);
+if (lastTickSummary.kill_switch != null) {
+summaryParts.push(`kill:${lastTickSummary.kill_switch}`);
+}
+if (lastTickSummary.error) {
+summaryParts.push(`error:${cleanText(lastTickSummary.error, 80)}`);
+}
+els.sentinelLastTickSummaryValue.textContent = summaryParts.length
+? summaryParts.join(" • ")
+: stringifyCompact(lastTickSummary);
+}
+}
+}
+
+function renderSentinelStatus(payload) {
+state.sentinel.status = payload || null;
+if (!payload) return;
+
+if (payload.settings) {
+applySentinelSettingsToInputs(payload.settings);
+}
+if (payload.summary) {
+renderSentinelSummary(payload.summary, payload.engine || null);
+}
+if (payload.engine) {
+renderSentinelEngine(payload.engine);
+}
+
+const watcherEnabled =
+payload?.settings?.watcher_enabled != null
+? Boolean(payload.settings.watcher_enabled)
+: Boolean(payload?.summary?.watcher_enabled);
+
+if (els.sentinelWatcherEnabledValue) {
+els.sentinelWatcherEnabledValue.textContent = watcherEnabled ? "Yes" : "No";
 }
 }
 
@@ -696,16 +956,23 @@ const tokenCell = document.createElement("td");
 tokenCell.innerHTML = `
 <div style="font-weight:700;">${cleanText(position.token_id, 120) || "—"}</div>
 <div class="dim mono">${shortenWallet(position.mint_address)}</div>
+<div class="dim">${cleanText(position.linked_operator_cluster_id, 80) || "No cluster"}</div>
 `;
 
 const stageCell = document.createElement("td");
 stageCell.appendChild(
-createPill(titleCase(position.stage || "unknown"), getSentinelStageVariant(position.stage))
+createPill(
+titleCase(position.stage || "unknown"),
+getSentinelStageVariant(position.stage)
+)
 );
 
 const modeCell = document.createElement("td");
 modeCell.appendChild(
-createPill(titleCase(position.execution_mode || "paper"), getSentinelModeVariant(position.execution_mode))
+createPill(
+titleCase(position.execution_mode || "paper"),
+getSentinelModeVariant(position.execution_mode)
+)
 );
 
 const costCell = document.createElement("td");
@@ -722,13 +989,17 @@ unrealizedCell.textContent = formatCurrency(position.unrealized_pnl_usd);
 
 const bankedCell = document.createElement("td");
 bankedCell.appendChild(
-createPill(position.has_banked_10x ? "Yes" : "No", position.has_banked_10x ? "good" : "neutral")
+createPill(
+position.has_banked_10x ? "Yes" : "No",
+position.has_banked_10x ? "good" : "neutral"
+)
 );
 
 const openedCell = document.createElement("td");
 openedCell.innerHTML = `
 <div>${formatDateTime(position.opened_at)}</div>
 <div class="dim">${position.closed_at ? `Closed ${formatDateTime(position.closed_at)}` : ""}</div>
+<div class="dim">${position.invalidated_at ? `Invalidated ${formatDateTime(position.invalidated_at)}` : ""}</div>
 `;
 
 [
@@ -780,7 +1051,10 @@ decisionCell.textContent = titleCase(event.decision || "—");
 
 const modeCell = document.createElement("td");
 modeCell.appendChild(
-createPill(titleCase(event.execution_mode || "—"), getSentinelModeVariant(event.execution_mode))
+createPill(
+titleCase(event.execution_mode || "—"),
+getSentinelModeVariant(event.execution_mode)
+)
 );
 
 const tokenCell = document.createElement("td");
@@ -802,6 +1076,65 @@ getExecutionStatusVariant(event.execution_status)
 
 [timeCell, eventCell, decisionCell, modeCell, tokenCell, reasonsCell, statusCell].forEach(
 (cell) => row.appendChild(cell)
+);
+
+tbody.appendChild(row);
+});
+}
+
+function renderSentinelAdminAudit() {
+const tbody = els.sentinelAdminAuditTableBody;
+if (!tbody) return;
+
+tbody.innerHTML = "";
+if (!state.sentinel.adminAudit.length) {
+renderTableEmpty(tbody, 6, "No Sentinel admin audit entries found.");
+return;
+}
+
+state.sentinel.adminAudit.forEach((entry) => {
+const row = document.createElement("tr");
+
+const timeCell = document.createElement("td");
+timeCell.innerHTML = `
+<div>${formatDateTime(entry.created_at)}</div>
+<div class="dim">${cleanText(entry.status, 64) || "—"}</div>
+`;
+
+const actionCell = document.createElement("td");
+actionCell.innerHTML = `
+<div style="font-weight:700;">${titleCase(entry.action || "event")}</div>
+<div class="dim">${cleanText(entry.notes, 200) || ""}</div>
+`;
+
+const actorCell = document.createElement("td");
+actorCell.innerHTML = `
+<div>${cleanText(entry.actor_id, 120) || "—"}</div>
+<div class="dim">${cleanText(entry.actor_type, 120) || "—"}</div>
+`;
+
+const targetCell = document.createElement("td");
+targetCell.innerHTML = `
+<div>${cleanText(entry.target_type, 120) || "—"}</div>
+<div class="dim">${cleanText(entry.target_id, 120) || "—"}</div>
+`;
+
+const detailsCell = document.createElement("td");
+const detailValue =
+entry.details_json ??
+entry.metadata_json ??
+entry.payload_json ??
+entry.old_state_json ??
+entry.new_state_json ??
+null;
+detailsCell.textContent = cleanText(stringifyCompact(detailValue), 300);
+
+const stateCell = document.createElement("td");
+stateCell.textContent =
+cleanText(stringifyCompact(entry.new_state_json || entry.old_state_json), 300) || "—";
+
+[timeCell, actionCell, actorCell, targetCell, detailsCell, stateCell].forEach((cell) =>
+row.appendChild(cell)
 );
 
 tbody.appendChild(row);
@@ -901,43 +1234,52 @@ return;
 if (els.caseDetailEmpty) els.caseDetailEmpty.style.display = "none";
 if (els.caseDetailPanel) els.caseDetailPanel.style.display = "grid";
 
-els.detailCaseId.textContent = `#${item.id}`;
-els.detailCaseType.textContent = cleanText(item.case_type, 40) || "—";
-els.detailStatus.textContent = cleanText(item.status, 40) || "—";
-els.detailRisk.textContent = `${cleanText(item.risk_level, 40) || "low"} / ${Number(item.risk_score || 0)}`;
+setText(els.detailCaseId, `#${item.id}`);
+setText(els.detailCaseType, cleanText(item.case_type, 40) || "—");
+setText(els.detailStatus, cleanText(item.status, 40) || "—");
+setText(
+els.detailRisk,
+`${cleanText(item.risk_level, 40) || "low"} / ${Number(item.risk_score || 0)}`
+);
 
-els.detailReviewReason.textContent = cleanText(item.review_reason, 5000) || "—";
+setText(els.detailReviewReason, cleanText(item.review_reason, 5000) || "—");
 
-els.detailWallet.textContent = cleanText(item.profile?.wallet_address, 200) || "—";
-els.detailProfileType.textContent = cleanText(item.profile?.profile_type, 40) || "—";
-els.detailProfileStatus.textContent = cleanText(item.profile?.status, 40) || "—";
-els.detailProfileRisk.textContent = cleanText(item.profile?.risk_rating, 40) || "—";
-els.detailCountry.textContent = cleanText(item.profile?.country_code, 20) || "—";
-els.detailManualReview.textContent = item.profile?.manual_review_required
+setText(els.detailWallet, cleanText(item.profile?.wallet_address, 200) || "—");
+setText(els.detailProfileType, cleanText(item.profile?.profile_type, 40) || "—");
+setText(els.detailProfileStatus, cleanText(item.profile?.status, 40) || "—");
+setText(els.detailProfileRisk, cleanText(item.profile?.risk_rating, 40) || "—");
+setText(els.detailCountry, cleanText(item.profile?.country_code, 20) || "—");
+setText(
+els.detailManualReview,
+item.profile?.manual_review_required
 ? cleanText(item.profile?.manual_review_reason, 500) || "Required"
-: "No";
+: "No"
+);
 
 const profileName =
 cleanText(item.profile?.entity_name, 200) ||
 cleanText(item.profile?.display_name, 200) ||
 cleanText(item.profile?.legal_name, 200) ||
 "—";
-els.detailProfileName.textContent = profileName;
+setText(els.detailProfileName, profileName);
 
 const launchName = cleanText(item.launch?.token_name, 200);
 const symbol = cleanText(item.launch?.symbol, 40);
-els.detailLaunchName.textContent = launchName
-? `${launchName}${symbol ? ` (${symbol})` : ""}`
-: "—";
+setText(
+els.detailLaunchName,
+launchName ? `${launchName}${symbol ? ` (${symbol})` : ""}` : "—"
+);
 
-els.detailLaunchStatus.textContent = cleanText(item.launch?.status, 80) || "—";
-els.detailLaunchTemplate.textContent = cleanText(item.launch?.template, 80) || "—";
-els.detailBuilderWallet.textContent = cleanText(item.launch?.builder_wallet, 200) || "—";
+setText(els.detailLaunchStatus, cleanText(item.launch?.status, 80) || "—");
+setText(els.detailLaunchTemplate, cleanText(item.launch?.template, 80) || "—");
+setText(els.detailBuilderWallet, cleanText(item.launch?.builder_wallet, 200) || "—");
 
-els.assignedToInput.value = cleanText(item.assigned_to, 120);
-els.actionNotes.value = "";
-els.escalationRiskLevel.value =
-cleanText(item.risk_level, 32).toLowerCase() || "high";
+setValue(els.assignedToInput, cleanText(item.assigned_to, 120));
+setValue(els.actionNotes, "");
+setValue(
+els.escalationRiskLevel,
+cleanText(item.risk_level, 32).toLowerCase() || "high"
+);
 }
 
 function buildCaseQueryString() {
@@ -977,7 +1319,7 @@ updateComplianceSummary();
 if (state.selectedCaseId) {
 const selected = getSelectedCase();
 if (selected) {
-await loadCaseDetail(selected.id, { quiet: true, manageLoading: false });
+await loadCaseDetail(state.selectedCaseId, { quiet: true, manageLoading: false });
 } else {
 renderCaseDetail(null);
 }
@@ -1063,25 +1405,12 @@ endCasesLoading();
 }
 }
 
-async function loadSentinelSettings({ manageLoading = true } = {}) {
+async function loadSentinelStatus({ manageLoading = true } = {}) {
 if (manageLoading) beginSentinelLoading();
 try {
-const payload = await apiFetch(`/api/compliance-admin/sentinel/settings`);
-const settings = payload?.settings || null;
-state.sentinel.settings = settings;
-applySentinelSettingsToInputs(settings);
-return settings;
-} finally {
-if (manageLoading) endSentinelLoading();
-}
-}
-
-async function loadSentinelSummary({ manageLoading = true } = {}) {
-if (manageLoading) beginSentinelLoading();
-try {
-const payload = await apiFetch(`/api/compliance-admin/sentinel/summary`);
-renderSentinelSummary(payload?.summary || null);
-return payload?.summary || null;
+const payload = await apiFetch(`/api/compliance-admin/sentinel/status`);
+renderSentinelStatus(payload);
+return payload;
 } finally {
 if (manageLoading) endSentinelLoading();
 }
@@ -1168,15 +1497,41 @@ if (manageLoading) endSentinelLoading();
 }
 }
 
+function buildSentinelAdminAuditQueryString() {
+const params = new URLSearchParams();
+if (state.sentinel.filters.adminAuditAction) {
+params.set("action", state.sentinel.filters.adminAuditAction);
+}
+if (state.sentinel.filters.adminAuditActorId) {
+params.set("actor_id", state.sentinel.filters.adminAuditActorId);
+}
+if (state.sentinel.filters.adminAuditTargetType) {
+params.set("target_type", state.sentinel.filters.adminAuditTargetType);
+}
+params.set("limit", "100");
+return params.toString();
+}
+
+async function loadSentinelAdminAudit({ manageLoading = true } = {}) {
+if (manageLoading) beginSentinelLoading();
+try {
+const queryString = buildSentinelAdminAuditQueryString();
+const payload = await apiFetch(
+`/api/compliance-admin/sentinel/admin-audit${queryString ? `?${queryString}` : ""}`
+);
+state.sentinel.adminAudit = Array.isArray(payload?.audit) ? payload.audit : [];
+renderSentinelAdminAudit();
+return state.sentinel.adminAudit;
+} finally {
+if (manageLoading) endSentinelLoading();
+}
+}
+
 function syncSentinelFiltersFromInputs() {
-state.sentinel.filters.statsDate = cleanText(
-els.sentinelStatsDateInput?.value,
-32
-) || new Date().toISOString().slice(0, 10);
-state.sentinel.filters.statsMode = cleanText(
-els.sentinelStatsModeFilter?.value,
-64
-) || "paper";
+state.sentinel.filters.statsDate =
+cleanText(els.sentinelStatsDateInput?.value, 32) || new Date().toISOString().slice(0, 10);
+state.sentinel.filters.statsMode =
+cleanText(els.sentinelStatsModeFilter?.value, 64) || "paper";
 
 state.sentinel.filters.positionStage = cleanText(
 els.sentinelPositionStageFilter?.value,
@@ -1203,6 +1558,19 @@ state.sentinel.filters.auditTokenId = cleanText(
 els.sentinelAuditTokenFilter?.value,
 255
 );
+
+state.sentinel.filters.adminAuditAction = cleanText(
+els.sentinelAdminAuditActionFilter?.value,
+120
+);
+state.sentinel.filters.adminAuditActorId = cleanText(
+els.sentinelAdminAuditActorFilter?.value,
+255
+);
+state.sentinel.filters.adminAuditTargetType = cleanText(
+els.sentinelAdminAuditTargetTypeFilter?.value,
+120
+);
 }
 
 async function loadSentinelBundle({ showSuccess = false } = {}) {
@@ -1211,11 +1579,11 @@ try {
 syncSentinelFiltersFromInputs();
 
 const results = await Promise.allSettled([
-loadSentinelSettings({ manageLoading: false }),
-loadSentinelSummary({ manageLoading: false }),
+loadSentinelStatus({ manageLoading: false }),
 loadSentinelStats({ manageLoading: false }),
 loadSentinelPositions({ manageLoading: false }),
 loadSentinelAudit({ manageLoading: false }),
+loadSentinelAdminAudit({ manageLoading: false }),
 ]);
 
 const failures = results.filter((result) => result.status === "rejected");
@@ -1239,10 +1607,12 @@ endSentinelLoading();
 }
 }
 
-function getRequiredNumber(inputEl, label, options = {}) {
-const raw = cleanText(inputEl?.value, 120);
+function getOptionalNumber(inputEl, fallback, label, options = {}) {
+if (!inputEl) return fallback;
+const raw = cleanText(inputEl.value, 120);
+if (!raw.length) return fallback;
 const value = Number(raw);
-if (!raw.length || !Number.isFinite(value)) {
+if (!Number.isFinite(value)) {
 throw new Error(`${label} must be a valid number.`);
 }
 if (options.min != null && value < options.min) {
@@ -1254,109 +1624,255 @@ throw new Error(`${label} must be no more than ${options.max}.`);
 return value;
 }
 
+function getOptionalBool(inputEl, fallback) {
+if (!inputEl) return Boolean(fallback);
+return parseBool(inputEl.value, Boolean(fallback));
+}
+
 function buildSentinelSettingsPayload() {
+const base = {
+...(state.sentinel.settings || {}),
+};
+
 return {
 actor_id: getActorId(),
 
-watcher_enabled: parseBool(els.sentinelWatcherEnabledInput?.value, true),
-auto_bank_enabled: parseBool(els.sentinelAutoBankEnabledInput?.value, true),
+watcher_enabled: getOptionalBool(els.sentinelWatcherEnabledInput, base.watcher_enabled),
+auto_bank_enabled: getOptionalBool(els.sentinelAutoBankEnabledInput, base.auto_bank_enabled),
 
-scout_usd: getRequiredNumber(els.sentinelScoutUsdInput, "Scout USD", { min: 0.01 }),
-sniper_add_usd: getRequiredNumber(els.sentinelSniperAddUsdInput, "Sniper Add USD", {
+scout_usd: getOptionalNumber(els.sentinelScoutUsdInput, base.scout_usd, "Scout USD", {
 min: 0.01,
 }),
-max_total_position_usd: getRequiredNumber(
+sniper_add_usd: getOptionalNumber(
+els.sentinelSniperAddUsdInput,
+base.sniper_add_usd,
+"Sniper Add USD",
+{ min: 0.01 }
+),
+max_total_position_usd: getOptionalNumber(
 els.sentinelMaxTotalPositionUsdInput,
+base.max_total_position_usd,
 "Max Total Position USD",
 { min: 0.01 }
 ),
-max_open_positions: getRequiredNumber(
+max_open_positions: getOptionalNumber(
 els.sentinelMaxOpenPositionsInput,
+base.max_open_positions,
 "Max Open Positions",
 { min: 1 }
 ),
-max_daily_loss_usd: getRequiredNumber(
+max_daily_loss_usd: getOptionalNumber(
 els.sentinelMaxDailyLossUsdInput,
+base.max_daily_loss_usd,
 "Max Daily Loss USD",
 { min: 0 }
 ),
-max_consecutive_failures: getRequiredNumber(
+max_consecutive_failures: getOptionalNumber(
 els.sentinelMaxConsecutiveFailuresInput,
+base.max_consecutive_failures,
 "Max Consecutive Failures",
 { min: 0 }
 ),
-max_daily_scout_spend_usd: getRequiredNumber(
+max_daily_scout_spend_usd: getOptionalNumber(
 els.sentinelMaxDailyScoutSpendUsdInput,
+base.max_daily_scout_spend_usd,
 "Max Daily Scout Spend USD",
 { min: 0 }
 ),
-max_daily_sniper_spend_usd: getRequiredNumber(
+max_daily_sniper_spend_usd: getOptionalNumber(
 els.sentinelMaxDailySniperSpendUsdInput,
+base.max_daily_sniper_spend_usd,
 "Max Daily Sniper Spend USD",
 { min: 0 }
 ),
 
-auto_bank_multiple: getRequiredNumber(
+auto_bank_multiple: getOptionalNumber(
 els.sentinelAutoBankMultipleInput,
+base.auto_bank_multiple,
 "Auto-Bank Multiple",
 { min: 1 }
 ),
-auto_bank_fraction: getRequiredNumber(
+auto_bank_fraction: getOptionalNumber(
 els.sentinelAutoBankFractionInput,
+base.auto_bank_fraction,
 "Auto-Bank Fraction",
 { min: 0.01, max: 1 }
 ),
 
-min_operator_quality_score: getRequiredNumber(
+min_operator_quality_score: getOptionalNumber(
 els.sentinelMinOperatorQualityScoreInput,
+base.min_operator_quality_score,
 "Min Operator Quality Score",
 { min: 0, max: 100 }
 ),
-max_hidden_control_risk: getRequiredNumber(
+max_hidden_control_risk: getOptionalNumber(
 els.sentinelMaxHiddenControlRiskInput,
+base.max_hidden_control_risk,
 "Max Hidden Control Risk",
 { min: 0, max: 100 }
 ),
-min_regime_score_for_scout: getRequiredNumber(
+min_regime_score_for_scout: getOptionalNumber(
 els.sentinelMinRegimeScoreScoutInput,
+base.min_regime_score_for_scout,
 "Min Regime Score For Scout",
 { min: 0, max: 100 }
 ),
-min_regime_score_for_sniper: getRequiredNumber(
+min_regime_score_for_sniper: getOptionalNumber(
 els.sentinelMinRegimeScoreSniperInput,
+base.min_regime_score_for_sniper,
 "Min Regime Score For Sniper",
 { min: 0, max: 100 }
 ),
-min_reclaim_strength_score: getRequiredNumber(
+min_reclaim_strength_score: getOptionalNumber(
 els.sentinelMinReclaimStrengthScoreInput,
+base.min_reclaim_strength_score,
 "Min Reclaim Strength Score",
 { min: 0, max: 100 }
 ),
-min_buy_pressure_score: getRequiredNumber(
+min_buy_pressure_score: getOptionalNumber(
 els.sentinelMinBuyPressureScoreInput,
+base.min_buy_pressure_score,
 "Min Buy Pressure Score",
 { min: 0, max: 100 }
 ),
-min_persistence_score: getRequiredNumber(
+min_persistence_score: getOptionalNumber(
 els.sentinelMinPersistenceScoreInput,
+base.min_persistence_score,
 "Min Persistence Score",
 { min: 0, max: 100 }
 ),
-min_post_entry_health_score: getRequiredNumber(
+min_post_entry_health_score: getOptionalNumber(
 els.sentinelMinPostEntryHealthScoreInput,
+base.min_post_entry_health_score,
 "Min Post-Entry Health Score",
 { min: 0, max: 100 }
 ),
 
-enable_scout: parseBool(els.sentinelEnableScoutInput?.value, true),
-enable_sniper: parseBool(els.sentinelEnableSniperInput?.value, true),
-enable_runner_management: parseBool(
-els.sentinelEnableRunnerManagementInput?.value,
-true
+enable_scout: getOptionalBool(els.sentinelEnableScoutInput, base.enable_scout),
+enable_sniper: getOptionalBool(els.sentinelEnableSniperInput, base.enable_sniper),
+enable_runner_management: getOptionalBool(
+els.sentinelEnableRunnerManagementInput,
+base.enable_runner_management
 ),
-risk_off_disable_new_entries: parseBool(
-els.sentinelRiskOffDisableNewEntriesInput?.value,
-true
+risk_off_disable_new_entries: getOptionalBool(
+els.sentinelRiskOffDisableNewEntriesInput,
+base.risk_off_disable_new_entries
+),
+
+// Advanced aligned fields
+max_positions_per_operator_cluster: getOptionalNumber(
+els.sentinelMaxPositionsPerOperatorClusterInput,
+base.max_positions_per_operator_cluster,
+"Max Positions Per Operator Cluster",
+{ min: 1 }
+),
+max_tokens_per_hour: getOptionalNumber(
+els.sentinelMaxTokensPerHourInput,
+base.max_tokens_per_hour,
+"Max Tokens Per Hour",
+{ min: 0 }
+),
+cooldown_after_close_sec: getOptionalNumber(
+els.sentinelCooldownAfterCloseSecInput,
+base.cooldown_after_close_sec,
+"Cooldown After Close Seconds",
+{ min: 0 }
+),
+cooldown_after_invalidation_sec: getOptionalNumber(
+els.sentinelCooldownAfterInvalidationSecInput,
+base.cooldown_after_invalidation_sec,
+"Cooldown After Invalidation Seconds",
+{ min: 0 }
+),
+early_fail_timeout_sec: getOptionalNumber(
+els.sentinelEarlyFailTimeoutSecInput,
+base.early_fail_timeout_sec,
+"Early Fail Timeout Seconds",
+{ min: 0 }
+),
+weak_stall_timeout_sec: getOptionalNumber(
+els.sentinelWeakStallTimeoutSecInput,
+base.weak_stall_timeout_sec,
+"Weak Stall Timeout Seconds",
+{ min: 0 }
+),
+runner_failed_breakout_limit: getOptionalNumber(
+els.sentinelRunnerFailedBreakoutLimitInput,
+base.runner_failed_breakout_limit,
+"Runner Failed Breakout Limit",
+{ min: 0 }
+),
+max_contamination_risk: getOptionalNumber(
+els.sentinelMaxContaminationRiskInput,
+base.max_contamination_risk,
+"Max Contamination Risk",
+{ min: 0, max: 100 }
+),
+max_wallet_coordination_risk: getOptionalNumber(
+els.sentinelMaxWalletCoordinationRiskInput,
+base.max_wallet_coordination_risk,
+"Max Wallet Coordination Risk",
+{ min: 0, max: 100 }
+),
+max_top_holder_pct: getOptionalNumber(
+els.sentinelMaxTopHolderPctInput,
+base.max_top_holder_pct,
+"Max Top Holder %",
+{ min: 0, max: 100 }
+),
+max_top_5_holder_pct: getOptionalNumber(
+els.sentinelMaxTop5HolderPctInput,
+base.max_top_5_holder_pct,
+"Max Top 5 Holder %",
+{ min: 0, max: 100 }
+),
+min_liquidity_usd: getOptionalNumber(
+els.sentinelMinLiquidityUsdInput,
+base.min_liquidity_usd,
+"Min Liquidity USD",
+{ min: 0 }
+),
+max_spread_bps: getOptionalNumber(
+els.sentinelMaxSpreadBpsInput,
+base.max_spread_bps,
+"Max Spread BPS",
+{ min: 0 }
+),
+max_price_impact_bps: getOptionalNumber(
+els.sentinelMaxPriceImpactBpsInput,
+base.max_price_impact_bps,
+"Max Price Impact BPS",
+{ min: 0 }
+),
+max_vertical_extension_score_for_add: getOptionalNumber(
+els.sentinelMaxVerticalExtensionScoreForAddInput,
+base.max_vertical_extension_score_for_add,
+"Max Vertical Extension Score For Add",
+{ min: 0, max: 100 }
+),
+max_insider_sell_score: getOptionalNumber(
+els.sentinelMaxInsiderSellScoreInput,
+base.max_insider_sell_score,
+"Max Insider Sell Score",
+{ min: 0, max: 100 }
+),
+max_liquidity_decay_score: getOptionalNumber(
+els.sentinelMaxLiquidityDecayScoreInput,
+base.max_liquidity_decay_score,
+"Max Liquidity Decay Score",
+{ min: 0, max: 100 }
+),
+enable_market_regime_filter: getOptionalBool(
+els.sentinelEnableMarketRegimeFilterInput,
+base.enable_market_regime_filter
+),
+enable_operator_filter: getOptionalBool(
+els.sentinelEnableOperatorFilterInput,
+base.enable_operator_filter
+),
+enable_hard_rejects: getOptionalBool(
+els.sentinelEnableHardRejectsInput,
+base.enable_hard_rejects
 ),
 };
 }
@@ -1370,10 +1886,30 @@ method: "PATCH",
 body: JSON.stringify(body),
 });
 
-const settings = payload?.settings || null;
-state.sentinel.settings = settings;
-applySentinelSettingsToInputs(settings);
-setSentinelBanner("Sentinel settings saved.", "good");
+if (payload?.settings) {
+applySentinelSettingsToInputs(payload.settings);
+}
+if (payload?.engine) {
+renderSentinelEngine(payload.engine);
+}
+
+await Promise.all([
+loadSentinelStatus({ manageLoading: false }),
+loadSentinelStats({ manageLoading: false }),
+loadSentinelPositions({ manageLoading: false }),
+loadSentinelAudit({ manageLoading: false }),
+loadSentinelAdminAudit({ manageLoading: false }),
+]);
+
+const changedFields = Array.isArray(payload?.changed_fields)
+? payload.changed_fields
+: [];
+setSentinelBanner(
+changedFields.length
+? `Sentinel settings saved. Changed: ${changedFields.join(", ")}.`
+: "Sentinel settings saved.",
+"good"
+);
 } catch (error) {
 setSentinelBanner(error?.message || "Failed to save Sentinel settings.", "bad");
 } finally {
@@ -1432,16 +1968,17 @@ requestedMode === "armed_mainnet" || requestedMode === "live_mainnet",
 });
 
 const currentMode = cleanText(payload?.current_mode, 64) || requestedMode;
+
 if (els.sentinelStatsModeFilter) {
 els.sentinelStatsModeFilter.value = currentMode;
 }
 
-syncSentinelFiltersFromInputs();
 await Promise.all([
-loadSentinelSettings({ manageLoading: false }),
-loadSentinelSummary({ manageLoading: false }),
+loadSentinelStatus({ manageLoading: false }),
 loadSentinelStats({ manageLoading: false }),
+loadSentinelPositions({ manageLoading: false }),
 loadSentinelAudit({ manageLoading: false }),
+loadSentinelAdminAudit({ manageLoading: false }),
 ]);
 
 setSentinelBanner(`Sentinel mode switched to ${titleCase(currentMode)}.`, "good");
@@ -1589,6 +2126,19 @@ setSentinelBanner(error?.message || "Failed to refresh Sentinel audit.", "bad");
 endSentinelLoading();
 }
 });
+
+els.refreshSentinelAdminAuditButton?.addEventListener("click", async () => {
+beginSentinelLoading();
+try {
+syncSentinelFiltersFromInputs();
+await loadSentinelAdminAudit({ manageLoading: false });
+clearSentinelBanner();
+} catch (error) {
+setSentinelBanner(error?.message || "Failed to refresh Sentinel admin audit.", "bad");
+} finally {
+endSentinelLoading();
+}
+});
 }
 
 function initDefaults() {
@@ -1611,10 +2161,7 @@ bindSentinelActions();
 syncCaseFiltersFromInputs();
 syncSentinelFiltersFromInputs();
 
-await Promise.all([
-loadCases(),
-loadSentinelBundle(),
-]);
+await Promise.all([loadCases(), loadSentinelBundle()]);
 }
 
 init().catch((error) => {

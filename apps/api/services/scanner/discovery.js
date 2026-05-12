@@ -2,6 +2,8 @@ import { PublicKey } from "@solana/web3.js";
 import { TOKEN_PROGRAM_ID, TOKEN_2022_PROGRAM_ID } from "@solana/spl-token";
 import { db as scannerDb } from "../../db.js";
 
+const PROVIDER_NAME = "parsed_block_initialize_mint";
+
 const DEFAULT_POLL_INTERVAL_MS = 8000;
 const DEFAULT_STARTUP_SLOT_LOOKBACK = 250;
 const DEFAULT_MAX_SLOTS_PER_TICK = 120;
@@ -52,15 +54,22 @@ return error;
 async function withTimeout(factory, ms, label) {
 const safeMs = Math.max(250, toInt(ms, 1000) || 1000);
 
-return await Promise.race([
-Promise.resolve().then(factory),
-new Promise((_, reject) => {
+return await new Promise((resolve, reject) => {
 const timer = setTimeout(() => {
-clearTimeout(timer);
 reject(buildTimeoutError(label, safeMs));
 }, safeMs);
-}),
-]);
+
+Promise.resolve()
+.then(factory)
+.then((value) => {
+clearTimeout(timer);
+resolve(value);
+})
+.catch((error) => {
+clearTimeout(timer);
+reject(error);
+});
+});
 }
 
 function isSupportedTokenProgram(programId) {
@@ -139,7 +148,7 @@ mint: mintStr,
 slot,
 signature,
 discovered_at: nowIso(),
-source: "parsed_block_initialize_mint",
+source: PROVIDER_NAME,
 });
 }
 }
@@ -193,6 +202,27 @@ return Promise.all(Array.from({ length: safeLimit }, () => worker())).then(
 );
 }
 
+function dedupeCandidates(candidates = []) {
+const map = new Map();
+
+for (const candidate of Array.isArray(candidates) ? candidates : []) {
+const mint = normalizeCandidateMint(candidate?.mint);
+if (!mint) continue;
+
+if (!map.has(mint)) {
+map.set(mint, {
+mint,
+slot: candidate?.slot ?? null,
+signature: cleanText(candidate?.signature, 128) || null,
+discovered_at: cleanText(candidate?.discovered_at, 64) || nowIso(),
+source: cleanText(candidate?.source, 120) || PROVIDER_NAME,
+});
+}
+}
+
+return Array.from(map.values());
+}
+
 function buildEmptyTickSummary() {
 return {
 started_at: null,
@@ -208,6 +238,9 @@ candidates_found: 0,
 candidates_scanned: 0,
 candidates_skipped_seen: 0,
 candidates_skipped_cached: 0,
+candidates_deferred: 0,
+pending_candidates_start: 0,
+pending_candidates_end: 0,
 scan_successes: 0,
 scan_failures: 0,
 };
@@ -232,6 +265,7 @@ scanTimeoutMs: state.scanTimeoutMs,
 tickDeadlineMs: state.tickDeadlineMs,
 debug: Boolean(state.debug),
 lastProcessedSlot: state.lastProcessedSlot,
+pendingCandidates: state.pendingCandidates?.size || 0,
 lastStartedAt: state.lastStartedAt,
 lastStoppedAt: state.lastStoppedAt,
 lastTickStartedAt: state.lastTickStartedAt,
@@ -243,7 +277,7 @@ totalCandidatesScanned: state.totalCandidatesScanned || 0,
 totalScanSuccesses: state.totalScanSuccesses || 0,
 totalScanFailures: state.totalScanFailures || 0,
 lastTickSummary: state.lastTickSummary || buildEmptyTickSummary(),
-providerName: "parsed_block_initialize_mint",
+providerName: PROVIDER_NAME,
 };
 }
 
@@ -251,6 +285,7 @@ export function createScannerDiscoveryService(deps = {}) {
 const { connection, rpcRetry, scanSecurityForMint, logger = console } = deps;
 
 ensureFunction(connection?.getSlot?.bind?.(connection), "connection.getSlot");
+ensureFunction(connection?.getBlocks?.bind?.(connection), "connection.getBlocks");
 ensureFunction(
 connection?.getParsedBlock?.bind?.(connection),
 "connection.getParsedBlock"
@@ -279,6 +314,7 @@ debug:
 cleanText(process.env.SCANNER_DISCOVERY_DEBUG || "", 16).toLowerCase() ===
 "true",
 seenMints: new Map(),
+pendingCandidates: new Map(),
 lastProcessedSlot: null,
 lastStartedAt: null,
 lastStoppedAt: null,
@@ -348,23 +384,56 @@ pruneSeenMints();
 return state.seenMints.has(mintStr);
 }
 
+function enqueuePendingCandidates(candidates = []) {
+for (const candidate of dedupeCandidates(candidates)) {
+const mint = candidate.mint;
+if (!mint) continue;
+if (hasRecentSeen(mint)) continue;
+
+if (!state.pendingCandidates.has(mint)) {
+state.pendingCandidates.set(mint, candidate);
+}
+}
+}
+
+function getCombinedCandidateQueue(newCandidates = []) {
+const pending = Array.from(state.pendingCandidates.values());
+const combined = dedupeCandidates([...pending, ...newCandidates]);
+const safeMaxScans = Math.max(
+1,
+toInt(state.maxScansPerTick, DEFAULT_MAX_SCANS_PER_TICK) ||
+DEFAULT_MAX_SCANS_PER_TICK
+);
+
+const ready = combined.slice(0, safeMaxScans);
+const deferred = combined.slice(safeMaxScans);
+
+state.pendingCandidates.clear();
+enqueuePendingCandidates(deferred);
+
+return {
+ready,
+deferredCount: deferred.length,
+};
+}
+
 function isAlreadyCachedRecently(mintStr) {
 try {
 const row = scannerDb
 .prepare(
 `
-SELECT created_at
+SELECT COALESCE(updated_at, created_at) AS cached_at
 FROM scan_cache
 WHERE mint = ?
-ORDER BY datetime(created_at) DESC, id DESC
+ORDER BY datetime(COALESCE(updated_at, created_at)) DESC, id DESC
 LIMIT 1
 `
 )
 .get(mintStr);
 
-if (!row?.created_at) return false;
+if (!row?.cached_at) return false;
 
-const ts = Date.parse(row.created_at);
+const ts = Date.parse(row.cached_at);
 if (!Number.isFinite(ts)) return true;
 
 return Date.now() - ts < Math.max(60_000, state.cacheSkipWindowMs);
@@ -488,7 +557,15 @@ mint: null,
 
 try {
 const result = await withTimeout(
-() => scanSecurityForMint({ mint, mintStr }),
+() =>
+scanSecurityForMint({
+mint,
+mintStr,
+source: cleanText(candidate?.source, 120) || PROVIDER_NAME,
+slot: candidate?.slot ?? null,
+signature: cleanText(candidate?.signature, 128) || null,
+discovered_at: cleanText(candidate?.discovered_at, 64) || nowIso(),
+}),
 state.scanTimeoutMs,
 `scanSecurityForMint ${mintStr}`
 );
@@ -578,6 +655,7 @@ state.tickCount += 1;
 
 const summary = buildEmptyTickSummary();
 summary.started_at = state.lastTickStartedAt;
+summary.pending_candidates_start = state.pendingCandidates.size;
 
 try {
 debugLog("tick start", {
@@ -620,6 +698,7 @@ lastProcessedSlot: state.lastProcessedSlot,
 if (slotEnd < slotStart) {
 state.lastTickFinishedAt = nowIso();
 summary.finished_at = state.lastTickFinishedAt;
+summary.pending_candidates_end = state.pendingCandidates.size;
 state.lastTickSummary = summary;
 return buildStatus(state);
 }
@@ -638,7 +717,7 @@ slotsSeen: summary.slots_seen,
 });
 
 const {
-candidates: allCandidates,
+candidates: newCandidates,
 lastAttemptedSlot,
 deadlineHit,
 } = await collectCandidatesFromSlots(slots, summary, deadlineAt);
@@ -646,27 +725,23 @@ deadlineHit,
 summary.last_attempted_slot = lastAttemptedSlot ?? null;
 summary.deadline_hit = Boolean(deadlineHit);
 
-const dedupedCandidates = Array.from(
-new Map(allCandidates.map((candidate) => [candidate.mint, candidate])).values()
-);
+const dedupedNewCandidates = dedupeCandidates(newCandidates);
+summary.candidates_found = dedupedNewCandidates.length;
+state.totalCandidatesFound += dedupedNewCandidates.length;
 
-summary.candidates_found = dedupedCandidates.length;
-state.totalCandidatesFound += dedupedCandidates.length;
-
-const cappedCandidates = dedupedCandidates.slice(
-0,
-Math.max(1, toInt(state.maxScansPerTick, DEFAULT_MAX_SCANS_PER_TICK))
-);
+const { ready, deferredCount } = getCombinedCandidateQueue(dedupedNewCandidates);
+summary.candidates_deferred = deferredCount;
 
 debugLog("candidate summary", {
 candidatesFound: summary.candidates_found,
-candidatesQueued: cappedCandidates.length,
+candidatesQueued: ready.length,
+candidatesDeferred: deferredCount,
 blocksLoaded: summary.blocks_loaded,
 deadlineHit,
 });
 
 const scanResults = await mapWithConcurrency(
-cappedCandidates,
+ready,
 state.scanConcurrency,
 scanCandidate
 );
@@ -707,11 +782,15 @@ error: result.error,
 }
 
 state.lastProcessedSlot = deadlineHit
-? Math.max(state.lastProcessedSlot ?? 0, lastAttemptedSlot ?? state.lastProcessedSlot ?? 0)
+? Math.max(
+state.lastProcessedSlot ?? 0,
+lastAttemptedSlot ?? state.lastProcessedSlot ?? 0
+)
 : slotEnd;
 
 state.lastTickFinishedAt = nowIso();
 summary.finished_at = state.lastTickFinishedAt;
+summary.pending_candidates_end = state.pendingCandidates.size;
 state.lastTickSummary = summary;
 
 debugLog("tick finish", {
@@ -727,6 +806,7 @@ at: nowIso(),
 };
 state.lastTickFinishedAt = nowIso();
 summary.finished_at = state.lastTickFinishedAt;
+summary.pending_candidates_end = state.pendingCandidates.size;
 state.lastTickSummary = summary;
 
 errorLog("tick failed", error);
