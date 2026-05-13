@@ -8,6 +8,21 @@ REASON_CODE.INSIDER_SELL_RISK_TOO_HIGH,
 REASON_CODE.OPERATOR_CLUSTER_LIMIT_REACHED,
 ]);
 
+const PLACEHOLDER_CLUSTER_IDS = new Set([
+"",
+"-",
+"—",
+"--",
+"unknown",
+"n/a",
+"na",
+"none",
+"null",
+"undefined",
+"unclustered",
+"unassigned",
+]);
+
 function cleanText(value, max = 255) {
 return String(value ?? "").trim().slice(0, max);
 }
@@ -69,6 +84,13 @@ if (num == null) return null;
 return clampScore(num, 0);
 }
 
+function normalizeClusterId(value) {
+const cleaned = cleanText(value, 255);
+if (!cleaned) return "";
+if (PLACEHOLDER_CLUSTER_IDS.has(cleaned.toLowerCase())) return "";
+return cleaned;
+}
+
 function normalizeSnapshot(snapshot = {}) {
 const tokenId = firstNonEmpty(
 snapshot.token_id,
@@ -93,7 +115,8 @@ snapshot.executionMode,
 snapshot.mode
 ) || null;
 
-const linkedOperatorClusterId = firstNonEmpty(
+const linkedOperatorClusterId = normalizeClusterId(
+firstDefined(
 snapshot.linked_operator_cluster_id,
 snapshot.linkedOperatorClusterId,
 snapshot.operator_cluster_id,
@@ -106,6 +129,7 @@ snapshot.activity?.primaryClusterId,
 snapshot.walletNetwork?.primaryClusterId,
 snapshot.wallet_network?.primary_cluster_id,
 snapshot.securityModel?.walletNetwork?.primaryClusterId
+)
 );
 
 const operatorQualityScore = firstFiniteNumber(
@@ -140,7 +164,7 @@ return {
 token_id: tokenId || mintAddress || "",
 mint_address: mintAddress || tokenId || "",
 execution_mode: executionMode,
-linked_operator_cluster_id: linkedOperatorClusterId || "",
+linked_operator_cluster_id: linkedOperatorClusterId,
 operator_quality_score: normalizeNullableScore(operatorQualityScore),
 insider_sell_score: normalizeNullableScore(insiderSellScore),
 };

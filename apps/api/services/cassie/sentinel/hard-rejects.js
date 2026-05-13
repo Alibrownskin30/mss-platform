@@ -268,27 +268,38 @@ firstDefined(snapshot.failed_breakout_count, snapshot.failedBreakoutCount)
 };
 }
 
-function buildCheck(code, actual, threshold, comparator, rejected, missing = false) {
+function buildCheck(
+code,
+actual,
+threshold,
+comparator,
+enabled,
+triggered,
+missing = false
+) {
 return {
 code,
 actual,
 threshold,
 comparator,
-rejected: Boolean(rejected),
+enabled: Boolean(enabled),
+triggered: Boolean(triggered),
+rejected: Boolean(enabled && triggered),
+advisory: Boolean(!enabled && triggered),
 missing: Boolean(missing),
 };
 }
 
 function greaterThanOrEqual(actual, threshold) {
-return actual != null && actual >= threshold;
+return actual != null && threshold != null && actual >= threshold;
 }
 
 function greaterThan(actual, threshold) {
-return actual != null && actual > threshold;
+return actual != null && threshold != null && actual > threshold;
 }
 
 function lessThan(actual, threshold) {
-return actual != null && actual < threshold;
+return actual != null && threshold != null && actual < threshold;
 }
 
 function evaluateRiskChecks(snapshot, thresholds) {
@@ -298,6 +309,7 @@ REASON_CODE.TRANSFER_RESTRICTION_RISK,
 snapshot.transfer_restriction_risk,
 thresholds.transfer_restriction_risk_gte,
 ">=",
+true,
 greaterThanOrEqual(
 snapshot.transfer_restriction_risk,
 thresholds.transfer_restriction_risk_gte
@@ -309,6 +321,7 @@ REASON_CODE.HONEYPOT_RISK,
 snapshot.honeypot_risk,
 thresholds.honeypot_risk_gte,
 ">=",
+true,
 greaterThanOrEqual(snapshot.honeypot_risk, thresholds.honeypot_risk_gte),
 snapshot.honeypot_risk == null
 ),
@@ -317,6 +330,7 @@ REASON_CODE.LIQUIDITY_BREAK_RISK,
 snapshot.liquidity_break_risk,
 thresholds.liquidity_break_risk_gte,
 ">=",
+true,
 greaterThanOrEqual(
 snapshot.liquidity_break_risk,
 thresholds.liquidity_break_risk_gte
@@ -328,6 +342,7 @@ REASON_CODE.SPOOFED_VOLUME_RISK,
 snapshot.spoofed_volume_risk,
 thresholds.spoofed_volume_risk_gte,
 ">=",
+true,
 greaterThanOrEqual(
 snapshot.spoofed_volume_risk,
 thresholds.spoofed_volume_risk_gte
@@ -344,6 +359,7 @@ REASON_CODE.LOW_LIQUIDITY,
 snapshot.liquidity_usd,
 thresholds.min_liquidity_usd,
 "<",
+Boolean(thresholds.enable_liquidity_checks),
 lessThan(snapshot.liquidity_usd, thresholds.min_liquidity_usd),
 snapshot.liquidity_usd == null
 ),
@@ -352,6 +368,7 @@ REASON_CODE.WIDE_SPREAD,
 snapshot.spread_bps,
 thresholds.max_spread_bps,
 ">",
+Boolean(thresholds.enable_liquidity_checks),
 greaterThan(snapshot.spread_bps, thresholds.max_spread_bps),
 snapshot.spread_bps == null
 ),
@@ -360,6 +377,7 @@ REASON_CODE.HIGH_PRICE_IMPACT,
 snapshot.price_impact_bps,
 thresholds.max_price_impact_bps,
 ">",
+Boolean(thresholds.enable_liquidity_checks),
 greaterThan(snapshot.price_impact_bps, thresholds.max_price_impact_bps),
 snapshot.price_impact_bps == null
 ),
@@ -373,6 +391,7 @@ REASON_CODE.TOP_HOLDER_TOO_CONCENTRATED,
 snapshot.top_holder_pct,
 thresholds.max_top_holder_pct,
 ">",
+Boolean(thresholds.enable_holder_checks),
 greaterThan(snapshot.top_holder_pct, thresholds.max_top_holder_pct),
 snapshot.top_holder_pct == null
 ),
@@ -381,6 +400,7 @@ REASON_CODE.TOP5_TOO_CONCENTRATED,
 snapshot.top_5_holder_pct,
 thresholds.max_top_5_holder_pct,
 ">",
+Boolean(thresholds.enable_holder_checks),
 greaterThan(snapshot.top_5_holder_pct, thresholds.max_top_5_holder_pct),
 snapshot.top_5_holder_pct == null
 ),
@@ -394,6 +414,7 @@ REASON_CODE.HIDDEN_CONTROL_TOO_HIGH,
 snapshot.hidden_control_risk,
 thresholds.max_hidden_control_risk,
 ">",
+true,
 greaterThan(snapshot.hidden_control_risk, thresholds.max_hidden_control_risk),
 snapshot.hidden_control_risk == null
 ),
@@ -402,6 +423,7 @@ REASON_CODE.CONTAMINATION_TOO_HIGH,
 snapshot.contamination_risk,
 thresholds.max_contamination_risk,
 ">",
+true,
 greaterThan(snapshot.contamination_risk, thresholds.max_contamination_risk),
 snapshot.contamination_risk == null
 ),
@@ -410,6 +432,7 @@ REASON_CODE.COORDINATION_RISK_TOO_HIGH,
 snapshot.wallet_coordination_risk,
 thresholds.max_wallet_coordination_risk,
 ">",
+true,
 greaterThan(
 snapshot.wallet_coordination_risk,
 thresholds.max_wallet_coordination_risk
@@ -423,8 +446,12 @@ function collectRejectedReasons(allChecks = []) {
 return allChecks.filter((check) => check.rejected).map((check) => check.code);
 }
 
+function collectAdvisoryReasons(allChecks = []) {
+return allChecks.filter((check) => check.advisory).map((check) => check.code);
+}
+
 function collectMissingMetrics(allChecks = []) {
-return allChecks.filter((check) => check.missing).map((check) => check.code);
+return allChecks.filter((check) => check.enabled && check.missing).map((check) => check.code);
 }
 
 export function getHardRejectReasonCodes() {
@@ -466,32 +493,25 @@ honeypot_risk_gte: paperMode ? 92 : 80,
 liquidity_break_risk_gte: paperMode ? 92 : 80,
 spoofed_volume_risk_gte: paperMode ? 90 : 75,
 
-min_liquidity_usd: paperMode
-? Math.min(safe.min_liquidity_usd, 100)
-: safe.min_liquidity_usd,
-max_spread_bps: paperMode
-? Math.max(safe.max_spread_bps, 1200)
-: safe.max_spread_bps,
-max_price_impact_bps: paperMode
-? Math.max(safe.max_price_impact_bps, 1500)
-: safe.max_price_impact_bps,
+min_liquidity_usd: safe.min_liquidity_usd,
+max_spread_bps: safe.max_spread_bps,
+max_price_impact_bps: safe.max_price_impact_bps,
 
-max_top_holder_pct: paperMode
-? Math.max(safe.max_top_holder_pct, 60)
-: safe.max_top_holder_pct,
-max_top_5_holder_pct: paperMode
-? Math.max(safe.max_top_5_holder_pct, 85)
-: safe.max_top_5_holder_pct,
+max_top_holder_pct: safe.max_top_holder_pct,
+max_top_5_holder_pct: safe.max_top_5_holder_pct,
 
 max_hidden_control_risk: paperMode
-? Math.max(safe.max_hidden_control_risk, 80)
+? Math.max(safe.max_hidden_control_risk, 97)
 : safe.max_hidden_control_risk,
 max_contamination_risk: paperMode
-? Math.max(safe.max_contamination_risk, 80)
+? Math.max(safe.max_contamination_risk, 97)
 : safe.max_contamination_risk,
 max_wallet_coordination_risk: paperMode
-? Math.max(safe.max_wallet_coordination_risk, 85)
+? Math.max(safe.max_wallet_coordination_risk, 97)
 : safe.max_wallet_coordination_risk,
+
+enable_liquidity_checks: !paperMode,
+enable_holder_checks: !paperMode,
 };
 }
 
@@ -516,6 +536,7 @@ if (!safeConfig.enable_hard_rejects) {
 return {
 rejected: false,
 reasons: [],
+advisory_reasons: [],
 snapshot: {
 ...safeSnapshot,
 execution_mode: executionMode,
@@ -525,6 +546,7 @@ thresholds,
 meta: {
 hard_rejects_enabled: false,
 rejected_check_count: 0,
+advisory_check_count: 0,
 total_check_count: 0,
 execution_mode: thresholds.execution_mode,
 paper_mode_relaxed: Boolean(thresholds.paper_mode_relaxed),
@@ -546,11 +568,13 @@ const checks = [
 ];
 
 const reasons = collectRejectedReasons(checks);
+const advisoryReasons = collectAdvisoryReasons(checks);
 const missingMetrics = collectMissingMetrics(checks);
 
 return {
 rejected: reasons.length > 0,
 reasons,
+advisory_reasons: advisoryReasons,
 snapshot: {
 ...safeSnapshot,
 execution_mode: executionMode,
@@ -560,6 +584,7 @@ thresholds,
 meta: {
 hard_rejects_enabled: true,
 rejected_check_count: reasons.length,
+advisory_check_count: advisoryReasons.length,
 total_check_count: checks.length,
 execution_mode: thresholds.execution_mode,
 paper_mode_relaxed: Boolean(thresholds.paper_mode_relaxed),
@@ -577,7 +602,9 @@ if (!result) {
 return {
 rejected: false,
 reasons: [],
+advisory_reasons: [],
 rejected_check_count: 0,
+advisory_check_count: 0,
 total_check_count: 0,
 execution_mode: null,
 paper_mode_relaxed: false,
@@ -588,7 +615,9 @@ missing_metrics: [],
 return {
 rejected: Boolean(result.rejected),
 reasons: ensureReasonCodeArray(result.reasons || []),
+advisory_reasons: ensureReasonCodeArray(result.advisory_reasons || []),
 rejected_check_count: toInt(result?.meta?.rejected_check_count, 0),
+advisory_check_count: toInt(result?.meta?.advisory_check_count, 0),
 total_check_count: toInt(result?.meta?.total_check_count, 0),
 execution_mode: cleanText(result?.meta?.execution_mode, 64) || null,
 paper_mode_relaxed: Boolean(result?.meta?.paper_mode_relaxed),

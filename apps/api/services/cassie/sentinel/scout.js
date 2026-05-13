@@ -327,7 +327,7 @@ min_persistence_score: paperMode
 ? Math.min(safe.min_persistence_score, 40)
 : safe.min_persistence_score,
 min_structural_health_score: paperMode
-? Math.min(safe.min_post_entry_health_score, 40)
+? Math.min(safe.min_post_entry_health_score, 20)
 : safe.min_post_entry_health_score,
 };
 }

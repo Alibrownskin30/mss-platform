@@ -31,11 +31,6 @@ const num = Number.parseFloat(value);
 return Number.isFinite(num) ? num : fallback;
 }
 
-function toNullableFloat(value, fallback = null) {
-const num = Number.parseFloat(value);
-return Number.isFinite(num) ? num : fallback;
-}
-
 function toInt(value, fallback = 0) {
 const num = Number.parseInt(value, 10);
 return Number.isFinite(num) ? num : fallback;
@@ -72,6 +67,18 @@ return null;
 
 function isPaperMode(executionMode) {
 return cleanText(executionMode, 64).toLowerCase() === "paper";
+}
+
+function nowTsMs(input = null) {
+if (input instanceof Date) return input.getTime();
+if (typeof input === "number" && Number.isFinite(input)) return input;
+
+if (typeof input === "string") {
+const parsed = new Date(input).getTime();
+if (!Number.isNaN(parsed)) return parsed;
+}
+
+return Date.now();
 }
 
 function normalizeNullableScore(value) {
@@ -165,7 +172,7 @@ snapshot.liquidityDecayRisk
 };
 }
 
-function normalizePosition(position = {}) {
+function normalizePosition(position = {}, currentNowTs = Date.now()) {
 if (!position || typeof position !== "object") return null;
 
 const tokenId = cleanText(
@@ -190,6 +197,26 @@ position.tokenId
 255
 );
 
+const runnerStartedAt =
+cleanText(
+firstDefined(position.runner_started_at, position.runnerStartedAt),
+64
+) || null;
+
+const openedAt =
+cleanText(firstDefined(position.opened_at, position.openedAt), 64) || null;
+
+const runnerStartTs = runnerStartedAt
+? nowTsMs(runnerStartedAt)
+: openedAt
+? nowTsMs(openedAt)
+: currentNowTs;
+
+const runnerAgeSec = Math.max(
+0,
+Math.floor((currentNowTs - runnerStartTs) / 1000)
+);
+
 return {
 ...position,
 id: toInt(position.id, 0) || null,
@@ -204,11 +231,8 @@ position.mode
 ) || null,
 has_banked_10x: Boolean(position.has_banked_10x),
 current_value_usd: Math.max(0, toFloat(position.current_value_usd, 0)),
-runner_started_at:
-cleanText(
-firstDefined(position.runner_started_at, position.runnerStartedAt),
-64
-) || null,
+runner_started_at: runnerStartedAt,
+runner_age_sec: runnerAgeSec,
 };
 }
 
@@ -275,6 +299,22 @@ cleanText(snapshot?.mint, 255) ||
 );
 }
 
+function getRunnerTimingThresholds(config = {}, executionMode = "paper") {
+const paperMode = isPaperMode(executionMode);
+const weakStallTimeoutSec = Math.max(
+0,
+toInt(config.weak_stall_timeout_sec, 420)
+);
+
+const minRunnerAgeSecForDecayExit = paperMode
+? Math.max(45, Math.min(180, Math.floor(weakStallTimeoutSec / 3) || 120))
+: Math.max(30, Math.min(120, Math.floor(weakStallTimeoutSec / 4) || 90));
+
+return {
+min_runner_age_sec_for_decay_exit: minRunnerAgeSecForDecayExit,
+};
+}
+
 export function getRunnerReasonCodes() {
 return Array.from(RUNNER_REASON_SET);
 }
@@ -304,6 +344,15 @@ normalizeSentinelConfig({
 
 const executionMode = runtimeExecutionMode || safe.execution_mode;
 const paperMode = isPaperMode(executionMode);
+const timing = getRunnerTimingThresholds(safe, executionMode);
+
+const minStructuralHealthScoreForRunner = paperMode
+? Math.min(Math.max(0, toFloat(safe.min_post_entry_health_score, 55)), 40)
+: Math.max(0, toFloat(safe.min_post_entry_health_score, 55));
+
+const catastrophicStructuralHealthThreshold = paperMode
+? Math.max(10, minStructuralHealthScoreForRunner - 15)
+: Math.max(15, minStructuralHealthScoreForRunner - 15);
 
 return {
 execution_mode: executionMode,
@@ -311,9 +360,12 @@ paper_mode_relaxed: paperMode,
 
 min_buy_pressure_score_for_runner: paperMode ? 35 : 45,
 min_persistence_score_for_runner: paperMode ? 35 : 45,
-min_structural_health_score_for_runner: paperMode
-? Math.min(safe.min_post_entry_health_score, 40)
-: safe.min_post_entry_health_score,
+min_structural_health_score_for_runner: minStructuralHealthScoreForRunner,
+catastrophic_structural_health_threshold:
+catastrophicStructuralHealthThreshold,
+
+min_runner_age_sec_for_decay_exit:
+timing.min_runner_age_sec_for_decay_exit,
 
 runner_failed_breakout_limit: paperMode
 ? Math.max(safe.runner_failed_breakout_limit, 4)
@@ -331,8 +383,9 @@ config = {},
 context = {}
 ) {
 const safeSnapshot = normalizeSnapshot(snapshot || {});
-const safePosition = normalizePosition(position || null);
 const safeContext = normalizeContext(context || {});
+const currentNowTs = nowTsMs(safeContext?.now_ts);
+const safePosition = normalizePosition(position || null, currentNowTs);
 
 const executionMode =
 safeContext.execution_mode ||
@@ -400,13 +453,35 @@ missing_metrics: [],
 };
 }
 
+const runnerWithinGraceWindow =
+safePosition.runner_age_sec < thresholds.min_runner_age_sec_for_decay_exit;
+
+const structuralHealthScore = safeSnapshot.structural_health_score;
+const catastrophicStructuralWeakness =
+structuralHealthScore != null &&
+structuralHealthScore <= thresholds.catastrophic_structural_health_threshold;
+
+const timedStructuralWeakness =
+structuralHealthScore != null &&
+!runnerWithinGraceWindow &&
+structuralHealthScore < thresholds.min_structural_health_score_for_runner;
+
 const checks = [
 buildCheck(
 REASON_CODE.BUY_PRESSURE_DECAY,
-safeSnapshot.buy_pressure_score,
+{
+runner_age_sec: safePosition.runner_age_sec,
+buy_pressure_score: safeSnapshot.buy_pressure_score,
+},
+{
+min_runner_age_sec_for_decay_exit:
+thresholds.min_runner_age_sec_for_decay_exit,
+min_buy_pressure_score_for_runner:
 thresholds.min_buy_pressure_score_for_runner,
-"<",
+},
+"age>=grace && buy_pressure<threshold",
 safeSnapshot.buy_pressure_score != null &&
+!runnerWithinGraceWindow &&
 safeSnapshot.buy_pressure_score <
 thresholds.min_buy_pressure_score_for_runner,
 {
@@ -414,15 +489,28 @@ missing: safeSnapshot.buy_pressure_score == null,
 note:
 safeSnapshot.buy_pressure_score == null
 ? "Skipped because buy pressure score is missing."
+: runnerWithinGraceWindow &&
+safeSnapshot.buy_pressure_score <
+thresholds.min_buy_pressure_score_for_runner
+? "Within runner grace window; weak buy pressure alone is not an exit yet."
 : null,
 }
 ),
 buildCheck(
 REASON_CODE.PERSISTENCE_DECAY,
-safeSnapshot.persistence_score,
+{
+runner_age_sec: safePosition.runner_age_sec,
+persistence_score: safeSnapshot.persistence_score,
+},
+{
+min_runner_age_sec_for_decay_exit:
+thresholds.min_runner_age_sec_for_decay_exit,
+min_persistence_score_for_runner:
 thresholds.min_persistence_score_for_runner,
-"<",
+},
+"age>=grace && persistence<threshold",
 safeSnapshot.persistence_score != null &&
+!runnerWithinGraceWindow &&
 safeSnapshot.persistence_score <
 thresholds.min_persistence_score_for_runner,
 {
@@ -430,22 +518,40 @@ missing: safeSnapshot.persistence_score == null,
 note:
 safeSnapshot.persistence_score == null
 ? "Skipped because persistence score is missing."
+: runnerWithinGraceWindow &&
+safeSnapshot.persistence_score <
+thresholds.min_persistence_score_for_runner
+? "Within runner grace window; weak persistence alone is not an exit yet."
 : null,
 }
 ),
 buildCheck(
 REASON_CODE.STRUCTURAL_HEALTH_WEAK,
-safeSnapshot.structural_health_score,
-thresholds.min_structural_health_score_for_runner,
-"<",
-safeSnapshot.structural_health_score != null &&
-safeSnapshot.structural_health_score <
-thresholds.min_structural_health_score_for_runner,
 {
-missing: safeSnapshot.structural_health_score == null,
+runner_age_sec: safePosition.runner_age_sec,
+structural_health_score: structuralHealthScore,
+},
+{
+catastrophic_structural_health_threshold:
+thresholds.catastrophic_structural_health_threshold,
+min_runner_age_sec_for_decay_exit:
+thresholds.min_runner_age_sec_for_decay_exit,
+min_structural_health_score_for_runner:
+thresholds.min_structural_health_score_for_runner,
+},
+"score<=catastrophic || (age>=grace && score<threshold)",
+catastrophicStructuralWeakness || timedStructuralWeakness,
+{
+missing: structuralHealthScore == null,
 note:
-safeSnapshot.structural_health_score == null
+structuralHealthScore == null
 ? "Skipped because structural health score is missing."
+: runnerWithinGraceWindow &&
+structuralHealthScore <
+thresholds.min_structural_health_score_for_runner &&
+structuralHealthScore >
+thresholds.catastrophic_structural_health_threshold
+? "Within runner grace window; structural weakness alone is not an exit yet."
 : null,
 }
 ),
@@ -521,6 +627,7 @@ paper_mode_relaxed: Boolean(thresholds.paper_mode_relaxed),
 total_check_count: checks.length,
 rejected_check_count: reasons.length,
 missing_metrics: missingMetrics,
+runner_within_grace_window: runnerWithinGraceWindow,
 },
 };
 }
@@ -540,8 +647,7 @@ const safeContext = normalizeContext(context || {});
 const executionMode =
 safeContext.execution_mode ||
 safeSnapshot.execution_mode ||
-cleanText(position?.execution_mode, 64) ||
-cleanText(safeConfig.execution_mode, 64) ||
+resolveExecutionMode(position?.execution_mode, safeConfig.execution_mode) ||
 "paper";
 
 let resolvedPosition = position ? normalizePosition(position) : null;

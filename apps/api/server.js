@@ -20,6 +20,8 @@ import tokenMarketRoutes from "./routes/token-market.js";
 import launchLifecycleRoutes from "./routes/launch-lifecycle.js";
 import complianceRoutes from "./routes/compliance.js";
 import complianceAdminRoutes from "./routes/compliance-admin.js";
+import sentinelAccessAdminRoutes from "./routes/sentinel-access-admin.js";
+import authRoutes, { getSessionUserFromRequest } from "./routes/auth.js";
 import launcherDb, { dbPath as launcherDbPath } from "./db/index.js";
 import {
 getSolPriceSnapshot,
@@ -49,7 +51,11 @@ getRiskTrend,
 getAlertEvents,
 upsertScanCache,
 } from "./db.js";
-import { register, login, authRequired } from "./auth.js";
+import {
+register,
+login,
+authRequired as legacyAuthRequired,
+} from "./auth.js";
 import { startWatcher } from "./watcher.js";
 import { getClusterIntel } from "./cluster.js";
 import { createCassie } from "./cassie/index.js";
@@ -271,6 +277,8 @@ const { cassie, cassieApi, cassieIntel } = createCassie();
 app.use(cassie);
 
 // ---- Route mounts ----
+app.use("/api/auth", authLimiter, authSlow, authRoutes);
+
 app.use("/api/builders", builderRoutes);
 app.use("/api/launcher", launcherRoutes);
 app.use("/api/launch-lifecycle", launchLifecycleRoutes);
@@ -280,6 +288,7 @@ app.use("/api/token", tokenRoutes);
 app.use("/api/market", marketRoutes);
 app.use("/api/compliance", complianceRoutes);
 app.use("/api/compliance-admin", complianceAdminRoutes);
+app.use("/api/sentinel-access-admin", sentinelAccessAdminRoutes);
 
 // Honeypots
 app.get("/api/_cassie/diag", (req, res) => res.status(404).end());
@@ -363,6 +372,28 @@ signal: controller.signal,
 });
 } finally {
 clearTimeout(timeout);
+}
+}
+
+async function hybridAuthRequired(req, res, next) {
+try {
+const accountAuth = await getSessionUserFromRequest(req);
+
+if (accountAuth?.user?.id) {
+req.auth = accountAuth;
+req.user = accountAuth.user;
+req.active_wallet = accountAuth.active_wallet;
+req.active_entitlement = accountAuth.active_entitlement;
+return next();
+}
+
+return legacyAuthRequired(req, res, next);
+} catch (error) {
+console.error("Hybrid auth middleware failed", error);
+return res.status(500).json({
+error: "Authentication failed",
+message: error?.message || String(error),
+});
 }
 }
 
@@ -1310,11 +1341,11 @@ cassieScore >= 75
 }
 
 // ---- Cassie status + memory endpoints ----
-app.get("/api/cassie/status", authRequired, (req, res) =>
+app.get("/api/cassie/status", hybridAuthRequired, (req, res) =>
 cassieApi.status(req, res)
 );
 
-app.get("/api/cassie/memory", authRequired, (req, res) => {
+app.get("/api/cassie/memory", hybridAuthRequired, (req, res) => {
 try {
 const limit = clamp(Number(req.query.limit || 50), 1, 200);
 const out =
@@ -1327,7 +1358,7 @@ return res.status(500).json({ error: String(e?.message || e) });
 }
 });
 
-app.get("/api/cassie/memory/mint/:mint", authRequired, (req, res) => {
+app.get("/api/cassie/memory/mint/:mint", hybridAuthRequired, (req, res) => {
 try {
 const out =
 typeof cassieIntel?.memoryByMint === "function"
@@ -1339,7 +1370,10 @@ return res.status(500).json({ error: String(e?.message || e) });
 }
 });
 
-app.get("/api/cassie/memory/signature/:signature", authRequired, (req, res) => {
+app.get(
+"/api/cassie/memory/signature/:signature",
+hybridAuthRequired,
+(req, res) => {
 try {
 const out =
 typeof cassieIntel?.memoryBySignature === "function"
@@ -1349,7 +1383,8 @@ return res.json({ ok: true, item: out || null });
 } catch (e) {
 return res.status(500).json({ error: String(e?.message || e) });
 }
-});
+}
+);
 
 // ---- Caches ----
 const holdersCache = new Map();
@@ -1799,7 +1834,7 @@ cluster: SOLANA_CLUSTER,
 });
 });
 
-// ---- Auth ----
+// ---- Legacy auth compatibility ----
 app.post("/api/register", authLimiter, authSlow, register);
 app.post("/api/login", authLimiter, authSlow, login);
 
@@ -2009,7 +2044,7 @@ return res.status(500).json({ error: String(e?.message || e) });
 });
 
 // ---------- Alerts ----------
-app.get("/api/alerts", authRequired, (req, res) => {
+app.get("/api/alerts", hybridAuthRequired, (req, res) => {
 const rows = db
 .prepare(`
 SELECT id, mint, type, direction, threshold, is_enabled, created_at, last_triggered_at
@@ -2022,7 +2057,7 @@ ORDER BY id DESC
 res.json({ ok: true, alerts: rows });
 });
 
-app.post("/api/alerts", authRequired, (req, res) => {
+app.post("/api/alerts", hybridAuthRequired, (req, res) => {
 const { mint, type, direction, threshold } = req.body || {};
 if (!mint || !type || !direction || threshold == null) {
 return res.status(400).json({ error: "Missing fields" });
@@ -2064,7 +2099,7 @@ VALUES (?, ?, ?, ?, ?)
 return res.json({ ok: true, id: info.lastInsertRowid });
 });
 
-app.post("/api/alerts/:id/toggle", authRequired, (req, res) => {
+app.post("/api/alerts/:id/toggle", hybridAuthRequired, (req, res) => {
 const id = Number(req.params.id);
 const row = db
 .prepare(`SELECT * FROM alerts WHERE id = ? AND user_id = ?`)
@@ -2078,7 +2113,7 @@ res.json({ ok: true, is_enabled: next });
 });
 
 // ---------- Alert Events ----------
-app.get("/api/alert-events", authRequired, (req, res) => {
+app.get("/api/alert-events", hybridAuthRequired, (req, res) => {
 try {
 const limit = clamp(Number(req.query.limit || 50), 1, 200);
 
@@ -2107,7 +2142,7 @@ return res.status(500).json({ error: String(e?.message || e) });
 }
 });
 
-app.get("/api/alerts/:id/events", authRequired, (req, res) => {
+app.get("/api/alerts/:id/events", hybridAuthRequired, (req, res) => {
 try {
 const id = Number(req.params.id);
 const row = db

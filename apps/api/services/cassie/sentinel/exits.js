@@ -38,11 +38,6 @@ const num = Number.parseFloat(value);
 return Number.isFinite(num) ? num : fallback;
 }
 
-function toNullableFloat(value, fallback = null) {
-const num = Number.parseFloat(value);
-return Number.isFinite(num) ? num : fallback;
-}
-
 function toInt(value, fallback = 0) {
 const num = Number.parseInt(value, 10);
 return Number.isFinite(num) ? num : fallback;
@@ -275,6 +270,28 @@ cleanText(snapshot?.mint, 255) ||
 );
 }
 
+function getStructuralExitThresholds(config = {}, executionMode = "paper") {
+const paperMode = isPaperMode(executionMode);
+
+const effectiveEntryHealthFloor = paperMode
+? Math.min(Math.max(0, toFloat(config.min_post_entry_health_score, 55)), 40)
+: Math.max(0, toFloat(config.min_post_entry_health_score, 55));
+
+const collapseThreshold = paperMode
+? Math.max(10, effectiveEntryHealthFloor - 15)
+: Math.max(15, effectiveEntryHealthFloor - 15);
+
+const catastrophicThreshold = paperMode
+? Math.max(5, collapseThreshold - 10)
+: Math.max(10, collapseThreshold - 15);
+
+return {
+effective_entry_health_floor: effectiveEntryHealthFloor,
+structural_health_collapse_threshold: collapseThreshold,
+catastrophic_structural_health_threshold: catastrophicThreshold,
+};
+}
+
 export function getExitReasonCodes() {
 return Array.from(EXIT_REASON_SET);
 }
@@ -313,6 +330,7 @@ normalizeSentinelConfig({
 
 const executionMode = runtimeExecutionMode || safe.execution_mode;
 const paperMode = isPaperMode(executionMode);
+const structural = getStructuralExitThresholds(safe, executionMode);
 
 return {
 execution_mode: executionMode,
@@ -320,12 +338,21 @@ paper_mode_relaxed: paperMode,
 
 early_fail_timeout_sec: Math.max(0, toInt(safe.early_fail_timeout_sec, 180)),
 weak_stall_timeout_sec: Math.max(0, toInt(safe.weak_stall_timeout_sec, 420)),
+min_open_age_sec_for_structural_exit: Math.max(
+0,
+toInt(safe.early_fail_timeout_sec, 180)
+),
 
 early_reclaim_failure_score_threshold: paperMode ? 30 : 45,
 weak_stall_buy_pressure_threshold: paperMode ? 30 : 45,
 insider_dump_score_threshold: paperMode ? 90 : 75,
 liquidity_break_risk_threshold: paperMode ? 90 : 75,
-structural_health_collapse_threshold: paperMode ? 25 : 40,
+
+effective_entry_health_floor: structural.effective_entry_health_floor,
+structural_health_collapse_threshold:
+structural.structural_health_collapse_threshold,
+catastrophic_structural_health_threshold:
+structural.catastrophic_structural_health_threshold,
 };
 }
 
@@ -382,6 +409,19 @@ missing_metrics: [],
 },
 };
 }
+
+const structuralHealthScore = safeSnapshot.structural_health_score;
+const structuralWithinGraceWindow =
+safePosition.open_age_sec < thresholds.min_open_age_sec_for_structural_exit;
+
+const catastrophicStructuralFailure =
+structuralHealthScore != null &&
+structuralHealthScore <= thresholds.catastrophic_structural_health_threshold;
+
+const timedStructuralCollapse =
+structuralHealthScore != null &&
+!structuralWithinGraceWindow &&
+structuralHealthScore < thresholds.structural_health_collapse_threshold;
 
 const checks = [
 buildCheck(
@@ -464,17 +504,31 @@ safeSnapshot.liquidity_break_risk == null
 ),
 buildCheck(
 REASON_CODE.STRUCTURAL_HEALTH_COLLAPSED,
-safeSnapshot.structural_health_score,
-thresholds.structural_health_collapse_threshold,
-"<",
-safeSnapshot.structural_health_score != null &&
-safeSnapshot.structural_health_score <
-thresholds.structural_health_collapse_threshold,
 {
-missing: safeSnapshot.structural_health_score == null,
+open_age_sec: safePosition.open_age_sec,
+structural_health_score: structuralHealthScore,
+},
+{
+catastrophic_threshold:
+thresholds.catastrophic_structural_health_threshold,
+collapse_threshold: thresholds.structural_health_collapse_threshold,
+min_open_age_sec_for_structural_exit:
+thresholds.min_open_age_sec_for_structural_exit,
+effective_entry_health_floor: thresholds.effective_entry_health_floor,
+},
+"score<=catastrophic || (age>=grace && score<collapse)",
+catastrophicStructuralFailure || timedStructuralCollapse,
+{
+missing: structuralHealthScore == null,
 note:
-safeSnapshot.structural_health_score == null
+structuralHealthScore == null
 ? "Skipped because structural health score is missing."
+: structuralWithinGraceWindow &&
+structuralHealthScore <
+thresholds.structural_health_collapse_threshold &&
+structuralHealthScore >
+thresholds.catastrophic_structural_health_threshold
+? "Within grace window; structural weakness alone is not an exit yet."
 : null,
 }
 ),
@@ -508,6 +562,7 @@ paper_mode_relaxed: Boolean(thresholds.paper_mode_relaxed),
 total_check_count: checks.length,
 rejected_check_count: reasons.length,
 missing_metrics: missingMetrics,
+structural_within_grace_window: structuralWithinGraceWindow,
 },
 };
 }

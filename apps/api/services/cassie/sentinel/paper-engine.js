@@ -10,10 +10,10 @@ createScoutPosition,
 addSniperToPosition,
 refreshPositionMarketValue,
 markPositionBankedAt10x,
+markPositionRunnerOnly,
 upsertTokenCooldown,
 ensureDailyStats,
 incrementDailyStats,
-resetDailyFailureStreak,
 snapshotOpenPositionExposure,
 getOpenPositionByToken,
 getDailyStats,
@@ -58,7 +58,8 @@ return new Date().toISOString().slice(0, 10);
 function buildPaperExecutionRef(action, tokenId = "") {
 const safeAction = cleanText(action, 48).toLowerCase() || "paper";
 const safeToken =
-cleanText(tokenId, 48).replace(/[^a-zA-Z0-9_-]/g, "").slice(0, 24) || "token";
+cleanText(tokenId, 48).replace(/[^a-zA-Z0-9_-]/g, "").slice(0, 24) ||
+"token";
 const stamp = Date.now();
 return `paper_${safeAction}_${safeToken}_${stamp}`;
 }
@@ -198,6 +199,12 @@ nonActionAuditCache.set(key, Date.now());
 return true;
 }
 
+async function ensurePaperDailyStatsRow() {
+const statDate = todayUtcDate();
+await ensureDailyStats(SENTINEL_MODE.PAPER, statDate);
+return statDate;
+}
+
 async function syncDailyUnrealizedForMode(executionMode = SENTINEL_MODE.PAPER) {
 const statDate = todayUtcDate();
 await ensureDailyStats(executionMode, statDate);
@@ -238,6 +245,20 @@ avg_exit_price: priceNow ?? position.avg_exit_price ?? null,
 });
 }
 
+async function maybePromotePaperRunnerOnly(position, snapshot = {}) {
+if (!position?.id) return position;
+if (!position?.has_banked_10x) return position;
+if (position?.stage !== "half_banked_at_10x") return position;
+
+const currentValueUsd =
+derivePositionCurrentValue(snapshot, position, position.current_value_usd) ??
+position.current_value_usd;
+
+return markPositionRunnerOnly(position.id, {
+current_value_usd: currentValueUsd,
+});
+}
+
 async function refreshPassiveEvaluationPosition(
 evaluation = {},
 snapshot = {},
@@ -254,6 +275,8 @@ return refreshedPosition;
 }
 
 async function buildPaperEvaluationContext(snapshot = {}, context = {}) {
+await ensurePaperDailyStatsRow();
+
 const suppliedPosition =
 context?.position && typeof context.position === "object" && context.position.id
 ? context.position
@@ -326,7 +349,7 @@ cooldown_until: cooldownUntil,
 });
 }
 
-await syncDailyUnrealizedForMode(executionMode);
+await syncDailyUnrealizedForMode(execution_mode);
 
 return {
 position: closedPosition,
@@ -461,14 +484,6 @@ tx_bank_ref: buildPaperExecutionRef("bank", refreshed.token_id),
 const realizedIncrement =
 Number(updatedPosition?.realized_pnl_usd || 0) - beforeRealized;
 
-if (realizedIncrement < 0) {
-await incrementDailyStats(SENTINEL_MODE.PAPER, {
-consecutive_failures: 1,
-});
-} else if (realizedIncrement > 0) {
-await resetDailyFailureStreak(SENTINEL_MODE.PAPER);
-}
-
 await syncDailyUnrealizedForMode(SENTINEL_MODE.PAPER);
 
 const auditEvent = await logPartialTakeProfit({
@@ -488,6 +503,9 @@ decision: evaluation.decision,
 position: updatedPosition,
 audit_event: auditEvent,
 simulated: true,
+meta: {
+realized_increment_usd: realizedIncrement,
+},
 };
 }
 
@@ -560,7 +578,36 @@ actor_id: context.actor_id || "system",
 });
 }
 
+function buildSnapshotProcessingErrorResult(snapshot = {}, error = null) {
+const message = cleanText(
+error?.message || String(error || "Snapshot processing failed"),
+2000
+);
+
+return {
+ok: false,
+execution_mode: SENTINEL_MODE.PAPER,
+simulated: true,
+skipped: true,
+error: {
+message,
+},
+evaluation: {
+decision: SENTINEL_DECISION.HOLD,
+reason_codes: [],
+snapshot,
+position: null,
+meta: {
+processing_error: message,
+},
+},
+audit_event: null,
+};
+}
+
 export async function processPaperSnapshot(snapshot = {}, config = {}, context = {}) {
+await ensurePaperDailyStatsRow();
+
 const safeConfig = getEffectiveSentinelConfig({
 ...normalizeSentinelConfig(config || {}),
 execution_mode: SENTINEL_MODE.PAPER,
@@ -674,11 +721,22 @@ evaluation,
 case SENTINEL_DECISION.HOLD:
 case SENTINEL_DECISION.WATCHLIST:
 default: {
-const refreshedPosition = await refreshPassiveEvaluationPosition(
+let refreshedPosition = await refreshPassiveEvaluationPosition(
 evaluation,
 snapshot,
 SENTINEL_MODE.PAPER
 );
+
+if (
+evaluation.decision === SENTINEL_DECISION.HOLD &&
+refreshedPosition?.has_banked_10x &&
+refreshedPosition?.stage === "half_banked_at_10x"
+) {
+refreshedPosition = await maybePromotePaperRunnerOnly(
+refreshedPosition,
+snapshot
+);
+}
 
 const auditEvent = await maybeLogNonAction(
 {
@@ -711,11 +769,23 @@ snapshots = [],
 config = {},
 context = {}
 ) {
+await ensurePaperDailyStatsRow();
+
 const results = [];
 
 for (const snapshot of Array.isArray(snapshots) ? snapshots : []) {
+try {
 const result = await processPaperSnapshot(snapshot, config, context);
 results.push(result);
+} catch (error) {
+console.error("Sentinel paper snapshot processing failed", {
+token_id: snapshot?.token_id || null,
+mint_address: snapshot?.mint_address || null,
+error: error?.message || String(error),
+});
+
+results.push(buildSnapshotProcessingErrorResult(snapshot, error));
+}
 }
 
 return results;

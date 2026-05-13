@@ -22,6 +22,9 @@ last_started_at: null,
 last_stopped_at: null,
 last_tick_started_at: null,
 last_tick_finished_at: null,
+last_tick_duration_ms: null,
+last_tick_ok: null,
+last_tick_reason: null,
 last_error: null,
 
 tick_count: 0,
@@ -152,28 +155,50 @@ return summary;
 }
 
 function getUnsupportedModeResults(snapshots = [], mode = SENTINEL_MODE.PAPER) {
-return (Array.isArray(snapshots) ? snapshots : []).map((snapshot) => ({
+const safeSnapshots = Array.isArray(snapshots) ? snapshots : [];
+const isEmergencyStop = mode === SENTINEL_MODE.EMERGENCY_STOP;
+const decision = isEmergencyStop ? "kill_switch" : "watchlist";
+const haltReason = isEmergencyStop
+? "emergency_stop_active"
+: "execution_mode_not_implemented";
+
+return safeSnapshots.map((snapshot) => ({
 ok: true,
 execution_mode: mode,
 simulated: false,
 skipped: true,
-reason: "execution_mode_not_implemented",
+reason: haltReason,
 evaluation: {
-decision: "watchlist",
+decision,
 reason_codes: [],
 snapshot,
 position: null,
 meta: {
-halt_reason: "engine_mode_not_implemented",
+halt_reason: haltReason,
 },
 },
 audit_event: null,
 }));
 }
 
+async function loadEffectiveConfig(configOverride = null) {
+const loadedConfig = configOverride
+? normalizeSentinelConfig(configOverride)
+: await loadSentinelConfig();
+
+const effectiveConfig = getEffectiveSentinelConfig(loadedConfig);
+
+engineState.current_mode =
+effectiveConfig.execution_mode || SENTINEL_MODE.PAPER;
+engineState.watcher_enabled = Boolean(effectiveConfig.watcher_enabled);
+
+return effectiveConfig;
+}
+
 async function resolveSnapshots({
 snapshots = null,
 provider = null,
+providerName = null,
 config = null,
 context = {},
 } = {}) {
@@ -183,16 +208,26 @@ snapshots,
 meta: {
 source: "direct_input",
 },
+provider_name: "direct_input",
 };
 }
 
 const activeProvider = provider || engineState.snapshot_provider;
+const activeProviderName =
+cleanText(
+providerName ||
+(provider ? "runtime_provider" : engineState.snapshot_provider_name) ||
+"custom_provider",
+120
+) || null;
+
 if (typeof activeProvider !== "function") {
 return {
 snapshots: [],
 meta: {
 source: "no_provider",
 },
+provider_name: activeProviderName,
 };
 }
 
@@ -207,7 +242,12 @@ execution_mode: config?.execution_mode || SENTINEL_MODE.PAPER,
 now: nowIso(),
 });
 
-return normalizeSnapshotsPayload(payload);
+const normalized = normalizeSnapshotsPayload(payload);
+
+return {
+...normalized,
+provider_name: activeProviderName,
+};
 }
 
 function armEngineInterval() {
@@ -261,6 +301,9 @@ last_started_at: engineState.last_started_at,
 last_stopped_at: engineState.last_stopped_at,
 last_tick_started_at: engineState.last_tick_started_at,
 last_tick_finished_at: engineState.last_tick_finished_at,
+last_tick_duration_ms: engineState.last_tick_duration_ms,
+last_tick_ok: engineState.last_tick_ok,
+last_tick_reason: engineState.last_tick_reason,
 last_error: engineState.last_error,
 tick_count: engineState.tick_count,
 total_snapshots_seen: engineState.total_snapshots_seen,
@@ -274,6 +317,7 @@ last_tick_summary: engineState.last_tick_summary,
 export async function runSentinelTick({
 snapshots = null,
 provider = null,
+providerName = null,
 configOverride = null,
 context = {},
 } = {}) {
@@ -288,18 +332,16 @@ status: getSentinelEngineStatus(),
 
 engineState.running = true;
 engineState.last_tick_started_at = nowIso();
+engineState.last_tick_finished_at = null;
+engineState.last_tick_duration_ms = null;
+engineState.last_tick_ok = null;
+engineState.last_tick_reason = null;
 engineState.last_error = null;
 
+const tickStartedMs = Date.now();
+
 try {
-const loadedConfig = configOverride
-? normalizeSentinelConfig(configOverride)
-: await loadSentinelConfig();
-
-const effectiveConfig = getEffectiveSentinelConfig(loadedConfig);
-
-engineState.current_mode =
-effectiveConfig.execution_mode || SENTINEL_MODE.PAPER;
-engineState.watcher_enabled = Boolean(effectiveConfig.watcher_enabled);
+const effectiveConfig = await loadEffectiveConfig(configOverride);
 
 if (!effectiveConfig.watcher_enabled) {
 const summary = buildEmptySummary({
@@ -314,6 +356,9 @@ engineState.tick_count += 1;
 engineState.last_provider_meta = null;
 engineState.last_tick_summary = summary;
 engineState.last_tick_finished_at = nowIso();
+engineState.last_tick_duration_ms = Date.now() - tickStartedMs;
+engineState.last_tick_ok = true;
+engineState.last_tick_reason = "watcher_disabled";
 
 return {
 ok: true,
@@ -331,6 +376,7 @@ summary,
 const resolved = await resolveSnapshots({
 snapshots,
 provider,
+providerName,
 config: effectiveConfig,
 context,
 });
@@ -339,6 +385,8 @@ const safeSnapshots = Array.isArray(resolved?.snapshots)
 ? resolved.snapshots
 : [];
 const providerMeta = resolved?.meta ?? null;
+const resolvedProviderName =
+resolved?.provider_name || engineState.snapshot_provider_name || null;
 
 engineState.last_provider_meta = providerMeta;
 engineState.total_snapshots_seen += safeSnapshots.length;
@@ -347,10 +395,15 @@ let results = [];
 
 switch (effectiveConfig.execution_mode) {
 case SENTINEL_MODE.PAPER: {
-results = await processPaperSnapshots(safeSnapshots, effectiveConfig, {
+const processed = await processPaperSnapshots(
+safeSnapshots,
+effectiveConfig,
+{
 ...context,
 execution_mode: SENTINEL_MODE.PAPER,
-});
+}
+);
+results = Array.isArray(processed) ? processed : [];
 break;
 }
 
@@ -375,12 +428,15 @@ execution_mode: effectiveConfig.execution_mode,
 watcher_enabled: true,
 snapshots_seen: safeSnapshots.length,
 snapshots_processed: safeSnapshots.length,
-provider_name: engineState.snapshot_provider_name,
+provider_name: resolvedProviderName,
 provider_meta: providerMeta,
 };
 
 engineState.last_tick_summary = summary;
 engineState.last_tick_finished_at = nowIso();
+engineState.last_tick_duration_ms = Date.now() - tickStartedMs;
+engineState.last_tick_ok = true;
+engineState.last_tick_reason = null;
 
 return {
 ok: true,
@@ -389,7 +445,7 @@ execution_mode: effectiveConfig.execution_mode,
 watcher_enabled: true,
 snapshots_seen: safeSnapshots.length,
 snapshots_processed: safeSnapshots.length,
-provider_name: engineState.snapshot_provider_name,
+provider_name: resolvedProviderName,
 provider_meta: providerMeta,
 results,
 summary,
@@ -405,6 +461,9 @@ provider_meta: engineState.last_provider_meta,
 error: engineState.last_error?.message || "unknown_error",
 });
 engineState.last_tick_finished_at = nowIso();
+engineState.last_tick_duration_ms = Date.now() - tickStartedMs;
+engineState.last_tick_ok = false;
+engineState.last_tick_reason = "tick_error";
 
 return {
 ok: false,
@@ -439,6 +498,8 @@ const safeInterval = Math.max(
 toInt(intervalMs, DEFAULT_TICK_INTERVAL_MS)
 );
 engineState.interval_ms = safeInterval;
+
+await loadEffectiveConfig();
 
 if (engineState.started) {
 armEngineInterval();

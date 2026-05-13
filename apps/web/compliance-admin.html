@@ -6,7 +6,7 @@
 <title>MSS Protocol — Compliance & Sentinel Admin</title>
 <meta
 name="description"
-content="Internal compliance review queue and Sentinel Watcher control center for MSS Protocol."
+content="Internal compliance review queue, Sentinel Watcher control center, and Sentinel access-code administration for MSS Protocol."
 />
 <style>
 :root {
@@ -707,6 +707,28 @@ gap: 10px;
 margin-top: 16px;
 }
 
+.toolbar-compact-4 {
+display: grid;
+grid-template-columns: repeat(4, minmax(0, 1fr));
+gap: 10px;
+margin-top: 16px;
+}
+
+.toolbar-compact-5 {
+display: grid;
+grid-template-columns: repeat(5, minmax(0, 1fr));
+gap: 10px;
+margin-top: 16px;
+}
+
+.toolbar-inline-action {
+display: grid;
+grid-template-columns: minmax(0, 1fr) auto;
+gap: 10px;
+margin-top: 16px;
+align-items: end;
+}
+
 .stats-grid {
 margin-top: 18px;
 display: grid;
@@ -744,8 +766,14 @@ grid-template-columns: 1fr;
 .toggle-grid,
 .stats-grid,
 .toolbar-compact,
-.toolbar-compact-3 {
+.toolbar-compact-3,
+.toolbar-compact-4,
+.toolbar-compact-5 {
 grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.toolbar-inline-action {
+grid-template-columns: 1fr;
 }
 }
 
@@ -769,7 +797,10 @@ padding-top: 24px;
 .toggle-grid,
 .toolbar-compact,
 .toolbar-compact-3,
-.stats-grid {
+.toolbar-compact-4,
+.toolbar-compact-5,
+.stats-grid,
+.toolbar-inline-action {
 grid-template-columns: 1fr;
 }
 
@@ -1334,7 +1365,7 @@ Live snapshot of the currently active execution mode.
 </div>
 </div>
 
-<div class="toolbar-compact">
+<div class="toolbar-compact-3">
 <div class="field">
 <label for="sentinelStatsDateInput">Stats Date</label>
 <input id="sentinelStatsDateInput" class="input" type="date" />
@@ -1404,21 +1435,38 @@ Refresh Stats
 <div>
 <h3 class="section-title">Sentinel positions</h3>
 <p class="section-copy">
-Active and historical scout, sniper, banked, runner, closed, and invalidated positions.
+Open, runner, closed, and invalidated positions across paper and future live modes.
 </p>
 </div>
 </div>
 
-<div class="toolbar-compact">
+<div class="toolbar-compact-5">
+<div class="field">
+<label for="sentinelPositionScopeFilter">Scope</label>
+<select id="sentinelPositionScopeFilter" class="select">
+<option value="open">Open</option>
+<option value="history">History</option>
+<option value="all">All</option>
+</select>
+</div>
+
 <div class="field">
 <label for="sentinelPositionStageFilter">Stage</label>
 <select id="sentinelPositionStageFilter" class="select">
-<option value="open">Open</option>
 <option value="">All</option>
 <option value="scout_open">Scout Open</option>
 <option value="sniper_added">Sniper Added</option>
 <option value="half_banked_at_10x">Half Banked At 10x</option>
 <option value="runner_only">Runner Only</option>
+<option value="closed">Closed</option>
+<option value="invalidated">Invalidated</option>
+</select>
+</div>
+
+<div class="field">
+<label for="sentinelPositionOutcomeFilter">Outcome</label>
+<select id="sentinelPositionOutcomeFilter" class="select">
+<option value="">All</option>
 <option value="closed">Closed</option>
 <option value="invalidated">Invalidated</option>
 </select>
@@ -1439,8 +1487,15 @@ Active and historical scout, sniper, banked, runner, closed, and invalidated pos
 <label for="sentinelPositionsTokenFilter">Token ID</label>
 <input id="sentinelPositionsTokenFilter" class="input" type="text" placeholder="Optional token id" />
 </div>
+</div>
 
-<div class="field" style="justify-content: flex-end;">
+<div class="toolbar-inline-action">
+<div class="field">
+<label for="sentinelPositionsMintFilter">Mint Address</label>
+<input id="sentinelPositionsMintFilter" class="input" type="text" placeholder="Optional mint address" />
+</div>
+
+<div class="field">
 <label>&nbsp;</label>
 <button id="refreshSentinelPositionsButton" class="button button-secondary" type="button">
 Refresh Positions
@@ -1473,12 +1528,12 @@ Refresh Positions
 <div>
 <h3 class="section-title">Sentinel audit</h3>
 <p class="section-copy">
-Decision trail for settings updates, mode changes, rejects, entries, exits, and kill-switch events.
+Decision trail for rejects, watchlists, entries, adds, banks, exits, settings, and kill-switch events.
 </p>
 </div>
 </div>
 
-<div class="toolbar-compact">
+<div class="toolbar-compact-5">
 <div class="field">
 <label for="sentinelAuditEventTypeFilter">Event Type</label>
 <select id="sentinelAuditEventTypeFilter" class="select">
@@ -1495,6 +1550,7 @@ Decision trail for settings updates, mode changes, rejects, entries, exits, and 
 <option value="runner_exit">Runner Exit</option>
 <option value="full_exit">Full Exit</option>
 <option value="kill_switch">Kill Switch</option>
+<option value="decision">Decision</option>
 </select>
 </div>
 
@@ -1504,8 +1560,59 @@ Decision trail for settings updates, mode changes, rejects, entries, exits, and 
 </div>
 
 <div class="field">
+<label for="sentinelAuditExecutionStatusFilter">Execution Status</label>
+<select id="sentinelAuditExecutionStatusFilter" class="select">
+<option value="">All</option>
+<option value="planned">Planned</option>
+<option value="submitted">Submitted</option>
+<option value="filled">Filled</option>
+<option value="simulated">Simulated</option>
+<option value="skipped">Skipped</option>
+<option value="failed">Failed</option>
+</select>
+</div>
+
+<div class="field">
+<label for="sentinelAuditModeFilter">Mode</label>
+<select id="sentinelAuditModeFilter" class="select">
+<option value="">All</option>
+<option value="paper">Paper</option>
+<option value="armed_mainnet">Armed Mainnet</option>
+<option value="live_mainnet">Live Mainnet</option>
+<option value="emergency_stop">Emergency Stop</option>
+</select>
+</div>
+
+<div class="field">
 <label for="sentinelAuditTokenFilter">Token ID</label>
 <input id="sentinelAuditTokenFilter" class="input" type="text" placeholder="Optional token id" />
+</div>
+</div>
+
+<div class="toolbar-compact-5">
+<div class="field">
+<label for="sentinelAuditMintFilter">Mint Address</label>
+<input id="sentinelAuditMintFilter" class="input" type="text" placeholder="Optional mint address" />
+</div>
+
+<div class="field">
+<label for="sentinelAuditActorTypeFilter">Actor Type</label>
+<select id="sentinelAuditActorTypeFilter" class="select">
+<option value="">All</option>
+<option value="system">System</option>
+<option value="admin">Admin</option>
+<option value="user">User</option>
+</select>
+</div>
+
+<div class="field">
+<label for="sentinelAuditActorIdFilter">Actor ID</label>
+<input id="sentinelAuditActorIdFilter" class="input" type="text" placeholder="Optional actor id" />
+</div>
+
+<div class="field">
+<label for="sentinelAuditReasonCodeFilter">Reason Code</label>
+<input id="sentinelAuditReasonCodeFilter" class="input" type="text" placeholder="Optional reason code" />
 </div>
 
 <div class="field" style="justify-content: flex-end;">
@@ -1544,7 +1651,7 @@ Internal admin-control log for mode changes, settings changes, and emergency sto
 </div>
 </div>
 
-<div class="toolbar-compact-3">
+<div class="toolbar-compact-4">
 <div class="field">
 <label for="sentinelAdminAuditActionFilter">Action</label>
 <input id="sentinelAdminAuditActionFilter" class="input" type="text" placeholder="Optional action" />
@@ -1584,6 +1691,501 @@ Refresh Admin Audit
 </table>
 </div>
 </section>
+</div>
+</section>
+</section>
+
+<section class="section-block">
+<section class="panel">
+<div id="sentinelAccessBanner" class="banner"></div>
+
+<div class="section-header-row">
+<div>
+<div class="eyebrow">Sentinel Access Admin</div>
+<h2 class="section-anchor-title" style="margin-top: 14px;">Access-code and tester entitlement control</h2>
+<p class="section-copy" style="margin-top: 10px;">
+Create single-user trial codes, bind codes to specific accounts when needed,
+monitor redemptions, and disable codes once the tester window is complete.
+</p>
+</div>
+
+<div class="topbar-actions">
+<button id="refreshSentinelAccessAdminButton" class="button button-secondary" type="button">
+Refresh Access Data
+</button>
+<button id="createSentinelAccessCodeButton" class="button button-primary" type="button">
+Create Access Code
+</button>
+</div>
+</div>
+
+<div class="layout" style="margin-top: 18px;">
+<section class="stack">
+<div class="subpanel">
+<h3 class="section-title">Access overview</h3>
+<p class="section-copy">
+Quick state for live tester access and code usage.
+</p>
+
+<div class="mini-grid">
+<div class="mini-card">
+<div class="mini-card-label">Total Codes</div>
+<div class="mini-card-value" id="sentinelAccessTotalCodesValue">0</div>
+</div>
+<div class="mini-card">
+<div class="mini-card-label">Active Codes</div>
+<div class="mini-card-value" id="sentinelAccessActiveCodesValue">0</div>
+</div>
+<div class="mini-card">
+<div class="mini-card-label">Redeemed Codes</div>
+<div class="mini-card-value" id="sentinelAccessRedeemedCodesValue">0</div>
+</div>
+<div class="mini-card">
+<div class="mini-card-label">Live Entitlements</div>
+<div class="mini-card-value" id="sentinelAccessLiveEntitlementsValue">0</div>
+</div>
+</div>
+</div>
+
+<div class="subpanel">
+<h3 class="section-title">Create access code</h3>
+<p class="section-copy">
+This panel is intended for selected early-user issuance, including one-person one-week trial access.
+</p>
+
+<div class="settings-grid">
+<div class="field">
+<label for="sentinelAccessCustomCodeInput">Custom Code</label>
+<input
+id="sentinelAccessCustomCodeInput"
+class="input mono"
+type="text"
+placeholder="Optional custom code"
+autocomplete="off"
+/>
+</div>
+
+<div class="field">
+<label for="sentinelAccessCodeTypeInput">Code Type</label>
+<select id="sentinelAccessCodeTypeInput" class="select">
+<option value="trial">Trial</option>
+<option value="comp">Comp</option>
+<option value="partner">Partner</option>
+<option value="admin">Admin</option>
+</select>
+</div>
+
+<div class="field">
+<label for="sentinelAccessMaxRedemptionsInput">Max Redemptions</label>
+<input
+id="sentinelAccessMaxRedemptionsInput"
+class="input"
+type="number"
+min="1"
+step="1"
+value="1"
+/>
+</div>
+
+<div class="field">
+<label for="sentinelAccessPlanKeyInput">Plan Key</label>
+<input
+id="sentinelAccessPlanKeyInput"
+class="input"
+type="text"
+placeholder="sentinel_trial"
+autocomplete="off"
+/>
+</div>
+
+<div class="field">
+<label for="sentinelAccessPlanLabelInput">Plan Label</label>
+<input
+id="sentinelAccessPlanLabelInput"
+class="input"
+type="text"
+placeholder="Early Access Trial"
+autocomplete="off"
+/>
+</div>
+
+<div class="field">
+<label for="sentinelAccessDurationDaysInput">Duration Days</label>
+<input
+id="sentinelAccessDurationDaysInput"
+class="input"
+type="number"
+min="0"
+step="1"
+value="7"
+/>
+</div>
+
+<div class="field">
+<label for="sentinelAccessBoundUserIdInput">Bound User ID</label>
+<input
+id="sentinelAccessBoundUserIdInput"
+class="input"
+type="number"
+min="1"
+step="1"
+placeholder="Optional account id"
+/>
+</div>
+
+<div class="field">
+<label for="sentinelAccessStartsAtInput">Starts At</label>
+<input id="sentinelAccessStartsAtInput" class="input" type="datetime-local" />
+</div>
+
+<div class="field">
+<label for="sentinelAccessExpiresAtInput">Absolute Expiry</label>
+<input id="sentinelAccessExpiresAtInput" class="input" type="datetime-local" />
+</div>
+
+<div class="field">
+<label for="sentinelAccessCreatedByUserIdInput">Created By User ID</label>
+<input
+id="sentinelAccessCreatedByUserIdInput"
+class="input"
+type="number"
+min="1"
+step="1"
+placeholder="Optional internal user id"
+/>
+</div>
+
+<div class="field" style="grid-column: span 2;">
+<label for="sentinelAccessNotesInput">Notes</label>
+<textarea
+id="sentinelAccessNotesInput"
+class="textarea"
+placeholder="Internal note for the tester, campaign, or reason for issuance."
+></textarea>
+</div>
+
+<div class="field">
+<label for="sentinelAccessGeneratedCodeValue">Last Generated Code</label>
+<input
+id="sentinelAccessGeneratedCodeValue"
+class="input mono"
+type="text"
+readonly
+placeholder="Generated code will appear here"
+/>
+</div>
+
+<div class="field">
+<label for="sentinelAccessActorIdInput">Actor ID</label>
+<input
+id="sentinelAccessActorIdInput"
+class="input"
+type="text"
+placeholder="admin"
+autocomplete="off"
+/>
+</div>
+</div>
+</div>
+
+<div class="subpanel">
+<div class="table-title-row">
+<div>
+<h3 class="section-title">Access codes</h3>
+<p class="section-copy">
+Issued codes, account-bound trials, and usage state.
+</p>
+</div>
+</div>
+
+<div class="toolbar-compact-5">
+<div class="field">
+<label for="sentinelAccessCodesActiveFilter">Code State</label>
+<select id="sentinelAccessCodesActiveFilter" class="select">
+<option value="">All</option>
+<option value="active">Active</option>
+<option value="inactive">Inactive</option>
+</select>
+</div>
+
+<div class="field">
+<label for="sentinelAccessCodesTypeFilter">Code Type</label>
+<select id="sentinelAccessCodesTypeFilter" class="select">
+<option value="">All</option>
+<option value="trial">Trial</option>
+<option value="comp">Comp</option>
+<option value="partner">Partner</option>
+<option value="admin">Admin</option>
+</select>
+</div>
+
+<div class="field">
+<label for="sentinelAccessCodesPlanFilter">Plan Key</label>
+<input
+id="sentinelAccessCodesPlanFilter"
+class="input"
+type="text"
+placeholder="Optional plan key"
+/>
+</div>
+
+<div class="field">
+<label for="sentinelAccessCodesBoundUserFilter">Bound User ID</label>
+<input
+id="sentinelAccessCodesBoundUserFilter"
+class="input"
+type="number"
+min="1"
+step="1"
+placeholder="Optional user id"
+/>
+</div>
+
+<div class="field" style="justify-content: flex-end;">
+<label>&nbsp;</label>
+<button id="refreshSentinelAccessCodesButton" class="button button-secondary" type="button">
+Refresh Codes
+</button>
+</div>
+</div>
+
+<div class="table-wrap">
+<table>
+<thead>
+<tr>
+<th>Code</th>
+<th>Type</th>
+<th>Plan</th>
+<th>State</th>
+<th>Usage</th>
+<th>Bound User</th>
+<th>Window</th>
+<th>Updated</th>
+</tr>
+</thead>
+<tbody id="sentinelAccessCodesTableBody"></tbody>
+</table>
+</div>
+</div>
+
+<div class="subpanel">
+<div class="table-title-row">
+<div>
+<h3 class="section-title">Code redemptions</h3>
+<p class="section-copy">
+Successful tester redemptions and entitlement linkage trail.
+</p>
+</div>
+</div>
+
+<div class="toolbar-compact-4">
+<div class="field">
+<label for="sentinelAccessRedemptionsCodeFilter">Code</label>
+<input
+id="sentinelAccessRedemptionsCodeFilter"
+class="input"
+type="text"
+placeholder="Optional code"
+/>
+</div>
+
+<div class="field">
+<label for="sentinelAccessRedemptionsUserFilter">User ID</label>
+<input
+id="sentinelAccessRedemptionsUserFilter"
+class="input"
+type="number"
+min="1"
+step="1"
+placeholder="Optional user id"
+/>
+</div>
+
+<div class="field">
+<label for="sentinelAccessRedemptionsStatusFilter">Redemption Status</label>
+<select id="sentinelAccessRedemptionsStatusFilter" class="select">
+<option value="">All</option>
+<option value="success">Success</option>
+<option value="failed">Failed</option>
+</select>
+</div>
+
+<div class="field" style="justify-content: flex-end;">
+<label>&nbsp;</label>
+<button id="refreshSentinelAccessRedemptionsButton" class="button button-secondary" type="button">
+Refresh Redemptions
+</button>
+</div>
+</div>
+
+<div class="table-wrap">
+<table>
+<thead>
+<tr>
+<th>Redeemed At</th>
+<th>Code</th>
+<th>User</th>
+<th>Entitlement</th>
+<th>Wallet At Redeem</th>
+<th>Status</th>
+</tr>
+</thead>
+<tbody id="sentinelAccessRedemptionsTableBody"></tbody>
+</table>
+</div>
+</div>
+</section>
+
+<aside class="stack">
+<section class="panel">
+<div>
+<h2 class="section-title">Selected access code</h2>
+<p class="section-copy">
+Review full code state, binding, validity window, and issue internal actions.
+</p>
+</div>
+
+<div id="sentinelAccessCodeDetailEmpty" class="empty-state">
+<div>
+<strong>No access code selected</strong>
+Select a code from the access-code table to review detail and management actions.
+</div>
+</div>
+
+<div id="sentinelAccessCodeDetailPanel" class="detail-card" style="display: none;">
+<div class="detail-section">
+<h3>Code overview</h3>
+<div class="detail-grid">
+<div class="detail-meta">
+<div class="detail-label">Code ID</div>
+<div class="detail-value mono" id="sentinelAccessDetailCodeId">—</div>
+</div>
+<div class="detail-meta">
+<div class="detail-label">Code</div>
+<div class="detail-value mono" id="sentinelAccessDetailCodeValue">—</div>
+</div>
+<div class="detail-meta">
+<div class="detail-label">Type</div>
+<div class="detail-value" id="sentinelAccessDetailCodeType">—</div>
+</div>
+<div class="detail-meta">
+<div class="detail-label">State</div>
+<div class="detail-value" id="sentinelAccessDetailCodeState">—</div>
+</div>
+<div class="detail-meta">
+<div class="detail-label">Plan Key</div>
+<div class="detail-value" id="sentinelAccessDetailPlanKey">—</div>
+</div>
+<div class="detail-meta">
+<div class="detail-label">Plan Label</div>
+<div class="detail-value" id="sentinelAccessDetailPlanLabel">—</div>
+</div>
+</div>
+</div>
+
+<div class="detail-section">
+<h3>Limits and timing</h3>
+<div class="detail-grid">
+<div class="detail-meta">
+<div class="detail-label">Duration Days</div>
+<div class="detail-value" id="sentinelAccessDetailDurationDays">—</div>
+</div>
+<div class="detail-meta">
+<div class="detail-label">Max Redemptions</div>
+<div class="detail-value" id="sentinelAccessDetailMaxRedemptions">—</div>
+</div>
+<div class="detail-meta">
+<div class="detail-label">Redeemed Count</div>
+<div class="detail-value" id="sentinelAccessDetailRedeemedCount">—</div>
+</div>
+<div class="detail-meta">
+<div class="detail-label">Bound User ID</div>
+<div class="detail-value" id="sentinelAccessDetailBoundUserId">—</div>
+</div>
+<div class="detail-meta">
+<div class="detail-label">Starts At</div>
+<div class="detail-value" id="sentinelAccessDetailStartsAt">—</div>
+</div>
+<div class="detail-meta">
+<div class="detail-label">Expires At</div>
+<div class="detail-value" id="sentinelAccessDetailExpiresAt">—</div>
+</div>
+</div>
+</div>
+
+<div class="detail-section">
+<h3>Internal metadata</h3>
+<div class="detail-grid">
+<div class="detail-meta">
+<div class="detail-label">Created By</div>
+<div class="detail-value" id="sentinelAccessDetailCreatedByUserId">—</div>
+</div>
+<div class="detail-meta">
+<div class="detail-label">Created At</div>
+<div class="detail-value" id="sentinelAccessDetailCreatedAt">—</div>
+</div>
+<div class="detail-meta">
+<div class="detail-label">Updated At</div>
+<div class="detail-value" id="sentinelAccessDetailUpdatedAt">—</div>
+</div>
+<div class="detail-meta">
+<div class="detail-label">Latest Redemption</div>
+<div class="detail-value" id="sentinelAccessDetailLatestRedemptionAt">—</div>
+</div>
+</div>
+
+<div class="notes-block">
+<div class="detail-label">Notes</div>
+<div class="detail-value" id="sentinelAccessDetailNotes">—</div>
+</div>
+</div>
+
+<div class="detail-section">
+<h3>Code actions</h3>
+
+<div class="field">
+<label for="sentinelAccessCodeActionActorIdInput">Actor ID</label>
+<input
+id="sentinelAccessCodeActionActorIdInput"
+class="input"
+type="text"
+placeholder="admin"
+autocomplete="off"
+/>
+</div>
+
+<div class="field" style="margin-top: 12px;">
+<label for="sentinelAccessCodeActionNotesInput">Action Notes</label>
+<textarea
+id="sentinelAccessCodeActionNotesInput"
+class="textarea"
+placeholder="Reason for deactivating, reactivating, or updating tester access."
+></textarea>
+</div>
+
+<div class="action-stack" style="margin-top: 16px;">
+<div class="action-row">
+<button id="sentinelAccessCopyCodeButton" class="button button-secondary" type="button">
+Copy Code
+</button>
+<button id="sentinelAccessDeactivateCodeButton" class="button button-danger" type="button">
+Deactivate Code
+</button>
+</div>
+
+<div class="action-row">
+<button id="sentinelAccessActivateCodeButton" class="button button-secondary" type="button">
+Reactivate Code
+</button>
+<button id="sentinelAccessRefreshSelectedCodeButton" class="button button-primary" type="button">
+Refresh Selected Code
+</button>
+</div>
+</div>
+</div>
+</div>
+</section>
+</aside>
 </div>
 </section>
 </section>

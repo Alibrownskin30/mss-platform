@@ -33,11 +33,6 @@ const num = Number.parseFloat(value);
 return Number.isFinite(num) ? num : fallback;
 }
 
-function toNullableFloat(value, fallback = null) {
-const num = Number.parseFloat(value);
-return Number.isFinite(num) ? num : fallback;
-}
-
 function toInt(value, fallback = 0) {
 const num = Number.parseInt(value, 10);
 return Number.isFinite(num) ? num : fallback;
@@ -641,6 +636,14 @@ daily_realized_pnl_usd: realizedPnlIncrement,
 daily_loss_usd: realizedPnlIncrement < 0 ? Math.abs(realizedPnlIncrement) : 0,
 });
 
+if (realizedPnlIncrement < 0) {
+await incrementDailyStats(position.execution_mode, {
+consecutive_failures: 1,
+});
+} else if (realizedPnlIncrement > 0) {
+await resetDailyFailureStreak(position.execution_mode);
+}
+
 return getPositionById(position.id);
 }
 
@@ -748,7 +751,8 @@ position.id,
 );
 
 const updated = await getPositionById(position.id);
-const lossDelta = closeRealizedPnlIncrement < 0 ? Math.abs(closeRealizedPnlIncrement) : 0;
+const lossDelta =
+closeRealizedPnlIncrement < 0 ? Math.abs(closeRealizedPnlIncrement) : 0;
 
 await incrementDailyStats(position.execution_mode, {
 positions_closed: 1,
@@ -758,7 +762,7 @@ daily_loss_usd: lossDelta,
 consecutive_failures: closeRealizedPnlIncrement < 0 ? 1 : 0,
 });
 
-if (closeRealizedPnlIncrement >= 0) {
+if (closeRealizedPnlIncrement > 0) {
 await resetDailyFailureStreak(position.execution_mode);
 }
 
@@ -974,13 +978,16 @@ current.positions_closed + Math.max(0, toInt(deltas.positions_closed, 0)),
 invalidations: current.invalidations + Math.max(0, toInt(deltas.invalidations, 0)),
 
 daily_scout_spend_usd:
-current.daily_scout_spend_usd + Math.max(0, toFloat(deltas.daily_scout_spend_usd, 0)),
+current.daily_scout_spend_usd +
+Math.max(0, toFloat(deltas.daily_scout_spend_usd, 0)),
 daily_sniper_spend_usd:
-current.daily_sniper_spend_usd + Math.max(0, toFloat(deltas.daily_sniper_spend_usd, 0)),
+current.daily_sniper_spend_usd +
+Math.max(0, toFloat(deltas.daily_sniper_spend_usd, 0)),
 daily_realized_pnl_usd:
 current.daily_realized_pnl_usd + toFloat(deltas.daily_realized_pnl_usd, 0),
 daily_unrealized_pnl_usd:
-current.daily_unrealized_pnl_usd + toFloat(deltas.daily_unrealized_pnl_usd, 0),
+current.daily_unrealized_pnl_usd +
+toFloat(deltas.daily_unrealized_pnl_usd, 0),
 daily_loss_usd:
 current.daily_loss_usd + Math.max(0, toFloat(deltas.daily_loss_usd, 0)),
 

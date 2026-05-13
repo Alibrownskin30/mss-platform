@@ -65,15 +65,32 @@ return fallback;
 }
 
 function getInsertId(result) {
-const candidate =
-result?.lastID ??
-result?.lastId ??
-result?.lastInsertRowid ??
-result?.insertId ??
-null;
+const candidates = [
+result?.lastID,
+result?.lastId,
+result?.last_insert_rowid,
+result?.lastInsertRowid,
+result?.insertId,
+result?.insertedId,
+result?.meta?.lastID,
+result?.meta?.lastId,
+result?.meta?.last_insert_rowid,
+result?.meta?.lastInsertRowid,
+result?.meta?.insertId,
+result?.raw?.lastID,
+result?.raw?.lastId,
+result?.stmt?.lastID,
+result?.statement?.lastID,
+];
 
+for (const candidate of candidates) {
 const id = Number(candidate);
-return Number.isFinite(id) && id > 0 ? id : null;
+if (Number.isFinite(id) && id > 0) {
+return id;
+}
+}
+
+return null;
 }
 
 function normalizeEventType(value) {
@@ -107,17 +124,25 @@ return cleanText(value, 32).toLowerCase() || fallback;
 function extractSnapshotSummary(snapshot = {}) {
 return {
 marketcap_usd: toFloat(
-firstDefined(snapshot.marketcap_usd, snapshot.marketcapUsd, snapshot.mcap_usd, snapshot.mcapUsd),
+firstDefined(
+snapshot.marketcap_usd,
+snapshot.marketcapUsd,
+snapshot.mcap_usd,
+snapshot.mcapUsd
+),
 null
 ),
 liquidity_usd: toFloat(
-firstDefined(snapshot.liquidity_usd, snapshot.liquidityUsd, snapshot.market?.liquidity_usd, snapshot.market?.liquidityUsd),
+firstDefined(
+snapshot.liquidity_usd,
+snapshot.liquidityUsd,
+snapshot.market?.liquidity_usd,
+snapshot.market?.liquidityUsd
+),
 null
 ),
-regime_state: cleanText(
-firstDefined(snapshot.regime_state, snapshot.regimeState),
-64
-) || null,
+regime_state:
+cleanText(firstDefined(snapshot.regime_state, snapshot.regimeState), 64) || null,
 regime_score: toFloat(
 firstDefined(snapshot.regime_score, snapshot.regimeScore),
 null
@@ -192,6 +217,86 @@ created_at: row.created_at || null,
 };
 }
 
+async function findLatestMatchingAuditEvent({
+event_type,
+token_id,
+mint_address,
+position_id,
+execution_mode,
+decision,
+reason_codes,
+execution_status,
+actor_type,
+actor_id,
+} = {}) {
+const filters = [];
+const params = [];
+
+const safeEventType = normalizeEventType(event_type);
+const safeDecision = normalizeDecision(decision, "hold");
+const safeExecutionStatus = normalizeExecutionStatus(execution_status);
+const safeActorType = normalizeActorType(actor_type, "system");
+const safeMode = normalizeMode(execution_mode, null);
+const safePositionId = toInt(position_id, null);
+const safeTokenId = cleanText(token_id, 255) || null;
+const safeMintAddress = cleanText(mint_address, 255) || null;
+const safeActorId = cleanText(actor_id, 255) || null;
+const safeReasonCodes = JSON.stringify(ensureReasonCodeArray(reason_codes, []));
+
+filters.push(`event_type = ?`);
+params.push(safeEventType);
+
+filters.push(`decision = ?`);
+params.push(safeDecision);
+
+filters.push(`reason_codes = ?`);
+params.push(safeReasonCodes);
+
+filters.push(`execution_status = ?`);
+params.push(safeExecutionStatus);
+
+filters.push(`actor_type = ?`);
+params.push(safeActorType);
+
+if (safeMode) {
+filters.push(`execution_mode = ?`);
+params.push(safeMode);
+}
+
+if (safeTokenId) {
+filters.push(`token_id = ?`);
+params.push(safeTokenId);
+}
+
+if (safeMintAddress) {
+filters.push(`mint_address = ?`);
+params.push(safeMintAddress);
+}
+
+if (safePositionId) {
+filters.push(`position_id = ?`);
+params.push(safePositionId);
+}
+
+if (safeActorId) {
+filters.push(`actor_id = ?`);
+params.push(safeActorId);
+}
+
+const row = await db.get(
+`
+SELECT *
+FROM cassie_sentinel_audit_events
+WHERE ${filters.join(" AND ")}
+ORDER BY id DESC
+LIMIT 1
+`,
+params
+);
+
+return serializeAuditRow(row);
+}
+
 export async function logAuditEvent({
 event_type = AUDIT_EVENT_TYPE.DECISION,
 token_id = null,
@@ -216,6 +321,10 @@ const safeActorType = normalizeActorType(actor_type, "system");
 const safeActorId = cleanText(actor_id, 255) || null;
 const safeMode = normalizeMode(execution_mode, null);
 const safePositionId = toInt(position_id, null);
+const safeExecutionStatus = normalizeExecutionStatus(execution_status);
+const safeTokenId = cleanText(token_id, 255) || null;
+const safeMintAddress = cleanText(mint_address, 255) || null;
+const safeExecutionError = cleanText(execution_error, 1000) || null;
 
 const result = await db.run(
 `
@@ -246,8 +355,8 @@ actor_id
 `,
 [
 eventType,
-cleanText(token_id, 255) || null,
-cleanText(mint_address, 255) || null,
+safeTokenId,
+safeMintAddress,
 safePositionId,
 safeMode,
 safeDecision,
@@ -263,15 +372,31 @@ snapshot.reclaim_strength_score,
 snapshot.structural_health_score,
 action.action_size_usd,
 action.bank_fraction,
-normalizeExecutionStatus(execution_status),
-cleanText(execution_error, 1000) || null,
+safeExecutionStatus,
+safeExecutionError,
 safeActorType,
 safeActorId,
 ]
 );
 
 const eventId = getInsertId(result);
-return eventId ? getAuditEventById(eventId) : null;
+if (eventId) {
+const inserted = await getAuditEventById(eventId);
+if (inserted) return inserted;
+}
+
+return findLatestMatchingAuditEvent({
+event_type: eventType,
+token_id: safeTokenId,
+mint_address: safeMintAddress,
+position_id: safePositionId,
+execution_mode: safeMode,
+decision: safeDecision,
+reason_codes: safeReasonCodes,
+execution_status: safeExecutionStatus,
+actor_type: safeActorType,
+actor_id: safeActorId,
+});
 }
 
 export async function getAuditEventById(eventId) {

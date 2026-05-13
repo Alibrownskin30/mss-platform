@@ -40,6 +40,20 @@ const SENTINEL_POSITION_STAGES = new Set([
 "invalidated",
 ])
 
+const SENTINEL_OPEN_POSITION_STAGES = new Set([
+"scout_open",
+"sniper_added",
+"half_banked_at_10x",
+"runner_only",
+])
+
+const SENTINEL_HISTORY_POSITION_STAGES = new Set([
+"closed",
+"invalidated",
+])
+
+const SENTINEL_POSITION_SCOPES = new Set(["open", "history", "all"])
+
 const SENTINEL_AUDIT_EVENT_TYPES = new Set([
 "settings_update",
 "mode_change",
@@ -55,6 +69,17 @@ const SENTINEL_AUDIT_EVENT_TYPES = new Set([
 "hold",
 "decision",
 ])
+
+const SENTINEL_AUDIT_EXECUTION_STATUSES = new Set([
+"planned",
+"simulated",
+"submitted",
+"filled",
+"failed",
+"skipped",
+])
+
+const SENTINEL_AUDIT_ACTOR_TYPES = new Set(["system", "admin", "user"])
 
 const SENTINEL_SETTINGS_FIELDS = Object.keys(DEFAULT_SENTINEL_CONFIG)
 
@@ -154,6 +179,21 @@ const normalized = cleanText(value, 64).toLowerCase()
 return SENTINEL_MODES.has(normalized) ? normalized : fallback
 }
 
+function normalizeSentinelPositionScope(value, fallback = "open") {
+const normalized = cleanText(value, 32).toLowerCase()
+return SENTINEL_POSITION_SCOPES.has(normalized) ? normalized : fallback
+}
+
+function normalizeSentinelAuditActorType(value, fallback = "") {
+const normalized = cleanText(value, 32).toLowerCase()
+return SENTINEL_AUDIT_ACTOR_TYPES.has(normalized) ? normalized : fallback
+}
+
+function normalizeSentinelAuditExecutionStatus(value, fallback = "") {
+const normalized = cleanText(value, 32).toLowerCase()
+return SENTINEL_AUDIT_EXECUTION_STATUSES.has(normalized) ? normalized : fallback
+}
+
 function parseJson(value, fallback = null) {
 if (!value) return fallback
 if (typeof value === "object") return value
@@ -221,6 +261,36 @@ updated_by: row?.updated_by || null,
 }
 }
 
+function getRemainingCostBasisUsdFromRow(row) {
+const units = Number(row?.units ?? 0)
+const avgEntryPrice =
+row?.avg_entry_price == null ? null : Number(row.avg_entry_price)
+const currentValueUsd = Number(row?.current_value_usd ?? 0)
+const unrealizedPnlUsd = Number(row?.unrealized_pnl_usd ?? 0)
+const totalCostUsd = Number(row?.total_cost_usd ?? 0)
+const hasBanked10x = Boolean(row?.has_banked_10x)
+
+if (
+Number.isFinite(units) &&
+units > 0 &&
+Number.isFinite(avgEntryPrice) &&
+avgEntryPrice >= 0
+) {
+return Math.max(0, units * avgEntryPrice)
+}
+
+const derived = currentValueUsd - unrealizedPnlUsd
+if (Number.isFinite(derived) && derived >= 0) {
+return derived
+}
+
+if (hasBanked10x) {
+return Math.max(0, totalCostUsd * 0.5)
+}
+
+return Math.max(0, totalCostUsd)
+}
+
 function serializeSentinelPosition(row) {
 if (!row) return null
 
@@ -235,6 +305,7 @@ execution_mode: row.execution_mode,
 total_cost_usd: Number(row.total_cost_usd ?? 0),
 total_size_usd: Number(row.total_size_usd ?? 0),
 current_value_usd: Number(row.current_value_usd ?? 0),
+remaining_cost_basis_usd: getRemainingCostBasisUsdFromRow(row),
 
 units: Number(row.units ?? 0),
 avg_entry_price: row.avg_entry_price == null ? null : Number(row.avg_entry_price),
@@ -309,6 +380,29 @@ continue
 out[key] = value
 }
 return out
+}
+
+function buildEmptySentinelDailyStats(statDate = todayUtcDate(), executionMode = "paper") {
+return {
+id: null,
+stat_date: statDate,
+execution_mode: executionMode,
+scouts_opened: 0,
+sniper_adds: 0,
+positions_closed: 0,
+invalidations: 0,
+daily_scout_spend_usd: 0,
+daily_sniper_spend_usd: 0,
+daily_realized_pnl_usd: 0,
+daily_unrealized_pnl_usd: 0,
+daily_loss_usd: 0,
+consecutive_failures: 0,
+recent_rug_rate_pct: 0,
+reclaim_success_rate_pct: 0,
+avg_market_liquidity_usd: 0,
+created_at: null,
+updated_at: null,
+}
 }
 
 async function getCaseById(caseId) {
@@ -558,8 +652,7 @@ actor_id: cleanText(actorId, 255) || "admin",
 action: cleanText(action, 120),
 status: cleanText(status, 64),
 target_type: cleanText(targetType, 120) || null,
-target_id:
-targetId == null ? null : cleanText(String(targetId), 255),
+target_id: targetId == null ? null : cleanText(String(targetId), 255),
 notes: notes ? cleanText(notes, 2000) : null,
 details_json: JSON.stringify(details ?? {}),
 metadata_json: JSON.stringify(details ?? {}),
@@ -657,7 +750,9 @@ const engine = getSentinelEngineStatus()
 const statDate = todayUtcDate()
 const openPositions = await getSentinelOpenPositionCount(settings.execution_mode)
 const dailyRow = await getSentinelDailyStatsRow(statDate, settings.execution_mode)
-const daily = serializeSentinelDailyStats(dailyRow)
+const daily =
+serializeSentinelDailyStats(dailyRow) ||
+buildEmptySentinelDailyStats(statDate, settings.execution_mode)
 
 return {
 settings,
@@ -667,14 +762,14 @@ watcher_enabled: Boolean(settings.watcher_enabled),
 execution_mode: settings.execution_mode,
 kill_switch_active: settings.execution_mode === "emergency_stop",
 open_positions: openPositions,
-daily_realized_pnl_usd: Number(daily?.daily_realized_pnl_usd ?? 0),
-daily_unrealized_pnl_usd: Number(daily?.daily_unrealized_pnl_usd ?? 0),
-daily_loss_usd: Number(daily?.daily_loss_usd ?? 0),
-consecutive_failures: Number(daily?.consecutive_failures ?? 0),
-reclaim_success_rate_pct: Number(daily?.reclaim_success_rate_pct ?? 0),
-recent_rug_rate_pct: Number(daily?.recent_rug_rate_pct ?? 0),
-avg_market_liquidity_usd: Number(daily?.avg_market_liquidity_usd ?? 0),
-stat_date: statDate,
+daily_realized_pnl_usd: Number(daily.daily_realized_pnl_usd ?? 0),
+daily_unrealized_pnl_usd: Number(daily.daily_unrealized_pnl_usd ?? 0),
+daily_loss_usd: Number(daily.daily_loss_usd ?? 0),
+consecutive_failures: Number(daily.consecutive_failures ?? 0),
+reclaim_success_rate_pct: Number(daily.reclaim_success_rate_pct ?? 0),
+recent_rug_rate_pct: Number(daily.recent_rug_rate_pct ?? 0),
+avg_market_liquidity_usd: Number(daily.avg_market_liquidity_usd ?? 0),
+stat_date: daily.stat_date,
 last_tick_started_at: engine?.last_tick_started_at || null,
 last_tick_finished_at: engine?.last_tick_finished_at || null,
 last_error: engine?.last_error || null,
@@ -1698,30 +1793,24 @@ message: error?.message || String(error),
 
 router.get("/sentinel/positions", async (req, res) => {
 try {
-const limit = Math.min(parseIntSafe(req.query.limit, 50) || 50, 250)
+const limit = Math.max(1, Math.min(parseIntSafe(req.query.limit, 50) || 50, 250))
 const filters = []
 const params = []
 
+const rawScope = cleanText(req.query.scope || "", 32).toLowerCase()
+if (rawScope && !SENTINEL_POSITION_SCOPES.has(rawScope)) {
+return res.status(400).json({
+ok: false,
+error: "Invalid scope filter",
+})
+}
+const scope = normalizeSentinelPositionScope(rawScope || "open", "open")
+
 const stage = cleanText(req.query.stage || "", 64).toLowerCase()
+const outcome = cleanText(req.query.outcome || "", 64).toLowerCase()
 const mode = cleanText(req.query.mode || "", 64).toLowerCase()
 const tokenId = cleanText(req.query.token_id || "", 255)
 const mintAddress = cleanText(req.query.mint_address || "", 255)
-
-if (stage) {
-if (stage === "open") {
-filters.push(
-`stage IN ('scout_open','sniper_added','half_banked_at_10x','runner_only')`
-)
-} else if (SENTINEL_POSITION_STAGES.has(stage)) {
-filters.push(`stage = ?`)
-params.push(stage)
-} else {
-return res.status(400).json({
-ok: false,
-error: "Invalid stage filter",
-})
-}
-}
 
 if (mode) {
 if (!SENTINEL_MODES.has(mode)) {
@@ -1744,13 +1833,50 @@ filters.push(`mint_address = ?`)
 params.push(mintAddress)
 }
 
+if (stage) {
+if (stage === "open") {
+filters.push(
+`stage IN ('scout_open','sniper_added','half_banked_at_10x','runner_only')`
+)
+} else if (SENTINEL_POSITION_STAGES.has(stage)) {
+filters.push(`stage = ?`)
+params.push(stage)
+} else {
+return res.status(400).json({
+ok: false,
+error: "Invalid stage filter",
+})
+}
+} else if (outcome) {
+if (!SENTINEL_HISTORY_POSITION_STAGES.has(outcome)) {
+return res.status(400).json({
+ok: false,
+error: "Invalid outcome filter",
+})
+}
+filters.push(`stage = ?`)
+params.push(outcome)
+} else if (scope === "open") {
+filters.push(
+`stage IN ('scout_open','sniper_added','half_banked_at_10x','runner_only')`
+)
+} else if (scope === "history") {
+filters.push(`stage IN ('closed','invalidated')`)
+}
+
 const whereSql = filters.length ? `WHERE ${filters.join(" AND ")}` : ""
 const rows = await db.all(
 `
 SELECT *
 FROM cassie_sentinel_positions
 ${whereSql}
-ORDER BY opened_at DESC, id DESC
+ORDER BY datetime(
+CASE
+WHEN stage IN ('closed', 'invalidated')
+THEN COALESCE(invalidated_at, closed_at, opened_at)
+ELSE COALESCE(opened_at, closed_at, invalidated_at)
+END
+) DESC, id DESC
 LIMIT ?
 `,
 [...params, limit]
@@ -1758,6 +1884,8 @@ LIMIT ?
 
 return res.json({
 ok: true,
+scope,
+count: rows.length,
 positions: rows.map(serializeSentinelPosition),
 })
 } catch (error) {
@@ -1773,6 +1901,11 @@ message: error?.message || String(error),
 router.get("/sentinel/positions/:id", async (req, res) => {
 try {
 const id = parseIntSafe(req.params.id, null)
+const auditLimit = Math.max(
+1,
+Math.min(parseIntSafe(req.query.audit_limit, 200) || 200, 500)
+)
+
 if (!id) {
 return res.status(400).json({
 ok: false,
@@ -1797,10 +1930,10 @@ const audit = await db.all(
 SELECT *
 FROM cassie_sentinel_audit_events
 WHERE position_id = ?
-ORDER BY created_at DESC, id DESC
-LIMIT 200
+ORDER BY datetime(created_at) DESC, id DESC
+LIMIT ?
 `,
-[id]
+[id, auditLimit]
 )
 
 return res.json({
@@ -1820,14 +1953,37 @@ message: error?.message || String(error),
 
 router.get("/sentinel/audit", async (req, res) => {
 try {
-const limit = Math.min(parseIntSafe(req.query.limit, 100) || 100, 500)
+const limit = Math.max(1, Math.min(parseIntSafe(req.query.limit, 100) || 100, 500))
 const filters = []
 const params = []
 
 const eventType = cleanText(req.query.event_type || "", 64).toLowerCase()
 const decision = cleanText(req.query.decision || "", 64).toLowerCase()
-const executionStatus = cleanText(req.query.execution_status || "", 32).toLowerCase()
+
+const rawExecutionStatus = cleanText(req.query.execution_status || "", 32).toLowerCase()
+if (rawExecutionStatus && !SENTINEL_AUDIT_EXECUTION_STATUSES.has(rawExecutionStatus)) {
+return res.status(400).json({
+ok: false,
+error: "Invalid execution_status filter",
+})
+}
+const executionStatus = normalizeSentinelAuditExecutionStatus(rawExecutionStatus, "")
+
+const mode = cleanText(req.query.mode || "", 64).toLowerCase()
 const tokenId = cleanText(req.query.token_id || "", 255)
+const mintAddress = cleanText(req.query.mint_address || "", 255)
+
+const rawActorType = cleanText(req.query.actor_type || "", 32).toLowerCase()
+if (rawActorType && !SENTINEL_AUDIT_ACTOR_TYPES.has(rawActorType)) {
+return res.status(400).json({
+ok: false,
+error: "Invalid actor_type filter",
+})
+}
+const actorType = normalizeSentinelAuditActorType(rawActorType, "")
+
+const actorId = cleanText(req.query.actor_id || "", 255)
+const reasonCode = cleanText(req.query.reason_code || "", 128)
 const positionId = parseIntSafe(req.query.position_id, null)
 
 if (eventType) {
@@ -1851,9 +2007,40 @@ filters.push(`execution_status = ?`)
 params.push(executionStatus)
 }
 
+if (mode) {
+if (!SENTINEL_MODES.has(mode)) {
+return res.status(400).json({
+ok: false,
+error: "Invalid mode filter",
+})
+}
+filters.push(`execution_mode = ?`)
+params.push(mode)
+}
+
 if (tokenId) {
 filters.push(`token_id = ?`)
 params.push(tokenId)
+}
+
+if (mintAddress) {
+filters.push(`mint_address = ?`)
+params.push(mintAddress)
+}
+
+if (actorType) {
+filters.push(`actor_type = ?`)
+params.push(actorType)
+}
+
+if (actorId) {
+filters.push(`actor_id = ?`)
+params.push(actorId)
+}
+
+if (reasonCode) {
+filters.push(`reason_codes LIKE ?`)
+params.push(`%"${reasonCode}"%`)
 }
 
 if (positionId) {
@@ -1867,7 +2054,7 @@ const rows = await db.all(
 SELECT *
 FROM cassie_sentinel_audit_events
 ${whereSql}
-ORDER BY created_at DESC, id DESC
+ORDER BY datetime(created_at) DESC, id DESC
 LIMIT ?
 `,
 [...params, limit]
@@ -1875,6 +2062,7 @@ LIMIT ?
 
 return res.json({
 ok: true,
+count: rows.length,
 audit: rows.map(serializeSentinelAuditRow),
 })
 } catch (error) {
@@ -1893,10 +2081,11 @@ const date = cleanText(req.query.date || todayUtcDate(), 32)
 const mode = normalizeSentinelMode(req.query.mode || "paper", "paper")
 
 const row = await getSentinelDailyStatsRow(date, mode)
+const stats = serializeSentinelDailyStats(row) || buildEmptySentinelDailyStats(date, mode)
 
 return res.json({
 ok: true,
-stats: serializeSentinelDailyStats(row),
+stats,
 })
 } catch (error) {
 console.error("GET /api/compliance-admin/sentinel/stats/daily failed", error)
