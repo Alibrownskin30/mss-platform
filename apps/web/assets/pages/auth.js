@@ -1,5 +1,4 @@
-const state = {
-session: {
+const EMPTY_SESSION = {
 authenticated: false,
 user: null,
 wallets: [],
@@ -7,7 +6,10 @@ entitlements: [],
 activeEntitlement: null,
 hasSentinelAccess: false,
 raw: null,
-},
+}
+
+const state = {
+session: { ...EMPTY_SESSION },
 authLoadingCount: 0,
 walletLoadingCount: 0,
 codeLoadingCount: 0,
@@ -128,12 +130,28 @@ return cleanText(value, 160)
 .join(" ")
 }
 
+function resetSession() {
+state.session = {
+authenticated: false,
+user: null,
+wallets: [],
+entitlements: [],
+activeEntitlement: null,
+hasSentinelAccess: false,
+raw: null,
+}
+}
+
 function getApiBase() {
 const { protocol, hostname } = window.location
 const override = cleanText(window.__API_BASE__ || "", 1000)
 if (override) return override.replace(/\/$/, "")
 
-if (hostname === "127.0.0.1" || hostname === "localhost" || hostname === "[::1]") {
+if (
+hostname === "127.0.0.1" ||
+hostname === "localhost" ||
+hostname === "[::1]"
+) {
 return `${protocol}//${hostname}:8787`
 }
 
@@ -147,6 +165,20 @@ return `${protocol}//${hostname.replace("-3001.app.github.dev", "-8787.app.githu
 
 if (hostname.includes("-4173.app.github.dev")) {
 return `${protocol}//${hostname.replace("-4173.app.github.dev", "-8787.app.github.dev")}`
+}
+
+if (
+hostname === "devnet.mssprotocol.com" ||
+hostname === "www.devnet.mssprotocol.com"
+) {
+return "https://api.devnet.mssprotocol.com"
+}
+
+if (
+hostname === "mssprotocol.com" ||
+hostname === "www.mssprotocol.com"
+) {
+return "https://api.mssprotocol.com"
 }
 
 if (/:\d+$/.test(window.location.host)) {
@@ -274,7 +306,12 @@ if (!wallet || typeof wallet !== "object") return null
 
 const walletAddress =
 cleanText(
-wallet.wallet_address || wallet.address || wallet.public_key || wallet.wallet || "",
+wallet.wallet_address ||
+wallet.address ||
+wallet.public_key ||
+wallet.publicKey ||
+wallet.wallet ||
+"",
 200
 ) || null
 
@@ -289,7 +326,7 @@ cleanText(wallet.wallet_label || wallet.label || wallet.provider || "Wallet", 12
 chain: cleanText(wallet.chain || "solana", 40) || "solana",
 is_primary: Boolean(wallet.is_primary || wallet.primary),
 is_active: Boolean(wallet.is_active ?? wallet.active ?? true),
-linked_at: wallet.linked_at || wallet.created_at || null,
+linked_at: wallet.linked_at || wallet.created_at || wallet.updated_at || null,
 disconnected_at: wallet.disconnected_at || null,
 }
 }
@@ -308,7 +345,10 @@ const endsTs = endsAt ? new Date(endsAt).getTime() : null
 const startsOkay = startsTs == null || (!Number.isNaN(startsTs) && startsTs <= now)
 const endsOkay = endsTs == null || (!Number.isNaN(endsTs) && endsTs > now)
 
-const isActive = Boolean(item.is_active) || (status === "active" && startsOkay && endsOkay)
+const isActive =
+Boolean(item.is_active) ||
+Boolean(item.active) ||
+(status === "active" && startsOkay && endsOkay)
 
 return {
 id: item.id ?? null,
@@ -316,7 +356,8 @@ product:
 cleanText(item.access_tier || item.product || item.feature_key || "", 120) ||
 "sentinel_access",
 plan:
-cleanText(item.plan_key || item.plan || item.tier || "", 120) || "sentinel_trial",
+cleanText(item.plan_key || item.plan || item.tier || "", 120) ||
+"sentinel_trial",
 status,
 starts_at: startsAt,
 ends_at: endsAt,
@@ -329,17 +370,49 @@ is_active: isActive,
 }
 
 function deriveSession(payload) {
-const user = payload?.user || null
+const user = payload?.user || payload?.account || null
 
-const wallets = arrayify(payload?.wallets)
+const wallets = [
+...arrayify(payload?.wallets),
+payload?.active_wallet || payload?.wallet || null,
+]
 .map(normalizeWallet)
 .filter(Boolean)
 
-const activeEntitlement = normalizeEntitlement(
-payload?.entitlement || payload?.active_entitlement || null
-)
+const dedupedWallets = []
+const walletSeen = new Set()
 
-const entitlements = activeEntitlement ? [activeEntitlement] : []
+wallets.forEach((wallet) => {
+const key = wallet.wallet_address
+if (walletSeen.has(key)) return
+walletSeen.add(key)
+dedupedWallets.push(wallet)
+})
+
+const entitlementCandidates = [
+...arrayify(payload?.entitlements),
+payload?.entitlement || null,
+payload?.active_entitlement || null,
+payload?.access?.entitlement || null,
+]
+.map(normalizeEntitlement)
+.filter(Boolean)
+
+const entitlementSeen = new Set()
+const entitlements = []
+
+entitlementCandidates.forEach((entitlement) => {
+const key = entitlement.id != null
+? `id:${entitlement.id}`
+: `${entitlement.product}:${entitlement.plan}:${entitlement.ends_at || "none"}`
+if (entitlementSeen.has(key)) return
+entitlementSeen.add(key)
+entitlements.push(entitlement)
+})
+
+const activeEntitlement =
+entitlements.find((item) => item.is_active) ||
+normalizeEntitlement(payload?.active_entitlement || payload?.entitlement || null)
 
 const authenticated =
 Boolean(payload?.authenticated) ||
@@ -348,24 +421,29 @@ Boolean(user?.id) ||
 Boolean(user?.email)
 
 const hasSentinelAccess =
-Boolean(payload?.has_sentinel_access) || Boolean(activeEntitlement?.is_active)
+Boolean(payload?.has_sentinel_access) ||
+Boolean(payload?.hasSentinelAccess) ||
+Boolean(payload?.access?.has_sentinel_access) ||
+Boolean(activeEntitlement?.is_active)
 
 return {
 authenticated,
 user: user
 ? {
 id: user.id ?? null,
-display_name: cleanText(user.display_name || "", 120) || null,
+display_name:
+cleanText(user.display_name || user.displayName || user.name || "", 120) ||
+null,
 email: cleanText(user.email || "", 200) || null,
 status: cleanText(user.status || "active", 64).toLowerCase() || "active",
 role: cleanText(user.role || "user", 64).toLowerCase() || "user",
-created_at: user.created_at || null,
-updated_at: user.updated_at || null,
+created_at: user.created_at || user.createdAt || null,
+updated_at: user.updated_at || user.updatedAt || null,
 }
 : null,
-wallets,
+wallets: dedupedWallets,
 entitlements,
-activeEntitlement,
+activeEntitlement: activeEntitlement || null,
 hasSentinelAccess,
 raw: payload || null,
 }
@@ -374,11 +452,19 @@ raw: payload || null,
 function getActiveWallet(session) {
 const wallets = arrayify(session?.wallets)
 return (
+wallets.find((wallet) => wallet.is_active && wallet.is_primary) ||
 wallets.find((wallet) => wallet.is_active) ||
 wallets.find((wallet) => wallet.is_primary) ||
 wallets[0] ||
 null
 )
+}
+
+function canContinueToSentinel() {
+const authenticated = Boolean(state.session?.authenticated)
+const activeWallet = getActiveWallet(state.session)
+const hasAccess = Boolean(state.session?.hasSentinelAccess)
+return authenticated && hasAccess && Boolean(activeWallet)
 }
 
 function updateControlState() {
@@ -398,7 +484,7 @@ setDisabled(els.redeemAccessCodeButton, busy || !authenticated)
 setDisabled(els.connectWalletButton, busy || !authenticated)
 setDisabled(els.replaceWalletButton, busy || !authenticated)
 setDisabled(els.disconnectWalletButton, busy || !authenticated || !activeWallet)
-setDisabled(els.continueToSentinelButton, busy || !authenticated || !hasAccess)
+setDisabled(els.continueToSentinelButton, busy || !canContinueToSentinel())
 
 setDisabled(els.signInEmailInput, busy || authenticated)
 setDisabled(els.signInPasswordInput, busy || authenticated)
@@ -598,15 +684,7 @@ if (
 result?.ok === false &&
 (result.allowed_status === 401 || result.allowed_status === 404)
 ) {
-state.session = {
-authenticated: false,
-user: null,
-wallets: [],
-entitlements: [],
-activeEntitlement: null,
-hasSentinelAccess: false,
-raw: null,
-}
+resetSession()
 renderSession()
 if (!quiet) clearBanner()
 return state.session
@@ -807,7 +885,10 @@ throw new Error(linkPayload?.error || "Wallet linking failed.")
 }
 
 await loadSession({ quiet: true })
-setBanner(mode === "replace" ? "Wallet replaced successfully." : "Wallet linked successfully.", "good")
+setBanner(
+mode === "replace" ? "Wallet replaced successfully." : "Wallet linked successfully.",
+"good"
+)
 } catch (error) {
 setBanner(error?.message || "Failed to link wallet.", "bad")
 } finally {
@@ -894,9 +975,10 @@ throw new Error(payload?.error || "Registration failed.")
 
 setValue(els.registerPasswordInput, "")
 setValue(els.registerConfirmPasswordInput, "")
+
 await loadSession({ quiet: true })
 setBanner(
-"Account created. You can now redeem an access code and link a wallet.",
+"Account created. Redeem your access code and link a wallet to continue.",
 "good"
 )
 } catch (error) {
@@ -946,23 +1028,19 @@ beginAuthLoading()
 try {
 await apiFetchFirst(["/api/auth/logout"], { method: "POST" }, { allowStatuses: [404] })
 
-state.session = {
-authenticated: false,
-user: null,
-wallets: [],
-entitlements: [],
-activeEntitlement: null,
-hasSentinelAccess: false,
-raw: null,
-}
-
+resetSession()
 renderSession()
+activateAuthTab("signin")
 setBanner("Signed out.", "good")
 } catch (error) {
 setBanner(error?.message || "Failed to sign out.", "bad")
 } finally {
 endAuthLoading()
 }
+}
+
+function normalizeAccessCodeForSubmit(value) {
+return cleanText(value, 128).replace(/\s+/g, "").toUpperCase()
 }
 
 async function handleRedeemAccessCode(event) {
@@ -973,7 +1051,7 @@ setBanner("Create an account or sign in before redeeming an access code.", "warn
 return
 }
 
-const code = cleanText(els.accessCodeInput?.value, 120).toUpperCase()
+const code = normalizeAccessCodeForSubmit(els.accessCodeInput?.value)
 if (!code) {
 setBanner("Enter a valid access code.", "warn")
 return
@@ -1011,9 +1089,16 @@ setBanner("Redeem an active Sentinel access code before continuing.", "warn")
 return
 }
 
+if (!getActiveWallet(state.session)) {
+setBanner("Link a wallet before continuing into Sentinel.", "warn")
+return
+}
+
 const target =
 cleanText(
-state.session?.raw?.continue_url || state.session?.raw?.access?.continue_url || "",
+state.session?.raw?.continue_url ||
+state.session?.raw?.access?.continue_url ||
+"",
 1000
 ) || "/sentinel.html"
 
@@ -1063,15 +1148,7 @@ updateControlState()
 try {
 await loadSession({ quiet: true })
 } catch {
-state.session = {
-authenticated: false,
-user: null,
-wallets: [],
-entitlements: [],
-activeEntitlement: null,
-hasSentinelAccess: false,
-raw: null,
-}
+resetSession()
 renderSession()
 }
 }

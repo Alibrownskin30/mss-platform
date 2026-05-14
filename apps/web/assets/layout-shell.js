@@ -5,9 +5,44 @@ const NAV_ITEMS = [
 { key: "builder", label: "Builder Console", href: "./builder.html" },
 { key: "explore", label: "Explore", href: "./explore.html" },
 { key: "alerts", label: "Alerts", href: "./alerts.html" },
+{ key: "sentinel", label: "Sentinel Access", href: "./auth.html" },
 { key: "methodology", label: "Methodology", href: "./methodology.html" },
 { key: "legal", label: "Legal", href: "./legal.html" },
 ];
+
+const PAGE_LABELS = {
+home: "Home",
+scanner: "Scanner",
+token: "Scanner",
+launchpad: "Launchpad",
+launcher: "Launchpad",
+builder: "Builder Console",
+explore: "Explore",
+alerts: "Alerts",
+sentinel: "Sentinel Access",
+auth: "Sentinel Access",
+compliance: "Compliance",
+"compliance-admin": "Compliance Admin",
+methodology: "Methodology",
+legal: "Legal",
+};
+
+const PAGE_SUBTITLES = {
+home: "Blockchain Security Intelligence",
+scanner: "Token Intelligence",
+token: "Token Intelligence",
+launchpad: "Launch Command",
+launcher: "Launch Command",
+builder: "Builder Console",
+explore: "Market Discovery",
+alerts: "Monitoring Layer",
+sentinel: "Sentinel Watcher Access",
+auth: "Sentinel Watcher Access",
+compliance: "Access Verification",
+"compliance-admin": "Internal Control Surface",
+methodology: "Scoring Framework",
+legal: "Policy And Terms",
+};
 
 const X_URL = "https://x.com/MssProtocol";
 const TG_URL = "https://t.me/mssprotocol";
@@ -677,13 +712,6 @@ border-top:1px solid rgba(255,255,255,.06);
 background:linear-gradient(180deg, rgba(255,255,255,.01), rgba(255,255,255,.02));
 }
 
-.mss-shell-drawer-foot-badges{
-display:flex;
-align-items:center;
-gap:8px;
-flex-wrap:wrap;
-}
-
 .mss-shell-footer{
 margin-top:56px;
 border-top:1px solid rgba(115,185,255,.10);
@@ -712,7 +740,8 @@ padding:28px 0 18px;
 align-items:start;
 }
 
-.mss-shell-footer-brandblock{
+.mss-shell-footer-brandblock,
+.mss-shell-footer-col{
 min-width:0;
 }
 
@@ -720,10 +749,6 @@ min-width:0;
 display:flex;
 align-items:center;
 gap:12px;
-min-width:0;
-}
-
-.mss-shell-footer-brandtext{
 min-width:0;
 }
 
@@ -750,10 +775,6 @@ color:rgba(198,211,226,.68);
 font-size:13px;
 line-height:1.7;
 max-width:420px;
-}
-
-.mss-shell-footer-col{
-min-width:0;
 }
 
 .mss-shell-footer-heading{
@@ -954,29 +975,65 @@ onerror="this.style.display='none'; this.nextElementSibling.style.display='block
 `;
 }
 
+function cleanText(value, max = 500) {
+return String(value ?? "").trim().slice(0, max);
+}
+
+function getBodyDatasetValue(...keys) {
+for (const key of keys) {
+const value = cleanText(document.body?.dataset?.[key], 120);
+if (value) return value;
+}
+return "";
+}
+
 function getActiveKey(options = {}) {
-return String(
+const raw = cleanText(
 options.activeNav ||
-document.body?.dataset?.shellActive ||
-"home"
-).trim().toLowerCase();
+options.activeKey ||
+getBodyDatasetValue(
+"shellActive",
+"activeNav",
+"activePage",
+"page",
+"active"
+) ||
+"home",
+120
+).toLowerCase();
+
+if (raw === "token") return "scanner";
+if (raw === "launcher") return "launchpad";
+if (raw === "auth") return "sentinel";
+
+return raw;
 }
 
 function getSubtitle(options = {}) {
-return String(
+const activeKey = getActiveKey(options);
+
+return cleanText(
 options.pageSubtitle ||
 options.pageLabel ||
-document.body?.dataset?.shellSubtitle ||
-"Blockchain Security Intelligence"
-).trim();
+getBodyDatasetValue("shellSubtitle", "pageSubtitle") ||
+PAGE_SUBTITLES[activeKey] ||
+"Blockchain Security Intelligence",
+160
+);
 }
 
 function getPageTitle(options = {}) {
-return String(
+const activeKey = getActiveKey(options);
+
+return cleanText(
 options.pageTitle ||
 options.pageLabel ||
-"MSS Protocol"
-).trim();
+getBodyDatasetValue("shellTitle", "pageTitle") ||
+PAGE_LABELS[activeKey] ||
+document.title ||
+"MSS Protocol",
+180
+);
 }
 
 function getFooterYear() {
@@ -991,6 +1048,7 @@ launchpad: "Launch command",
 builder: "Builder console",
 explore: "Market discovery",
 alerts: "Monitoring layer",
+sentinel: "Access gateway",
 methodology: "Scoring framework",
 legal: "Policy and terms",
 };
@@ -1019,7 +1077,10 @@ function renderHeader(options = {}) {
 const activeKey = getActiveKey(options);
 const subtitle = getSubtitle(options);
 const pageTitle = getPageTitle(options);
-const activeLabel = NAV_ITEMS.find((item) => item.key === activeKey)?.label || "Menu";
+const activeLabel =
+NAV_ITEMS.find((item) => item.key === activeKey)?.label ||
+PAGE_LABELS[activeKey] ||
+"Menu";
 
 return `
 <header class="mss-shell-header" id="mssShellHeader">
@@ -1195,7 +1256,7 @@ Blockchain security intelligence for transparent crypto markets. Built to surfac
 <div class="mss-shell-footer-links">
 <a class="mss-shell-footer-link" href="./methodology.html">Methodology</a>
 <a class="mss-shell-footer-link" href="./legal.html">Legal</a>
-<a class="mss-shell-footer-link" href="./login.html">Account Access</a>
+<a class="mss-shell-footer-link" href="./auth.html">Sentinel Access</a>
 </div>
 </div>
 
@@ -1258,6 +1319,16 @@ if (targetId) {
 const target = document.getElementById(targetId);
 if (target) return { mode: "target", node: target };
 }
+
+const defaultTarget =
+fallbackPosition === "afterbegin"
+? document.getElementById("layoutShellHeader")
+: document.getElementById("layoutShellFooter");
+
+if (defaultTarget) {
+return { mode: "target", node: defaultTarget };
+}
+
 return { mode: "body", position: fallbackPosition };
 }
 
@@ -1275,8 +1346,15 @@ document.body.insertAdjacentHTML("beforeend", markup);
 }
 
 function setBodyScrollLock(open) {
-const scrollbarWidth = Math.max(0, window.innerWidth - document.documentElement.clientWidth);
-document.documentElement.style.setProperty("--mss-shell-scrollbar-width", `${scrollbarWidth}px`);
+const scrollbarWidth = Math.max(
+0,
+window.innerWidth - document.documentElement.clientWidth
+);
+
+document.documentElement.style.setProperty(
+"--mss-shell-scrollbar-width",
+`${scrollbarWidth}px`
+);
 
 document.documentElement.classList.toggle("mss-shell-lock", open);
 document.body.classList.toggle("mss-shell-lock", open);
@@ -1306,7 +1384,8 @@ toggle.setAttribute("aria-expanded", open ? "true" : "false");
 setBodyScrollLock(open);
 
 if (open) {
-lastFocusedElement = document.activeElement instanceof HTMLElement ? document.activeElement : toggle;
+lastFocusedElement =
+document.activeElement instanceof HTMLElement ? document.activeElement : toggle;
 window.requestAnimationFrame(() => {
 closeBtn?.focus?.({ preventScroll: true });
 });
@@ -1348,9 +1427,31 @@ setOpen(false);
 
 window.addEventListener("resize", () => {
 if (!drawer.classList.contains("is-open")) return;
-const scrollbarWidth = Math.max(0, window.innerWidth - document.documentElement.clientWidth);
-document.documentElement.style.setProperty("--mss-shell-scrollbar-width", `${scrollbarWidth}px`);
+const scrollbarWidth = Math.max(
+0,
+window.innerWidth - document.documentElement.clientWidth
+);
+document.documentElement.style.setProperty(
+"--mss-shell-scrollbar-width",
+`${scrollbarWidth}px`
+);
 });
+}
+
+function shouldAutoMountShell() {
+if (!document.body) return false;
+if (document.body.dataset.shellAuto === "false") return false;
+if (document.getElementById("mssShellHeader")) return false;
+
+if (document.body.dataset.shellAuto === "true") return true;
+if (document.body.dataset.activePage) return true;
+if (document.body.dataset.page) return true;
+if (document.body.dataset.activeNav) return true;
+if (document.body.dataset.shellActive) return true;
+if (document.getElementById("layoutShellHeader")) return true;
+if (document.getElementById("layoutShellFooter")) return true;
+
+return false;
 }
 
 export async function mountLayoutShell(options = {}) {
@@ -1392,20 +1493,14 @@ export default mountLayoutShell;
 ensureStyles();
 primeShellPlaceholders();
 
-if (document.readyState === "loading") {
-document.addEventListener(
-"DOMContentLoaded",
-() => {
-const shouldAutoMount =
-document.body?.dataset?.shellAuto === "true" &&
-!document.getElementById("mssShellHeader");
-
-if (shouldAutoMount) {
+function autoMountWhenReady() {
+if (shouldAutoMountShell()) {
 void mountLayoutShell({});
 }
-},
-{ once: true }
-);
-} else if (document.body?.dataset?.shellAuto === "true" && !document.getElementById("mssShellHeader")) {
-void mountLayoutShell({});
+}
+
+if (document.readyState === "loading") {
+document.addEventListener("DOMContentLoaded", autoMountWhenReady, { once: true });
+} else {
+autoMountWhenReady();
 }

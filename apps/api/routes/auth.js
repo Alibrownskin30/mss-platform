@@ -22,6 +22,14 @@ process.env.SESSION_SECRET,
 5000
 ) || "mss-dev-auth-secret-change-me"
 
+const AUTH_COOKIE_DOMAIN = cleanText(
+process.env.MSS_AUTH_COOKIE_DOMAIN || process.env.AUTH_COOKIE_DOMAIN,
+253
+)
+
+const AUTH_COOKIE_SAMESITE =
+cleanText(process.env.MSS_AUTH_COOKIE_SAMESITE || "Lax", 20) || "Lax"
+
 const USER_STATUS_SET = new Set(["active", "disabled", "suspended"])
 const USER_ROLE_SET = new Set(["user", "admin", "support"])
 const ENTITLEMENT_STATUS_SET = new Set(["active", "expired", "revoked", "scheduled"])
@@ -58,8 +66,10 @@ return cleanText(email, 320).toLowerCase()
 function normalizeDisplayName(value, email = "") {
 const cleaned = cleanText(value, 120)
 if (cleaned) return cleaned
+
 const safeEmail = normalizeEmail(email)
 if (!safeEmail.includes("@")) return ""
+
 return cleanText(safeEmail.split("@")[0], 120)
 }
 
@@ -117,7 +127,10 @@ function verifySignedToken(token, expectedKind = "") {
 const raw = cleanText(token, 10000)
 if (!raw || !raw.includes(".")) return null
 
-const [body, signature] = raw.split(".")
+const parts = raw.split(".")
+if (parts.length !== 2) return null
+
+const [body, signature] = parts
 if (!body || !signature) return null
 
 const expectedSignature = signValue(body)
@@ -145,13 +158,17 @@ return payload
 
 function parseCookieHeader(header = "") {
 const out = {}
+
 for (const chunk of String(header || "").split(";")) {
 const index = chunk.indexOf("=")
 if (index === -1) continue
+
 const key = chunk.slice(0, index).trim()
 const value = chunk.slice(index + 1).trim()
+
 if (key) out[key] = decodeURIComponent(value)
 }
+
 return out
 }
 
@@ -170,6 +187,7 @@ return ""
 
 function appendSetCookie(res, cookieValue) {
 const current = res.getHeader("Set-Cookie")
+
 if (!current) {
 res.setHeader("Set-Cookie", [cookieValue])
 return
@@ -183,36 +201,26 @@ return
 res.setHeader("Set-Cookie", [current, cookieValue])
 }
 
-function setAuthCookie(res, token) {
+function buildCookieParts({ token = "", maxAge = 0 } = {}) {
 const secure = String(process.env.NODE_ENV || "").toLowerCase() === "production"
-const cookie = [
+
+return [
 `${AUTH_COOKIE_NAME}=${encodeURIComponent(token)}`,
-`Max-Age=${AUTH_SESSION_TTL_SEC}`,
+`Max-Age=${maxAge}`,
 "Path=/",
 "HttpOnly",
-"SameSite=Lax",
+`SameSite=${AUTH_COOKIE_SAMESITE}`,
+AUTH_COOKIE_DOMAIN ? `Domain=${AUTH_COOKIE_DOMAIN}` : "",
 secure ? "Secure" : "",
-]
-.filter(Boolean)
-.join("; ")
+].filter(Boolean)
+}
 
-appendSetCookie(res, cookie)
+function setAuthCookie(res, token) {
+appendSetCookie(res, buildCookieParts({ token, maxAge: AUTH_SESSION_TTL_SEC }).join("; "))
 }
 
 function clearAuthCookie(res) {
-const secure = String(process.env.NODE_ENV || "").toLowerCase() === "production"
-const cookie = [
-`${AUTH_COOKIE_NAME}=`,
-"Max-Age=0",
-"Path=/",
-"HttpOnly",
-"SameSite=Lax",
-secure ? "Secure" : "",
-]
-.filter(Boolean)
-.join("; ")
-
-appendSetCookie(res, cookie)
+appendSetCookie(res, buildCookieParts({ token: "", maxAge: 0 }).join("; "))
 }
 
 async function hashPassword(password) {
@@ -236,6 +244,7 @@ return crypto.timingSafeEqual(Buffer.from(derived), Buffer.from(expected))
 
 function buildSessionToken(user) {
 const loginAt = cleanText(user?.last_login_at, 64) || nowIso()
+
 return createSignedToken({
 kind: "mss_session",
 user_id: Number(user?.id || 0),
@@ -246,13 +255,21 @@ exp: Math.floor(Date.now() / 1000) + AUTH_SESSION_TTL_SEC,
 })
 }
 
-function buildWalletChallengeToken({ userId, walletAddress, nonce, expiresAt }) {
+function buildWalletChallengeToken({
+userId,
+walletAddress,
+nonce,
+issuedAt,
+expiresAt,
+}) {
 return createSignedToken({
 kind: "wallet_link_challenge",
 user_id: Number(userId || 0),
 wallet_address: normalizeWalletAddress(walletAddress),
 nonce: cleanText(nonce, 128),
-iat: Math.floor(Date.now() / 1000),
+issued_at: cleanText(issuedAt, 64),
+expires_at: cleanText(expiresAt, 64),
+iat: Math.floor(new Date(issuedAt).getTime() / 1000),
 exp: Math.floor(new Date(expiresAt).getTime() / 1000),
 })
 }
@@ -285,11 +302,14 @@ return null
 }
 
 const map = {}
+
 for (const line of lines) {
 const index = line.indexOf(":")
 if (index === -1) continue
+
 const key = cleanText(line.slice(0, index), 64).toLowerCase()
 const value = cleanText(line.slice(index + 1), 1000)
+
 if (key) map[key] = value
 }
 
@@ -391,6 +411,7 @@ const planKey = cleanText(codeRow.plan_key, 120).toLowerCase()
 const planLabel = cleanText(codeRow.plan_label, 120).toLowerCase()
 
 if (codeType === "admin") return "sentinel_internal"
+
 if (
 codeType === "partner" ||
 codeType === "comp" ||
@@ -401,6 +422,20 @@ return "sentinel_early"
 }
 
 return "sentinel_standard"
+}
+
+function isEntitlementActiveNow(row) {
+if (!row) return false
+if (cleanText(row.status, 32).toLowerCase() !== "active") return false
+
+const now = Date.now()
+const startsAt = row.starts_at ? new Date(row.starts_at).getTime() : null
+const endsAt = row.ends_at ? new Date(row.ends_at).getTime() : null
+
+if (startsAt && !Number.isNaN(startsAt) && startsAt > now) return false
+if (endsAt && !Number.isNaN(endsAt) && endsAt <= now) return false
+
+return true
 }
 
 function serializeUser(row) {
@@ -445,13 +480,14 @@ const status = cleanText(row.status, 32).toLowerCase()
 const normalizedStatus = ENTITLEMENT_STATUS_SET.has(status) ? status : "active"
 const startsAt = row.starts_at || null
 const endsAt = row.ends_at || null
+const planKey = cleanText(row.plan_key, 120) || "sentinel_trial"
 
 return {
 id: Number(row.id || 0),
 user_id: Number(row.user_id || 0),
 source_type: cleanText(row.source_type, 32) || "code",
 source_code_id: row.source_code_id == null ? null : Number(row.source_code_id),
-plan_key: cleanText(row.plan_key, 120) || "sentinel_trial",
+plan_key: planKey,
 access_tier: cleanText(row.access_tier, 64) || "sentinel_standard",
 status: normalizedStatus,
 starts_at: startsAt,
@@ -462,24 +498,10 @@ created_at: row.created_at || null,
 updated_at: row.updated_at || null,
 
 product: "sentinel_access",
-plan: cleanText(row.plan_key, 120) || "sentinel_trial",
+plan: planKey,
 is_active: normalizedStatus === "active" && isEntitlementActiveNow(row),
 expires_at: endsAt,
 }
-}
-
-function isEntitlementActiveNow(row) {
-if (!row) return false
-if (cleanText(row.status, 32).toLowerCase() !== "active") return false
-
-const now = Date.now()
-const startsAt = row.starts_at ? new Date(row.starts_at).getTime() : null
-const endsAt = row.ends_at ? new Date(row.ends_at).getTime() : null
-
-if (startsAt && !Number.isNaN(startsAt) && startsAt > now) return false
-if (endsAt && !Number.isNaN(endsAt) && endsAt <= now) return false
-
-return true
 }
 
 async function expireStaleEntitlements(userId = null) {
@@ -580,6 +602,7 @@ return serializeWallet(row)
 
 async function listWalletsForUser(userId, limit = 10) {
 const safeLimit = Math.max(1, Math.min(Number(limit || 10), 50))
+
 const rows = await db.all(
 `
 SELECT *
@@ -591,13 +614,14 @@ LIMIT ?
 [userId, safeLimit]
 )
 
-return (rows || []).map(serializeWallet)
+return (rows || []).map(serializeWallet).filter(Boolean)
 }
 
 async function listEntitlementsForUser(userId, limit = 20) {
 await expireStaleEntitlements(userId)
 
 const safeLimit = Math.max(1, Math.min(Number(limit || 20), 100))
+
 const rows = await db.all(
 `
 SELECT *
@@ -612,26 +636,26 @@ LIMIT ?
 [userId, safeLimit]
 )
 
-return (rows || []).map(serializeEntitlement)
+return (rows || []).map(serializeEntitlement).filter(Boolean)
 }
 
 async function getActiveEntitlementForUser(userId) {
 await expireStaleEntitlements(userId)
 
-const row = await db.get(
+const rows = await db.all(
 `
 SELECT *
 FROM sentinel_entitlements
 WHERE user_id = ?
 AND status = 'active'
 ORDER BY datetime(starts_at) DESC, id DESC
-LIMIT 1
+LIMIT 10
 `,
 [userId]
 )
 
-const entitlement = serializeEntitlement(row)
-return entitlement?.is_active ? entitlement : null
+const entitlements = (rows || []).map(serializeEntitlement).filter(Boolean)
+return entitlements.find((item) => item.is_active) || null
 }
 
 async function getSessionUserFromRequest(req) {
@@ -656,12 +680,15 @@ user,
 active_wallet: activeWallet,
 active_entitlement: activeEntitlement,
 has_sentinel_access: Boolean(activeEntitlement),
+has_linked_wallet: Boolean(activeWallet),
+can_continue_to_sentinel: Boolean(activeEntitlement && activeWallet),
 }
 }
 
 async function requireAuth(req, res, next) {
 try {
 const auth = await getSessionUserFromRequest(req)
+
 if (!auth?.user) {
 clearAuthCookie(res)
 return res.status(401).json({
@@ -674,6 +701,7 @@ req.auth = auth
 req.user = auth.user
 req.active_wallet = auth.active_wallet
 req.active_entitlement = auth.active_entitlement
+
 return next()
 } catch (error) {
 console.error("Auth middleware failed", error)
@@ -688,6 +716,7 @@ message: error?.message || String(error),
 async function requireSentinelAccess(req, res, next) {
 try {
 const auth = await getSessionUserFromRequest(req)
+
 if (!auth?.user) {
 clearAuthCookie(res)
 return res.status(401).json({
@@ -703,10 +732,18 @@ error: "Active Sentinel entitlement required",
 })
 }
 
+if (!auth.active_wallet) {
+return res.status(403).json({
+ok: false,
+error: "Linked Solana wallet required",
+})
+}
+
 req.auth = auth
 req.user = auth.user
 req.active_wallet = auth.active_wallet
 req.active_entitlement = auth.active_entitlement
+
 return next()
 } catch (error) {
 console.error("Sentinel access middleware failed", error)
@@ -720,12 +757,15 @@ message: error?.message || String(error),
 
 async function buildAuthResponse(userId) {
 const user = await getUserById(userId)
+if (!user) return buildUnauthenticatedResponse()
+
 const activeWallet = await getActiveWalletForUser(userId)
 const wallets = await listWalletsForUser(userId, 20)
 const entitlements = await listEntitlementsForUser(userId, 20)
-const activeEntitlement =
-entitlements.find((item) => item.is_active) || null
+const activeEntitlement = entitlements.find((item) => item.is_active) || null
 const hasSentinelAccess = Boolean(activeEntitlement)
+const hasLinkedWallet = Boolean(activeWallet)
+const canContinue = Boolean(hasSentinelAccess && hasLinkedWallet)
 
 return {
 user,
@@ -733,12 +773,19 @@ wallet: activeWallet,
 active_wallet: activeWallet,
 wallets,
 linked_wallets: wallets,
+
 entitlement: activeEntitlement,
 active_entitlement: activeEntitlement,
 entitlements,
+
 has_sentinel_access: hasSentinelAccess,
+has_linked_wallet: hasLinkedWallet,
+can_continue_to_sentinel: canContinue,
+
 access: {
 has_sentinel_access: hasSentinelAccess,
+has_linked_wallet: hasLinkedWallet,
+can_continue_to_sentinel: canContinue,
 active_entitlement: activeEntitlement,
 entitlements,
 continue_url: "/sentinel.html",
@@ -746,8 +793,35 @@ continue_url: "/sentinel.html",
 }
 }
 
+function buildUnauthenticatedResponse() {
+return {
+ok: true,
+authenticated: false,
+user: null,
+wallet: null,
+active_wallet: null,
+wallets: [],
+linked_wallets: [],
+entitlement: null,
+active_entitlement: null,
+entitlements: [],
+has_sentinel_access: false,
+has_linked_wallet: false,
+can_continue_to_sentinel: false,
+access: {
+has_sentinel_access: false,
+has_linked_wallet: false,
+can_continue_to_sentinel: false,
+active_entitlement: null,
+entitlements: [],
+continue_url: "/sentinel.html",
+},
+}
+}
+
 async function redeemAccessCodeForUser(userId, codeInput) {
 const code = normalizeAccessCodeInput(codeInput)
+
 if (!code) {
 throw new Error("Access code is required.")
 }
@@ -807,7 +881,10 @@ if (priorRedemption) {
 throw new Error("This access code has already been redeemed on this account.")
 }
 
-if (Number(codeRow.redeemed_count || 0) >= Number(codeRow.max_redemptions || 0)) {
+const maxRedemptions = Number(codeRow.max_redemptions || 0)
+const redeemedCount = Number(codeRow.redeemed_count || 0)
+
+if (maxRedemptions > 0 && redeemedCount >= maxRedemptions) {
 throw new Error("Access code redemption limit has been reached.")
 }
 
@@ -824,17 +901,20 @@ LIMIT 1
 )
 
 const activeEntitlement = serializeEntitlement(activeEntitlementRow)
-if (activeEntitlement?.ends_at == null && activeEntitlement?.status === "active") {
+
+if (activeEntitlement?.ends_at == null && activeEntitlement?.is_active) {
 throw new Error("This account already has permanent Sentinel access.")
 }
 
 const durationDays = Math.max(0, Number(codeRow.duration_days || 0))
 const derivedTier = resolveAccessTierFromCode(codeRow)
 const trialFlag = cleanText(codeRow.code_type, 64).toLowerCase() === "trial" ? 1 : 0
+const planKey = cleanText(codeRow.plan_key, 120) || "sentinel_trial"
 
 let entitlementId = null
 
 await db.run("BEGIN IMMEDIATE")
+
 try {
 if (activeEntitlement?.id && activeEntitlement.is_active) {
 const extensionBase =
@@ -842,8 +922,7 @@ activeEntitlement.ends_at && new Date(activeEntitlement.ends_at).getTime() > Dat
 ? activeEntitlement.ends_at
 : nowIso()
 
-const nextEndsAt =
-durationDays > 0 ? addDaysToIso(extensionBase, durationDays) : null
+const nextEndsAt = durationDays > 0 ? addDaysToIso(extensionBase, durationDays) : null
 
 await db.run(
 `
@@ -864,7 +943,7 @@ WHERE id = ?
 `,
 [
 codeRow.id,
-cleanText(codeRow.plan_key, 120) || "sentinel_trial",
+planKey,
 derivedTier,
 nextEndsAt,
 trialFlag,
@@ -898,7 +977,7 @@ updated_at
 [
 userId,
 codeRow.id,
-cleanText(codeRow.plan_key, 120) || "sentinel_trial",
+planKey,
 derivedTier,
 startsAt,
 endsAt,
@@ -959,31 +1038,10 @@ throw error
 return getActiveEntitlementForUser(userId)
 }
 
-function buildUnauthenticatedResponse() {
-return {
-ok: true,
-authenticated: false,
-user: null,
-wallet: null,
-active_wallet: null,
-wallets: [],
-linked_wallets: [],
-entitlement: null,
-active_entitlement: null,
-entitlements: [],
-has_sentinel_access: false,
-access: {
-has_sentinel_access: false,
-active_entitlement: null,
-entitlements: [],
-continue_url: "/sentinel.html",
-},
-}
-}
-
 async function handleWalletChallenge(req, res) {
 try {
 const normalizedWallet = validateSolanaWalletAddress(req.body?.wallet_address)
+
 if (!normalizedWallet) {
 return res.status(400).json({
 ok: false,
@@ -999,6 +1057,7 @@ const challengeToken = buildWalletChallengeToken({
 userId: req.user.id,
 walletAddress: normalizedWallet,
 nonce,
+issuedAt,
 expiresAt,
 })
 
@@ -1053,6 +1112,7 @@ let expiresAt = ""
 
 if (challengeToken) {
 const challenge = verifySignedToken(challengeToken, "wallet_link_challenge")
+
 if (!challenge) {
 return res.status(400).json({
 ok: false,
@@ -1067,7 +1127,7 @@ error: "Wallet challenge does not belong to this account",
 })
 }
 
-if (normalizeWalletAddress(challenge.wallet_address) !== walletAddress) {
+if (validateSolanaWalletAddress(challenge.wallet_address) !== walletAddress) {
 return res.status(400).json({
 ok: false,
 error: "Wallet challenge does not match the provided wallet",
@@ -1075,10 +1135,15 @@ error: "Wallet challenge does not match the provided wallet",
 }
 
 nonce = cleanText(challenge.nonce, 128)
-issuedAt = new Date(Number(challenge.iat || 0) * 1000).toISOString()
-expiresAt = new Date(Number(challenge.exp || 0) * 1000).toISOString()
+issuedAt =
+cleanText(challenge.issued_at, 64) ||
+new Date(Number(challenge.iat || 0) * 1000).toISOString()
+expiresAt =
+cleanText(challenge.expires_at, 64) ||
+new Date(Number(challenge.exp || 0) * 1000).toISOString()
 } else {
 const parsedMessage = parseWalletLinkMessage(message)
+
 if (!parsedMessage) {
 return res.status(400).json({
 ok: false,
@@ -1148,7 +1213,8 @@ SELECT *
 FROM mss_user_wallets
 WHERE wallet_address = ?
 AND user_id != ?
-ORDER BY is_active DESC, datetime(linked_at) DESC, id DESC
+AND is_active = 1
+ORDER BY datetime(linked_at) DESC, id DESC
 LIMIT 1
 `,
 [walletAddress, req.user.id]
@@ -1157,11 +1223,12 @@ LIMIT 1
 if (otherUserWallet) {
 return res.status(409).json({
 ok: false,
-error: "This wallet is already linked to another account",
+error: "This wallet is already linked to another active account",
 })
 }
 
 await db.run("BEGIN IMMEDIATE")
+
 try {
 await db.run(
 `
@@ -1261,6 +1328,7 @@ message: error?.message || String(error),
 router.get("/me", async (req, res) => {
 try {
 const auth = await getSessionUserFromRequest(req)
+
 if (!auth?.user) {
 clearAuthCookie(res)
 return res.json(buildUnauthenticatedResponse())
@@ -1286,12 +1354,15 @@ message: error?.message || String(error),
 router.get("/access/status", async (req, res) => {
 try {
 const auth = await getSessionUserFromRequest(req)
+
 if (!auth?.user) {
 clearAuthCookie(res)
 return res.json({
 ok: true,
 authenticated: false,
 has_sentinel_access: false,
+has_linked_wallet: false,
+can_continue_to_sentinel: false,
 entitlement: null,
 active_entitlement: null,
 entitlements: [],
@@ -1300,29 +1371,56 @@ active_wallet: null,
 })
 }
 
-const entitlements = await listEntitlementsForUser(auth.user.id, 20)
+const full = await buildAuthResponse(auth.user.id)
 
 return res.json({
 ok: true,
 authenticated: true,
-has_sentinel_access: auth.has_sentinel_access,
-entitlement: auth.active_entitlement,
-active_entitlement: auth.active_entitlement,
-entitlements,
-wallet: auth.active_wallet,
-active_wallet: auth.active_wallet,
-access: {
-has_sentinel_access: auth.has_sentinel_access,
-active_entitlement: auth.active_entitlement,
-entitlements,
-continue_url: "/sentinel.html",
-},
+...full,
 })
 } catch (error) {
 console.error("GET /api/auth/access/status failed", error)
 return res.status(500).json({
 ok: false,
 error: "Failed to load access status",
+message: error?.message || String(error),
+})
+}
+})
+
+router.get("/sentinel-access", requireAuth, async (req, res) => {
+try {
+const full = await buildAuthResponse(req.user.id)
+
+return res.json({
+ok: true,
+authenticated: true,
+...full,
+})
+} catch (error) {
+console.error("GET /api/auth/sentinel-access failed", error)
+return res.status(500).json({
+ok: false,
+error: "Failed to load Sentinel access",
+message: error?.message || String(error),
+})
+}
+})
+
+router.get("/sentinel-gate", requireAuth, async (req, res) => {
+try {
+const full = await buildAuthResponse(req.user.id)
+
+return res.json({
+ok: true,
+authenticated: true,
+...full,
+})
+} catch (error) {
+console.error("GET /api/auth/sentinel-gate failed", error)
+return res.status(500).json({
+ok: false,
+error: "Failed to load Sentinel gate",
 message: error?.message || String(error),
 })
 }
@@ -1446,6 +1544,7 @@ error: "Account is not active",
 }
 
 const loginAt = nowIso()
+
 await db.run(
 `
 UPDATE mss_users
@@ -1485,8 +1584,10 @@ message: error?.message || String(error),
 router.post("/logout", async (req, res) => {
 try {
 const auth = await getSessionUserFromRequest(req)
+
 if (auth?.user?.id) {
 const logoutAt = nowIso()
+
 await db.run(
 `
 UPDATE mss_users
@@ -1508,6 +1609,7 @@ authenticated: false,
 } catch (error) {
 console.error("POST /api/auth/logout failed", error)
 clearAuthCookie(res)
+
 return res.json({
 ok: true,
 authenticated: false,
@@ -1518,11 +1620,14 @@ authenticated: false,
 router.get("/wallets", requireAuth, async (req, res) => {
 try {
 const wallets = await listWalletsForUser(req.user.id, 20)
+const activeWallet = wallets.find((item) => item.is_active) || null
+
 return res.json({
 ok: true,
 wallets,
 linked_wallets: wallets,
-active_wallet: wallets.find((item) => item.is_active) || null,
+wallet: activeWallet,
+active_wallet: activeWallet,
 })
 } catch (error) {
 console.error("GET /api/auth/wallets failed", error)
@@ -1536,6 +1641,7 @@ message: error?.message || String(error),
 
 router.post("/wallet/challenge", requireAuth, handleWalletChallenge)
 router.post("/wallet/link/init", requireAuth, handleWalletChallenge)
+router.post("/wallet/challenge/start", requireAuth, handleWalletChallenge)
 
 router.post("/wallet/link", requireAuth, handleWalletLink)
 router.post("/wallet/verify", requireAuth, handleWalletLink)
@@ -1608,6 +1714,7 @@ message: error?.message || String(error),
 router.post("/access/redeem", requireAuth, async (req, res) => {
 try {
 const code = normalizeAccessCodeInput(req.body?.code || req.body?.access_code)
+
 if (!code) {
 return res.status(400).json({
 ok: false,
@@ -1634,35 +1741,9 @@ error: error?.message || "Failed to redeem access code",
 }
 })
 
-router.get("/sentinel-access", requireAuth, async (req, res) => {
-try {
-const entitlement = await getActiveEntitlementForUser(req.user.id)
-const entitlements = await listEntitlementsForUser(req.user.id, 20)
-const activeWallet = await getActiveWalletForUser(req.user.id)
-
-return res.json({
-ok: true,
-has_sentinel_access: Boolean(entitlement),
-entitlement,
-active_entitlement: entitlement,
-entitlements,
-wallet: activeWallet,
-active_wallet: activeWallet,
-access: {
-has_sentinel_access: Boolean(entitlement),
-active_entitlement: entitlement,
-entitlements,
-continue_url: "/sentinel.html",
-},
-})
-} catch (error) {
-console.error("GET /api/auth/sentinel-access failed", error)
-return res.status(500).json({
-ok: false,
-error: "Failed to load Sentinel access",
-message: error?.message || String(error),
-})
-}
+router.post("/redeem", requireAuth, async (req, res) => {
+req.url = "/access/redeem"
+return router.handle(req, res)
 })
 
 export {
