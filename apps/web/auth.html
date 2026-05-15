@@ -14,36 +14,70 @@ content="Create or sign into your MSS Protocol account, connect or replace your 
 <style>
 .auth-page-main {
 --auth-max: 1380px;
---auth-border: rgba(104, 255, 199, 0.14);
---auth-text: #ecfff7;
---auth-muted: #94b7ac;
---auth-accent: #68ffc7;
---auth-accent-2: #3dd9a3;
+--auth-bg: rgba(5, 9, 20, 0.86);
+--auth-bg-2: rgba(8, 14, 27, 0.92);
+--auth-border: rgba(115, 185, 255, 0.14);
+--auth-border-strong: rgba(115, 185, 255, 0.24);
+--auth-text: #eef6ff;
+--auth-muted: rgba(198, 211, 226, 0.66);
+--auth-muted-2: rgba(198, 211, 226, 0.48);
+--auth-accent: #4fc3ff;
+--auth-accent-2: #8fe3ff;
+--auth-gold: #ebd7ab;
 --auth-good: #7bffb1;
 --auth-warn: #ffcf66;
 --auth-bad: #ff8787;
---auth-shadow: 0 24px 60px rgba(0, 0, 0, 0.34);
---auth-radius: 18px;
+--auth-shadow: 0 28px 70px rgba(0, 0, 0, 0.38);
+--auth-radius: 22px;
 
 width: min(var(--auth-max), calc(100% - 32px));
 margin: 0 auto;
-padding: 34px 0 54px;
+padding: 34px 0 56px;
 color: var(--auth-text);
+}
+
+.auth-page-main * {
+box-sizing: border-box;
 }
 
 .auth-hero {
 display: grid;
-grid-template-columns: minmax(0, 1.15fr) minmax(360px, 0.85fr);
+grid-template-columns: minmax(0, 1.15fr) minmax(340px, 0.85fr);
 gap: 18px;
 margin-bottom: 18px;
 }
 
 .auth-panel,
 .auth-card {
-background: linear-gradient(180deg, rgba(14, 28, 24, 0.92), rgba(8, 17, 14, 0.94));
+position: relative;
+overflow: hidden;
 border: 1px solid var(--auth-border);
 border-radius: var(--auth-radius);
+background:
+radial-gradient(780px 220px at 0% 0%, rgba(79, 195, 255, 0.11), transparent 44%),
+radial-gradient(520px 180px at 100% 0%, rgba(235, 215, 171, 0.045), transparent 42%),
+linear-gradient(180deg, rgba(8, 14, 27, 0.94), rgba(4, 8, 17, 0.96));
 box-shadow: var(--auth-shadow);
+}
+
+.auth-panel::before,
+.auth-card::before {
+content: "";
+position: absolute;
+inset: 0 0 auto 0;
+height: 1px;
+background: linear-gradient(
+90deg,
+transparent,
+rgba(79, 195, 255, 0.38),
+rgba(235, 215, 171, 0.16),
+transparent
+);
+pointer-events: none;
+}
+
+.auth-panel,
+.auth-card {
 padding: 24px;
 }
 
@@ -54,34 +88,49 @@ gap: 8px;
 min-height: 30px;
 padding: 0 12px;
 border-radius: 999px;
-border: 1px solid rgba(104, 255, 199, 0.18);
-color: var(--auth-accent);
-background: rgba(10, 20, 17, 0.84);
-font-size: 12px;
-font-weight: 800;
-letter-spacing: 0.08em;
+border: 1px solid rgba(115, 185, 255, 0.18);
+background: rgba(79, 195, 255, 0.06);
+color: var(--auth-accent-2);
+font-size: 11px;
+font-weight: 900;
+letter-spacing: 0.12em;
 text-transform: uppercase;
 }
 
 .auth-title {
 margin: 18px 0 12px;
-font-size: clamp(30px, 4.6vw, 48px);
-line-height: 1.02;
-letter-spacing: -0.035em;
+max-width: 940px;
+font-size: clamp(32px, 4.8vw, 56px);
+line-height: 0.98;
+letter-spacing: -0.045em;
+}
+
+.auth-copy,
+.auth-section-copy,
+.auth-helper,
+.auth-note,
+.summary-copy,
+.list-empty {
+color: var(--auth-muted);
+line-height: 1.65;
 }
 
 .auth-copy {
 margin: 0;
-color: var(--auth-muted);
+max-width: 760px;
 font-size: 15px;
-line-height: 1.7;
 }
 
-.auth-chip-row {
+.auth-chip-row,
+.auth-button-row,
+.auth-session-actions {
 display: flex;
 flex-wrap: wrap;
 gap: 10px;
-margin-top: 18px;
+}
+
+.auth-chip-row {
+margin-top: 20px;
 }
 
 .auth-chip {
@@ -92,9 +141,9 @@ min-height: 38px;
 padding: 0 12px;
 border-radius: 999px;
 border: 1px solid var(--auth-border);
-background: rgba(10, 18, 15, 0.86);
+background: rgba(255, 255, 255, 0.035);
 color: var(--auth-muted);
-font-size: 13px;
+font-size: 12px;
 }
 
 .auth-chip strong {
@@ -104,9 +153,11 @@ color: var(--auth-text);
 .auth-hero-points,
 .auth-summary-grid,
 .auth-status-grid,
-.auth-mini-grid {
+.auth-step-grid,
+.auth-session-panel,
+.list-box {
 display: grid;
-gap: 12px;
+gap: 10px;
 }
 
 .auth-hero-points {
@@ -114,14 +165,16 @@ grid-template-columns: repeat(4, minmax(0, 1fr));
 margin-top: 22px;
 }
 
-.auth-summary-grid {
+.auth-summary-grid,
+.auth-status-grid,
+.auth-step-grid,
+.auth-session-panel,
+.list-box {
 margin-top: 18px;
 }
 
-.auth-status-grid,
-.auth-mini-grid {
+.auth-status-grid {
 grid-template-columns: repeat(2, minmax(0, 1fr));
-margin-top: 18px;
 }
 
 .auth-point,
@@ -129,49 +182,51 @@ margin-top: 18px;
 .auth-status-card,
 .auth-step-card,
 .auth-session-box,
-.auth-list-item {
+.list-item {
+border: 1px solid rgba(115, 185, 255, 0.09);
+border-radius: 16px;
+background: rgba(255, 255, 255, 0.035);
 padding: 14px;
-border-radius: 14px;
-border: 1px solid rgba(104, 255, 199, 0.08);
-background: rgba(10, 18, 15, 0.74);
+}
+
+.auth-point {
+min-height: 92px;
 }
 
 .auth-label {
-color: var(--auth-muted);
-font-size: 11px;
+color: var(--auth-muted-2);
+font-size: 10px;
 text-transform: uppercase;
-letter-spacing: 0.08em;
-font-weight: 800;
+letter-spacing: 0.12em;
+font-weight: 900;
 }
 
 .auth-value,
 .summary-value {
 margin-top: 8px;
+color: var(--auth-text);
 font-size: 15px;
-font-weight: 800;
-line-height: 1.4;
+font-weight: 850;
+line-height: 1.35;
 word-break: break-word;
 }
 
 .auth-note,
-.summary-copy {
+.summary-copy,
+.auth-helper {
 margin-top: 8px;
-color: var(--auth-muted);
 font-size: 13px;
-line-height: 1.55;
 }
 
 .auth-section-title {
 margin: 0 0 6px;
 font-size: 18px;
-letter-spacing: -0.02em;
+letter-spacing: -0.025em;
 }
 
 .auth-section-copy {
 margin: 0;
-color: var(--auth-muted);
 font-size: 14px;
-line-height: 1.6;
 }
 
 .auth-main-grid {
@@ -189,9 +244,9 @@ gap: 18px;
 display: none;
 margin-bottom: 18px;
 padding: 14px 16px;
-border-radius: 14px;
-border: 1px solid rgba(104, 255, 199, 0.12);
-background: rgba(10, 18, 15, 0.8);
+border-radius: 16px;
+border: 1px solid rgba(115, 185, 255, 0.14);
+background: rgba(255, 255, 255, 0.04);
 font-size: 14px;
 line-height: 1.55;
 }
@@ -216,36 +271,44 @@ border-color: rgba(255, 135, 135, 0.22);
 }
 
 .segmented {
-display: inline-grid;
+display: grid;
 grid-template-columns: repeat(2, minmax(0, 1fr));
 gap: 8px;
 width: 100%;
-padding: 8px;
-border-radius: 14px;
-border: 1px solid rgba(104, 255, 199, 0.08);
-background: rgba(8, 15, 13, 0.84);
+padding: 7px;
 margin-top: 18px;
+border-radius: 16px;
+border: 1px solid rgba(115, 185, 255, 0.1);
+background: rgba(255, 255, 255, 0.035);
 }
 
 .segment-button {
 min-height: 42px;
-border-radius: 10px;
+border-radius: 12px;
 border: 1px solid transparent;
 background: transparent;
 color: var(--auth-muted);
-font-weight: 800;
+font-weight: 900;
 cursor: pointer;
-transition: background 0.16s ease, color 0.16s ease, border-color 0.16s ease;
+transition:
+transform 0.16s ease,
+background 0.16s ease,
+color 0.16s ease,
+border-color 0.16s ease;
+}
+
+.segment-button:hover {
+transform: translateY(-1px);
 }
 
 .segment-button.active {
-color: #042019;
-background: linear-gradient(135deg, var(--auth-accent), var(--auth-accent-2));
+color: #04111d;
+background: linear-gradient(135deg, var(--auth-accent-2), var(--auth-accent));
 }
 
 .segment-button:not(.active) {
-border-color: rgba(104, 255, 199, 0.08);
-background: rgba(12, 20, 17, 0.6);
+border-color: rgba(115, 185, 255, 0.08);
+background: rgba(255, 255, 255, 0.025);
 }
 
 .auth-form {
@@ -275,41 +338,36 @@ grid-column: 1 / -1;
 }
 
 .field label {
-color: var(--auth-muted);
-font-size: 12px;
-font-weight: 800;
-letter-spacing: 0.05em;
+color: var(--auth-muted-2);
+font-size: 11px;
+font-weight: 900;
+letter-spacing: 0.1em;
 text-transform: uppercase;
 }
 
 .input {
 width: 100%;
-min-height: 46px;
+min-height: 48px;
 padding: 0 14px;
-border: 1px solid rgba(104, 255, 199, 0.12);
-background: rgba(8, 15, 13, 0.92);
+border: 1px solid rgba(115, 185, 255, 0.13);
+background: rgba(2, 6, 14, 0.72);
 color: var(--auth-text);
-border-radius: 12px;
+border-radius: 14px;
 outline: none;
-transition: border-color 0.16s ease, box-shadow 0.16s ease;
+transition:
+border-color 0.16s ease,
+box-shadow 0.16s ease,
+background 0.16s ease;
 }
 
 .input:focus {
-border-color: rgba(104, 255, 199, 0.34);
-box-shadow: 0 0 0 4px rgba(104, 255, 199, 0.08);
-}
-
-.auth-helper {
-color: var(--auth-muted);
-font-size: 13px;
-line-height: 1.55;
+border-color: rgba(79, 195, 255, 0.42);
+box-shadow: 0 0 0 4px rgba(79, 195, 255, 0.08);
+background: rgba(2, 6, 14, 0.88);
 }
 
 .auth-button-row,
 .auth-session-actions {
-display: flex;
-flex-wrap: wrap;
-gap: 10px;
 margin-top: 16px;
 }
 
@@ -319,10 +377,15 @@ border: 0;
 cursor: pointer;
 min-height: 44px;
 padding: 0 16px;
-border-radius: 12px;
-font-weight: 800;
-font-size: 14px;
-transition: transform 0.16s ease, opacity 0.16s ease;
+border-radius: 14px;
+font-weight: 900;
+font-size: 13px;
+letter-spacing: 0.02em;
+transition:
+transform 0.16s ease,
+opacity 0.16s ease,
+border-color 0.16s ease,
+background 0.16s ease;
 }
 
 .auth-button:hover:not(:disabled) {
@@ -335,28 +398,25 @@ cursor: not-allowed;
 }
 
 .auth-button-primary {
-color: #042019;
-background: linear-gradient(135deg, var(--auth-accent), var(--auth-accent-2));
+color: #04111d;
+background: linear-gradient(135deg, var(--auth-accent-2), var(--auth-accent));
+box-shadow: 0 14px 34px rgba(79, 195, 255, 0.14);
 }
 
 .auth-button-secondary {
 color: var(--auth-text);
-background: rgba(11, 21, 18, 0.86);
+background: rgba(255, 255, 255, 0.045);
 border: 1px solid var(--auth-border);
 }
 
 .auth-button-danger {
 color: #ffd5d5;
-background: rgba(42, 14, 14, 0.86);
-border: 1px solid rgba(255, 135, 135, 0.18);
+background: rgba(42, 14, 14, 0.78);
+border: 1px solid rgba(255, 135, 135, 0.2);
 }
 
-.auth-step-grid,
-.auth-session-panel,
-.list-box {
-display: grid;
-gap: 10px;
-margin-top: 18px;
+.auth-step-card {
+padding: 16px;
 }
 
 .auth-step-index {
@@ -365,14 +425,14 @@ align-items: center;
 justify-content: center;
 width: 28px;
 height: 28px;
+margin-bottom: 12px;
 border-radius: 999px;
-border: 1px solid rgba(104, 255, 199, 0.18);
-color: var(--auth-accent);
-font-size: 12px;
+border: 1px solid rgba(115, 185, 255, 0.2);
+background: rgba(79, 195, 255, 0.06);
+color: var(--auth-accent-2);
+font-size: 11px;
 font-weight: 900;
 letter-spacing: 0.08em;
-text-transform: uppercase;
-margin-bottom: 12px;
 }
 
 .auth-step-title {
@@ -389,12 +449,9 @@ line-height: 1.6;
 }
 
 .list-item {
-padding: 12px 14px;
-border-radius: 14px;
-border: 1px solid rgba(104, 255, 199, 0.08);
-background: rgba(10, 18, 15, 0.74);
 display: grid;
 gap: 6px;
+padding: 12px 14px;
 }
 
 .list-item-head {
@@ -407,12 +464,10 @@ flex-wrap: wrap;
 
 .list-empty {
 padding: 14px;
-border-radius: 14px;
-border: 1px dashed rgba(104, 255, 199, 0.12);
-background: rgba(8, 15, 13, 0.58);
-color: var(--auth-muted);
+border-radius: 16px;
+border: 1px dashed rgba(115, 185, 255, 0.14);
+background: rgba(255, 255, 255, 0.025);
 font-size: 13px;
-line-height: 1.55;
 }
 
 .pill {
@@ -422,11 +477,11 @@ gap: 8px;
 min-height: 30px;
 padding: 0 10px;
 border-radius: 999px;
-border: 1px solid rgba(104, 255, 199, 0.14);
-background: rgba(13, 24, 20, 0.88);
-font-size: 11px;
+border: 1px solid rgba(115, 185, 255, 0.14);
+background: rgba(255, 255, 255, 0.04);
+font-size: 10px;
 font-weight: 900;
-letter-spacing: 0.08em;
+letter-spacing: 0.09em;
 text-transform: uppercase;
 white-space: nowrap;
 }
@@ -461,8 +516,7 @@ grid-template-columns: 1fr;
 }
 
 .auth-hero-points,
-.auth-status-grid,
-.auth-mini-grid {
+.auth-status-grid {
 grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 }
@@ -475,7 +529,6 @@ padding-top: 24px;
 
 .auth-hero-points,
 .auth-status-grid,
-.auth-mini-grid,
 .form-grid {
 grid-template-columns: 1fr;
 }
@@ -483,25 +536,39 @@ grid-template-columns: 1fr;
 .auth-panel,
 .auth-card {
 padding: 18px;
+border-radius: 18px;
+}
+
+.auth-title {
+font-size: clamp(30px, 11vw, 44px);
+}
+
+.auth-chip-row .auth-button {
+width: 100%;
 }
 }
 </style>
 </head>
 
-<body data-page="auth" data-active-page="auth" data-active-nav="sentinel">
+<body
+data-shell-auto="true"
+data-page="auth"
+data-active-page="auth"
+data-shell-active="launchpad"
+data-active-nav="launchpad"
+>
 <div class="auth-page-main">
 <section class="auth-hero">
 <section class="auth-panel">
-<div class="auth-eyebrow">Sentinel Watcher Access</div>
-<h1 class="auth-title">Register or sign in, link your wallet, redeem your access code, and enter Sentinel.</h1>
+<div class="auth-eyebrow">Sentinel Access</div>
+<h1 class="auth-title">Account access, wallet control, and Sentinel entry in one place.</h1>
 <p class="auth-copy">
-Sentinel access is account-owned. Wallet connection is handled separately so selected users can replace or
-disconnect wallets later without losing their MSS Protocol account, entitlement history, or future settings.
+Create or sign into your MSS Protocol account, redeem your Sentinel access code, and link the wallet you want attached to your access profile.
 </p>
 
 <div class="auth-chip-row">
 <div class="auth-chip">
-<span>Auth</span>
+<span>Account</span>
 <strong id="authStatusChip">Ready</strong>
 </div>
 <div class="auth-chip">
@@ -536,29 +603,28 @@ disconnect wallets later without losing their MSS Protocol account, entitlement 
 </section>
 
 <aside class="auth-panel">
-<h2 class="auth-section-title">How this access flow works</h2>
+<h2 class="auth-section-title">Clean access model</h2>
 <p class="auth-section-copy">
-Early testers receive selected codes. Codes activate access on the MSS account, while wallet linkage remains
-flexible and can be replaced later.
+Access belongs to the account. Wallets can be connected, replaced, or disconnected later without losing the entitlement history attached to that account.
 </p>
 
 <div class="auth-summary-grid">
 <div class="auth-summary-item">
-<div class="auth-label">1. Account First</div>
-<div class="auth-value">Register or sign in</div>
-<div class="auth-note">Use your MSS account as the base identity for access, entitlement history, and future controls.</div>
+<div class="auth-label">Step 1</div>
+<div class="auth-value">Sign in or register</div>
+<div class="auth-note">Your MSS account becomes the base identity for Sentinel access.</div>
 </div>
 
 <div class="auth-summary-item">
-<div class="auth-label">2. Wallet Link</div>
-<div class="auth-value">Connect, replace, or disconnect later</div>
-<div class="auth-note">Wallet is attached to the account and can be changed without rebuilding the whole user profile.</div>
+<div class="auth-label">Step 2</div>
+<div class="auth-value">Redeem access</div>
+<div class="auth-note">Selected access codes activate the Sentinel entitlement window.</div>
 </div>
 
 <div class="auth-summary-item">
-<div class="auth-label">3. Access Code</div>
-<div class="auth-value">Redeem selected early-access codes</div>
-<div class="auth-note">Single-use code redemption activates the entitlement window for the approved tester account.</div>
+<div class="auth-label">Step 3</div>
+<div class="auth-value">Link wallet</div>
+<div class="auth-note">Attach the wallet you want associated with Sentinel usage.</div>
 </div>
 </div>
 </aside>
@@ -570,11 +636,10 @@ flexible and can be replaced later.
 <section class="auth-main-grid">
 <section class="auth-stack">
 <section id="guestPanel" class="auth-card">
-<div class="auth-eyebrow">Account Entry</div>
-<h2 class="auth-section-title" style="margin-top: 14px;">Create or access your MSS Protocol account</h2>
+<div class="auth-eyebrow">Account</div>
+<h2 class="auth-section-title" style="margin-top: 14px;">Sign in or create account</h2>
 <p class="auth-section-copy">
-New users register first. Existing users sign in. Wallet connection and access-code redemption are handled
-after authentication.
+Start here. Once signed in, you can redeem access and manage wallet linkage from the same account.
 </p>
 
 <div class="segmented" role="tablist" aria-label="Authentication mode">
@@ -624,7 +689,7 @@ autocomplete="current-password"
 </div>
 
 <div class="auth-helper">
-Sign in first to redeem access codes and manage linked wallets from the same account.
+Use the account that should own the Sentinel entitlement.
 </div>
 
 <div class="auth-button-row">
@@ -682,7 +747,7 @@ autocomplete="new-password"
 </div>
 
 <div class="auth-helper">
-Your MSS account owns the access entitlement. Wallet linkage is managed separately and can be replaced later.
+Password must be at least 8 characters.
 </div>
 
 <div class="auth-button-row">
@@ -697,7 +762,7 @@ Create Account
 <div class="auth-eyebrow">Access Code</div>
 <h2 class="auth-section-title" style="margin-top: 14px;">Redeem Sentinel access</h2>
 <p class="auth-section-copy">
-Code redemption binds Sentinel access to your MSS account. Your linked wallet can still be replaced later.
+Enter your selected access code after signing in. The entitlement attaches to your MSS account.
 </p>
 
 <form id="redeemAccessCodeForm" class="auth-form active" autocomplete="off">
@@ -708,53 +773,53 @@ Code redemption binds Sentinel access to your MSS account. Your linked wallet ca
 id="accessCodeInput"
 class="input mono"
 type="text"
-placeholder="Enter your Sentinel access code"
+placeholder="Enter access code"
 spellcheck="false"
 />
 </div>
 </div>
 
 <div class="auth-helper">
-Sign in first, then redeem your selected early-access code.
+Access code first, wallet linkage second. Both remain controlled from this account.
 </div>
 
 <div class="auth-button-row">
 <button id="redeemAccessCodeButton" class="auth-button auth-button-primary" type="submit">
-Redeem Access Code
+Redeem Code
 </button>
 </div>
 </form>
 </section>
 
 <section class="auth-card">
-<div class="auth-eyebrow">Wallet Management</div>
-<h2 class="auth-section-title" style="margin-top: 14px;">Connect, replace, or disconnect your wallet</h2>
+<div class="auth-eyebrow">Wallet</div>
+<h2 class="auth-section-title" style="margin-top: 14px;">Connect or replace wallet</h2>
 <p class="auth-section-copy">
-Wallet management is separate from your MSS account so users can swap wallets later without needing a new account.
+Link the wallet you want connected to Sentinel access. You can replace it later without creating a new account.
 </p>
 
 <div class="auth-step-grid">
 <div class="auth-step-card">
-<div class="auth-step-index">1</div>
-<h3 class="auth-step-title">Connect wallet</h3>
+<div class="auth-step-index">01</div>
+<h3 class="auth-step-title">Connect</h3>
 <div class="auth-step-copy">
-Link your active wallet after signing in so Sentinel usage can be tied to your current trading identity.
+Link your active Solana wallet after sign-in.
 </div>
 </div>
 
 <div class="auth-step-card">
-<div class="auth-step-index">2</div>
-<h3 class="auth-step-title">Replace wallet later if needed</h3>
+<div class="auth-step-index">02</div>
+<h3 class="auth-step-title">Replace</h3>
 <div class="auth-step-copy">
-If you move to a different wallet later, replace the linked wallet from the same MSS account.
+Move access to a different wallet when needed.
 </div>
 </div>
 
 <div class="auth-step-card">
-<div class="auth-step-index">3</div>
-<h3 class="auth-step-title">Disconnect without deleting the account</h3>
+<div class="auth-step-index">03</div>
+<h3 class="auth-step-title">Disconnect</h3>
 <div class="auth-step-copy">
-Disconnecting removes the wallet link while keeping your account and entitlement history intact.
+Remove the active wallet link while keeping your account history.
 </div>
 </div>
 </div>
@@ -767,7 +832,7 @@ Connect Wallet
 Replace Wallet
 </button>
 <button id="disconnectWalletButton" class="auth-button auth-button-danger" type="button">
-Disconnect Wallet
+Disconnect
 </button>
 </div>
 
@@ -794,10 +859,10 @@ Disconnect Wallet
 
 <aside class="auth-stack">
 <section class="auth-card">
-<div class="auth-eyebrow">Session Status</div>
-<h2 class="auth-section-title" style="margin-top: 14px;">Current account state</h2>
+<div class="auth-eyebrow">Session</div>
+<h2 class="auth-section-title" style="margin-top: 14px;">Current state</h2>
 <p class="auth-section-copy">
-This panel reflects sign-in state, linked wallet state, active entitlement state, and expiry.
+Live account, wallet, and Sentinel entitlement status.
 </p>
 
 <div class="auth-status-grid">
@@ -829,7 +894,7 @@ This panel reflects sign-in state, linked wallet state, active entitlement state
 </div>
 
 <div class="auth-session-box">
-<div class="auth-label">Linked Wallet Address</div>
+<div class="auth-label">Linked Wallet</div>
 <div class="auth-value mono" id="linkedWalletAddressValue">—</div>
 </div>
 
@@ -840,13 +905,13 @@ This panel reflects sign-in state, linked wallet state, active entitlement state
 
 <div class="auth-session-actions">
 <button id="refreshSessionButton" class="auth-button auth-button-secondary" type="button">
-Refresh Status
+Refresh
 </button>
 <button id="signOutButton" class="auth-button auth-button-secondary" type="button">
 Sign Out
 </button>
 <button id="continueToSentinelButton" class="auth-button auth-button-primary" type="button">
-Continue to Sentinel
+Enter Sentinel
 </button>
 </div>
 </div>
@@ -856,7 +921,7 @@ Continue to Sentinel
 <div class="auth-eyebrow">Entitlements</div>
 <h2 class="auth-section-title" style="margin-top: 14px;">Access history</h2>
 <p class="auth-section-copy">
-Active and previous Sentinel entitlements tied to this MSS account.
+Active and previous Sentinel entitlements attached to this account.
 </p>
 
 <div class="list-box">

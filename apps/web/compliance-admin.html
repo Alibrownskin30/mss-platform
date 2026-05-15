@@ -8,24 +8,28 @@
 name="description"
 content="Internal compliance review queue, Sentinel Watcher control center, and Sentinel access-code administration for MSS Protocol."
 />
+
 <link rel="stylesheet" href="/assets/app.css?v=20260514-shell-v3" />
+
 <style>
 :root {
---bg: #06100d;
---panel: rgba(10, 21, 18, 0.9);
---panel-2: rgba(13, 25, 21, 0.94);
---border: rgba(104, 255, 199, 0.14);
---border-strong: rgba(104, 255, 199, 0.24);
---text: #ecfff7;
---muted: #94b7ac;
---accent: #68ffc7;
---accent-2: #3dd9a3;
+--bg: #030711;
+--panel: rgba(8, 14, 27, 0.92);
+--panel-2: rgba(5, 9, 20, 0.94);
+--border: rgba(115, 185, 255, 0.14);
+--border-strong: rgba(115, 185, 255, 0.26);
+--text: #eef6ff;
+--muted: rgba(198, 211, 226, 0.66);
+--muted-2: rgba(198, 211, 226, 0.48);
+--accent: #4fc3ff;
+--accent-2: #8fe3ff;
+--gold: #ebd7ab;
 --good: #7bffb1;
 --warn: #ffcf66;
 --bad: #ff8787;
---shadow: 0 24px 60px rgba(0, 0, 0, 0.34);
---radius: 18px;
---radius-sm: 12px;
+--shadow: 0 28px 70px rgba(0, 0, 0, 0.38);
+--radius: 22px;
+--radius-sm: 14px;
 --max: 1480px;
 }
 
@@ -47,8 +51,9 @@ BlinkMacSystemFont,
 "Segoe UI",
 sans-serif;
 background:
-radial-gradient(circle at top, rgba(53, 132, 103, 0.16), transparent 34%),
-linear-gradient(180deg, #06100d 0%, #030705 100%);
+radial-gradient(980px 280px at 15% 0%, rgba(79, 195, 255, 0.11), transparent 42%),
+radial-gradient(760px 240px at 90% 0%, rgba(235, 215, 171, 0.045), transparent 44%),
+linear-gradient(180deg, #030711 0%, #02050c 100%);
 }
 
 a {
@@ -85,9 +90,9 @@ min-height: 38px;
 padding: 0 12px;
 border-radius: 999px;
 border: 1px solid var(--border);
-background: rgba(10, 18, 15, 0.86);
+background: rgba(255, 255, 255, 0.035);
 color: var(--muted);
-font-size: 13px;
+font-size: 12px;
 }
 
 .chip strong {
@@ -100,9 +105,10 @@ border: 0;
 cursor: pointer;
 min-height: 42px;
 padding: 0 16px;
-border-radius: 12px;
-font-weight: 700;
-font-size: 14px;
+border-radius: 14px;
+font-weight: 900;
+font-size: 13px;
+letter-spacing: 0.02em;
 transition:
 transform 0.16s ease,
 opacity 0.16s ease,
@@ -120,20 +126,21 @@ cursor: not-allowed;
 }
 
 .button-primary {
-color: #042019;
-background: linear-gradient(135deg, var(--accent), var(--accent-2));
+color: #04111d;
+background: linear-gradient(135deg, var(--accent-2), var(--accent));
+box-shadow: 0 14px 34px rgba(79, 195, 255, 0.14);
 }
 
 .button-secondary {
 color: var(--text);
-background: rgba(11, 21, 18, 0.86);
+background: rgba(255, 255, 255, 0.045);
 border: 1px solid var(--border);
 }
 
 .button-danger {
 color: #ffd5d5;
-background: rgba(42, 14, 14, 0.86);
-border: 1px solid rgba(255, 135, 135, 0.18);
+background: rgba(42, 14, 14, 0.78);
+border: 1px solid rgba(255, 135, 135, 0.2);
 }
 
 .hero {
@@ -148,17 +155,50 @@ gap: 18px;
 
 .panel,
 .hero-panel,
-.summary-panel {
-background: linear-gradient(180deg, rgba(14, 28, 24, 0.92), rgba(8, 17, 14, 0.94));
+.summary-panel,
+.subpanel {
+position: relative;
+overflow: hidden;
+background:
+radial-gradient(780px 220px at 0% 0%, rgba(79, 195, 255, 0.1), transparent 44%),
+radial-gradient(520px 180px at 100% 0%, rgba(235, 215, 171, 0.04), transparent 42%),
+linear-gradient(180deg, var(--panel), var(--panel-2));
 border: 1px solid var(--border);
-border-radius: var(--radius);
 box-shadow: var(--shadow);
 }
 
+.panel,
 .hero-panel,
-.summary-panel,
-.panel {
+.summary-panel {
+border-radius: var(--radius);
 padding: 24px;
+}
+
+.subpanel {
+padding: 16px;
+border-radius: 18px;
+}
+
+.subpanel + .subpanel {
+margin-top: 14px;
+}
+
+.panel::before,
+.hero-panel::before,
+.summary-panel::before,
+.subpanel::before {
+content: "";
+position: absolute;
+inset: 0 0 auto 0;
+height: 1px;
+background: linear-gradient(
+90deg,
+transparent,
+rgba(79, 195, 255, 0.36),
+rgba(235, 215, 171, 0.16),
+transparent
+);
+pointer-events: none;
 }
 
 .eyebrow {
@@ -168,28 +208,34 @@ gap: 8px;
 min-height: 30px;
 padding: 0 12px;
 border-radius: 999px;
-border: 1px solid rgba(104, 255, 199, 0.18);
-color: var(--accent);
-background: rgba(10, 20, 17, 0.84);
-font-size: 12px;
-font-weight: 700;
-letter-spacing: 0.08em;
+border: 1px solid rgba(115, 185, 255, 0.18);
+color: var(--accent-2);
+background: rgba(79, 195, 255, 0.06);
+font-size: 11px;
+font-weight: 900;
+letter-spacing: 0.12em;
 text-transform: uppercase;
 }
 
 .hero h1 {
 margin: 18px 0 12px;
-font-size: clamp(30px, 4.4vw, 48px);
-line-height: 1.02;
-letter-spacing: -0.03em;
+font-size: clamp(30px, 4.4vw, 50px);
+line-height: 1;
+letter-spacing: -0.045em;
+}
+
+.hero p,
+.section-copy,
+.summary-copy,
+.dim {
+color: var(--muted);
 }
 
 .hero p {
 margin: 0;
-color: var(--muted);
 font-size: 15px;
 line-height: 1.7;
-max-width: 760px;
+max-width: 780px;
 }
 
 .hero-points {
@@ -199,39 +245,57 @@ grid-template-columns: repeat(4, minmax(0, 1fr));
 gap: 12px;
 }
 
-.hero-point {
-padding: 14px 14px 13px;
-border-radius: 14px;
-border: 1px solid rgba(104, 255, 199, 0.1);
-background: rgba(10, 18, 15, 0.72);
+.hero-point,
+.summary-card,
+.mini-card,
+.toggle-card,
+.detail-section,
+.detail-meta {
+border: 1px solid rgba(115, 185, 255, 0.09);
+background: rgba(255, 255, 255, 0.035);
+border-radius: 16px;
 }
 
-.hero-point-label {
-color: var(--muted);
-font-size: 11px;
+.hero-point {
+padding: 14px;
+min-height: 92px;
+}
+
+.hero-point-label,
+.summary-label,
+.mini-card-label,
+.detail-label {
+color: var(--muted-2);
+font-size: 10px;
+font-weight: 900;
 text-transform: uppercase;
-letter-spacing: 0.08em;
+letter-spacing: 0.12em;
+}
+
+.hero-point-value,
+.summary-value,
+.mini-card-value,
+.detail-value {
+margin-top: 8px;
+font-weight: 850;
+line-height: 1.4;
+word-break: break-word;
 }
 
 .hero-point-value {
-margin-top: 8px;
 font-size: 14px;
-font-weight: 700;
-line-height: 1.45;
-word-break: break-word;
 }
 
 .section-title {
 margin: 0 0 6px;
 font-size: 18px;
-letter-spacing: -0.02em;
+letter-spacing: -0.025em;
 }
 
 .section-copy {
 margin: 0;
-color: var(--muted);
 font-size: 14px;
-line-height: 1.6;
+line-height: 1.65;
 }
 
 .summary-grid {
@@ -242,28 +306,14 @@ gap: 12px;
 
 .summary-card {
 padding: 14px;
-border-radius: 14px;
-border: 1px solid rgba(104, 255, 199, 0.08);
-background: rgba(10, 18, 15, 0.74);
-}
-
-.summary-label {
-color: var(--muted);
-font-size: 11px;
-text-transform: uppercase;
-letter-spacing: 0.08em;
 }
 
 .summary-value {
-margin-top: 8px;
 font-size: 15px;
-font-weight: 700;
-line-height: 1.35;
 }
 
 .summary-copy {
 margin-top: 8px;
-color: var(--muted);
 font-size: 13px;
 line-height: 1.55;
 }
@@ -280,7 +330,9 @@ grid-template-columns: minmax(0, 1.1fr) minmax(380px, 0.9fr);
 gap: 18px;
 }
 
-.stack {
+.stack,
+.section-block,
+.action-stack {
 display: grid;
 gap: 18px;
 }
@@ -299,10 +351,10 @@ gap: 8px;
 }
 
 .field label {
-color: var(--muted);
-font-size: 12px;
-font-weight: 700;
-letter-spacing: 0.05em;
+color: var(--muted-2);
+font-size: 11px;
+font-weight: 900;
+letter-spacing: 0.1em;
 text-transform: uppercase;
 }
 
@@ -310,14 +362,15 @@ text-transform: uppercase;
 .select,
 .textarea {
 width: 100%;
-border: 1px solid rgba(104, 255, 199, 0.12);
-background: rgba(8, 15, 13, 0.92);
+border: 1px solid rgba(115, 185, 255, 0.13);
+background: rgba(2, 6, 14, 0.72);
 color: var(--text);
-border-radius: 12px;
+border-radius: 14px;
 outline: none;
 transition:
 border-color 0.16s ease,
-box-shadow 0.16s ease;
+box-shadow 0.16s ease,
+background 0.16s ease;
 }
 
 .input,
@@ -335,17 +388,18 @@ padding: 14px;
 .input:focus,
 .select:focus,
 .textarea:focus {
-border-color: rgba(104, 255, 199, 0.34);
-box-shadow: 0 0 0 4px rgba(104, 255, 199, 0.08);
+border-color: rgba(79, 195, 255, 0.42);
+box-shadow: 0 0 0 4px rgba(79, 195, 255, 0.08);
+background: rgba(2, 6, 14, 0.88);
 }
 
 .banner {
 display: none;
 margin-bottom: 18px;
 padding: 14px 16px;
-border-radius: 14px;
-border: 1px solid rgba(104, 255, 199, 0.12);
-background: rgba(10, 18, 15, 0.8);
+border-radius: 16px;
+border: 1px solid rgba(115, 185, 255, 0.14);
+background: rgba(255, 255, 255, 0.04);
 font-size: 14px;
 line-height: 1.55;
 }
@@ -371,9 +425,9 @@ border-color: rgba(255, 135, 135, 0.22);
 
 .table-wrap {
 overflow: auto;
-border-radius: 16px;
-border: 1px solid rgba(104, 255, 199, 0.08);
-background: rgba(8, 15, 13, 0.8);
+border-radius: 18px;
+border: 1px solid rgba(115, 185, 255, 0.1);
+background: rgba(2, 6, 14, 0.62);
 margin-top: 18px;
 }
 
@@ -387,19 +441,20 @@ thead th {
 position: sticky;
 top: 0;
 z-index: 1;
-background: rgba(10, 18, 15, 0.98);
-color: var(--muted);
-font-size: 11px;
+background: rgba(5, 9, 20, 0.98);
+color: var(--muted-2);
+font-size: 10px;
+font-weight: 900;
 text-transform: uppercase;
-letter-spacing: 0.08em;
+letter-spacing: 0.12em;
 text-align: left;
 padding: 14px;
-border-bottom: 1px solid rgba(104, 255, 199, 0.08);
+border-bottom: 1px solid rgba(115, 185, 255, 0.1);
 }
 
 tbody td {
 padding: 14px;
-border-bottom: 1px solid rgba(104, 255, 199, 0.06);
+border-bottom: 1px solid rgba(115, 185, 255, 0.07);
 vertical-align: top;
 font-size: 13px;
 line-height: 1.5;
@@ -411,11 +466,11 @@ cursor: pointer;
 }
 
 tbody tr:hover {
-background: rgba(16, 28, 24, 0.76);
+background: rgba(79, 195, 255, 0.06);
 }
 
 tbody tr.active {
-background: rgba(25, 48, 39, 0.72);
+background: rgba(79, 195, 255, 0.1);
 }
 
 .pill {
@@ -425,11 +480,11 @@ gap: 8px;
 min-height: 30px;
 padding: 0 10px;
 border-radius: 999px;
-border: 1px solid rgba(104, 255, 199, 0.14);
-background: rgba(13, 24, 20, 0.88);
-font-size: 11px;
-font-weight: 800;
-letter-spacing: 0.08em;
+border: 1px solid rgba(115, 185, 255, 0.14);
+background: rgba(255, 255, 255, 0.04);
+font-size: 10px;
+font-weight: 900;
+letter-spacing: 0.1em;
 text-transform: uppercase;
 white-space: nowrap;
 }
@@ -453,10 +508,6 @@ border-color: rgba(255, 135, 135, 0.24);
 color: var(--muted);
 }
 
-.dim {
-color: var(--muted);
-}
-
 .mono {
 font-family:
 ui-monospace,
@@ -473,9 +524,6 @@ gap: 16px;
 
 .detail-section {
 padding: 16px;
-border-radius: 14px;
-border: 1px solid rgba(104, 255, 199, 0.08);
-background: rgba(10, 18, 15, 0.74);
 }
 
 .detail-section h3 {
@@ -492,29 +540,10 @@ gap: 12px;
 
 .detail-meta {
 padding: 12px;
-border-radius: 12px;
-border: 1px solid rgba(104, 255, 199, 0.06);
-background: rgba(8, 15, 13, 0.84);
-}
-
-.detail-label {
-color: var(--muted);
-font-size: 11px;
-text-transform: uppercase;
-letter-spacing: 0.08em;
 }
 
 .detail-value {
-margin-top: 8px;
 font-size: 13px;
-font-weight: 700;
-line-height: 1.5;
-word-break: break-word;
-}
-
-.action-stack {
-display: grid;
-gap: 10px;
 }
 
 .action-row {
@@ -529,9 +558,9 @@ place-items: center;
 min-height: 260px;
 text-align: center;
 color: var(--muted);
-border: 1px dashed rgba(104, 255, 199, 0.12);
-border-radius: 16px;
-background: rgba(8, 15, 13, 0.58);
+border: 1px dashed rgba(115, 185, 255, 0.14);
+border-radius: 18px;
+background: rgba(255, 255, 255, 0.025);
 }
 
 .empty-state strong {
@@ -545,12 +574,8 @@ margin-bottom: 8px;
 margin-top: 14px;
 }
 
-.section-block {
-display: grid;
-gap: 18px;
-}
-
-.section-header-row {
+.section-header-row,
+.table-title-row {
 display: flex;
 align-items: flex-start;
 justify-content: space-between;
@@ -584,24 +609,10 @@ gap: 12px;
 
 .mini-card {
 padding: 14px;
-border-radius: 14px;
-border: 1px solid rgba(104, 255, 199, 0.08);
-background: rgba(10, 18, 15, 0.74);
-}
-
-.mini-card-label {
-color: var(--muted);
-font-size: 11px;
-text-transform: uppercase;
-letter-spacing: 0.08em;
 }
 
 .mini-card-value {
-margin-top: 8px;
 font-size: 16px;
-font-weight: 700;
-line-height: 1.35;
-word-break: break-word;
 }
 
 .settings-grid {
@@ -620,9 +631,6 @@ margin-top: 18px;
 
 .toggle-card {
 padding: 14px;
-border-radius: 14px;
-border: 1px solid rgba(104, 255, 199, 0.08);
-background: rgba(10, 18, 15, 0.74);
 display: grid;
 gap: 10px;
 }
@@ -631,51 +639,29 @@ gap: 10px;
 gap: 6px;
 }
 
-.subpanel {
-padding: 16px;
-border-radius: 14px;
-border: 1px solid rgba(104, 255, 199, 0.08);
-background: rgba(10, 18, 15, 0.74);
-}
-
-.subpanel + .subpanel {
-margin-top: 14px;
-}
-
-.table-title-row {
-display: flex;
-align-items: flex-start;
-justify-content: space-between;
-gap: 16px;
-flex-wrap: wrap;
+.toolbar-compact,
+.toolbar-compact-3,
+.toolbar-compact-4,
+.toolbar-compact-5 {
+display: grid;
+gap: 10px;
+margin-top: 16px;
 }
 
 .toolbar-compact {
-display: grid;
 grid-template-columns: repeat(4, minmax(0, 1fr));
-gap: 10px;
-margin-top: 16px;
 }
 
 .toolbar-compact-3 {
-display: grid;
 grid-template-columns: repeat(3, minmax(0, 1fr));
-gap: 10px;
-margin-top: 16px;
 }
 
 .toolbar-compact-4 {
-display: grid;
 grid-template-columns: repeat(4, minmax(0, 1fr));
-gap: 10px;
-margin-top: 16px;
 }
 
 .toolbar-compact-5 {
-display: grid;
 grid-template-columns: repeat(5, minmax(0, 1fr));
-gap: 10px;
-margin-top: 16px;
 }
 
 .toolbar-inline-action {
@@ -699,8 +685,9 @@ margin: 18px 0;
 background: linear-gradient(
 90deg,
 transparent 0%,
-rgba(104, 255, 199, 0.14) 12%,
-rgba(104, 255, 199, 0.14) 88%,
+rgba(115, 185, 255, 0.16) 12%,
+rgba(235, 215, 171, 0.08) 50%,
+rgba(115, 185, 255, 0.16) 88%,
 transparent 100%
 );
 }
@@ -764,22 +751,36 @@ grid-template-columns: 1fr;
 .summary-panel,
 .panel {
 padding: 18px;
+border-radius: 18px;
+}
+
+.subpanel {
+padding: 14px;
+}
+
+.hero h1 {
+font-size: clamp(30px, 11vw, 44px);
 }
 }
 </style>
 </head>
-<body data-active-page="compliance-admin">
+
+<body
+data-shell-auto="true"
+data-page="compliance-admin"
+data-active-page="compliance-admin"
+data-shell-active="launchpad"
+data-active-nav="launchpad"
+>
 <div class="page">
 <main class="shell">
 <section class="hero">
 <div class="hero-grid">
 <section class="hero-panel">
 <div class="eyebrow">Internal Control Surface</div>
-<h1>Compliance review operations and Sentinel Watcher execution control.</h1>
+<h1>Compliance operations and Sentinel execution control.</h1>
 <p>
-This surface is intended for internal review of builder, participant, launch,
-and transaction-linked compliance cases, alongside Sentinel Watcher paper-mode,
-arming, live execution controls, monitoring, and emergency stop handling.
+Internal review surface for compliance cases, Sentinel Watcher controls, tester access codes, audit trails, positions, risk settings, and emergency-stop handling.
 </p>
 
 <div class="hero-points">
@@ -823,32 +824,26 @@ Refresh Cases
 
 <h2 class="section-title">Queue summary</h2>
 <p class="section-copy">
-Snapshot of the current compliance queue and selected case status.
+Current compliance queue state and selected-case posture.
 </p>
 
 <div class="summary-grid">
 <div class="summary-card">
 <div class="summary-label">Open / Pending</div>
 <div class="summary-value" id="openCountValue">0</div>
-<div class="summary-copy">
-Cases currently waiting for a review decision or additional information.
-</div>
+<div class="summary-copy">Cases waiting for decision or additional information.</div>
 </div>
 
 <div class="summary-card">
 <div class="summary-label">Escalated / Frozen</div>
 <div class="summary-value" id="escalatedCountValue">0</div>
-<div class="summary-copy">
-Cases requiring stricter review posture or access restriction handling.
-</div>
+<div class="summary-copy">Cases requiring stricter review or access restriction handling.</div>
 </div>
 
 <div class="summary-card">
 <div class="summary-label">Approved / Rejected</div>
 <div class="summary-value" id="resolvedCountValue">0</div>
-<div class="summary-copy">
-Closed decisions affecting builder or participant access eligibility.
-</div>
+<div class="summary-copy">Closed decisions affecting builder or participant access.</div>
 </div>
 </div>
 </aside>
@@ -865,9 +860,7 @@ Closed decisions affecting builder or participant access eligibility.
 <div class="eyebrow">Sentinel Watcher</div>
 <h2 class="section-anchor-title" style="margin-top: 14px;">Execution control center</h2>
 <p class="section-copy" style="margin-top: 10px;">
-Switch between paper, armed, live, and emergency-stop modes, manage core
-Sentinel thresholds, and monitor active positions, audit events, admin actions,
-and engine state.
+Switch execution modes, manage Sentinel thresholds, monitor positions, and review audit events from one control surface.
 </p>
 </div>
 
@@ -886,8 +879,7 @@ Save Settings
 <div class="subpanel">
 <h3 class="section-title">Execution mode</h3>
 <p class="section-copy">
-Paper mode should remain default until evaluator quality, audit accuracy, and
-guardrails are verified. Mainnet modes require explicit confirmation in the admin flow.
+Paper mode remains the safe default until evaluator quality, audit accuracy, and guardrails are proven.
 </p>
 
 <div class="mini-grid">
@@ -939,7 +931,7 @@ autocomplete="off"
 <div class="subpanel">
 <h3 class="section-title">Engine state</h3>
 <p class="section-copy">
-Runtime status returned from Sentinel engine wiring, including tick timing and last error.
+Runtime status returned from Sentinel engine wiring.
 </p>
 
 <div class="mini-grid">
@@ -981,7 +973,7 @@ Runtime status returned from Sentinel engine wiring, including tick timing and l
 <div class="subpanel">
 <h3 class="section-title">Core Sentinel settings</h3>
 <p class="section-copy">
-Primary control inputs already wired into the Sentinel admin API.
+Primary control inputs wired into the Sentinel admin API.
 </p>
 
 <div class="settings-grid">
@@ -1647,8 +1639,7 @@ Refresh Admin Audit
 <div class="eyebrow">Sentinel Access Admin</div>
 <h2 class="section-anchor-title" style="margin-top: 14px;">Access-code and tester entitlement control</h2>
 <p class="section-copy" style="margin-top: 10px;">
-Create single-user trial codes, bind codes to specific accounts when needed,
-monitor redemptions, and disable codes once the tester window is complete.
+Create trial codes, bind access to selected accounts, monitor redemptions, and disable codes when the tester window ends.
 </p>
 </div>
 
@@ -1667,7 +1658,7 @@ Create Access Code
 <div class="subpanel">
 <h3 class="section-title">Access overview</h3>
 <p class="section-copy">
-Quick state for live tester access and code usage.
+Live tester access and code usage state.
 </p>
 
 <div class="mini-grid">
@@ -1693,7 +1684,7 @@ Quick state for live tester access and code usage.
 <div class="subpanel">
 <h3 class="section-title">Create access code</h3>
 <p class="section-copy">
-This panel is intended for selected early-user issuance, including one-person one-week trial access.
+For selected early-user issuance, including one-person one-week trial access.
 </p>
 
 <div class="settings-grid">
@@ -1916,7 +1907,7 @@ Refresh Codes
 <div>
 <h3 class="section-title">Code redemptions</h3>
 <p class="section-copy">
-Successful tester redemptions and entitlement linkage trail.
+Tester redemptions and entitlement linkage trail.
 </p>
 </div>
 </div>
@@ -1984,7 +1975,7 @@ Refresh Redemptions
 <div>
 <h2 class="section-title">Selected access code</h2>
 <p class="section-copy">
-Review full code state, binding, validity window, and issue internal actions.
+Review code state, binding, validity window, and internal actions.
 </p>
 </div>
 
@@ -2142,8 +2133,7 @@ Refresh Selected Code
 <div class="eyebrow">Compliance Cases</div>
 <h2 class="section-anchor-title" style="margin-top: 14px;">Case review queue</h2>
 <p class="section-copy" style="margin-top: 10px;">
-Filter the queue by current status, type, risk level, or assignment,
-then review and resolve cases without leaving the admin shell.
+Filter by status, type, risk level, or assignment, then review and resolve cases without leaving the admin shell.
 </p>
 </div>
 </div>
@@ -2230,7 +2220,7 @@ Apply
 <div>
 <h2 class="section-title">Selected case</h2>
 <p class="section-copy">
-Review wallet, launch, and profile context before taking an action.
+Review wallet, launch, and profile context before taking action.
 </p>
 </div>
 
