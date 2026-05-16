@@ -35,6 +35,7 @@ import { evaluateToken, SENTINEL_DECISION } from "./evaluator.js";
 import { isInvalidationReason } from "./exits.js";
 
 const NON_ACTION_AUDIT_COOLDOWN_MS = 60 * 1000;
+const LEGACY_UNIT_REBASE_EPSILON = 0.001;
 const nonActionAuditCache = new Map();
 
 function cleanText(value, max = 255) {
@@ -42,13 +43,52 @@ return String(value ?? "").trim().slice(0, max);
 }
 
 function toFloat(value, fallback = null) {
-const num = Number.parseFloat(value);
-return Number.isFinite(num) ? num : fallback;
+if (typeof value === "number") {
+return Number.isFinite(value) ? value : fallback;
+}
+
+if (value == null) return fallback;
+
+const raw = String(value).trim();
+if (!raw) return fallback;
+
+const cleaned = raw.replace(/,/g, "");
+const direct = Number.parseFloat(cleaned);
+if (Number.isFinite(direct)) return direct;
+
+const match = cleaned.match(/-?\d+(?:\.\d+)?(?:e[+-]?\d+)?/i);
+if (!match) return fallback;
+
+const parsed = Number.parseFloat(match[0]);
+return Number.isFinite(parsed) ? parsed : fallback;
+}
+
+function toPositiveFloat(value, fallback = null) {
+const num = toFloat(value, null);
+return num != null && num > 0 ? num : fallback;
 }
 
 function toInt(value, fallback = null) {
 const num = Number.parseInt(value, 10);
 return Number.isFinite(num) ? num : fallback;
+}
+
+function firstPositiveNumber(values = [], fallback = null) {
+for (const value of values) {
+const num = toPositiveFloat(value, null);
+if (num != null) return num;
+}
+
+return fallback;
+}
+
+function firstFiniteNumber(values = [], fallback = null) {
+for (const value of values) {
+const num = toFloat(value, null);
+if (num != null && Number.isFinite(num)) return num;
+}
+
+return fallback;
 }
 
 function todayUtcDate() {
@@ -73,35 +113,222 @@ cleanText(snapshot.mint, 255) ||
 );
 }
 
+function getPositionCostUsd(position = {}) {
+return Math.max(
+0,
+firstFiniteNumber(
+[
+position.total_cost_usd,
+position.cost_usd,
+position.entry_cost_usd,
+position.size_usd,
+position.scout_size_usd,
+],
+0
+) || 0
+);
+}
+
 function getCurrentPrice(snapshot = {}) {
-return (
-toFloat(snapshot.price_now, null) ??
-toFloat(snapshot.current_price, null) ??
-toFloat(snapshot.price, null) ??
+return firstPositiveNumber(
+[
+snapshot.price_now,
+snapshot.priceNow,
+snapshot.current_price,
+snapshot.currentPrice,
+snapshot.current_price_usd,
+snapshot.currentPriceUsd,
+snapshot.price,
+snapshot.price_usd,
+snapshot.priceUsd,
+snapshot.market_price_usd,
+snapshot.marketPriceUsd,
+snapshot.token_price_usd,
+snapshot.tokenPriceUsd,
+snapshot.usd_price,
+snapshot.usdPrice,
+
+snapshot.market?.price_now,
+snapshot.market?.priceNow,
+snapshot.market?.current_price,
+snapshot.market?.currentPrice,
+snapshot.market?.current_price_usd,
+snapshot.market?.currentPriceUsd,
+snapshot.market?.price,
+snapshot.market?.price_usd,
+snapshot.market?.priceUsd,
+snapshot.market?.token_price_usd,
+snapshot.market?.tokenPriceUsd,
+snapshot.market?.usd_price,
+snapshot.market?.usdPrice,
+snapshot.market?.usd?.price,
+snapshot.market?.price?.usd,
+
+snapshot.raw?.price_now,
+snapshot.raw?.priceNow,
+snapshot.raw?.current_price,
+snapshot.raw?.currentPrice,
+snapshot.raw?.current_price_usd,
+snapshot.raw?.currentPriceUsd,
+snapshot.raw?.price,
+snapshot.raw?.price_usd,
+snapshot.raw?.priceUsd,
+snapshot.raw?.market_price_usd,
+snapshot.raw?.marketPriceUsd,
+snapshot.raw?.token_price_usd,
+snapshot.raw?.tokenPriceUsd,
+snapshot.raw?.usd_price,
+snapshot.raw?.usdPrice,
+
+snapshot.raw?.market?.price_now,
+snapshot.raw?.market?.priceNow,
+snapshot.raw?.market?.current_price,
+snapshot.raw?.market?.currentPrice,
+snapshot.raw?.market?.current_price_usd,
+snapshot.raw?.market?.currentPriceUsd,
+snapshot.raw?.market?.price,
+snapshot.raw?.market?.price_usd,
+snapshot.raw?.market?.priceUsd,
+snapshot.raw?.market?.token_price_usd,
+snapshot.raw?.market?.tokenPriceUsd,
+snapshot.raw?.market?.usd_price,
+snapshot.raw?.market?.usdPrice,
+snapshot.raw?.market?.usd?.price,
+snapshot.raw?.market?.price?.usd,
+],
 null
 );
 }
 
-function derivePositionCurrentValue(snapshot = {}, position = null, fallback = null) {
-const explicitValue =
-toFloat(snapshot.position_value_usd, null) ??
-toFloat(snapshot.current_value_usd, null) ??
-null;
+function getCurrentMultiple(snapshot = {}) {
+return firstPositiveNumber(
+[
+snapshot.current_multiple,
+snapshot.currentMultiple,
+snapshot.multiple,
+snapshot.pnl_multiple,
+snapshot.pnlMultiple,
+snapshot.performance_multiple,
+snapshot.performanceMultiple,
 
-if (explicitValue != null) return Math.max(0, explicitValue);
+snapshot.market?.current_multiple,
+snapshot.market?.currentMultiple,
+snapshot.market?.multiple,
+snapshot.market?.pnl_multiple,
+snapshot.market?.pnlMultiple,
+snapshot.market?.performance_multiple,
+snapshot.market?.performanceMultiple,
 
-const priceNow = getCurrentPrice(snapshot);
-if (priceNow != null && position?.units != null) {
-return Math.max(0, priceNow * Math.max(0, Number(position.units) || 0));
-}
+snapshot.raw?.current_multiple,
+snapshot.raw?.currentMultiple,
+snapshot.raw?.multiple,
+snapshot.raw?.pnl_multiple,
+snapshot.raw?.pnlMultiple,
+snapshot.raw?.performance_multiple,
+snapshot.raw?.performanceMultiple,
 
-const multiple = toFloat(snapshot.current_multiple, null);
-if (multiple != null && position?.total_cost_usd != null) {
-return Math.max(
-0,
-multiple * Math.max(0, Number(position.total_cost_usd) || 0)
+snapshot.raw?.market?.current_multiple,
+snapshot.raw?.market?.currentMultiple,
+snapshot.raw?.market?.multiple,
+snapshot.raw?.market?.pnl_multiple,
+snapshot.raw?.market?.pnlMultiple,
+snapshot.raw?.market?.performance_multiple,
+snapshot.raw?.market?.performanceMultiple,
+],
+null
 );
 }
+
+function getExplicitCurrentValueUsd(snapshot = {}) {
+return firstFiniteNumber(
+[
+snapshot.position_value_usd,
+snapshot.positionValueUsd,
+snapshot.current_value_usd,
+snapshot.currentValueUsd,
+snapshot.market_value_usd,
+snapshot.marketValueUsd,
+
+snapshot.market?.position_value_usd,
+snapshot.market?.positionValueUsd,
+snapshot.market?.current_value_usd,
+snapshot.market?.currentValueUsd,
+snapshot.market?.market_value_usd,
+snapshot.market?.marketValueUsd,
+
+snapshot.raw?.position_value_usd,
+snapshot.raw?.positionValueUsd,
+snapshot.raw?.current_value_usd,
+snapshot.raw?.currentValueUsd,
+snapshot.raw?.market_value_usd,
+snapshot.raw?.marketValueUsd,
+
+snapshot.raw?.market?.position_value_usd,
+snapshot.raw?.market?.positionValueUsd,
+snapshot.raw?.market?.current_value_usd,
+snapshot.raw?.market?.currentValueUsd,
+snapshot.raw?.market?.market_value_usd,
+snapshot.raw?.market?.marketValueUsd,
+],
+null
+);
+}
+
+function shouldRebaseLegacyPaperUnits(position = {}, snapshot = {}) {
+const priceNow = getCurrentPrice(snapshot);
+const totalCostUsd = getPositionCostUsd(position);
+const units = toFloat(position.units, null);
+const currentValueUsd = toFloat(position.current_value_usd, null);
+
+if (!position?.id || priceNow == null || priceNow <= 0 || totalCostUsd <= 0) {
+return false;
+}
+
+if (units == null || units <= 0) return true;
+
+const tolerance = Math.max(0.000001, totalCostUsd * LEGACY_UNIT_REBASE_EPSILON);
+const unitsLookLikeUsdCost = Math.abs(units - totalCostUsd) <= tolerance;
+const currentLooksLikeCost =
+currentValueUsd == null || Math.abs(currentValueUsd - totalCostUsd) <= tolerance;
+
+return unitsLookLikeUsdCost && currentLooksLikeCost;
+}
+
+async function maybeRebaseLegacyPaperPosition(position, snapshot = {}) {
+if (!shouldRebaseLegacyPaperUnits(position, snapshot)) return position;
+
+const priceNow = getCurrentPrice(snapshot);
+const totalCostUsd = getPositionCostUsd(position);
+const nextUnits = priceNow > 0 ? totalCostUsd / priceNow : toFloat(position.units, 0);
+
+if (!Number.isFinite(nextUnits) || nextUnits <= 0) {
+return position;
+}
+
+return refreshPositionMarketValue(position.id, {
+current_value_usd: totalCostUsd,
+units: nextUnits,
+avg_exit_price: priceNow,
+});
+}
+
+function derivePositionCurrentValue(snapshot = {}, position = null, fallback = null) {
+const priceNow = getCurrentPrice(snapshot);
+const units = toFloat(position?.units, null);
+
+if (priceNow != null && priceNow > 0 && units != null && units > 0) {
+return Math.max(0, priceNow * units);
+}
+
+const multiple = getCurrentMultiple(snapshot);
+const totalCostUsd = getPositionCostUsd(position || {});
+
+if (multiple != null && totalCostUsd > 0) {
+return Math.max(0, multiple * totalCostUsd);
+}
+
+const explicitValue = getExplicitCurrentValueUsd(snapshot);
+if (explicitValue != null) return Math.max(0, explicitValue);
 
 if (position?.current_value_usd != null) {
 return Math.max(0, Number(position.current_value_usd) || 0);
@@ -228,20 +455,23 @@ return exposure;
 async function maybeRefreshPaperPositionValue(position, snapshot = {}) {
 if (!position?.id) return position;
 
+let workingPosition = await maybeRebaseLegacyPaperPosition(position, snapshot);
+
 const currentValueUsd = derivePositionCurrentValue(
 snapshot,
-position,
-position.current_value_usd
+workingPosition,
+workingPosition.current_value_usd
 );
 const priceNow = getCurrentPrice(snapshot);
 
 if (currentValueUsd == null) {
-return position;
+return workingPosition;
 }
 
-return refreshPositionMarketValue(position.id, {
+return refreshPositionMarketValue(workingPosition.id, {
 current_value_usd: currentValueUsd,
-avg_exit_price: priceNow ?? position.avg_exit_price ?? null,
+units: workingPosition.units,
+avg_exit_price: priceNow ?? workingPosition.avg_exit_price ?? null,
 });
 }
 
@@ -290,6 +520,10 @@ suppliedPosition ||
 ? await getOpenPositionByToken(tokenLookup, SENTINEL_MODE.PAPER)
 : null);
 
+const refreshedOpenPosition = openPosition?.id
+? await maybeRefreshPaperPositionValue(openPosition, snapshot)
+: null;
+
 const dayStats =
 context?.day_stats && typeof context.day_stats === "object"
 ? context.day_stats
@@ -299,8 +533,8 @@ return {
 ...context,
 execution_mode: SENTINEL_MODE.PAPER,
 log_non_actions: context.log_non_actions !== false,
-position: openPosition || null,
-position_id: openPosition?.id || null,
+position: refreshedOpenPosition || null,
+position_id: refreshedOpenPosition?.id || null,
 day_stats: dayStats,
 };
 }
@@ -419,13 +653,14 @@ const priceNow = getCurrentPrice(snapshot);
 const addUnits = deriveEntryUnits(sizeUsd, snapshot);
 
 const refreshed = await maybeRefreshPaperPositionValue(position, snapshot);
+const refreshedValue =
+derivePositionCurrentValue(snapshot, refreshed, refreshed.current_value_usd) ?? 0;
+
 const updatedPosition = await addSniperToPosition(refreshed.id, {
 add_size_usd: sizeUsd,
 add_units: addUnits,
 add_avg_entry_price: priceNow,
-current_value_usd:
-(derivePositionCurrentValue(snapshot, refreshed, refreshed.current_value_usd) ??
-0) + sizeUsd,
+current_value_usd: refreshedValue + sizeUsd,
 tx_add_ref: buildPaperExecutionRef("sniper", refreshed.token_id),
 });
 

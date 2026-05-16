@@ -28,6 +28,7 @@ positionOutcome: "",
 positionMode: "",
 positionTokenId: "",
 positionMintAddress: "",
+positionSort: "pnl_desc",
 
 auditEventType: "",
 auditDecision: "",
@@ -177,6 +178,10 @@ sentinelSummaryDailyUnrealizedPnl: document.getElementById(
 "sentinelSummaryDailyUnrealizedPnl"
 ),
 sentinelSummaryDailyLoss: document.getElementById("sentinelSummaryDailyLoss"),
+sentinelSummaryOpenCapital: document.getElementById("sentinelSummaryOpenCapital"),
+sentinelSummaryOpenValue: document.getElementById("sentinelSummaryOpenValue"),
+sentinelSummaryTotalCapital: document.getElementById("sentinelSummaryTotalCapital"),
+sentinelSummaryPortfolioPnl: document.getElementById("sentinelSummaryPortfolioPnl"),
 
 sentinelStatsDateInput: document.getElementById("sentinelStatsDateInput"),
 sentinelStatsModeFilter: document.getElementById("sentinelStatsModeFilter"),
@@ -199,6 +204,7 @@ sentinelPositionOutcomeFilter: document.getElementById("sentinelPositionOutcomeF
 sentinelPositionsModeFilter: document.getElementById("sentinelPositionsModeFilter"),
 sentinelPositionsTokenFilter: document.getElementById("sentinelPositionsTokenFilter"),
 sentinelPositionsMintFilter: document.getElementById("sentinelPositionsMintFilter"),
+sentinelPositionSortFilter: document.getElementById("sentinelPositionSortFilter"),
 refreshSentinelPositionsButton: document.getElementById("refreshSentinelPositionsButton"),
 sentinelPositionsTableBody: document.getElementById("sentinelPositionsTableBody"),
 
@@ -414,10 +420,32 @@ maximumFractionDigits: 2,
 }).format(num)
 }
 
+function formatSignedCurrency(value) {
+const num = Number(value)
+if (!Number.isFinite(num)) return "$0.00"
+const abs = Math.abs(num)
+const formatted = new Intl.NumberFormat(undefined, {
+style: "currency",
+currency: "USD",
+maximumFractionDigits: 2,
+}).format(abs)
+
+if (num > 0) return `+${formatted}`
+if (num < 0) return `-${formatted}`
+return formatted
+}
+
 function formatPercent(value, fractionDigits = 1) {
 const num = Number(value)
 if (!Number.isFinite(num)) return "0%"
 return `${num.toFixed(fractionDigits)}%`
+}
+
+function formatSignedPercent(value, fractionDigits = 1) {
+const num = Number(value)
+if (!Number.isFinite(num)) return "0%"
+const prefix = num > 0 ? "+" : ""
+return `${prefix}${num.toFixed(fractionDigits)}%`
 }
 
 function formatNumber(value, fractionDigits = 0) {
@@ -432,6 +460,14 @@ minimumFractionDigits: fractionDigits,
 function safeNumber(value, fallback = 0) {
 const num = Number(value)
 return Number.isFinite(num) ? num : fallback
+}
+
+function firstFiniteNumber(values = [], fallback = 0) {
+for (const value of values) {
+const num = Number(value)
+if (Number.isFinite(num)) return num
+}
+return fallback
 }
 
 function setText(el, value) {
@@ -854,6 +890,38 @@ if (normalized === "failed") return "bad"
 return "neutral"
 }
 
+function getPnlVariant(value) {
+const num = Number(value)
+if (!Number.isFinite(num) || Math.abs(num) < 0.005) return "neutral"
+return num > 0 ? "good" : "bad"
+}
+
+function getPnlClass(value) {
+const variant = getPnlVariant(value)
+if (variant === "good") return "pnl-good"
+if (variant === "bad") return "pnl-bad"
+return "pnl-neutral"
+}
+
+function setMoneyTone(el, value, { lossPositive = false } = {}) {
+if (!el) return
+el.classList.remove("pnl-good", "pnl-bad", "pnl-neutral", "sentinel-loss-metric")
+const num = Number(value)
+
+if (!Number.isFinite(num) || Math.abs(num) < 0.005) {
+el.classList.add("pnl-neutral")
+return
+}
+
+if (lossPositive) {
+el.classList.add(num > 0 ? "pnl-bad" : "pnl-neutral")
+el.classList.add("sentinel-loss-metric")
+return
+}
+
+el.classList.add(num > 0 ? "pnl-good" : "pnl-bad")
+}
+
 function createPill(text, variant = "neutral") {
 const span = document.createElement("span")
 span.className = `pill ${variant}`
@@ -873,6 +941,501 @@ td.style.textAlign = "center"
 td.textContent = message
 row.appendChild(td)
 tbody.appendChild(row)
+}
+
+function ensureSentinelEnhancementStyles() {
+if (document.getElementById("sentinelPremiumEnhancementStyles")) return
+
+const style = document.createElement("style")
+style.id = "sentinelPremiumEnhancementStyles"
+style.textContent = `
+.sentinel-enhanced-grid {
+display: grid;
+grid-template-columns: repeat(4, minmax(0, 1fr));
+gap: 12px;
+margin-top: 14px;
+}
+.sentinel-enhanced-card {
+position: relative;
+overflow: hidden;
+padding: 16px;
+border: 1px solid rgba(99, 179, 237, 0.22);
+border-radius: 18px;
+background:
+linear-gradient(135deg, rgba(7, 16, 32, 0.94), rgba(13, 31, 58, 0.76)),
+radial-gradient(circle at top right, rgba(79, 209, 197, 0.14), transparent 45%);
+box-shadow: inset 0 1px 0 rgba(255,255,255,0.05), 0 18px 46px rgba(0,0,0,0.22);
+}
+.sentinel-enhanced-card::after {
+content: "";
+position: absolute;
+inset: auto -30px -48px auto;
+width: 130px;
+height: 130px;
+border-radius: 999px;
+background: rgba(56, 189, 248, 0.10);
+filter: blur(10px);
+}
+.sentinel-enhanced-label {
+position: relative;
+z-index: 1;
+font-size: 10px;
+letter-spacing: 0.16em;
+text-transform: uppercase;
+color: var(--muted, rgba(226,232,240,0.68));
+font-weight: 800;
+}
+.sentinel-enhanced-value {
+position: relative;
+z-index: 1;
+margin-top: 8px;
+font-size: 22px;
+font-weight: 900;
+letter-spacing: -0.03em;
+color: var(--text, #f8fafc);
+}
+.sentinel-enhanced-subtitle {
+position: relative;
+z-index: 1;
+margin-top: 6px;
+font-size: 12px;
+line-height: 1.35;
+color: var(--muted, rgba(226,232,240,0.70));
+}
+.pnl-good {
+color: #35f2a9 !important;
+text-shadow: 0 0 18px rgba(53, 242, 169, 0.20);
+}
+.pnl-bad {
+color: #ff6b7a !important;
+text-shadow: 0 0 18px rgba(255, 107, 122, 0.18);
+}
+.pnl-neutral {
+color: var(--text, #e5e7eb) !important;
+}
+.sentinel-position-gain {
+background: linear-gradient(90deg, rgba(16,185,129,0.08), transparent 52%);
+}
+.sentinel-position-loss {
+background: linear-gradient(90deg, rgba(244,63,94,0.08), transparent 52%);
+}
+.sentinel-position-sort-shell {
+display: flex;
+justify-content: space-between;
+align-items: center;
+gap: 12px;
+margin: 14px 0;
+padding: 12px 14px;
+border: 1px solid rgba(99, 179, 237, 0.18);
+border-radius: 16px;
+background: rgba(8, 18, 34, 0.72);
+}
+.sentinel-position-sort-title {
+font-size: 11px;
+font-weight: 900;
+text-transform: uppercase;
+letter-spacing: 0.15em;
+color: var(--muted, rgba(226,232,240,0.72));
+}
+.sentinel-position-sort-select {
+min-width: 220px;
+border: 1px solid rgba(99, 179, 237, 0.28);
+border-radius: 12px;
+background: rgba(2, 6, 23, 0.86);
+color: var(--text, #f8fafc);
+padding: 10px 12px;
+font-weight: 800;
+outline: none;
+}
+.sentinel-pnl-stack {
+display: grid;
+gap: 4px;
+}
+.sentinel-pnl-main {
+font-weight: 900;
+letter-spacing: -0.02em;
+}
+.sentinel-pnl-sub {
+font-size: 12px;
+color: var(--muted, rgba(226,232,240,0.65));
+}
+@media (max-width: 1100px) {
+.sentinel-enhanced-grid {
+grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+}
+@media (max-width: 720px) {
+.sentinel-enhanced-grid {
+grid-template-columns: 1fr;
+}
+.sentinel-position-sort-shell {
+align-items: stretch;
+flex-direction: column;
+}
+.sentinel-position-sort-select {
+width: 100%;
+}
+}
+`
+document.head.appendChild(style)
+}
+
+function createSentinelSummaryCard(id, label, subtitle) {
+const card = document.createElement("div")
+card.className = "sentinel-enhanced-card"
+
+const labelEl = document.createElement("div")
+labelEl.className = "sentinel-enhanced-label"
+labelEl.textContent = label
+
+const valueEl = document.createElement("div")
+valueEl.className = "sentinel-enhanced-value"
+valueEl.id = id
+valueEl.textContent = "$0.00"
+
+const subtitleEl = document.createElement("div")
+subtitleEl.className = "sentinel-enhanced-subtitle"
+subtitleEl.textContent = subtitle
+
+card.appendChild(labelEl)
+card.appendChild(valueEl)
+card.appendChild(subtitleEl)
+
+return { card, valueEl }
+}
+
+function ensureSentinelEnhancementElements() {
+ensureSentinelEnhancementStyles()
+
+if (!els.sentinelSummaryOpenCapital) {
+els.sentinelSummaryOpenCapital = document.getElementById("sentinelSummaryOpenCapital")
+}
+if (!els.sentinelSummaryOpenValue) {
+els.sentinelSummaryOpenValue = document.getElementById("sentinelSummaryOpenValue")
+}
+if (!els.sentinelSummaryTotalCapital) {
+els.sentinelSummaryTotalCapital = document.getElementById("sentinelSummaryTotalCapital")
+}
+if (!els.sentinelSummaryPortfolioPnl) {
+els.sentinelSummaryPortfolioPnl = document.getElementById("sentinelSummaryPortfolioPnl")
+}
+
+if (
+!document.getElementById("sentinelEnhancedSummaryCards") &&
+(els.sentinelSummaryDailyLoss || els.sentinelSummaryOpenPositions)
+) {
+const anchor =
+els.sentinelSummaryDailyLoss?.closest(".stat-card") ||
+els.sentinelSummaryDailyLoss?.parentElement ||
+els.sentinelSummaryOpenPositions?.closest(".stat-card") ||
+els.sentinelSummaryOpenPositions?.parentElement
+
+if (anchor?.parentElement) {
+const grid = document.createElement("div")
+grid.id = "sentinelEnhancedSummaryCards"
+grid.className = "sentinel-enhanced-grid"
+
+const openCapital = createSentinelSummaryCard(
+"sentinelSummaryOpenCapital",
+"Open Capital at Risk",
+"Remaining cost basis across currently loaded open positions."
+)
+const openValue = createSentinelSummaryCard(
+"sentinelSummaryOpenValue",
+"Current Open Value",
+"Live paper value across currently loaded open positions."
+)
+const totalCapital = createSentinelSummaryCard(
+"sentinelSummaryTotalCapital",
+"Total Capital Deployed",
+"Overall capital committed by Sentinel where backend data is available."
+)
+const portfolioPnl = createSentinelSummaryCard(
+"sentinelSummaryPortfolioPnl",
+"Total Portfolio PnL",
+"Realized plus unrealized performance across Sentinel data."
+)
+
+grid.appendChild(openCapital.card)
+grid.appendChild(openValue.card)
+grid.appendChild(totalCapital.card)
+grid.appendChild(portfolioPnl.card)
+
+anchor.parentElement.insertBefore(grid, anchor.nextSibling)
+
+els.sentinelSummaryOpenCapital = openCapital.valueEl
+els.sentinelSummaryOpenValue = openValue.valueEl
+els.sentinelSummaryTotalCapital = totalCapital.valueEl
+els.sentinelSummaryPortfolioPnl = portfolioPnl.valueEl
+}
+}
+
+if (!els.sentinelPositionSortFilter) {
+els.sentinelPositionSortFilter = document.getElementById("sentinelPositionSortFilter")
+}
+
+if (!els.sentinelPositionSortFilter && els.sentinelPositionsTableBody) {
+const table = els.sentinelPositionsTableBody.closest("table")
+const tableParent = table?.parentElement
+
+if (table && tableParent && !document.getElementById("sentinelPositionSortShell")) {
+const shell = document.createElement("div")
+shell.id = "sentinelPositionSortShell"
+shell.className = "sentinel-position-sort-shell"
+
+const title = document.createElement("div")
+title.className = "sentinel-position-sort-title"
+title.textContent = "Position Intelligence View"
+
+const select = document.createElement("select")
+select.id = "sentinelPositionSortFilter"
+select.className = "sentinel-position-sort-select"
+select.innerHTML = `
+<option value="pnl_desc">Highest gain first</option>
+<option value="pnl_asc">Highest loss first</option>
+<option value="pnl_pct_desc">Highest PnL % first</option>
+<option value="pnl_pct_asc">Lowest PnL % first</option>
+<option value="current_value_desc">Highest current value</option>
+<option value="capital_desc">Highest capital at risk</option>
+<option value="newest">Newest opened</option>
+<option value="oldest">Oldest opened</option>
+`
+
+shell.appendChild(title)
+shell.appendChild(select)
+tableParent.insertBefore(shell, table)
+
+els.sentinelPositionSortFilter = select
+}
+}
+}
+
+function getPositionMetrics(position = {}) {
+const totalCost = firstFiniteNumber(
+[
+position.total_cost_usd,
+position.totalCostUsd,
+position.cost_usd,
+position.costUsd,
+position.capital_deployed_usd,
+position.capitalDeployedUsd,
+],
+0
+)
+
+const costBasis = firstFiniteNumber(
+[
+position.remaining_cost_basis_usd,
+position.remainingCostBasisUsd,
+position.cost_basis_usd,
+position.costBasisUsd,
+position.total_cost_usd,
+position.totalCostUsd,
+],
+totalCost
+)
+
+const currentValue = firstFiniteNumber(
+[
+position.current_value_usd,
+position.currentValueUsd,
+position.position_value_usd,
+position.positionValueUsd,
+position.market_value_usd,
+position.marketValueUsd,
+],
+0
+)
+
+const realizedPnl = firstFiniteNumber(
+[
+position.realized_pnl_usd,
+position.realizedPnlUsd,
+position.realized_profit_usd,
+position.realizedProfitUsd,
+],
+0
+)
+
+const unrealizedPnl = firstFiniteNumber(
+[
+position.unrealized_pnl_usd,
+position.unrealizedPnlUsd,
+currentValue - costBasis,
+],
+0
+)
+
+const totalPnl = firstFiniteNumber(
+[
+position.total_pnl_usd,
+position.totalPnlUsd,
+realizedPnl + unrealizedPnl,
+],
+0
+)
+
+const pnlPct =
+costBasis > 0
+? (unrealizedPnl / costBasis) * 100
+: totalCost > 0
+? (totalPnl / totalCost) * 100
+: 0
+
+const openedTs = new Date(position.opened_at || position.created_at || 0).getTime() || 0
+
+return {
+totalCost,
+costBasis,
+currentValue,
+realizedPnl,
+unrealizedPnl,
+totalPnl,
+pnlPct,
+openedTs,
+}
+}
+
+function getSortedSentinelPositions() {
+const sortMode =
+cleanText(state.sentinel.filters.positionSort, 64) ||
+cleanText(els.sentinelPositionSortFilter?.value, 64) ||
+"pnl_desc"
+
+return [...state.sentinel.positions].sort((a, b) => {
+const am = getPositionMetrics(a)
+const bm = getPositionMetrics(b)
+
+if (sortMode === "pnl_asc") return am.unrealizedPnl - bm.unrealizedPnl
+if (sortMode === "pnl_pct_desc") return bm.pnlPct - am.pnlPct
+if (sortMode === "pnl_pct_asc") return am.pnlPct - bm.pnlPct
+if (sortMode === "current_value_desc") return bm.currentValue - am.currentValue
+if (sortMode === "capital_desc") return bm.costBasis - am.costBasis
+if (sortMode === "newest") return bm.openedTs - am.openedTs
+if (sortMode === "oldest") return am.openedTs - bm.openedTs
+
+return bm.unrealizedPnl - am.unrealizedPnl
+})
+}
+
+function computeSentinelPortfolioMetrics() {
+const positions = arrayify(state.sentinel.positions)
+const summary = state.sentinel.summary || {}
+const stats = state.sentinel.stats || {}
+
+let openCapital = 0
+let openValue = 0
+let openRealized = 0
+let openUnrealized = 0
+let fallbackTotalCapital = 0
+
+positions.forEach((position) => {
+const metrics = getPositionMetrics(position)
+const stage = cleanText(position.stage, 64).toLowerCase()
+const isClosed = Boolean(position.closed_at || position.invalidated_at)
+const isOpenStage = !isClosed && !["closed", "invalidated"].includes(stage)
+
+fallbackTotalCapital += metrics.totalCost || metrics.costBasis
+
+if (isOpenStage) {
+openCapital += metrics.costBasis
+openValue += metrics.currentValue
+openRealized += metrics.realizedPnl
+openUnrealized += metrics.unrealizedPnl
+}
+})
+
+const summaryOpenCapital = firstFiniteNumber(
+[
+summary.open_capital_at_risk_usd,
+summary.openCapitalAtRiskUsd,
+summary.open_cost_basis_usd,
+summary.openCostBasisUsd,
+summary.remaining_cost_basis_usd,
+summary.remainingCostBasisUsd,
+],
+null
+)
+
+const summaryOpenValue = firstFiniteNumber(
+[
+summary.open_current_value_usd,
+summary.openCurrentValueUsd,
+summary.current_open_value_usd,
+summary.currentOpenValueUsd,
+summary.open_value_usd,
+summary.openValueUsd,
+],
+null
+)
+
+const totalCapital = firstFiniteNumber(
+[
+summary.total_capital_deployed_usd,
+summary.totalCapitalDeployedUsd,
+summary.total_invested_usd,
+summary.totalInvestedUsd,
+summary.capital_deployed_usd,
+summary.capitalDeployedUsd,
+stats.total_capital_deployed_usd,
+stats.totalCapitalDeployedUsd,
+stats.total_invested_usd,
+stats.totalInvestedUsd,
+stats.capital_deployed_usd,
+stats.capitalDeployedUsd,
+stats.total_cost_usd,
+stats.totalCostUsd,
+fallbackTotalCapital,
+],
+0
+)
+
+const portfolioPnl = firstFiniteNumber(
+[
+summary.total_portfolio_pnl_usd,
+summary.totalPortfolioPnlUsd,
+summary.portfolio_pnl_usd,
+summary.portfolioPnlUsd,
+summary.total_pnl_usd,
+summary.totalPnlUsd,
+stats.total_portfolio_pnl_usd,
+stats.totalPortfolioPnlUsd,
+stats.total_pnl_usd,
+stats.totalPnlUsd,
+openRealized + openUnrealized,
+],
+0
+)
+
+return {
+openCapital: summaryOpenCapital == null ? openCapital : summaryOpenCapital,
+openValue: summaryOpenValue == null ? openValue : summaryOpenValue,
+totalCapital,
+portfolioPnl,
+}
+}
+
+function updateSentinelPortfolioSummary() {
+ensureSentinelEnhancementElements()
+
+const metrics = computeSentinelPortfolioMetrics()
+
+if (els.sentinelSummaryOpenCapital) {
+els.sentinelSummaryOpenCapital.textContent = formatCurrency(metrics.openCapital)
+setMoneyTone(els.sentinelSummaryOpenCapital, metrics.openCapital)
+}
+if (els.sentinelSummaryOpenValue) {
+els.sentinelSummaryOpenValue.textContent = formatCurrency(metrics.openValue)
+setMoneyTone(els.sentinelSummaryOpenValue, metrics.openValue)
+}
+if (els.sentinelSummaryTotalCapital) {
+els.sentinelSummaryTotalCapital.textContent = formatCurrency(metrics.totalCapital)
+setMoneyTone(els.sentinelSummaryTotalCapital, metrics.totalCapital)
+}
+if (els.sentinelSummaryPortfolioPnl) {
+els.sentinelSummaryPortfolioPnl.textContent = formatSignedCurrency(metrics.portfolioPnl)
+setMoneyTone(els.sentinelSummaryPortfolioPnl, metrics.portfolioPnl)
+}
 }
 
 function getSelectedCase() {
@@ -1151,6 +1714,8 @@ cleanText(engine.current_mode || engine.currentMode, 64) || null,
 }
 
 function renderSentinelSummary(summary, engine = null) {
+ensureSentinelEnhancementElements()
+
 state.sentinel.summary = summary || null
 state.sentinel.engine = engine || state.sentinel.engine
 
@@ -1179,13 +1744,16 @@ if (els.sentinelSummaryOpenPositions) {
 els.sentinelSummaryOpenPositions.textContent = formatNumber(openPositions)
 }
 if (els.sentinelSummaryDailyRealizedPnl) {
-els.sentinelSummaryDailyRealizedPnl.textContent = formatCurrency(realized)
+els.sentinelSummaryDailyRealizedPnl.textContent = formatSignedCurrency(realized)
+setMoneyTone(els.sentinelSummaryDailyRealizedPnl, realized)
 }
 if (els.sentinelSummaryDailyUnrealizedPnl) {
-els.sentinelSummaryDailyUnrealizedPnl.textContent = formatCurrency(unrealized)
+els.sentinelSummaryDailyUnrealizedPnl.textContent = formatSignedCurrency(unrealized)
+setMoneyTone(els.sentinelSummaryDailyUnrealizedPnl, unrealized)
 }
 if (els.sentinelSummaryDailyLoss) {
 els.sentinelSummaryDailyLoss.textContent = formatCurrency(dailyLoss)
+setMoneyTone(els.sentinelSummaryDailyLoss, dailyLoss, { lossPositive: true })
 }
 
 const mode =
@@ -1199,6 +1767,8 @@ if (els.sentinelKillSwitchValue) {
 els.sentinelKillSwitchValue.textContent =
 Boolean(summary?.kill_switch_active ?? summary?.killSwitchActive) ? "Active" : "Inactive"
 }
+
+updateSentinelPortfolioSummary()
 }
 
 function renderSentinelEngine(engine = null) {
@@ -1276,6 +1846,8 @@ payload?.settings?.watcher_enabled != null
 if (els.sentinelWatcherEnabledValue) {
 els.sentinelWatcherEnabledValue.textContent = watcherEnabled ? "Yes" : "No"
 }
+
+updateSentinelPortfolioSummary()
 }
 
 function renderSentinelStats(stats) {
@@ -1313,9 +1885,13 @@ els.sentinelStatsAvgMarketLiquidity.textContent = formatCurrency(
 stats?.avg_market_liquidity_usd
 )
 }
+
+updateSentinelPortfolioSummary()
 }
 
 function renderSentinelPositions() {
+ensureSentinelEnhancementElements()
+
 const tbody = els.sentinelPositionsTableBody
 if (!tbody) return
 
@@ -1326,11 +1902,19 @@ tbody,
 9,
 "No Sentinel positions found for the current filter set."
 )
+updateSentinelPortfolioSummary()
 return
 }
 
-state.sentinel.positions.forEach((position) => {
+const sortedPositions = getSortedSentinelPositions()
+
+sortedPositions.forEach((position) => {
+const metrics = getPositionMetrics(position)
 const row = document.createElement("tr")
+
+const pnlVariant = getPnlVariant(metrics.unrealizedPnl)
+if (pnlVariant === "good") row.classList.add("sentinel-position-gain")
+if (pnlVariant === "bad") row.classList.add("sentinel-position-loss")
 
 const tokenCell = document.createElement("td")
 tokenCell.innerHTML = `
@@ -1357,18 +1941,31 @@ getSentinelModeVariant(position.execution_mode)
 
 const costCell = document.createElement("td")
 costCell.innerHTML = `
-<div>${formatCurrency(position.total_cost_usd)}</div>
-<div class="dim">Basis ${formatCurrency(position.remaining_cost_basis_usd)}</div>
+<div>${formatCurrency(metrics.totalCost)}</div>
+<div class="dim">Basis ${formatCurrency(metrics.costBasis)}</div>
 `
 
 const currentCell = document.createElement("td")
-currentCell.textContent = formatCurrency(position.current_value_usd)
+currentCell.innerHTML = `
+<div style="font-weight:900;">${formatCurrency(metrics.currentValue)}</div>
+<div class="dim">${metrics.costBasis > 0 ? `${formatNumber(metrics.currentValue / metrics.costBasis, 2)}x basis` : "No basis"}</div>
+`
 
 const realizedCell = document.createElement("td")
-realizedCell.textContent = formatCurrency(position.realized_pnl_usd)
+realizedCell.innerHTML = `
+<div class="sentinel-pnl-stack">
+<div class="sentinel-pnl-main ${getPnlClass(metrics.realizedPnl)}">${formatSignedCurrency(metrics.realizedPnl)}</div>
+<div class="sentinel-pnl-sub">Realized</div>
+</div>
+`
 
 const unrealizedCell = document.createElement("td")
-unrealizedCell.textContent = formatCurrency(position.unrealized_pnl_usd)
+unrealizedCell.innerHTML = `
+<div class="sentinel-pnl-stack">
+<div class="sentinel-pnl-main ${getPnlClass(metrics.unrealizedPnl)}">${formatSignedCurrency(metrics.unrealizedPnl)}</div>
+<div class="sentinel-pnl-sub ${getPnlClass(metrics.unrealizedPnl)}">${formatSignedPercent(metrics.pnlPct, 2)}</div>
+</div>
+`
 
 const bankedCell = document.createElement("td")
 bankedCell.appendChild(
@@ -1399,6 +1996,8 @@ openedCell,
 
 tbody.appendChild(row)
 })
+
+updateSentinelPortfolioSummary()
 }
 
 function renderSentinelAudit() {
@@ -2007,6 +2606,10 @@ state.sentinel.filters.positionMintAddress = cleanText(
 els.sentinelPositionsMintFilter?.value,
 255
 )
+state.sentinel.filters.positionSort =
+cleanText(els.sentinelPositionSortFilter?.value, 64) ||
+state.sentinel.filters.positionSort ||
+"pnl_desc"
 
 state.sentinel.filters.auditEventType = cleanText(
 els.sentinelAuditEventTypeFilter?.value,
@@ -3303,6 +3906,12 @@ els.sentinelEmergencyStopButton?.addEventListener("click", async () => {
 await changeSentinelMode("emergency_stop")
 })
 
+els.sentinelPositionSortFilter?.addEventListener("change", () => {
+state.sentinel.filters.positionSort =
+cleanText(els.sentinelPositionSortFilter?.value, 64) || "pnl_desc"
+renderSentinelPositions()
+})
+
 els.refreshSentinelStatsButton?.addEventListener("click", async () => {
 beginSentinelLoading()
 try {
@@ -3437,6 +4046,8 @@ endSentinelAccessLoading()
 }
 
 function initDefaults() {
+ensureSentinelEnhancementElements()
+
 if (els.sentinelStatsDateInput) {
 els.sentinelStatsDateInput.value = state.sentinel.filters.statsDate
 }
@@ -3452,12 +4063,16 @@ els.sentinelPositionStageFilter.value = state.sentinel.filters.positionStage
 if (els.sentinelPositionOutcomeFilter) {
 els.sentinelPositionOutcomeFilter.value = state.sentinel.filters.positionOutcome
 }
+if (els.sentinelPositionSortFilter) {
+els.sentinelPositionSortFilter.value = state.sentinel.filters.positionSort || "pnl_desc"
+}
 
 buildSentinelAccessFilterDefaults()
 updateSentinelAccessSummary()
 renderSentinelAccessCodesTable()
 renderSentinelAccessRedemptionsTable()
 renderSentinelAccessCodeDetail(null)
+updateSentinelPortfolioSummary()
 }
 
 async function init() {

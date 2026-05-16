@@ -18,8 +18,24 @@ return String(value ?? "").trim().slice(0, max);
 }
 
 function toFloat(value, fallback = null) {
-const num = Number.parseFloat(value);
-return Number.isFinite(num) ? num : fallback;
+if (typeof value === "number") {
+return Number.isFinite(value) ? value : fallback;
+}
+
+if (value == null) return fallback;
+
+const raw = String(value).trim();
+if (!raw) return fallback;
+
+const cleaned = raw.replace(/,/g, "");
+const direct = Number.parseFloat(cleaned);
+if (Number.isFinite(direct)) return direct;
+
+const match = cleaned.match(/-?\d+(?:\.\d+)?(?:e[+-]?\d+)?/i);
+if (!match) return fallback;
+
+const parsed = Number.parseFloat(match[0]);
+return Number.isFinite(parsed) ? parsed : fallback;
 }
 
 function toInt(value, fallback = null) {
@@ -34,14 +50,17 @@ return Math.min(max, Math.max(min, num));
 
 function safeBool(value, fallback = false) {
 if (typeof value === "boolean") return value;
+
 const normalized = cleanText(value, 16).toLowerCase();
 if (normalized === "true" || normalized === "1" || normalized === "yes") return true;
 if (normalized === "false" || normalized === "0" || normalized === "no") return false;
+
 return fallback;
 }
 
 function getPath(source, path) {
 if (!source || typeof source !== "object") return undefined;
+
 return String(path || "")
 .split(".")
 .filter(Boolean)
@@ -54,6 +73,7 @@ const value = getPath(source, path);
 const text = cleanText(value, 500);
 if (text) return text;
 }
+
 return fallback;
 }
 
@@ -61,8 +81,9 @@ function firstNumber(source, paths = [], fallback = null) {
 for (const path of paths) {
 const value = getPath(source, path);
 const num = toFloat(value, null);
-if (num != null) return num;
+if (num != null && Number.isFinite(num)) return num;
 }
+
 return fallback;
 }
 
@@ -70,8 +91,9 @@ function firstInteger(source, paths = [], fallback = null) {
 for (const path of paths) {
 const value = getPath(source, path);
 const num = toInt(value, null);
-if (num != null) return num;
+if (num != null && Number.isFinite(num)) return num;
 }
+
 return fallback;
 }
 
@@ -80,6 +102,7 @@ for (const path of paths) {
 const value = getPath(source, path);
 if (value != null) return safeBool(value, fallback);
 }
+
 return fallback;
 }
 
@@ -111,6 +134,178 @@ const count = Math.max(0, toFloat(recentRunnerCount, 0));
 if (count >= 10) return 100;
 return clamp(count * 10, 0, 100);
 }
+
+const PRICE_PATHS = [
+"price_usd",
+"priceUsd",
+"current_price_usd",
+"currentPriceUsd",
+"current_price",
+"currentPrice",
+"price_now",
+"priceNow",
+"price",
+"market_price_usd",
+"marketPriceUsd",
+"token_price_usd",
+"tokenPriceUsd",
+"usd_price",
+"usdPrice",
+"market.price_usd",
+"market.priceUsd",
+"market.current_price_usd",
+"market.currentPriceUsd",
+"market.current_price",
+"market.currentPrice",
+"market.price_now",
+"market.priceNow",
+"market.price",
+"market.usd.price",
+"market.price.usd",
+"token.price_usd",
+"token.priceUsd",
+"token.current_price_usd",
+"token.currentPriceUsd",
+"token.price",
+"raw.price_usd",
+"raw.priceUsd",
+"raw.current_price_usd",
+"raw.currentPriceUsd",
+"raw.current_price",
+"raw.currentPrice",
+"raw.price_now",
+"raw.priceNow",
+"raw.price",
+"raw.market.price_usd",
+"raw.market.priceUsd",
+"raw.market.current_price_usd",
+"raw.market.currentPriceUsd",
+"raw.market.current_price",
+"raw.market.currentPrice",
+"raw.market.price_now",
+"raw.market.priceNow",
+"raw.market.price",
+"raw.market.usd.price",
+"raw.market.price.usd",
+"raw.token.price_usd",
+"raw.token.priceUsd",
+"raw.token.current_price_usd",
+"raw.token.currentPriceUsd",
+"raw.token.price",
+];
+
+const MARKETCAP_PATHS = [
+"marketcap_usd",
+"marketcapUsd",
+"market_cap_usd",
+"marketCapUsd",
+"marketcap",
+"mcap",
+"mcap_usd",
+"mcapUsd",
+"fdv_usd",
+"fdvUsd",
+"fdv",
+"market.marketcap_usd",
+"market.marketcapUsd",
+"market.market_cap_usd",
+"market.marketCapUsd",
+"market.mcap",
+"market.mcap_usd",
+"market.mcapUsd",
+"market.fdv_usd",
+"market.fdvUsd",
+"market.fdv",
+"raw.marketcap_usd",
+"raw.marketcapUsd",
+"raw.market_cap_usd",
+"raw.marketCapUsd",
+"raw.mcap",
+"raw.mcap_usd",
+"raw.mcapUsd",
+"raw.fdv_usd",
+"raw.fdvUsd",
+"raw.fdv",
+"raw.market.marketcap_usd",
+"raw.market.marketcapUsd",
+"raw.market.market_cap_usd",
+"raw.market.marketCapUsd",
+"raw.market.mcap",
+"raw.market.mcap_usd",
+"raw.market.mcapUsd",
+"raw.market.fdv_usd",
+"raw.market.fdvUsd",
+"raw.market.fdv",
+];
+
+const LIQUIDITY_PATHS = [
+"liquidity_usd",
+"liquidityUsd",
+"liq_usd",
+"liqUsd",
+"market_liquidity_usd",
+"marketLiquidityUsd",
+"avg_market_liquidity_usd",
+"avgMarketLiquidityUsd",
+"market.liquidity_usd",
+"market.liquidityUsd",
+"market.liquidity.usd",
+"raw.liquidity_usd",
+"raw.liquidityUsd",
+"raw.liq_usd",
+"raw.liqUsd",
+"raw.market_liquidity_usd",
+"raw.marketLiquidityUsd",
+"raw.avg_market_liquidity_usd",
+"raw.avgMarketLiquidityUsd",
+"raw.market.liquidity_usd",
+"raw.market.liquidityUsd",
+"raw.market.liquidity.usd",
+];
+
+const CURRENT_VALUE_PATHS = [
+"current_value_usd",
+"currentValueUsd",
+"position_value_usd",
+"positionValueUsd",
+"market_value_usd",
+"marketValueUsd",
+"value_usd",
+"valueUsd",
+"raw.current_value_usd",
+"raw.currentValueUsd",
+"raw.position_value_usd",
+"raw.positionValueUsd",
+"raw.market_value_usd",
+"raw.marketValueUsd",
+"market.current_value_usd",
+"market.currentValueUsd",
+"market.position_value_usd",
+"market.positionValueUsd",
+"raw.market.current_value_usd",
+"raw.market.currentValueUsd",
+"raw.market.position_value_usd",
+"raw.market.positionValueUsd",
+];
+
+const CURRENT_MULTIPLE_PATHS = [
+"current_multiple",
+"currentMultiple",
+"multiple",
+"pnl_multiple",
+"pnlMultiple",
+"performance_multiple",
+"performanceMultiple",
+"raw.current_multiple",
+"raw.currentMultiple",
+"raw.multiple",
+"raw.pnl_multiple",
+"raw.pnlMultiple",
+"market.current_multiple",
+"market.currentMultiple",
+"raw.market.current_multiple",
+"raw.market.currentMultiple",
+];
 
 export function deriveRegimeScore(input = {}) {
 const provided = toFloat(input.regime_score, null);
@@ -261,23 +456,35 @@ export function buildSentinelSnapshotFromSecurityScan(scan = {}, options = {}) {
 const mint =
 cleanText(scan.mint, 255) ||
 cleanText(scan.token?.mint, 255) ||
-cleanText(scan.mint_address, 255);
+cleanText(scan.mint_address, 255) ||
+cleanText(scan.token_id, 255);
 
 const market = scan.market || {};
 const concentration = scan.concentration || {};
 const activity = scan.activity || {};
-const securityModel = scan.securityModel || {};
+const securityModel = scan.securityModel || scan.security_model || {};
 const trend = scan.trend || {};
 const cassie = scan.cassie || {};
-const walletNetwork = securityModel.walletNetwork || {};
-const hiddenControl = securityModel.hiddenControl || {};
-const freshWalletRisk = securityModel.freshWalletRisk || {};
-const whaleActivity = securityModel.whaleActivity || {};
-const liquidityStability = securityModel.liquidityStability || {};
+const walletNetwork = securityModel.walletNetwork || securityModel.wallet_network || {};
+const hiddenControl = securityModel.hiddenControl || securityModel.hidden_control || {};
+const freshWalletRisk = securityModel.freshWalletRisk || securityModel.fresh_wallet_risk || {};
+const whaleActivity = securityModel.whaleActivity || securityModel.whale_activity || {};
+const liquidityStability =
+securityModel.liquidityStability || securityModel.liquidity_stability || {};
 const reputation = securityModel.reputation || {};
 
 const trendRisk = toFloat(trend?.latest?.risk, null);
 const trendChange1h = toFloat(trend?.change?.["1h"], null);
+
+const priceUsd = firstNumber(
+{
+...scan,
+market,
+raw: scan.raw || scan,
+},
+PRICE_PATHS,
+null
+);
 
 return normalizeSentinelSnapshot(
 {
@@ -296,15 +503,43 @@ cleanText(scan.linked_operator_cluster_id, 255) ||
 cleanText(walletNetwork.primaryClusterId, 255),
 
 marketcap_usd:
-toFloat(market.mcapUsd, null) ??
-toFloat(market.marketCapUsd, null) ??
-toFloat(market.fdv, null),
+firstNumber(
+{
+...scan,
+market,
+raw: scan.raw || scan,
+},
+MARKETCAP_PATHS,
+null
+) ?? null,
 
-liquidity_usd: toFloat(market.liquidityUsd, 0),
-current_price:
-toFloat(market.priceUsd, null) ??
-toFloat(scan.current_price, null) ??
-null,
+liquidity_usd:
+firstNumber(
+{
+...scan,
+market,
+raw: scan.raw || scan,
+},
+LIQUIDITY_PATHS,
+null
+) ?? 0,
+
+price_usd: priceUsd,
+priceUsd,
+current_price_usd: priceUsd,
+currentPriceUsd: priceUsd,
+current_price: priceUsd,
+price_now: priceUsd,
+
+market: {
+...market,
+price_usd: priceUsd ?? market.price_usd ?? market.priceUsd ?? null,
+priceUsd: priceUsd ?? market.priceUsd ?? market.price_usd ?? null,
+current_price_usd:
+priceUsd ?? market.current_price_usd ?? market.currentPriceUsd ?? null,
+currentPriceUsd:
+priceUsd ?? market.currentPriceUsd ?? market.current_price_usd ?? null,
+},
 
 top_holder_pct: toFloat(concentration.top1, 0),
 top_5_holder_pct: toFloat(concentration.top5, 0),
@@ -340,6 +575,7 @@ reclaim_success_rate_pct: toFloat(scan.reclaim_success_rate_pct, null),
 avg_market_liquidity_usd:
 toFloat(scan.avg_market_liquidity_usd, null) ??
 toFloat(market.liquidityUsd, null) ??
+toFloat(market.liquidity_usd, null) ??
 null,
 recent_runner_count: toFloat(scan.recent_runner_count, null),
 breakout_follow_through_score:
@@ -380,8 +616,24 @@ bars_since_launch: toInt(scan.bars_since_launch, null),
 bars_since_local_low: toInt(scan.bars_since_local_low, null),
 failed_breakout_count: toInt(scan.failed_breakout_count, 0),
 
-current_multiple: toFloat(scan.current_multiple, null),
-current_value_usd: toFloat(scan.current_value_usd, null),
+current_multiple: firstNumber(
+{
+...scan,
+market,
+raw: scan.raw || scan,
+},
+CURRENT_MULTIPLE_PATHS,
+null
+),
+current_value_usd: firstNumber(
+{
+...scan,
+market,
+raw: scan.raw || scan,
+},
+CURRENT_VALUE_PATHS,
+null
+),
 
 flags: {
 from_security_scan: true,
@@ -396,6 +648,7 @@ options
 
 export function normalizeSentinelSnapshot(input = {}, options = {}) {
 const source = input && typeof input === "object" ? input : {};
+
 const minLiquidityUsd = Math.max(
 0,
 toFloat(
@@ -412,7 +665,11 @@ firstText(source, [
 "mint",
 "address",
 "token.mint",
+"token.mint_address",
+"raw.token_id",
 "raw.mint",
+"raw.mint_address",
+"raw.token.mint",
 ]) || "";
 
 const mintAddress =
@@ -422,17 +679,28 @@ firstText(source, [
 "address",
 "token_id",
 "token.mint",
+"token.mint_address",
+"raw.mint_address",
 "raw.mint",
+"raw.token_id",
+"raw.token.mint",
 ]) || tokenId;
+
+const priceUsd = firstNumber(source, PRICE_PATHS, null);
 
 const hiddenControlRisk = clamp(
 firstNumber(
 source,
 [
 "hidden_control_risk",
+"hiddenControlRisk",
 "securityModel.hiddenControl.score",
+"securityModel.hidden_control.score",
 "hiddenControl.score",
+"raw.hidden_control_risk",
+"raw.hiddenControlRisk",
 "raw.securityModel.hiddenControl.score",
+"raw.securityModel.hidden_control.score",
 ],
 0
 ) ?? 0,
@@ -445,10 +713,13 @@ firstNumber(
 source,
 [
 "contamination_risk",
+"contaminationRisk",
 "securityModel.contamination.score",
 "raw.securityModel.contamination.score",
 "securityModel.freshWalletRisk.score",
+"securityModel.fresh_wallet_risk.score",
 "raw.securityModel.freshWalletRisk.score",
+"raw.securityModel.fresh_wallet_risk.score",
 ],
 0
 ) ?? 0,
@@ -461,12 +732,19 @@ wallet_coordination_risk: firstNumber(
 source,
 [
 "wallet_coordination_risk",
+"walletCoordinationRisk",
 "activity.score",
 "securityModel.walletNetwork.riskScore",
+"securityModel.wallet_network.riskScore",
 "securityModel.whaleActivity.score",
+"securityModel.whale_activity.score",
+"raw.wallet_coordination_risk",
+"raw.walletCoordinationRisk",
 "raw.activity.score",
 "raw.securityModel.walletNetwork.riskScore",
+"raw.securityModel.wallet_network.riskScore",
 "raw.securityModel.whaleActivity.score",
+"raw.securityModel.whale_activity.score",
 ],
 null
 ),
@@ -475,7 +753,9 @@ whale_activity_score: firstNumber(
 source,
 [
 "securityModel.whaleActivity.score",
+"securityModel.whale_activity.score",
 "raw.securityModel.whaleActivity.score",
+"raw.securityModel.whale_activity.score",
 ],
 0
 ),
@@ -483,7 +763,9 @@ wallet_network_risk_score: firstNumber(
 source,
 [
 "securityModel.walletNetwork.riskScore",
+"securityModel.wallet_network.riskScore",
 "raw.securityModel.walletNetwork.riskScore",
+"raw.securityModel.wallet_network.riskScore",
 ],
 0
 ),
@@ -491,7 +773,9 @@ wallet_network_confidence: firstNumber(
 source,
 [
 "securityModel.walletNetwork.confidence",
+"securityModel.wallet_network.confidence",
 "raw.securityModel.walletNetwork.confidence",
+"raw.securityModel.wallet_network.confidence",
 ],
 0
 ),
@@ -502,9 +786,15 @@ firstNumber(
 source,
 [
 "insider_sell_score",
+"insiderSellScore",
 "dev_sell_score",
+"devSellScore",
 "developer_sell_score",
+"developerSellScore",
 "raw.insider_sell_score",
+"raw.insiderSellScore",
+"raw.dev_sell_score",
+"raw.devSellScore",
 ],
 0
 ) ?? 0,
@@ -517,8 +807,11 @@ firstNumber(
 source,
 [
 "reclaim_strength_score",
+"reclaimStrengthScore",
 "reclaim_score",
+"reclaimScore",
 "raw.reclaim_strength_score",
+"raw.reclaimStrengthScore",
 ],
 50
 ) ?? 50,
@@ -529,7 +822,14 @@ source,
 const buyPressureScore = clamp(
 firstNumber(
 source,
-["buy_pressure_score", "buy_pressure", "raw.buy_pressure_score"],
+[
+"buy_pressure_score",
+"buyPressureScore",
+"buy_pressure",
+"buyPressure",
+"raw.buy_pressure_score",
+"raw.buyPressureScore",
+],
 50
 ) ?? 50,
 0,
@@ -541,7 +841,9 @@ firstNumber(
 source,
 [
 "persistence_score",
+"persistenceScore",
 "raw.persistence_score",
+"raw.persistenceScore",
 "securityModel.reputation.score",
 "raw.securityModel.reputation.score",
 ],
@@ -554,7 +856,12 @@ source,
 const liquidityDecayScore = clamp(
 firstNumber(
 source,
-["liquidity_decay_score", "raw.liquidity_decay_score"],
+[
+"liquidity_decay_score",
+"liquidityDecayScore",
+"raw.liquidity_decay_score",
+"raw.liquidityDecayScore",
+],
 0
 ) ?? 0,
 0,
@@ -566,8 +873,11 @@ firstNumber(
 source,
 [
 "vertical_extension_score",
+"verticalExtensionScore",
 "extension_score",
+"extensionScore",
 "raw.vertical_extension_score",
+"raw.verticalExtensionScore",
 ],
 0
 ) ?? 0,
@@ -580,9 +890,13 @@ structural_health_score: firstNumber(
 source,
 [
 "structural_health_score",
+"structuralHealthScore",
 "securityModel.liquidityStability.score",
+"securityModel.liquidity_stability.score",
 "raw.structural_health_score",
+"raw.structuralHealthScore",
 "raw.securityModel.liquidityStability.score",
+"raw.securityModel.liquidity_stability.score",
 ],
 null
 ),
@@ -599,36 +913,56 @@ firstNumber(
 source,
 [
 "avg_market_liquidity_usd",
+"avgMarketLiquidityUsd",
+"market_liquidity_usd",
+"marketLiquidityUsd",
+"liquidity_usd",
+"liquidityUsd",
+"market.liquidity_usd",
 "market.liquidityUsd",
+"market.liquidity.usd",
 "raw.avg_market_liquidity_usd",
+"raw.avgMarketLiquidityUsd",
+"raw.market_liquidity_usd",
+"raw.marketLiquidityUsd",
+"raw.liquidity_usd",
+"raw.liquidityUsd",
+"raw.market.liquidity_usd",
 "raw.market.liquidityUsd",
+"raw.market.liquidity.usd",
 ],
 null
 ) ?? null;
 
 const regimeDerived = deriveRegimeScore({
-regime_score: firstNumber(source, ["regime_score", "raw.regime_score"], null),
+regime_score: firstNumber(
+source,
+["regime_score", "regimeScore", "market_regime_score", "marketRegimeScore", "raw.regime_score", "raw.regimeScore"],
+null
+),
 recent_rug_rate_pct: firstNumber(
 source,
-["recent_rug_rate_pct", "raw.recent_rug_rate_pct"],
+["recent_rug_rate_pct", "recentRugRatePct", "raw.recent_rug_rate_pct", "raw.recentRugRatePct"],
 null
 ),
 reclaim_success_rate_pct: firstNumber(
 source,
-["reclaim_success_rate_pct", "raw.reclaim_success_rate_pct"],
+["reclaim_success_rate_pct", "reclaimSuccessRatePct", "raw.reclaim_success_rate_pct", "raw.reclaimSuccessRatePct"],
 null
 ),
 avg_market_liquidity_usd: avgMarketLiquidityUsd,
 recent_runner_count: firstNumber(
 source,
-["recent_runner_count", "raw.recent_runner_count"],
+["recent_runner_count", "recentRunnerCount", "raw.recent_runner_count", "raw.recentRunnerCount"],
 null
 ),
 breakout_follow_through_score: firstNumber(
 source,
 [
 "breakout_follow_through_score",
+"breakoutFollowThroughScore",
 "raw.breakout_follow_through_score",
+"raw.breakoutFollowThroughScore",
 ],
 null
 ),
@@ -637,8 +971,39 @@ min_liquidity_usd: minLiquidityUsd,
 
 const regimeState =
 normalizeRegimeState(
-firstText(source, ["regime_state", "raw.regime_state"], "")
+firstText(
+source,
+[
+"regime_state",
+"regimeState",
+"market_regime",
+"marketRegime",
+"market_state",
+"marketState",
+"raw.regime_state",
+"raw.regimeState",
+"raw.market_regime",
+"raw.marketRegime",
+],
+""
+)
 ) || deriveRegimeState(regimeDerived.score);
+
+const marketcapUsd = Math.max(
+0,
+firstNumber(source, MARKETCAP_PATHS, 0) ?? 0
+);
+
+const liquidityUsd = Math.max(
+0,
+firstNumber(source, LIQUIDITY_PATHS, 0) ?? 0
+);
+
+const currentValueUsd =
+firstNumber(source, CURRENT_VALUE_PATHS, null) ?? null;
+
+const currentMultiple =
+firstNumber(source, CURRENT_MULTIPLE_PATHS, null) ?? null;
 
 const normalized = {
 version: SENTINEL_SNAPSHOT_VERSION,
@@ -660,58 +1025,36 @@ firstText(
 source,
 [
 "linked_operator_cluster_id",
+"linkedOperatorClusterId",
 "operator_cluster_id",
+"operatorClusterId",
 "walletNetwork.primaryClusterId",
 "securityModel.walletNetwork.primaryClusterId",
+"securityModel.wallet_network.primaryClusterId",
 "raw.linked_operator_cluster_id",
+"raw.linkedOperatorClusterId",
 "raw.securityModel.walletNetwork.primaryClusterId",
+"raw.securityModel.wallet_network.primaryClusterId",
 ],
 ""
 ) || null,
 
-marketcap_usd: Math.max(
-0,
-firstNumber(
-source,
-[
-"marketcap_usd",
-"marketcap",
-"mcap",
-"market.mcapUsd",
-"market.marketCapUsd",
-"raw.marketcap_usd",
-"raw.market.mcapUsd",
-],
-0
-) ?? 0
-),
-liquidity_usd: Math.max(
-0,
-firstNumber(
-source,
-[
-"liquidity_usd",
-"market.liquidityUsd",
-"raw.liquidity_usd",
-"raw.market.liquidityUsd",
-],
-0
-) ?? 0
-),
-current_price:
-firstNumber(
-source,
-[
-"current_price",
-"price_now",
-"current_price_usd",
-"price",
-"market.priceUsd",
-"raw.current_price",
-"raw.market.priceUsd",
-],
-null
-) ?? null,
+marketcap_usd: marketcapUsd,
+marketcapUsd,
+market_cap_usd: marketcapUsd,
+marketCapUsd: marketcapUsd,
+
+liquidity_usd: liquidityUsd,
+liquidityUsd,
+
+price_usd: priceUsd,
+priceUsd,
+current_price_usd: priceUsd,
+currentPriceUsd: priceUsd,
+current_price: priceUsd,
+currentPrice: priceUsd,
+price_now: priceUsd,
+priceNow: priceUsd,
 
 spread_bps: Math.max(
 0,
@@ -721,11 +1064,17 @@ source,
 "spread_bps",
 "spreadBps",
 "execution.spreadBps",
+"market.spread_bps",
+"market.spreadBps",
 "raw.spread_bps",
+"raw.spreadBps",
+"raw.market.spread_bps",
+"raw.market.spreadBps",
 ],
 0
 ) ?? 0
 ),
+
 price_impact_bps: Math.max(
 0,
 firstNumber(
@@ -734,7 +1083,12 @@ source,
 "price_impact_bps",
 "priceImpactBps",
 "execution.priceImpactBps",
+"market.price_impact_bps",
+"market.priceImpactBps",
 "raw.price_impact_bps",
+"raw.priceImpactBps",
+"raw.market.price_impact_bps",
+"raw.market.priceImpactBps",
 ],
 0
 ) ?? 0
@@ -745,24 +1099,38 @@ firstNumber(
 source,
 [
 "top_holder_pct",
+"topHolderPct",
+"top1_pct",
+"top1Pct",
 "concentration.top1",
+"concentration.top1_pct",
 "raw.top_holder_pct",
+"raw.topHolderPct",
 "raw.concentration.top1",
+"raw.concentration.top1_pct",
 ],
 0
 ) ?? 0,
 0,
 100
 ),
+
 top_5_holder_pct: clamp(
 firstNumber(
 source,
 [
 "top_5_holder_pct",
 "top5_holder_pct",
+"top5HolderPct",
+"top5_pct",
+"top5Pct",
 "concentration.top5",
+"concentration.top5_pct",
 "raw.top_5_holder_pct",
+"raw.top5_holder_pct",
+"raw.top5HolderPct",
 "raw.concentration.top5",
+"raw.concentration.top5_pct",
 ],
 0
 ) ?? 0,
@@ -773,30 +1141,33 @@ source,
 transfer_restriction_risk: clamp(
 firstNumber(
 source,
-["transfer_restriction_risk", "raw.transfer_restriction_risk"],
+["transfer_restriction_risk", "transferRestrictionRisk", "raw.transfer_restriction_risk", "raw.transferRestrictionRisk"],
 0
 ) ?? 0,
 0,
 100
 ),
+
 honeypot_risk: clamp(
-firstNumber(source, ["honeypot_risk", "raw.honeypot_risk"], 0) ?? 0,
+firstNumber(source, ["honeypot_risk", "honeypotRisk", "raw.honeypot_risk", "raw.honeypotRisk"], 0) ?? 0,
 0,
 100
 ),
+
 liquidity_break_risk: clamp(
 firstNumber(
 source,
-["liquidity_break_risk", "raw.liquidity_break_risk"],
+["liquidity_break_risk", "liquidityBreakRisk", "raw.liquidity_break_risk", "raw.liquidityBreakRisk"],
 0
 ) ?? 0,
 0,
 100
 ),
+
 spoofed_volume_risk: clamp(
 firstNumber(
 source,
-["spoofed_volume_risk", "raw.spoofed_volume_risk"],
+["spoofed_volume_risk", "spoofedVolumeRisk", "raw.spoofed_volume_risk", "raw.spoofedVolumeRisk"],
 0
 ) ?? 0,
 0,
@@ -810,7 +1181,7 @@ wallet_coordination_risk: walletCoordinationRisk,
 operator_quality_score: deriveOperatorQualityScore({
 operator_quality_score: firstNumber(
 source,
-["operator_quality_score", "raw.operator_quality_score"],
+["operator_quality_score", "operatorQualityScore", "raw.operator_quality_score", "raw.operatorQualityScore"],
 null
 ),
 reputation_score: firstNumber(
@@ -832,31 +1203,38 @@ insider_sell_score: insiderSellScore,
 
 regime_score: regimeDerived.score,
 regime_state: regimeState,
+
 recent_rug_rate_pct:
 firstNumber(
 source,
-["recent_rug_rate_pct", "raw.recent_rug_rate_pct"],
+["recent_rug_rate_pct", "recentRugRatePct", "raw.recent_rug_rate_pct", "raw.recentRugRatePct"],
 null
 ) ?? null,
+
 reclaim_success_rate_pct:
 firstNumber(
 source,
-["reclaim_success_rate_pct", "raw.reclaim_success_rate_pct"],
+["reclaim_success_rate_pct", "reclaimSuccessRatePct", "raw.reclaim_success_rate_pct", "raw.reclaimSuccessRatePct"],
 null
 ) ?? null,
+
 avg_market_liquidity_usd: avgMarketLiquidityUsd,
+
 recent_runner_count:
 firstNumber(
 source,
-["recent_runner_count", "raw.recent_runner_count"],
+["recent_runner_count", "recentRunnerCount", "raw.recent_runner_count", "raw.recentRunnerCount"],
 null
 ) ?? null,
+
 breakout_follow_through_score:
 firstNumber(
 source,
 [
 "breakout_follow_through_score",
+"breakoutFollowThroughScore",
 "raw.breakout_follow_through_score",
+"raw.breakoutFollowThroughScore",
 ],
 null
 ) ?? null,
@@ -864,12 +1242,12 @@ null
 seller_exhaustion_score: deriveSellerExhaustionScore({
 seller_exhaustion_score: firstNumber(
 source,
-["seller_exhaustion_score", "raw.seller_exhaustion_score"],
+["seller_exhaustion_score", "sellerExhaustionScore", "raw.seller_exhaustion_score", "raw.sellerExhaustionScore"],
 null
 ),
 sell_pressure_score: firstNumber(
 source,
-["sell_pressure_score", "raw.sell_pressure_score"],
+["sell_pressure_score", "sellPressureScore", "raw.sell_pressure_score", "raw.sellPressureScore"],
 null
 ),
 reclaim_strength_score: reclaimStrengthScore,
@@ -887,48 +1265,68 @@ liquidity_decay_score: liquidityDecayScore,
 
 bars_since_launch: Math.max(
 0,
-firstInteger(source, ["bars_since_launch", "raw.bars_since_launch"], 0) ?? 0
+firstInteger(source, ["bars_since_launch", "barsSinceLaunch", "raw.bars_since_launch", "raw.barsSinceLaunch"], 0) ?? 0
 ),
+
 bars_since_local_low: Math.max(
 0,
 firstInteger(
 source,
-["bars_since_local_low", "raw.bars_since_local_low"],
+["bars_since_local_low", "barsSinceLocalLow", "raw.bars_since_local_low", "raw.barsSinceLocalLow"],
 0
 ) ?? 0
 ),
+
 failed_breakout_count: Math.max(
 0,
 firstInteger(
 source,
-["failed_breakout_count", "raw.failed_breakout_count"],
+["failed_breakout_count", "failedBreakoutCount", "raw.failed_breakout_count", "raw.failedBreakoutCount"],
 0
 ) ?? 0
 ),
 
-current_value_usd:
-firstNumber(
-source,
-["current_value_usd", "position_value_usd", "raw.current_value_usd"],
-null
-) ?? null,
-current_multiple:
-firstNumber(source, ["current_multiple", "raw.current_multiple"], null) ??
-null,
+current_value_usd: currentValueUsd,
+currentValueUsd,
+position_value_usd: currentValueUsd,
+positionValueUsd: currentValueUsd,
+
+current_multiple: currentMultiple,
+currentMultiple,
 
 has_live_position_context: firstBoolean(
 source,
-["has_live_position_context", "raw.has_live_position_context"],
+["has_live_position_context", "hasLivePositionContext", "raw.has_live_position_context", "raw.hasLivePositionContext"],
 false
 ),
 
+market: {
+...(source.market || {}),
+price_usd: priceUsd,
+priceUsd,
+current_price_usd: priceUsd,
+currentPriceUsd: priceUsd,
+current_price: priceUsd,
+currentPrice: priceUsd,
+liquidity_usd: liquidityUsd,
+liquidityUsd,
+marketcap_usd: marketcapUsd,
+marketcapUsd,
+market_cap_usd: marketcapUsd,
+marketCapUsd: marketcapUsd,
+},
+
 raw: source.raw ?? source,
+
 meta: {
 snapshot_version: SENTINEL_SNAPSHOT_VERSION,
 used_provided_regime_score: Boolean(regimeDerived.used_provided_score),
 regime_components: regimeDerived.components,
 has_token_id: Boolean(tokenId),
 has_mint_address: Boolean(mintAddress),
+has_price_usd: priceUsd != null,
+has_current_value_usd: currentValueUsd != null,
+has_current_multiple: currentMultiple != null,
 },
 };
 
@@ -959,6 +1357,10 @@ linked_operator_cluster_id: safe.linked_operator_cluster_id || null,
 marketcap_usd: safe.marketcap_usd,
 liquidity_usd: safe.liquidity_usd,
 current_price: safe.current_price,
+price_usd: safe.price_usd,
+
+current_value_usd: safe.current_value_usd,
+current_multiple: safe.current_multiple,
 
 regime_state: safe.regime_state,
 regime_score: safe.regime_score,
@@ -988,6 +1390,8 @@ spoofed_volume_risk: safe.spoofed_volume_risk,
 failed_breakout_count: safe.failed_breakout_count,
 bars_since_launch: safe.bars_since_launch,
 bars_since_local_low: safe.bars_since_local_low,
+
+meta: safe.meta,
 };
 }
 
