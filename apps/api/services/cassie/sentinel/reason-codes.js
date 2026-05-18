@@ -9,7 +9,7 @@ SETTINGS_PATCH_APPLIED: "SETTINGS_PATCH_APPLIED",
 SENTINEL_MODE_CHANGED: "SENTINEL_MODE_CHANGED",
 SENTINEL_EMERGENCY_STOP: "SENTINEL_EMERGENCY_STOP",
 
-// Hard rejects
+// Hard rejects: direct token safety
 TRANSFER_RESTRICTION_RISK: "TRANSFER_RESTRICTION_RISK",
 HONEYPOT_RISK: "HONEYPOT_RISK",
 LIQUIDITY_BREAK_RISK: "LIQUIDITY_BREAK_RISK",
@@ -22,6 +22,26 @@ TOP5_TOO_CONCENTRATED: "TOP5_TOO_CONCENTRATED",
 HIDDEN_CONTROL_TOO_HIGH: "HIDDEN_CONTROL_TOO_HIGH",
 CONTAMINATION_TOO_HIGH: "CONTAMINATION_TOO_HIGH",
 COORDINATION_RISK_TOO_HIGH: "COORDINATION_RISK_TOO_HIGH",
+
+// Hard rejects: missing critical data
+MISSING_TOKEN_ID: "MISSING_TOKEN_ID",
+MISSING_MARKET_DATA: "MISSING_MARKET_DATA",
+MISSING_PRICE_DATA: "MISSING_PRICE_DATA",
+MISSING_LIQUIDITY_DATA: "MISSING_LIQUIDITY_DATA",
+MISSING_HOLDER_CONCENTRATION: "MISSING_HOLDER_CONCENTRATION",
+
+// Hard rejects: manipulation / fake-fill traps
+ULTRA_LOW_LIQUIDITY: "ULTRA_LOW_LIQUIDITY",
+MICROCAP_LIQUIDITY_TRAP: "MICROCAP_LIQUIDITY_TRAP",
+CONCENTRATION_LIQUIDITY_TRAP: "CONCENTRATION_LIQUIDITY_TRAP",
+EXTREME_TOP_HOLDER_CONCENTRATION: "EXTREME_TOP_HOLDER_CONCENTRATION",
+EXTREME_TOP5_CONCENTRATION: "EXTREME_TOP5_CONCENTRATION",
+CRITICAL_TOP5_SUPPLY_CONTROL: "CRITICAL_TOP5_SUPPLY_CONTROL",
+INSIDER_SELL_RISK: "INSIDER_SELL_RISK",
+LIQUIDITY_DECAY_RISK: "LIQUIDITY_DECAY_RISK",
+VERTICAL_EXTENSION_RISK: "VERTICAL_EXTENSION_RISK",
+REPEATED_BREAKOUT_FAILURE: "REPEATED_BREAKOUT_FAILURE",
+STRUCTURAL_HEALTH_TOO_LOW: "STRUCTURAL_HEALTH_TOO_LOW",
 
 // Operator gate
 OPERATOR_QUALITY_TOO_LOW: "OPERATOR_QUALITY_TOO_LOW",
@@ -96,6 +116,18 @@ RECLAIM_SUCCESS_TOO_LOW: "RECLAIM_SUCCESS_TOO_LOW",
 MARKET_LIQUIDITY_TOO_LOW: "MARKET_LIQUIDITY_TOO_LOW",
 KILL_SWITCH_TRIGGERED: "KILL_SWITCH_TRIGGERED",
 
+// Discovery / visibility semantics
+DISCOVERY_ONLY: "DISCOVERY_ONLY",
+ENTRY_ELIGIBLE: "ENTRY_ELIGIBLE",
+ENTRY_BLOCKED_BY_SAFETY: "ENTRY_BLOCKED_BY_SAFETY",
+NEW_LOW_CAP_DISCOVERY: "NEW_LOW_CAP_DISCOVERY",
+LIQUIDITY_RISER_DISCOVERY: "LIQUIDITY_RISER_DISCOVERY",
+UNUSUAL_VOLUME_DISCOVERY: "UNUSUAL_VOLUME_DISCOVERY",
+MOMENTUM_MOVER_DISCOVERY: "MOMENTUM_MOVER_DISCOVERY",
+CLEAN_RECLAIM_DISCOVERY: "CLEAN_RECLAIM_DISCOVERY",
+STRUCTURAL_CANDIDATE_DISCOVERY: "STRUCTURAL_CANDIDATE_DISCOVERY",
+RISK_MONITOR_DISCOVERY: "RISK_MONITOR_DISCOVERY",
+
 // Generic decisions
 TOKEN_REJECTED: "TOKEN_REJECTED",
 WATCHLIST_ONLY: "WATCHLIST_ONLY",
@@ -129,6 +161,28 @@ REASON_CODE.TOP5_TOO_CONCENTRATED,
 REASON_CODE.HIDDEN_CONTROL_TOO_HIGH,
 REASON_CODE.CONTAMINATION_TOO_HIGH,
 REASON_CODE.COORDINATION_RISK_TOO_HIGH,
+],
+
+CRITICAL_DATA: [
+REASON_CODE.MISSING_TOKEN_ID,
+REASON_CODE.MISSING_MARKET_DATA,
+REASON_CODE.MISSING_PRICE_DATA,
+REASON_CODE.MISSING_LIQUIDITY_DATA,
+REASON_CODE.MISSING_HOLDER_CONCENTRATION,
+],
+
+MANIPULATION_TRAP: [
+REASON_CODE.ULTRA_LOW_LIQUIDITY,
+REASON_CODE.MICROCAP_LIQUIDITY_TRAP,
+REASON_CODE.CONCENTRATION_LIQUIDITY_TRAP,
+REASON_CODE.EXTREME_TOP_HOLDER_CONCENTRATION,
+REASON_CODE.EXTREME_TOP5_CONCENTRATION,
+REASON_CODE.CRITICAL_TOP5_SUPPLY_CONTROL,
+REASON_CODE.INSIDER_SELL_RISK,
+REASON_CODE.LIQUIDITY_DECAY_RISK,
+REASON_CODE.VERTICAL_EXTENSION_RISK,
+REASON_CODE.REPEATED_BREAKOUT_FAILURE,
+REASON_CODE.STRUCTURAL_HEALTH_TOO_LOW,
 ],
 
 OPERATOR_GATE: [
@@ -215,6 +269,19 @@ REASON_CODE.MARKET_LIQUIDITY_TOO_LOW,
 REASON_CODE.KILL_SWITCH_TRIGGERED,
 ],
 
+DISCOVERY: [
+REASON_CODE.DISCOVERY_ONLY,
+REASON_CODE.ENTRY_ELIGIBLE,
+REASON_CODE.ENTRY_BLOCKED_BY_SAFETY,
+REASON_CODE.NEW_LOW_CAP_DISCOVERY,
+REASON_CODE.LIQUIDITY_RISER_DISCOVERY,
+REASON_CODE.UNUSUAL_VOLUME_DISCOVERY,
+REASON_CODE.MOMENTUM_MOVER_DISCOVERY,
+REASON_CODE.CLEAN_RECLAIM_DISCOVERY,
+REASON_CODE.STRUCTURAL_CANDIDATE_DISCOVERY,
+REASON_CODE.RISK_MONITOR_DISCOVERY,
+],
+
 GENERIC: [
 REASON_CODE.TOKEN_REJECTED,
 REASON_CODE.WATCHLIST_ONLY,
@@ -222,26 +289,273 @@ REASON_CODE.HOLD_POSITION,
 ],
 };
 
+export const REASON_CODE_LABELS = {
+[REASON_CODE.WATCHER_DISABLED]: "Watcher disabled",
+[REASON_CODE.EMERGENCY_STOP_ACTIVE]: "Emergency stop active",
+[REASON_CODE.INVALID_EXECUTION_MODE]: "Invalid execution mode",
+[REASON_CODE.INVALID_TOKEN_SNAPSHOT]: "Invalid token snapshot",
+[REASON_CODE.INVALID_POSITION_STATE]: "Invalid position state",
+[REASON_CODE.SETTINGS_PATCH_APPLIED]: "Settings patch applied",
+[REASON_CODE.SENTINEL_MODE_CHANGED]: "Sentinel mode changed",
+[REASON_CODE.SENTINEL_EMERGENCY_STOP]: "Sentinel emergency stop",
+
+[REASON_CODE.TRANSFER_RESTRICTION_RISK]: "Transfer restriction risk",
+[REASON_CODE.HONEYPOT_RISK]: "Honeypot risk",
+[REASON_CODE.LIQUIDITY_BREAK_RISK]: "Liquidity break risk",
+[REASON_CODE.SPOOFED_VOLUME_RISK]: "Spoofed volume risk",
+[REASON_CODE.LOW_LIQUIDITY]: "Low liquidity",
+[REASON_CODE.WIDE_SPREAD]: "Wide spread",
+[REASON_CODE.HIGH_PRICE_IMPACT]: "High price impact",
+[REASON_CODE.TOP_HOLDER_TOO_CONCENTRATED]: "Top holder too concentrated",
+[REASON_CODE.TOP5_TOO_CONCENTRATED]: "Top 5 too concentrated",
+[REASON_CODE.HIDDEN_CONTROL_TOO_HIGH]: "Hidden control too high",
+[REASON_CODE.CONTAMINATION_TOO_HIGH]: "Contamination too high",
+[REASON_CODE.COORDINATION_RISK_TOO_HIGH]: "Coordination risk too high",
+
+[REASON_CODE.MISSING_TOKEN_ID]: "Missing token ID",
+[REASON_CODE.MISSING_MARKET_DATA]: "Missing market data",
+[REASON_CODE.MISSING_PRICE_DATA]: "Missing price data",
+[REASON_CODE.MISSING_LIQUIDITY_DATA]: "Missing liquidity data",
+[REASON_CODE.MISSING_HOLDER_CONCENTRATION]: "Missing holder concentration",
+
+[REASON_CODE.ULTRA_LOW_LIQUIDITY]: "Ultra-low liquidity",
+[REASON_CODE.MICROCAP_LIQUIDITY_TRAP]: "Microcap liquidity trap",
+[REASON_CODE.CONCENTRATION_LIQUIDITY_TRAP]: "Concentration/liquidity trap",
+[REASON_CODE.EXTREME_TOP_HOLDER_CONCENTRATION]:
+"Extreme top-holder concentration",
+[REASON_CODE.EXTREME_TOP5_CONCENTRATION]: "Extreme top-5 concentration",
+[REASON_CODE.CRITICAL_TOP5_SUPPLY_CONTROL]: "Critical top-5 supply control",
+[REASON_CODE.INSIDER_SELL_RISK]: "Insider sell risk",
+[REASON_CODE.LIQUIDITY_DECAY_RISK]: "Liquidity decay risk",
+[REASON_CODE.VERTICAL_EXTENSION_RISK]: "Vertical extension risk",
+[REASON_CODE.REPEATED_BREAKOUT_FAILURE]: "Repeated breakout failure",
+[REASON_CODE.STRUCTURAL_HEALTH_TOO_LOW]: "Structural health too low",
+
+[REASON_CODE.OPERATOR_QUALITY_TOO_LOW]: "Operator quality too low",
+[REASON_CODE.INSIDER_SELL_RISK_TOO_HIGH]: "Insider sell risk too high",
+[REASON_CODE.OPERATOR_CLUSTER_LIMIT_REACHED]:
+"Operator cluster limit reached",
+
+[REASON_CODE.RISK_OFF_REGIME]: "Risk-off regime",
+[REASON_CODE.REGIME_SCORE_TOO_LOW]: "Regime score too low",
+[REASON_CODE.MARKET_QUALITY_TOO_LOW]: "Market quality too low",
+
+[REASON_CODE.SCOUT_DISABLED]: "Scout disabled",
+[REASON_CODE.POSITION_ALREADY_OPEN]: "Position already open",
+[REASON_CODE.TOKEN_IN_COOLDOWN]: "Token in cooldown",
+[REASON_CODE.DAILY_LOSS_LIMIT_HIT]: "Daily loss limit hit",
+[REASON_CODE.DAILY_SCOUT_BUDGET_HIT]: "Daily scout budget hit",
+[REASON_CODE.MAX_OPEN_POSITIONS_HIT]: "Max open positions hit",
+[REASON_CODE.MAX_TOKENS_PER_HOUR_HIT]: "Max tokens per hour hit",
+[REASON_CODE.SELLER_EXHAUSTION_NOT_STRONG_ENOUGH]:
+"Seller exhaustion not strong enough",
+[REASON_CODE.RECLAIM_TOO_WEAK]: "Reclaim too weak",
+[REASON_CODE.BUY_PRESSURE_TOO_WEAK]: "Buy pressure too weak",
+[REASON_CODE.PERSISTENCE_TOO_WEAK]: "Persistence too weak",
+[REASON_CODE.STRUCTURE_NOT_READY]: "Structure not ready",
+[REASON_CODE.SCOUT_ENTRY_APPROVED]: "Scout entry approved",
+
+[REASON_CODE.SNIPER_DISABLED]: "Sniper disabled",
+[REASON_CODE.NO_VALID_SCOUT_POSITION]: "No valid scout position",
+[REASON_CODE.DAILY_SNIPER_BUDGET_HIT]: "Daily sniper budget hit",
+[REASON_CODE.MAX_POSITION_SIZE_EXCEEDED]: "Max position size exceeded",
+[REASON_CODE.RECLAIM_NOT_CONFIRMED]: "Reclaim not confirmed",
+[REASON_CODE.BUY_PRESSURE_NOT_PERSISTENT]: "Buy pressure not persistent",
+[REASON_CODE.PERSISTENCE_NOT_STRONG_ENOUGH]:
+"Persistence not strong enough",
+[REASON_CODE.STRUCTURE_NOT_HEALTHY_ENOUGH]:
+"Structure not healthy enough",
+[REASON_CODE.TOO_EXTENDED_FOR_ADD]: "Too extended for add",
+[REASON_CODE.LIQUIDITY_DECAY_TOO_HIGH]: "Liquidity decay too high",
+[REASON_CODE.SNIPER_ADD_APPROVED]: "Sniper add approved",
+
+[REASON_CODE.EARLY_RECLAIM_FAILED]: "Early reclaim failed",
+[REASON_CODE.WEAK_STALL_NO_BUYERS]: "Weak stall, no buyers",
+[REASON_CODE.INSIDER_DUMP_DETECTED]: "Insider dump detected",
+[REASON_CODE.LIQUIDITY_BREAK_DETECTED]: "Liquidity break detected",
+[REASON_CODE.STRUCTURAL_HEALTH_COLLAPSED]: "Structural health collapsed",
+[REASON_CODE.INVALIDATION_EXIT]: "Invalidation exit",
+
+[REASON_CODE.AUTO_BANK_DISABLED]: "Auto-bank disabled",
+[REASON_CODE.TEN_X_NOT_REACHED]: "10x not reached",
+[REASON_CODE.TEN_X_REACHED]: "10x reached",
+[REASON_CODE.ALREADY_BANKED]: "Already banked",
+[REASON_CODE.PARTIAL_TAKE_PROFIT_EXECUTED]:
+"Partial take-profit executed",
+
+[REASON_CODE.RUNNER_MANAGEMENT_DISABLED]: "Runner management disabled",
+[REASON_CODE.NO_RUNNER_POSITION]: "No runner position",
+[REASON_CODE.RUNNER_HEALTHY]: "Runner healthy",
+[REASON_CODE.BUY_PRESSURE_DECAY]: "Buy pressure decay",
+[REASON_CODE.PERSISTENCE_DECAY]: "Persistence decay",
+[REASON_CODE.STRUCTURAL_HEALTH_WEAK]: "Structural health weak",
+[REASON_CODE.FAILED_BREAKOUTS_TOO_MANY]: "Too many failed breakouts",
+[REASON_CODE.RUNNER_INSIDER_SELL_RISK]: "Runner insider sell risk",
+[REASON_CODE.RUNNER_LIQUIDITY_DECAY]: "Runner liquidity decay",
+[REASON_CODE.RUNNER_EXIT_EXECUTED]: "Runner exit executed",
+
+[REASON_CODE.DAILY_LOSS_LIMIT]: "Daily loss limit",
+[REASON_CODE.CONSECUTIVE_FAILURE_LIMIT]: "Consecutive failure limit",
+[REASON_CODE.RUG_RATE_TOO_HIGH]: "Rug rate too high",
+[REASON_CODE.RECLAIM_SUCCESS_TOO_LOW]: "Reclaim success too low",
+[REASON_CODE.MARKET_LIQUIDITY_TOO_LOW]: "Market liquidity too low",
+[REASON_CODE.KILL_SWITCH_TRIGGERED]: "Kill switch triggered",
+
+[REASON_CODE.DISCOVERY_ONLY]: "Discovery only",
+[REASON_CODE.ENTRY_ELIGIBLE]: "Entry eligible",
+[REASON_CODE.ENTRY_BLOCKED_BY_SAFETY]: "Entry blocked by safety",
+[REASON_CODE.NEW_LOW_CAP_DISCOVERY]: "New low-cap discovery",
+[REASON_CODE.LIQUIDITY_RISER_DISCOVERY]: "Liquidity riser discovery",
+[REASON_CODE.UNUSUAL_VOLUME_DISCOVERY]: "Unusual volume discovery",
+[REASON_CODE.MOMENTUM_MOVER_DISCOVERY]: "Momentum mover discovery",
+[REASON_CODE.CLEAN_RECLAIM_DISCOVERY]: "Clean reclaim discovery",
+[REASON_CODE.STRUCTURAL_CANDIDATE_DISCOVERY]:
+"Structural candidate discovery",
+[REASON_CODE.RISK_MONITOR_DISCOVERY]: "Risk monitor discovery",
+
+[REASON_CODE.TOKEN_REJECTED]: "Token rejected",
+[REASON_CODE.WATCHLIST_ONLY]: "Watchlist only",
+[REASON_CODE.HOLD_POSITION]: "Hold position",
+[REASON_CODE.FULL_EXIT_EXECUTED]: "Full exit executed",
+[REASON_CODE.POSITION_CLOSED]: "Position closed",
+};
+
+export const REASON_CODE_SEVERITY = {
+[REASON_CODE.WATCHER_DISABLED]: "warn",
+[REASON_CODE.EMERGENCY_STOP_ACTIVE]: "critical",
+[REASON_CODE.INVALID_EXECUTION_MODE]: "bad",
+[REASON_CODE.INVALID_TOKEN_SNAPSHOT]: "bad",
+[REASON_CODE.INVALID_POSITION_STATE]: "bad",
+
+[REASON_CODE.TRANSFER_RESTRICTION_RISK]: "critical",
+[REASON_CODE.HONEYPOT_RISK]: "critical",
+[REASON_CODE.LIQUIDITY_BREAK_RISK]: "critical",
+[REASON_CODE.SPOOFED_VOLUME_RISK]: "bad",
+[REASON_CODE.LOW_LIQUIDITY]: "bad",
+[REASON_CODE.WIDE_SPREAD]: "warn",
+[REASON_CODE.HIGH_PRICE_IMPACT]: "warn",
+[REASON_CODE.TOP_HOLDER_TOO_CONCENTRATED]: "bad",
+[REASON_CODE.TOP5_TOO_CONCENTRATED]: "bad",
+[REASON_CODE.HIDDEN_CONTROL_TOO_HIGH]: "bad",
+[REASON_CODE.CONTAMINATION_TOO_HIGH]: "bad",
+[REASON_CODE.COORDINATION_RISK_TOO_HIGH]: "bad",
+
+[REASON_CODE.MISSING_TOKEN_ID]: "critical",
+[REASON_CODE.MISSING_MARKET_DATA]: "bad",
+[REASON_CODE.MISSING_PRICE_DATA]: "bad",
+[REASON_CODE.MISSING_LIQUIDITY_DATA]: "bad",
+[REASON_CODE.MISSING_HOLDER_CONCENTRATION]: "bad",
+
+[REASON_CODE.ULTRA_LOW_LIQUIDITY]: "critical",
+[REASON_CODE.MICROCAP_LIQUIDITY_TRAP]: "critical",
+[REASON_CODE.CONCENTRATION_LIQUIDITY_TRAP]: "critical",
+[REASON_CODE.EXTREME_TOP_HOLDER_CONCENTRATION]: "critical",
+[REASON_CODE.EXTREME_TOP5_CONCENTRATION]: "critical",
+[REASON_CODE.CRITICAL_TOP5_SUPPLY_CONTROL]: "critical",
+[REASON_CODE.INSIDER_SELL_RISK]: "bad",
+[REASON_CODE.LIQUIDITY_DECAY_RISK]: "bad",
+[REASON_CODE.VERTICAL_EXTENSION_RISK]: "warn",
+[REASON_CODE.REPEATED_BREAKOUT_FAILURE]: "warn",
+[REASON_CODE.STRUCTURAL_HEALTH_TOO_LOW]: "bad",
+
+[REASON_CODE.OPERATOR_QUALITY_TOO_LOW]: "bad",
+[REASON_CODE.INSIDER_SELL_RISK_TOO_HIGH]: "bad",
+[REASON_CODE.OPERATOR_CLUSTER_LIMIT_REACHED]: "warn",
+
+[REASON_CODE.RISK_OFF_REGIME]: "warn",
+[REASON_CODE.REGIME_SCORE_TOO_LOW]: "warn",
+[REASON_CODE.MARKET_QUALITY_TOO_LOW]: "warn",
+
+[REASON_CODE.SCOUT_ENTRY_APPROVED]: "good",
+[REASON_CODE.SNIPER_ADD_APPROVED]: "good",
+[REASON_CODE.PARTIAL_TAKE_PROFIT_EXECUTED]: "good",
+[REASON_CODE.RUNNER_HEALTHY]: "good",
+[REASON_CODE.POSITION_CLOSED]: "neutral",
+
+[REASON_CODE.INVALIDATION_EXIT]: "bad",
+[REASON_CODE.FULL_EXIT_EXECUTED]: "neutral",
+[REASON_CODE.KILL_SWITCH_TRIGGERED]: "critical",
+
+[REASON_CODE.DISCOVERY_ONLY]: "neutral",
+[REASON_CODE.ENTRY_ELIGIBLE]: "good",
+[REASON_CODE.ENTRY_BLOCKED_BY_SAFETY]: "bad",
+
+[REASON_CODE.TOKEN_REJECTED]: "bad",
+[REASON_CODE.WATCHLIST_ONLY]: "neutral",
+[REASON_CODE.HOLD_POSITION]: "neutral",
+};
+
 export const ALL_REASON_CODES = Object.freeze(Object.values(REASON_CODE));
 
+const REASON_CODE_SET = new Set(ALL_REASON_CODES);
+
+function cleanReasonCode(value) {
+return String(value ?? "").trim();
+}
+
+function arrayifyReasonCodes(input) {
+if (Array.isArray(input)) return input;
+if (input == null || input === "") return [];
+
+if (typeof input === "string") {
+const trimmed = input.trim();
+if (!trimmed) return [];
+
+try {
+const parsed = JSON.parse(trimmed);
+if (Array.isArray(parsed)) return parsed;
+} catch {}
+
+return trimmed
+.split(/[,\s|]+/)
+.map((item) => item.trim())
+.filter(Boolean);
+}
+
+return [input];
+}
+
+function dedupeReasonCodes(codes = []) {
+const seen = new Set();
+const out = [];
+
+for (const code of codes) {
+const normalized = cleanReasonCode(code);
+if (!normalized || seen.has(normalized)) continue;
+seen.add(normalized);
+out.push(normalized);
+}
+
+return out;
+}
+
+function valueOrFallback(value, fallback = "") {
+const normalized = cleanReasonCode(value);
+return normalized || fallback;
+}
+
 export function isValidReasonCode(value) {
-return ALL_REASON_CODES.includes(String(value ?? "").trim());
+return REASON_CODE_SET.has(cleanReasonCode(value));
 }
 
 export function normalizeReasonCodes(input) {
-if (!Array.isArray(input)) return [];
-return input
-.map((value) => String(value ?? "").trim())
-.filter((value) => value && isValidReasonCode(value));
+return dedupeReasonCodes(arrayifyReasonCodes(input)).filter((value) =>
+isValidReasonCode(value)
+);
 }
 
 export function ensureReasonCode(value, fallback = REASON_CODE.WATCHLIST_ONLY) {
-return isValidReasonCode(value) ? value : fallback;
+const normalized = cleanReasonCode(value);
+if (isValidReasonCode(normalized)) return normalized;
+
+const safeFallback = cleanReasonCode(fallback);
+return isValidReasonCode(safeFallback) ? safeFallback : "";
 }
 
 export function ensureReasonCodeArray(input, fallback = []) {
 const normalized = normalizeReasonCodes(input);
 if (normalized.length) return normalized;
+
 return normalizeReasonCodes(fallback);
 }
 
@@ -252,21 +566,53 @@ if (!normalized) return null;
 for (const [groupName, codes] of Object.entries(REASON_CODE_GROUPS)) {
 if (codes.includes(normalized)) return groupName;
 }
+
 return null;
 }
 
-function valueOrFallback(value, fallback = "") {
-const normalized = String(value ?? "").trim();
-return normalized || fallback;
+export function getReasonCodeLabel(reasonCode) {
+const normalized = ensureReasonCode(valueOrFallback(reasonCode), "");
+if (!normalized) return "Unknown reason";
+
+return REASON_CODE_LABELS[normalized] || normalized.replace(/_/g, " ");
+}
+
+export function getReasonCodeSeverity(reasonCode) {
+const normalized = ensureReasonCode(valueOrFallback(reasonCode), "");
+if (!normalized) return "neutral";
+
+return REASON_CODE_SEVERITY[normalized] || "neutral";
+}
+
+export function describeReasonCode(reasonCode) {
+const normalized = ensureReasonCode(valueOrFallback(reasonCode), "");
+
+return {
+code: normalized || "",
+label: normalized ? getReasonCodeLabel(normalized) : "Unknown reason",
+group: normalized ? getReasonCodeGroup(normalized) : null,
+severity: normalized ? getReasonCodeSeverity(normalized) : "neutral",
+valid: Boolean(normalized),
+};
+}
+
+export function describeReasonCodes(input) {
+return ensureReasonCodeArray(input).map((code) => describeReasonCode(code));
 }
 
 export default {
 REASON_CODE,
 REASON_CODE_GROUPS,
+REASON_CODE_LABELS,
+REASON_CODE_SEVERITY,
 ALL_REASON_CODES,
 isValidReasonCode,
 normalizeReasonCodes,
 ensureReasonCode,
 ensureReasonCodeArray,
 getReasonCodeGroup,
+getReasonCodeLabel,
+getReasonCodeSeverity,
+describeReasonCode,
+describeReasonCodes,
 };

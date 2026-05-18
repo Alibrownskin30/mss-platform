@@ -17,8 +17,37 @@ export const DEFAULT_PRICE_FETCH_TIMEOUT_MS = 4500;
 export const DEFAULT_DEXSCREENER_BATCH_SIZE = 30;
 export const DEFAULT_JUPITER_BATCH_SIZE = 50;
 
+export const DEFAULT_DISCOVERY_POOL_LIMIT = 750;
+export const DEFAULT_DISCOVERY_MAX_AGE_MINUTES = 14 * 24 * 60;
+export const DEFAULT_DISCOVERY_LIMIT_PER_UNIVERSE = 40;
+
+export const SENTINEL_DISCOVERY_UNIVERSE = Object.freeze({
+RECENT: "recent_scanner_flow",
+NEW_LOW_CAPS: "new_low_caps",
+LIQUIDITY_RISERS: "liquidity_risers",
+UNUSUAL_VOLUME: "unusual_volume",
+MOMENTUM_MOVERS: "momentum_movers",
+CLEAN_RECLAIMS: "clean_reclaims",
+STRUCTURAL_CANDIDATES: "structural_candidates",
+OPEN_POSITIONS: "open_positions",
+RISK_MONITOR: "risk_monitor",
+});
+
+export const DEFAULT_DISCOVERY_UNIVERSES = Object.freeze([
+SENTINEL_DISCOVERY_UNIVERSE.RECENT,
+SENTINEL_DISCOVERY_UNIVERSE.NEW_LOW_CAPS,
+SENTINEL_DISCOVERY_UNIVERSE.LIQUIDITY_RISERS,
+SENTINEL_DISCOVERY_UNIVERSE.UNUSUAL_VOLUME,
+SENTINEL_DISCOVERY_UNIVERSE.MOMENTUM_MOVERS,
+SENTINEL_DISCOVERY_UNIVERSE.CLEAN_RECLAIMS,
+SENTINEL_DISCOVERY_UNIVERSE.STRUCTURAL_CANDIDATES,
+SENTINEL_DISCOVERY_UNIVERSE.OPEN_POSITIONS,
+SENTINEL_DISCOVERY_UNIVERSE.RISK_MONITOR,
+]);
+
 const DEFAULT_DEXSCREENER_TOKENS_URL =
 "https://api.dexscreener.com/tokens/v1/solana";
+
 const DEFAULT_JUPITER_PRICE_URLS = [
 "https://api.jup.ag/price/v3",
 "https://lite-api.jup.ag/price/v3",
@@ -146,6 +175,17 @@ if (num != null && Number.isFinite(num) && num > 0) return num;
 return fallback;
 }
 
+function zeroOrPositive(value, fallback = null) {
+const num = toFloat(value, null);
+if (num != null && Number.isFinite(num) && num >= 0) return num;
+return fallback;
+}
+
+function clampScore(value, fallback = 0) {
+const num = toFloat(value, fallback);
+return Math.max(0, Math.min(100, Number.isFinite(num) ? num : fallback));
+}
+
 function resolveExecutionMode(...values) {
 for (const value of values) {
 const mode = cleanText(value, 64).toLowerCase();
@@ -156,7 +196,7 @@ return SENTINEL_MODE.PAPER;
 }
 
 function normalizeLimit(value, fallback = DEFAULT_SNAPSHOT_PROVIDER_LIMIT) {
-return Math.max(1, Math.min(500, toInt(value, fallback) || fallback));
+return Math.max(1, Math.min(2000, toInt(value, fallback) || fallback));
 }
 
 function normalizeMaxAgeMinutes(
@@ -175,6 +215,17 @@ return Math.max(1, Math.min(1000, toInt(value, fallback) || fallback));
 
 function normalizeBatchSize(value, fallback, max) {
 return Math.max(1, Math.min(max, toInt(value, fallback) || fallback));
+}
+
+function normalizeDiscoveryLimit(value, fallback = DEFAULT_DISCOVERY_POOL_LIMIT) {
+return Math.max(1, Math.min(2500, toInt(value, fallback) || fallback));
+}
+
+function normalizeDiscoveryLimitPerUniverse(
+value,
+fallback = DEFAULT_DISCOVERY_LIMIT_PER_UNIVERSE
+) {
+return Math.max(1, Math.min(250, toInt(value, fallback) || fallback));
 }
 
 function rowTimestampMs(row = {}) {
@@ -444,6 +495,195 @@ null
 );
 }
 
+function resolveVolumeUsd({ row = {}, rawScan = {}, market = {}, trend = {} } = {}) {
+return firstNumberFromSources(
+[row, market, trend, rawScan, rawScan.market, rawScan.trend, rawScan.raw, rawScan.raw?.market],
+[
+"volume_usd",
+"volumeUsd",
+"volume_24h_usd",
+"volume24hUsd",
+"volume24h",
+"volume_h24",
+"volumeH24",
+"recent_volume_usd",
+"recentVolumeUsd",
+"market.volume_usd",
+"market.volumeUsd",
+"market.volume24h",
+"market.volume_24h_usd",
+"market.volume.h24",
+"trend.volume_usd",
+"trend.volumeUsd",
+"trend.volume_24h_usd",
+"raw.volume_usd",
+"raw.volumeUsd",
+"raw.market.volume_usd",
+"raw.market.volumeUsd",
+"raw.market.volume.h24",
+],
+null
+);
+}
+
+function resolveVolumeChangePct({
+row = {},
+rawScan = {},
+market = {},
+trend = {},
+activity = {},
+} = {}) {
+return firstNumberFromSources(
+[row, trend, activity, market, rawScan, rawScan.trend, rawScan.activity, rawScan.market],
+[
+"volume_change_pct",
+"volumeChangePct",
+"volume_change_24h_pct",
+"volumeChange24hPct",
+"volume_delta_pct",
+"volumeDeltaPct",
+"unusual_volume_pct",
+"unusualVolumePct",
+"market.volume_change_pct",
+"market.volumeChangePct",
+"trend.volume_change_pct",
+"trend.volumeChangePct",
+"activity.volume_change_pct",
+"activity.volumeChangePct",
+],
+null
+);
+}
+
+function resolveVolumeAnomalyScore({
+row = {},
+rawScan = {},
+trend = {},
+activity = {},
+securityModel = {},
+} = {}) {
+return firstNumberFromSources(
+[row, trend, activity, securityModel, rawScan, rawScan.trend, rawScan.activity],
+[
+"volume_anomaly_score",
+"volumeAnomalyScore",
+"unusual_volume_score",
+"unusualVolumeScore",
+"relative_volume_score",
+"relativeVolumeScore",
+"trend.volume_anomaly_score",
+"trend.volumeAnomalyScore",
+"activity.volume_anomaly_score",
+"activity.volumeAnomalyScore",
+"securityModel.volumeAnomaly.score",
+],
+null
+);
+}
+
+function resolveLiquidityChangePct({
+row = {},
+rawScan = {},
+market = {},
+trend = {},
+activity = {},
+} = {}) {
+return firstNumberFromSources(
+[row, market, trend, activity, rawScan, rawScan.market, rawScan.trend],
+[
+"liquidity_change_pct",
+"liquidityChangePct",
+"liquidity_change_24h_pct",
+"liquidityChange24hPct",
+"liquidity_delta_pct",
+"liquidityDeltaPct",
+"lp_growth_pct",
+"lpGrowthPct",
+"market.liquidity_change_pct",
+"market.liquidityChangePct",
+"trend.liquidity_change_pct",
+"trend.liquidityChangePct",
+],
+null
+);
+}
+
+function resolvePriceChangePct({
+row = {},
+rawScan = {},
+market = {},
+trend = {},
+} = {}) {
+return firstNumberFromSources(
+[row, market, trend, rawScan, rawScan.market, rawScan.trend],
+[
+"price_change_pct",
+"priceChangePct",
+"price_change_24h_pct",
+"priceChange24hPct",
+"price_change_1h_pct",
+"priceChange1hPct",
+"market.price_change_pct",
+"market.priceChangePct",
+"market.priceChange.h24",
+"market.priceChange.h1",
+"trend.price_change_pct",
+"trend.priceChangePct",
+],
+null
+);
+}
+
+function resolveTxnCount24h({ row = {}, rawScan = {}, market = {}, activity = {} } = {}) {
+const buys = firstNumberFromSources(
+[row, market, activity, rawScan, rawScan.market, rawScan.activity],
+[
+"buys_24h",
+"buys24h",
+"txns.h24.buys",
+"market.txns.h24.buys",
+"activity.buys_24h",
+"activity.buys24h",
+],
+null
+);
+
+const sells = firstNumberFromSources(
+[row, market, activity, rawScan, rawScan.market, rawScan.activity],
+[
+"sells_24h",
+"sells24h",
+"txns.h24.sells",
+"market.txns.h24.sells",
+"activity.sells_24h",
+"activity.sells24h",
+],
+null
+);
+
+const direct = firstNumberFromSources(
+[row, market, activity, rawScan, rawScan.market, rawScan.activity],
+[
+"txns_24h",
+"txns24h",
+"trade_count_24h",
+"tradeCount24h",
+"market.txns_24h",
+"market.txns24h",
+"activity.txns_24h",
+"activity.txns24h",
+],
+null
+);
+
+if (direct != null) return direct;
+if (buys != null || sells != null) {
+return Math.max(0, toFloat(buys, 0) || 0) + Math.max(0, toFloat(sells, 0) || 0);
+}
+
+return null;
+}
+
 function resolveFdUsd({ row = {}, rawScan = {}, market = {} } = {}) {
 return firstNumberFromSources(
 [row, market, rawScan, rawScan.market, rawScan.raw, rawScan.raw?.market],
@@ -609,6 +849,49 @@ const priceImpactBps = resolvePriceImpactBps({ row, rawScan, market });
 const currentValueUsd = resolveCurrentValueUsd({ row, rawScan });
 const currentMultiple = resolveCurrentMultiple({ row, rawScan });
 
+const volumeUsd = resolveVolumeUsd({ row, rawScan, market, trend });
+const volumeChangePct = resolveVolumeChangePct({
+row,
+rawScan,
+market,
+trend,
+activity,
+});
+const volumeAnomalyScore = resolveVolumeAnomalyScore({
+row,
+rawScan,
+trend,
+activity,
+securityModel,
+});
+const liquidityChangePct = resolveLiquidityChangePct({
+row,
+rawScan,
+market,
+trend,
+activity,
+});
+const priceChangePct = resolvePriceChangePct({ row, rawScan, market, trend });
+const txns24h = resolveTxnCount24h({ row, rawScan, market, activity });
+
+const rowTs = rowTimestampMs(row);
+const createdAt =
+row.created_at ||
+row.detected_at ||
+row.scanned_at ||
+rawScan.created_at ||
+rawScan.detected_at ||
+null;
+const updatedAt =
+row.updated_at ||
+row.last_updated_at ||
+row.last_scanned_at ||
+row.scanned_at ||
+rawScan.updated_at ||
+rawScan.last_scanned_at ||
+createdAt ||
+null;
+
 return {
 ...rawScan,
 mint: resolvedMint,
@@ -616,6 +899,10 @@ mint_address: resolvedMint,
 token_id:
 cleanText(rawScan.token_id || row.token_id || resolvedMint, 255) ||
 resolvedMint,
+
+created_at: createdAt,
+updated_at: updatedAt,
+row_timestamp_ms: rowTs || null,
 
 token: {
 ...token,
@@ -687,6 +974,48 @@ priceImpactBps ??
 rawMarket.price_impact_bps ??
 market.price_impact_bps ??
 null,
+
+volumeUsd: volumeUsd ?? rawMarket.volumeUsd ?? market.volumeUsd ?? null,
+volume_usd: volumeUsd ?? rawMarket.volume_usd ?? market.volume_usd ?? null,
+volume24h: volumeUsd ?? rawMarket.volume24h ?? market.volume24h ?? null,
+volume_24h_usd:
+volumeUsd ?? rawMarket.volume_24h_usd ?? market.volume_24h_usd ?? null,
+
+volumeChangePct:
+volumeChangePct ??
+rawMarket.volumeChangePct ??
+market.volumeChangePct ??
+null,
+volume_change_pct:
+volumeChangePct ??
+rawMarket.volume_change_pct ??
+market.volume_change_pct ??
+null,
+
+liquidityChangePct:
+liquidityChangePct ??
+rawMarket.liquidityChangePct ??
+market.liquidityChangePct ??
+null,
+liquidity_change_pct:
+liquidityChangePct ??
+rawMarket.liquidity_change_pct ??
+market.liquidity_change_pct ??
+null,
+
+priceChangePct:
+priceChangePct ??
+rawMarket.priceChangePct ??
+market.priceChangePct ??
+null,
+price_change_pct:
+priceChangePct ??
+rawMarket.price_change_pct ??
+market.price_change_pct ??
+null,
+
+txns24h: txns24h ?? rawMarket.txns24h ?? market.txns24h ?? null,
+txns_24h: txns24h ?? rawMarket.txns_24h ?? market.txns_24h ?? null,
 },
 
 holders: {
@@ -765,6 +1094,46 @@ cassie: {
 trend: {
 ...trend,
 ...rawTrend,
+volumeAnomalyScore:
+volumeAnomalyScore ??
+rawTrend.volumeAnomalyScore ??
+trend.volumeAnomalyScore ??
+null,
+volume_anomaly_score:
+volumeAnomalyScore ??
+rawTrend.volume_anomaly_score ??
+trend.volume_anomaly_score ??
+null,
+volumeChangePct:
+volumeChangePct ??
+rawTrend.volumeChangePct ??
+trend.volumeChangePct ??
+null,
+volume_change_pct:
+volumeChangePct ??
+rawTrend.volume_change_pct ??
+trend.volume_change_pct ??
+null,
+liquidityChangePct:
+liquidityChangePct ??
+rawTrend.liquidityChangePct ??
+trend.liquidityChangePct ??
+null,
+liquidity_change_pct:
+liquidityChangePct ??
+rawTrend.liquidity_change_pct ??
+trend.liquidity_change_pct ??
+null,
+priceChangePct:
+priceChangePct ??
+rawTrend.priceChangePct ??
+trend.priceChangePct ??
+null,
+price_change_pct:
+priceChangePct ??
+rawTrend.price_change_pct ??
+trend.price_change_pct ??
+null,
 },
 
 source: cleanText(rawScan.source || row.source || "scanner_cache", 120),
@@ -796,6 +1165,21 @@ spread_bps: spreadBps,
 spreadBps,
 price_impact_bps: priceImpactBps,
 priceImpactBps,
+
+volume_usd: volumeUsd,
+volumeUsd,
+volume_24h_usd: volumeUsd,
+volume24hUsd: volumeUsd,
+volume_change_pct: volumeChangePct,
+volumeChangePct,
+volume_anomaly_score: volumeAnomalyScore,
+volumeAnomalyScore,
+liquidity_change_pct: liquidityChangePct,
+liquidityChangePct,
+price_change_pct: priceChangePct,
+priceChangePct,
+txns_24h: txns24h,
+txns24h,
 
 seller_exhaustion_score: firstNumberFromSources(
 [row, rawScan],
@@ -970,6 +1354,21 @@ current_price: priceUsd,
 currentPrice: priceUsd,
 current_price_usd: priceUsd,
 currentPriceUsd: priceUsd,
+created_at:
+directSnapshot.created_at ||
+row.created_at ||
+row.detected_at ||
+row.scanned_at ||
+null,
+updated_at:
+directSnapshot.updated_at ||
+row.updated_at ||
+row.last_updated_at ||
+row.last_scanned_at ||
+row.scanned_at ||
+row.created_at ||
+null,
+row_timestamp_ms: rowTimestampMs(row) || directSnapshot.row_timestamp_ms || null,
 market: {
 ...(directSnapshot.market || {}),
 price_usd:
@@ -1026,6 +1425,29 @@ map.set(tokenId, snapshot);
 return Array.from(map.values());
 }
 
+function mergeDiscoveryMeta(existing = {}, next = {}) {
+const existingUniverses = Array.isArray(existing.discovery_universes)
+? existing.discovery_universes
+: [];
+const nextUniverses = Array.isArray(next.discovery_universes)
+? next.discovery_universes
+: [];
+
+return {
+...existing,
+...next,
+discovery_universes: uniqueCleanList([...existingUniverses, ...nextUniverses]),
+discovery_scores: {
+...(existing.discovery_scores || {}),
+...(next.discovery_scores || {}),
+},
+discovery_ranks: {
+...(existing.discovery_ranks || {}),
+...(next.discovery_ranks || {}),
+},
+};
+}
+
 function mergeSnapshotsByToken(snapshotGroups = []) {
 const map = new Map();
 
@@ -1035,6 +1457,7 @@ const tokenId = cleanText(snapshot?.token_id || snapshot?.mint_address, 255);
 if (!tokenId) continue;
 
 const existing = map.get(tokenId);
+
 map.set(tokenId, {
 ...(existing || {}),
 ...(snapshot || {}),
@@ -1042,10 +1465,15 @@ market: {
 ...(existing?.market || {}),
 ...(snapshot?.market || {}),
 },
-meta: {
-...(existing?.meta || {}),
-...(snapshot?.meta || {}),
+trend: {
+...(existing?.trend || {}),
+...(snapshot?.trend || {}),
 },
+activity: {
+...(existing?.activity || {}),
+...(snapshot?.activity || {}),
+},
+meta: mergeDiscoveryMeta(existing?.meta || {}, snapshot?.meta || {}),
 });
 }
 }
@@ -1426,6 +1854,7 @@ marketcap_usd: toFloat(pair?.marketCap, null),
 fdv_usd: toFloat(pair?.fdv, null),
 price_change_24h: toFloat(pair?.priceChange?.h24, null),
 volume_24h: toFloat(pair?.volume?.h24, null),
+volume_usd: toFloat(pair?.volume?.h24, null),
 txns_24h:
 Math.max(0, toInt(pair?.txns?.h24?.buys, 0) || 0) +
 Math.max(0, toInt(pair?.txns?.h24?.sells, 0) || 0),
@@ -1594,6 +2023,115 @@ null
 );
 }
 
+function getSnapshotMarketcap(snapshot = {}) {
+return zeroOrPositive(
+snapshot?.marketcap_usd ??
+snapshot?.marketcapUsd ??
+snapshot?.market?.marketcap_usd ??
+snapshot?.market?.marketcapUsd ??
+snapshot?.market?.mcapUsd ??
+snapshot?.market?.fdv,
+null
+);
+}
+
+function getSnapshotLiquidity(snapshot = {}) {
+return zeroOrPositive(
+snapshot?.liquidity_usd ??
+snapshot?.liquidityUsd ??
+snapshot?.market?.liquidity_usd ??
+snapshot?.market?.liquidityUsd ??
+snapshot?.market?.liquidity?.usd,
+null
+);
+}
+
+function getSnapshotVolumeUsd(snapshot = {}) {
+return zeroOrPositive(
+snapshot?.volume_usd ??
+snapshot?.volumeUsd ??
+snapshot?.volume_24h_usd ??
+snapshot?.volume24hUsd ??
+snapshot?.market?.volume_usd ??
+snapshot?.market?.volumeUsd ??
+snapshot?.market?.volume24h ??
+snapshot?.market?.volume?.h24,
+null
+);
+}
+
+function getSnapshotLiquidityChangePct(snapshot = {}) {
+return toFloat(
+snapshot?.liquidity_change_pct ??
+snapshot?.liquidityChangePct ??
+snapshot?.market?.liquidity_change_pct ??
+snapshot?.market?.liquidityChangePct ??
+snapshot?.trend?.liquidity_change_pct ??
+snapshot?.trend?.liquidityChangePct,
+null
+);
+}
+
+function getSnapshotVolumeAnomaly(snapshot = {}) {
+return clampScore(
+snapshot?.volume_anomaly_score ??
+snapshot?.volumeAnomalyScore ??
+snapshot?.trend?.volume_anomaly_score ??
+snapshot?.trend?.volumeAnomalyScore ??
+snapshot?.activity?.volume_anomaly_score ??
+snapshot?.activity?.volumeAnomalyScore,
+0
+);
+}
+
+function getSnapshotVolumeChangePct(snapshot = {}) {
+return toFloat(
+snapshot?.volume_change_pct ??
+snapshot?.volumeChangePct ??
+snapshot?.trend?.volume_change_pct ??
+snapshot?.trend?.volumeChangePct ??
+snapshot?.market?.volume_change_pct ??
+snapshot?.market?.volumeChangePct,
+null
+);
+}
+
+function getSnapshotPriceChangePct(snapshot = {}) {
+return toFloat(
+snapshot?.price_change_pct ??
+snapshot?.priceChangePct ??
+snapshot?.market?.price_change_pct ??
+snapshot?.market?.priceChangePct ??
+snapshot?.market?.priceChange?.h24 ??
+snapshot?.trend?.price_change_pct ??
+snapshot?.trend?.priceChangePct,
+null
+);
+}
+
+function getSnapshotTimestampMs(snapshot = {}) {
+const candidates = [
+snapshot.updated_at,
+snapshot.last_updated_at,
+snapshot.last_scanned_at,
+snapshot.scanned_at,
+snapshot.created_at,
+snapshot.detected_at,
+snapshot.row_timestamp_ms,
+snapshot.timestamp,
+];
+
+for (const value of candidates) {
+if (value == null) continue;
+if (typeof value === "number" && Number.isFinite(value)) return value;
+
+const parsed = new Date(value).getTime();
+if (!Number.isNaN(parsed)) return parsed;
+}
+
+return 0;
+}
+
 function getPositionCostBasis(position = {}) {
 const units = Math.max(0, toFloat(position.units, 0) || 0);
 const entryPrice = positiveNumber(position.avg_entry_price, null);
@@ -1671,6 +2209,15 @@ market.fdvUsd = market.fdv;
 market.fdv_usd = market.fdv;
 }
 
+if (livePrice?.volume_usd != null || livePrice?.volume_24h != null) {
+market.volumeUsd = Math.max(
+0,
+toFloat(livePrice.volume_usd ?? livePrice.volume_24h, 0) || 0
+);
+market.volume_usd = market.volumeUsd;
+market.volume24h = market.volumeUsd;
+}
+
 return normalizeSentinelSnapshot(
 {
 ...base,
@@ -1731,6 +2278,10 @@ has_live_position_context: true,
 has_live_price: Boolean(livePriceUsd),
 live_price_source: livePrice?.source || null,
 live_price_updated_at: livePriceUsd ? new Date().toISOString() : null,
+discovery_universes: uniqueCleanList([
+...(base.meta?.discovery_universes || []),
+SENTINEL_DISCOVERY_UNIVERSE.OPEN_POSITIONS,
+]),
 },
 },
 {
@@ -1789,6 +2340,339 @@ return {
 snapshots: Array.from(byToken.values()),
 patched_count: patchedCount,
 live_price_patched_count: livePricePatchedCount,
+};
+}
+
+function resolveDiscoveryUniverses(value = null) {
+const raw =
+Array.isArray(value)
+? value
+: cleanText(value, 1000)
+? cleanText(value, 1000).split(",")
+: DEFAULT_DISCOVERY_UNIVERSES;
+
+const allowed = new Set(Object.values(SENTINEL_DISCOVERY_UNIVERSE));
+
+const universes = uniqueCleanList(raw)
+.map((item) => cleanText(item, 120).toLowerCase())
+.filter((item) => allowed.has(item));
+
+return universes.length ? universes : [...DEFAULT_DISCOVERY_UNIVERSES];
+}
+
+function getDiscoveryScore(snapshot = {}, universe = SENTINEL_DISCOVERY_UNIVERSE.RECENT) {
+const mcap = getSnapshotMarketcap(snapshot);
+const liquidity = getSnapshotLiquidity(snapshot);
+const volume = getSnapshotVolumeUsd(snapshot);
+const volumeAnomaly = getSnapshotVolumeAnomaly(snapshot);
+const volumeChange = getSnapshotVolumeChangePct(snapshot);
+const liquidityChange = getSnapshotLiquidityChangePct(snapshot);
+const priceChange = getSnapshotPriceChangePct(snapshot);
+const ts = getSnapshotTimestampMs(snapshot);
+
+const sellerExhaustion = clampScore(
+snapshot.seller_exhaustion_score ?? snapshot.sellerExhaustionScore,
+0
+);
+const reclaimStrength = clampScore(
+snapshot.reclaim_strength_score ?? snapshot.reclaimStrengthScore,
+0
+);
+const buyPressure = clampScore(snapshot.buy_pressure_score ?? snapshot.buyPressureScore, 0);
+const persistence = clampScore(snapshot.persistence_score ?? snapshot.persistenceScore, 0);
+const structuralHealth = clampScore(
+snapshot.structural_health_score ?? snapshot.structuralHealthScore,
+0
+);
+const regimeScore = clampScore(snapshot.regime_score ?? snapshot.regimeScore, 0);
+const operatorQuality = clampScore(
+snapshot.operator_quality_score ?? snapshot.operatorQualityScore,
+0
+);
+const top5 = zeroOrPositive(snapshot.top_5_holder_pct ?? snapshot.top5HolderPct, 100);
+const top1 = zeroOrPositive(snapshot.top_holder_pct ?? snapshot.topHolderPct, 100);
+const contamination = clampScore(
+snapshot.contamination_risk ?? snapshot.contaminationRisk,
+0
+);
+const hiddenControl = clampScore(
+snapshot.hidden_control_risk ?? snapshot.hiddenControlRisk,
+0
+);
+const coordination = clampScore(
+snapshot.wallet_coordination_risk ?? snapshot.walletCoordinationRisk,
+0
+);
+const liquidityDecay = clampScore(
+snapshot.liquidity_decay_score ?? snapshot.liquidityDecayScore,
+0
+);
+
+if (universe === SENTINEL_DISCOVERY_UNIVERSE.NEW_LOW_CAPS) {
+const lowCapFit =
+mcap != null && mcap > 0
+? Math.max(0, 100 - Math.min(100, (mcap / 25000) * 100))
+: 0;
+const freshBonus = ts ? Math.min(40, Math.max(0, (Date.now() - ts) / -900000 + 40)) : 0;
+return lowCapFit + freshBonus + buyPressure * 0.35 + persistence * 0.25;
+}
+
+if (universe === SENTINEL_DISCOVERY_UNIVERSE.LIQUIDITY_RISERS) {
+return (
+Math.max(0, liquidityChange ?? 0) * 1.5 +
+Math.log10(Math.max(1, liquidity || 0)) * 12 +
+structuralHealth * 0.3 -
+liquidityDecay * 0.4
+);
+}
+
+if (universe === SENTINEL_DISCOVERY_UNIVERSE.UNUSUAL_VOLUME) {
+return (
+volumeAnomaly * 1.2 +
+Math.max(0, volumeChange ?? 0) * 0.8 +
+Math.log10(Math.max(1, volume || 0)) * 10 +
+buyPressure * 0.25
+);
+}
+
+if (universe === SENTINEL_DISCOVERY_UNIVERSE.MOMENTUM_MOVERS) {
+return (
+Math.max(0, priceChange ?? 0) * 0.8 +
+buyPressure * 0.8 +
+persistence * 0.6 +
+regimeScore * 0.4 +
+Math.log10(Math.max(1, volume || 0)) * 6
+);
+}
+
+if (universe === SENTINEL_DISCOVERY_UNIVERSE.CLEAN_RECLAIMS) {
+return (
+sellerExhaustion * 0.75 +
+reclaimStrength * 0.95 +
+buyPressure * 0.7 +
+persistence * 0.65 +
+structuralHealth * 0.75 +
+operatorQuality * 0.35 -
+contamination * 0.8 -
+hiddenControl * 0.45 -
+coordination * 0.3
+);
+}
+
+if (universe === SENTINEL_DISCOVERY_UNIVERSE.STRUCTURAL_CANDIDATES) {
+return (
+structuralHealth * 1.1 +
+operatorQuality * 0.7 +
+regimeScore * 0.5 +
+persistence * 0.45 -
+Math.max(0, top1 - 20) * 1.2 -
+Math.max(0, top5 - 45) * 1.4 -
+contamination * 0.65 -
+hiddenControl * 0.6
+);
+}
+
+if (universe === SENTINEL_DISCOVERY_UNIVERSE.OPEN_POSITIONS) {
+return (
+Number(Boolean(snapshot.has_live_position_context)) * 100 +
+Math.max(0, (snapshot.current_multiple || snapshot.currentMultiple || 0) * 15) +
+Math.max(-50, toFloat(snapshot.current_value_usd, 0) - toFloat(snapshot.position_total_cost_usd, 0))
+);
+}
+
+if (universe === SENTINEL_DISCOVERY_UNIVERSE.RISK_MONITOR) {
+return (
+top5 * 0.9 +
+top1 * 0.7 +
+contamination * 1.2 +
+hiddenControl * 1.1 +
+coordination * 0.9 +
+liquidityDecay * 0.7
+);
+}
+
+return ts || 0;
+}
+
+function snapshotMatchesDiscoveryUniverse(
+snapshot = {},
+universe = SENTINEL_DISCOVERY_UNIVERSE.RECENT
+) {
+const token = getSnapshotToken(snapshot);
+if (!token) return false;
+
+const mcap = getSnapshotMarketcap(snapshot);
+const liquidity = getSnapshotLiquidity(snapshot);
+const volume = getSnapshotVolumeUsd(snapshot);
+const volumeAnomaly = getSnapshotVolumeAnomaly(snapshot);
+const volumeChange = getSnapshotVolumeChangePct(snapshot);
+const liquidityChange = getSnapshotLiquidityChangePct(snapshot);
+const priceChange = getSnapshotPriceChangePct(snapshot);
+
+const top5 = zeroOrPositive(snapshot.top_5_holder_pct ?? snapshot.top5HolderPct, null);
+const top1 = zeroOrPositive(snapshot.top_holder_pct ?? snapshot.topHolderPct, null);
+const contamination = clampScore(snapshot.contamination_risk ?? snapshot.contaminationRisk, 0);
+const hiddenControl = clampScore(snapshot.hidden_control_risk ?? snapshot.hiddenControlRisk, 0);
+const coordination = clampScore(
+snapshot.wallet_coordination_risk ?? snapshot.walletCoordinationRisk,
+0
+);
+const sellerExhaustion = clampScore(
+snapshot.seller_exhaustion_score ?? snapshot.sellerExhaustionScore,
+0
+);
+const reclaimStrength = clampScore(
+snapshot.reclaim_strength_score ?? snapshot.reclaimStrengthScore,
+0
+);
+const buyPressure = clampScore(snapshot.buy_pressure_score ?? snapshot.buyPressureScore, 0);
+const persistence = clampScore(snapshot.persistence_score ?? snapshot.persistenceScore, 0);
+const structuralHealth = clampScore(
+snapshot.structural_health_score ?? snapshot.structuralHealthScore,
+0
+);
+const operatorQuality = clampScore(
+snapshot.operator_quality_score ?? snapshot.operatorQualityScore,
+0
+);
+
+if (universe === SENTINEL_DISCOVERY_UNIVERSE.RECENT) return true;
+
+if (universe === SENTINEL_DISCOVERY_UNIVERSE.NEW_LOW_CAPS) {
+return mcap != null && mcap > 0 && mcap <= 50000;
+}
+
+if (universe === SENTINEL_DISCOVERY_UNIVERSE.LIQUIDITY_RISERS) {
+return (
+(liquidityChange != null && liquidityChange > 0) ||
+(liquidity != null && liquidity >= 500)
+);
+}
+
+if (universe === SENTINEL_DISCOVERY_UNIVERSE.UNUSUAL_VOLUME) {
+return (
+volumeAnomaly >= 55 ||
+(volumeChange != null && volumeChange >= 50) ||
+(volume != null && volume >= 1000)
+);
+}
+
+if (universe === SENTINEL_DISCOVERY_UNIVERSE.MOMENTUM_MOVERS) {
+return (
+(priceChange != null && priceChange > 0) ||
+buyPressure >= 55 ||
+persistence >= 55
+);
+}
+
+if (universe === SENTINEL_DISCOVERY_UNIVERSE.CLEAN_RECLAIMS) {
+return (
+sellerExhaustion >= 45 &&
+reclaimStrength >= 45 &&
+buyPressure >= 45 &&
+persistence >= 45
+);
+}
+
+if (universe === SENTINEL_DISCOVERY_UNIVERSE.STRUCTURAL_CANDIDATES) {
+return (
+structuralHealth >= 45 ||
+operatorQuality >= 55 ||
+(top5 != null && top5 <= 55 && top1 != null && top1 <= 30)
+);
+}
+
+if (universe === SENTINEL_DISCOVERY_UNIVERSE.OPEN_POSITIONS) {
+return Boolean(snapshot.has_live_position_context || snapshot.position_id);
+}
+
+if (universe === SENTINEL_DISCOVERY_UNIVERSE.RISK_MONITOR) {
+return (
+(top5 != null && top5 >= 65) ||
+(top1 != null && top1 >= 35) ||
+contamination >= 45 ||
+hiddenControl >= 45 ||
+coordination >= 45
+);
+}
+
+return true;
+}
+
+function tagSnapshotForDiscovery(snapshot = {}, universe, score, rank) {
+return {
+...snapshot,
+meta: {
+...(snapshot.meta || {}),
+discovery_universes: uniqueCleanList([
+...(snapshot.meta?.discovery_universes || []),
+universe,
+]),
+discovery_scores: {
+...(snapshot.meta?.discovery_scores || {}),
+[universe]: score,
+},
+discovery_ranks: {
+...(snapshot.meta?.discovery_ranks || {}),
+[universe]: rank,
+},
+primary_discovery_universe:
+snapshot.meta?.primary_discovery_universe || universe,
+},
+};
+}
+
+function selectDiscoverySnapshots(snapshots = [], options = {}) {
+const universes = resolveDiscoveryUniverses(options.discovery_universes);
+const perUniverseLimit = normalizeDiscoveryLimitPerUniverse(
+options.discovery_limit_per_universe,
+DEFAULT_DISCOVERY_LIMIT_PER_UNIVERSE
+);
+
+const selections = [];
+const universeMeta = {};
+
+for (const universe of universes) {
+const ranked = (Array.isArray(snapshots) ? snapshots : [])
+.filter((snapshot) => snapshotMatchesDiscoveryUniverse(snapshot, universe))
+.map((snapshot) => ({
+snapshot,
+score: getDiscoveryScore(snapshot, universe),
+}))
+.sort((a, b) => {
+if (b.score !== a.score) return b.score - a.score;
+return getSnapshotTimestampMs(b.snapshot) - getSnapshotTimestampMs(a.snapshot);
+});
+
+const selected = ranked.slice(0, perUniverseLimit);
+
+universeMeta[universe] = {
+matched: ranked.length,
+selected: selected.length,
+top_preview: selected.slice(0, 10).map((item, index) => ({
+rank: index + 1,
+token_id: getSnapshotToken(item.snapshot),
+score: Number(item.score.toFixed(4)),
+marketcap_usd: getSnapshotMarketcap(item.snapshot),
+liquidity_usd: getSnapshotLiquidity(item.snapshot),
+volume_usd: getSnapshotVolumeUsd(item.snapshot),
+top_5_holder_pct:
+item.snapshot.top_5_holder_pct ?? item.snapshot.top5HolderPct ?? null,
+})),
+};
+
+selected.forEach((item, index) => {
+selections.push(tagSnapshotForDiscovery(item.snapshot, universe, item.score, index + 1));
+});
+}
+
+return {
+snapshots: mergeSnapshotsByToken([selections]),
+meta: {
+universes,
+limit_per_universe: perUniverseLimit,
+universe_meta: universeMeta,
+},
 };
 }
 
@@ -1895,6 +2779,12 @@ open_position_limit: DEFAULT_OPEN_POSITION_LIMIT,
 open_position_max_age_minutes: DEFAULT_OPEN_POSITION_MAX_AGE_MINUTES,
 live_price_enabled: true,
 
+include_discovery_universes: true,
+discovery_pool_limit: DEFAULT_DISCOVERY_POOL_LIMIT,
+discovery_max_age_minutes: DEFAULT_DISCOVERY_MAX_AGE_MINUTES,
+discovery_limit_per_universe: DEFAULT_DISCOVERY_LIMIT_PER_UNIVERSE,
+discovery_universes: DEFAULT_DISCOVERY_UNIVERSES,
+
 ...providerOptions,
 };
 
@@ -1927,11 +2817,31 @@ toInt(context.snapshot_open_position_max_age_minutes, null) ??
 toInt(baseOptions.open_position_max_age_minutes, null) ??
 DEFAULT_OPEN_POSITION_MAX_AGE_MINUTES;
 
+const discovery_max_age_minutes =
+toInt(context.discovery_max_age_minutes, null) ??
+toInt(context.snapshot_discovery_max_age_minutes, null) ??
+toInt(baseOptions.discovery_max_age_minutes, null) ??
+DEFAULT_DISCOVERY_MAX_AGE_MINUTES;
+
 const limit =
 toInt(context.limit, null) ??
 toInt(context.snapshot_limit, null) ??
 toInt(baseOptions.limit, null) ??
 DEFAULT_SNAPSHOT_PROVIDER_LIMIT;
+
+const discovery_pool_limit = normalizeDiscoveryLimit(
+context.discovery_pool_limit ??
+context.snapshot_discovery_pool_limit ??
+baseOptions.discovery_pool_limit,
+DEFAULT_DISCOVERY_POOL_LIMIT
+);
+
+const discovery_limit_per_universe = normalizeDiscoveryLimitPerUniverse(
+context.discovery_limit_per_universe ??
+context.snapshot_discovery_limit_per_universe ??
+baseOptions.discovery_limit_per_universe,
+DEFAULT_DISCOVERY_LIMIT_PER_UNIVERSE
+);
 
 const open_position_limit = normalizeOpenPositionLimit(
 context.open_position_limit ??
@@ -1949,6 +2859,17 @@ const include_open_positions =
 context.include_open_positions == null
 ? baseOptions.include_open_positions !== false
 : Boolean(context.include_open_positions);
+
+const include_discovery_universes =
+context.include_discovery_universes == null
+? baseOptions.include_discovery_universes !== false
+: Boolean(context.include_discovery_universes);
+
+const discovery_universes = resolveDiscoveryUniverses(
+context.discovery_universes ??
+context.snapshot_discovery_universes ??
+baseOptions.discovery_universes
+);
 
 const directSnapshots = resolveContextArray(context, [
 "snapshots",
@@ -2003,23 +2924,41 @@ const directRows = resolveContextArray(context, [
 ]);
 
 if (directRows) {
-const snapshots = buildSnapshotsFromRows(directRows, {
+const directRowSnapshots = buildSnapshotsFromRows(directRows, {
 max_age_minutes,
 min_liquidity_usd,
 execution_mode,
 require_usable,
 });
 
+const discoverySelection = include_discovery_universes
+? selectDiscoverySnapshots(directRowSnapshots, {
+discovery_universes,
+discovery_limit_per_universe,
+})
+: {
+snapshots: [],
+meta: null,
+};
+
+const snapshots = include_discovery_universes
+? mergeSnapshotsByToken([directRowSnapshots, discoverySelection.snapshots])
+: directRowSnapshots;
+
 return {
 snapshots,
 meta: {
 source: "context.scan_cache_rows",
+discovery: discoverySelection.meta,
 summary: summarizeSnapshotBatch(snapshots),
 },
 };
 }
 
 const recentRows = readRecentScanCacheRows({ limit });
+const discoveryRows = include_discovery_universes
+? readRecentScanCacheRows({ limit: discovery_pool_limit })
+: [];
 
 const recentSnapshots = buildSnapshotsFromRows(recentRows, {
 max_age_minutes,
@@ -2027,6 +2966,25 @@ min_liquidity_usd,
 execution_mode,
 require_usable,
 });
+
+const discoveryPoolSnapshots = include_discovery_universes
+? buildSnapshotsFromRows(discoveryRows, {
+max_age_minutes: discovery_max_age_minutes,
+min_liquidity_usd: 0,
+execution_mode,
+require_usable,
+})
+: [];
+
+const discoverySelection = include_discovery_universes
+? selectDiscoverySnapshots(discoveryPoolSnapshots, {
+discovery_universes,
+discovery_limit_per_universe,
+})
+: {
+snapshots: [],
+meta: null,
+};
 
 let openPositions = [];
 let openPositionRows = [];
@@ -2072,6 +3030,7 @@ require_usable,
 
 const mergedSnapshots = mergeSnapshotsByToken([
 recentSnapshots,
+discoverySelection.snapshots,
 openPositionSnapshots,
 ]);
 
@@ -2098,6 +3057,12 @@ source: include_open_positions
 ? "scanner_cache_with_open_position_tracking"
 : "scanner_cache",
 recent_rows: recentRows.length,
+discovery_rows: discoveryRows.length,
+discovery_pool_snapshots: discoveryPoolSnapshots.length,
+discovery_universes_enabled: include_discovery_universes,
+discovery_universes,
+discovery_limit_per_universe,
+discovery: discoverySelection.meta,
 open_positions_loaded: openPositions.length,
 open_position_rows_found: openPositionRows.length,
 open_position_snapshots_found: openPositionSnapshots.length,
@@ -2107,9 +3072,10 @@ live_prices_requested: livePriceResult.meta.requested,
 live_prices_resolved: livePriceResult.meta.resolved,
 live_price_providers: livePriceResult.meta.providers,
 live_price_errors: livePriceResult.meta.errors,
-merged_rows: recentRows.length + openPositionRows.length,
+merged_rows: recentRows.length + discoveryRows.length + openPositionRows.length,
 include_open_positions,
 max_age_minutes,
+discovery_max_age_minutes,
 open_position_max_age_minutes,
 min_liquidity_usd,
 summary: summarizeSnapshotBatch(snapshots),
@@ -2125,6 +3091,11 @@ DEFAULT_SNAPSHOT_PROVIDER_LIMIT,
 DEFAULT_SNAPSHOT_PROVIDER_MAX_AGE_MINUTES,
 DEFAULT_OPEN_POSITION_LIMIT,
 DEFAULT_OPEN_POSITION_MAX_AGE_MINUTES,
+DEFAULT_DISCOVERY_POOL_LIMIT,
+DEFAULT_DISCOVERY_MAX_AGE_MINUTES,
+DEFAULT_DISCOVERY_LIMIT_PER_UNIVERSE,
+SENTINEL_DISCOVERY_UNIVERSE,
+DEFAULT_DISCOVERY_UNIVERSES,
 summarizeSnapshotBatch,
 buildSnapshotsFromRows,
 buildSnapshotsFromScans,

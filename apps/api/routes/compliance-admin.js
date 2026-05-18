@@ -40,17 +40,7 @@ const SENTINEL_POSITION_STAGES = new Set([
 "invalidated",
 ])
 
-const SENTINEL_OPEN_POSITION_STAGES = new Set([
-"scout_open",
-"sniper_added",
-"half_banked_at_10x",
-"runner_only",
-])
-
-const SENTINEL_HISTORY_POSITION_STAGES = new Set([
-"closed",
-"invalidated",
-])
+const SENTINEL_HISTORY_POSITION_STAGES = new Set(["closed", "invalidated"])
 
 const SENTINEL_POSITION_SCOPES = new Set(["open", "history", "all"])
 
@@ -164,11 +154,6 @@ if (value === 0 || value === "0" || value === "false") return false
 return fallback
 }
 
-function normalizeStatus(value, fallback = "open") {
-const normalized = cleanText(value, 32).toLowerCase()
-return CASE_STATUSES.has(normalized) ? normalized : fallback
-}
-
 function normalizeRiskLevel(value, fallback = "low") {
 const normalized = cleanText(value, 32).toLowerCase()
 return RISK_LEVELS.has(normalized) ? normalized : fallback
@@ -191,7 +176,9 @@ return SENTINEL_AUDIT_ACTOR_TYPES.has(normalized) ? normalized : fallback
 
 function normalizeSentinelAuditExecutionStatus(value, fallback = "") {
 const normalized = cleanText(value, 32).toLowerCase()
-return SENTINEL_AUDIT_EXECUTION_STATUSES.has(normalized) ? normalized : fallback
+return SENTINEL_AUDIT_EXECUTION_STATUSES.has(normalized)
+? normalized
+: fallback
 }
 
 function parseJson(value, fallback = null) {
@@ -214,7 +201,7 @@ if (typeof value === "boolean") return value ? 1 : 0
 return value
 }
 
-function parsePatchFieldValue(field, rawValue, rule) {
+function parsePatchFieldValue(rawValue, rule) {
 if (rule.type === "boolean") {
 return parseBoolSafe(rawValue, false)
 }
@@ -259,6 +246,96 @@ created_at: row?.created_at || null,
 updated_at: row?.updated_at || null,
 updated_by: row?.updated_by || null,
 }
+}
+
+function compactLastError(error = null) {
+if (!error) return null
+
+if (typeof error === "string") {
+return cleanText(error, 1000)
+}
+
+if (typeof error === "object") {
+return {
+message: cleanText(error.message || error.error || "Unknown Sentinel error", 1000),
+code: cleanText(error.code || error.name || "", 120) || null,
+at: error.at || error.created_at || error.timestamp || null,
+}
+}
+
+return cleanText(error, 1000)
+}
+
+function compactLastTickSummary(summary = null) {
+if (!summary || typeof summary !== "object") return null
+
+return {
+total: Number(summary.total ?? 0),
+scout_entry: Number(summary.scout_entry ?? 0),
+sniper_add: Number(summary.sniper_add ?? 0),
+partial_take_profit: Number(summary.partial_take_profit ?? 0),
+full_exit: Number(summary.full_exit ?? 0),
+reject: Number(summary.reject ?? 0),
+watchlist: Number(summary.watchlist ?? 0),
+hold: Number(summary.hold ?? 0),
+kill_switch: Number(summary.kill_switch ?? 0),
+simulated: Number(summary.simulated ?? 0),
+skipped: Number(summary.skipped ?? 0),
+audit_events: Number(summary.audit_events ?? 0),
+positions_touched: Number(summary.positions_touched ?? 0),
+execution_mode: cleanText(summary.execution_mode, 64) || null,
+watcher_enabled:
+summary.watcher_enabled == null ? null : Boolean(summary.watcher_enabled),
+snapshots_seen: Number(summary.snapshots_seen ?? 0),
+snapshots_processed: Number(summary.snapshots_processed ?? 0),
+provider_name: cleanText(summary.provider_name || summary.providerName, 160) || null,
+live_prices_resolved: Number(summary.live_prices_resolved ?? 0),
+live_prices_requested: Number(summary.live_prices_requested ?? 0),
+error: summary.error ? cleanText(summary.error, 1000) : null,
+}
+}
+
+function compactSentinelEngineStatus(engine = null) {
+if (!engine || typeof engine !== "object") {
+return {
+started: false,
+running: false,
+tick_count: 0,
+snapshot_provider_name: null,
+last_tick_started_at: null,
+last_tick_finished_at: null,
+last_error: null,
+last_tick_summary: null,
+current_mode: null,
+}
+}
+
+return {
+started: Boolean(engine.started ?? engine.is_started ?? engine.engine_started),
+running: Boolean(engine.running ?? engine.is_running ?? engine.engine_running),
+tick_count: Number(engine.tick_count ?? engine.tickCount ?? engine.total_ticks ?? 0),
+snapshot_provider_name:
+cleanText(
+engine.snapshot_provider_name ||
+engine.snapshotProviderName ||
+engine.provider_name ||
+engine.providerName,
+160
+) || null,
+last_tick_started_at:
+engine.last_tick_started_at || engine.lastTickStartedAt || null,
+last_tick_finished_at:
+engine.last_tick_finished_at || engine.lastTickFinishedAt || null,
+last_error: compactLastError(engine.last_error || engine.lastError || null),
+last_tick_summary: compactLastTickSummary(
+engine.last_tick_summary || engine.lastTickSummary || null
+),
+current_mode: cleanText(engine.current_mode || engine.currentMode, 64) || null,
+}
+}
+
+function getCompactSentinelEngineStatus() {
+return compactSentinelEngineStatus(getSentinelEngineStatus())
 }
 
 function getRemainingCostBasisUsdFromRow(row) {
@@ -746,7 +823,7 @@ updated_at: row.updated_at || null,
 async function buildSentinelStatusPayload() {
 const settingsRow = await getSentinelSettingsRow()
 const settings = serializeSentinelSettings(settingsRow)
-const engine = getSentinelEngineStatus()
+const engine = getCompactSentinelEngineStatus()
 const statDate = todayUtcDate()
 const openPositions = await getSentinelOpenPositionCount(settings.execution_mode)
 const dailyRow = await getSentinelDailyStatsRow(statDate, settings.execution_mode)
@@ -1444,11 +1521,10 @@ message: error?.message || String(error),
 }
 })
 
-// Sentinel Watcher admin routes
-
 router.get("/sentinel/status", async (req, res) => {
 try {
 const payload = await buildSentinelStatusPayload()
+
 return res.json({
 ok: true,
 ...payload,
@@ -1466,10 +1542,11 @@ message: error?.message || String(error),
 router.get("/sentinel/settings", async (req, res) => {
 try {
 const row = await getSentinelSettingsRow()
+
 return res.json({
 ok: true,
 settings: serializeSentinelSettings(row),
-engine: getSentinelEngineStatus(),
+engine: getCompactSentinelEngineStatus(),
 })
 } catch (error) {
 console.error("GET /api/compliance-admin/sentinel/settings failed", error)
@@ -1494,7 +1571,7 @@ const patch = {}
 for (const [field, rule] of Object.entries(SENTINEL_PATCH_FIELDS)) {
 if (!(field in (req.body || {}))) continue
 
-const parsed = parsePatchFieldValue(field, req.body[field], rule)
+const parsed = parsePatchFieldValue(req.body[field], rule)
 if (parsed == null || isOutOfRange(parsed, rule)) {
 return res.status(400).json({
 ok: false,
@@ -1551,7 +1628,7 @@ return res.json({
 ok: true,
 changed_fields: changedFields,
 settings: updated,
-engine: getSentinelEngineStatus(),
+engine: getCompactSentinelEngineStatus(),
 })
 } catch (error) {
 console.error("PATCH /api/compliance-admin/sentinel/settings failed", error)
@@ -1600,7 +1677,7 @@ previous_mode: before.execution_mode,
 current_mode: before.execution_mode,
 unchanged: true,
 settings: before,
-engine: getSentinelEngineStatus(),
+engine: getCompactSentinelEngineStatus(),
 })
 }
 
@@ -1646,7 +1723,7 @@ ok: true,
 previous_mode: before.execution_mode,
 current_mode: updated.execution_mode,
 settings: updated,
-engine: getSentinelEngineStatus(),
+engine: getCompactSentinelEngineStatus(),
 })
 } catch (error) {
 console.error("POST /api/compliance-admin/sentinel/mode failed", error)
@@ -1721,7 +1798,7 @@ ok: true,
 previous_mode: before.execution_mode,
 current_mode: updated.execution_mode,
 settings: updated,
-engine: getSentinelEngineStatus(),
+engine: getCompactSentinelEngineStatus(),
 })
 } catch (error) {
 console.error("POST /api/compliance-admin/sentinel/emergency-stop failed", error)
@@ -2100,6 +2177,7 @@ message: error?.message || String(error),
 router.get("/sentinel/summary", async (req, res) => {
 try {
 const payload = await buildSentinelStatusPayload()
+
 return res.json({
 ok: true,
 summary: payload.summary,
