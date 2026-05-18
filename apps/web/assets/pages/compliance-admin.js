@@ -1,3 +1,5 @@
+const todayIso = new Date().toISOString().slice(0, 10)
+
 const state = {
 cases: [],
 selectedCaseId: null,
@@ -7,6 +9,11 @@ status: "",
 caseType: "",
 riskLevel: "",
 assignedTo: "",
+},
+
+ui: {
+activeAdminSection: "overview",
+collapsedSections: new Set(),
 },
 
 sentinel: {
@@ -19,7 +26,9 @@ positions: [],
 audit: [],
 adminAudit: [],
 filters: {
-statsDate: new Date().toISOString().slice(0, 10),
+summaryPeriod: "daily",
+summaryDate: todayIso,
+statsDate: todayIso,
 statsMode: "paper",
 
 positionScope: "open",
@@ -171,6 +180,12 @@ sentinelEnableRunnerManagementInput: document.getElementById("sentinelEnableRunn
 sentinelRiskOffDisableNewEntriesInput: document.getElementById(
 "sentinelRiskOffDisableNewEntriesInput"
 ),
+
+sentinelSummaryPeriodFilter: document.getElementById("sentinelSummaryPeriodFilter"),
+sentinelSummaryDateInput: document.getElementById("sentinelSummaryDateInput"),
+refreshSentinelSummaryButton: document.getElementById("refreshSentinelSummaryButton"),
+sentinelSummaryPeriodLabel: document.getElementById("sentinelSummaryPeriodLabel"),
+sentinelSummaryPeriodRange: document.getElementById("sentinelSummaryPeriodRange"),
 
 sentinelSummaryOpenPositions: document.getElementById("sentinelSummaryOpenPositions"),
 sentinelSummaryDailyRealizedPnl: document.getElementById("sentinelSummaryDailyRealizedPnl"),
@@ -423,6 +438,7 @@ maximumFractionDigits: 2,
 function formatSignedCurrency(value) {
 const num = Number(value)
 if (!Number.isFinite(num)) return "$0.00"
+
 const abs = Math.abs(num)
 const formatted = new Intl.NumberFormat(undefined, {
 style: "currency",
@@ -464,6 +480,7 @@ return Number.isFinite(num) ? num : fallback
 
 function firstFiniteNumber(values = [], fallback = 0) {
 for (const value of values) {
+if (value == null || value === "") continue
 const num = Number(value)
 if (Number.isFinite(num)) return num
 }
@@ -757,6 +774,7 @@ els.sentinelModePaperButton,
 els.sentinelModeArmedButton,
 els.sentinelModeLiveButton,
 els.sentinelEmergencyStopButton,
+els.refreshSentinelSummaryButton,
 els.refreshSentinelStatsButton,
 els.refreshSentinelPositionsButton,
 els.refreshSentinelAuditButton,
@@ -949,6 +967,112 @@ if (document.getElementById("sentinelPremiumEnhancementStyles")) return
 const style = document.createElement("style")
 style.id = "sentinelPremiumEnhancementStyles"
 style.textContent = `
+.mss-admin-command-center {
+position: sticky;
+top: 10px;
+z-index: 25;
+display: grid;
+gap: 12px;
+margin: 0 0 18px;
+padding: 14px;
+border: 1px solid rgba(99, 179, 237, 0.20);
+border-radius: 22px;
+background:
+linear-gradient(135deg, rgba(2, 6, 23, 0.94), rgba(15, 23, 42, 0.78)),
+radial-gradient(circle at top right, rgba(56, 189, 248, 0.14), transparent 42%);
+box-shadow: 0 22px 60px rgba(0,0,0,0.28), inset 0 1px 0 rgba(255,255,255,0.06);
+backdrop-filter: blur(18px);
+}
+.mss-admin-command-top {
+display: flex;
+align-items: center;
+justify-content: space-between;
+gap: 14px;
+}
+.mss-admin-command-title {
+display: grid;
+gap: 4px;
+}
+.mss-admin-command-eyebrow {
+font-size: 10px;
+letter-spacing: 0.18em;
+font-weight: 900;
+text-transform: uppercase;
+color: var(--muted, rgba(226,232,240,0.68));
+}
+.mss-admin-command-heading {
+font-size: 16px;
+font-weight: 950;
+letter-spacing: -0.02em;
+color: var(--text, #f8fafc);
+}
+.mss-admin-command-subtitle {
+font-size: 12px;
+color: var(--muted, rgba(226,232,240,0.70));
+}
+.mss-admin-command-actions {
+display: flex;
+gap: 8px;
+align-items: center;
+flex-wrap: wrap;
+justify-content: flex-end;
+}
+.mss-admin-tab-grid {
+display: grid;
+grid-template-columns: repeat(5, minmax(0, 1fr));
+gap: 8px;
+}
+.mss-admin-tab {
+border: 1px solid rgba(99, 179, 237, 0.18);
+border-radius: 14px;
+background: rgba(15, 23, 42, 0.62);
+color: var(--muted, rgba(226,232,240,0.72));
+padding: 11px 10px;
+font-size: 11px;
+font-weight: 900;
+letter-spacing: 0.06em;
+text-transform: uppercase;
+cursor: pointer;
+transition: border-color .16s ease, background .16s ease, color .16s ease, transform .16s ease;
+}
+.mss-admin-tab:hover {
+border-color: rgba(99, 179, 237, 0.42);
+background: rgba(30, 41, 59, 0.78);
+color: var(--text, #f8fafc);
+transform: translateY(-1px);
+}
+.mss-admin-tab.active {
+border-color: rgba(56, 189, 248, 0.58);
+background:
+linear-gradient(135deg, rgba(14, 165, 233, 0.22), rgba(20, 184, 166, 0.12)),
+rgba(15, 23, 42, 0.84);
+color: var(--text, #f8fafc);
+box-shadow: inset 0 1px 0 rgba(255,255,255,0.08), 0 12px 30px rgba(14, 165, 233, 0.12);
+}
+.mss-admin-section-highlight {
+outline: 1px solid rgba(56, 189, 248, 0.42);
+box-shadow: 0 0 0 4px rgba(56, 189, 248, 0.08);
+border-radius: 18px;
+}
+.mss-admin-collapse-button {
+border: 1px solid rgba(99, 179, 237, 0.24);
+border-radius: 999px;
+background: rgba(2, 6, 23, 0.68);
+color: var(--muted, rgba(226,232,240,0.72));
+padding: 8px 11px;
+font-size: 10px;
+font-weight: 900;
+letter-spacing: 0.12em;
+text-transform: uppercase;
+cursor: pointer;
+}
+.mss-admin-collapse-button:hover {
+border-color: rgba(99, 179, 237, 0.46);
+color: var(--text, #f8fafc);
+}
+.mss-admin-collapsed {
+display: none !important;
+}
 .sentinel-enhanced-grid {
 display: grid;
 grid-template-columns: repeat(4, minmax(0, 1fr));
@@ -1001,6 +1125,84 @@ margin-top: 6px;
 font-size: 12px;
 line-height: 1.35;
 color: var(--muted, rgba(226,232,240,0.70));
+}
+.sentinel-summary-period-shell {
+display: flex;
+align-items: end;
+justify-content: space-between;
+gap: 14px;
+margin: 14px 0;
+padding: 14px;
+border: 1px solid rgba(99, 179, 237, 0.18);
+border-radius: 18px;
+background:
+linear-gradient(135deg, rgba(2, 6, 23, 0.84), rgba(15, 23, 42, 0.62)),
+radial-gradient(circle at top right, rgba(56,189,248,0.12), transparent 46%);
+}
+.sentinel-summary-period-copy {
+min-width: 220px;
+}
+.sentinel-summary-period-title {
+font-size: 11px;
+font-weight: 900;
+text-transform: uppercase;
+letter-spacing: 0.16em;
+color: var(--muted, rgba(226,232,240,0.72));
+}
+.sentinel-summary-period-active {
+margin-top: 6px;
+font-size: 16px;
+font-weight: 900;
+color: var(--text, #f8fafc);
+}
+.sentinel-summary-period-range {
+margin-top: 4px;
+font-size: 12px;
+color: var(--muted, rgba(226,232,240,0.66));
+}
+.sentinel-summary-period-controls {
+display: flex;
+align-items: end;
+gap: 10px;
+flex-wrap: wrap;
+}
+.sentinel-summary-period-field {
+display: grid;
+gap: 6px;
+}
+.sentinel-summary-period-field label {
+font-size: 10px;
+font-weight: 900;
+letter-spacing: 0.14em;
+text-transform: uppercase;
+color: var(--muted, rgba(226,232,240,0.68));
+}
+.sentinel-summary-period-field select,
+.sentinel-summary-period-field input {
+min-width: 160px;
+border: 1px solid rgba(99, 179, 237, 0.28);
+border-radius: 12px;
+background: rgba(2, 6, 23, 0.86);
+color: var(--text, #f8fafc);
+padding: 10px 12px;
+font-weight: 800;
+outline: none;
+}
+.sentinel-summary-period-field input {
+min-width: 150px;
+}
+.sentinel-summary-period-button {
+border: 1px solid rgba(99, 179, 237, 0.35);
+border-radius: 12px;
+background: rgba(14, 165, 233, 0.18);
+color: var(--text, #f8fafc);
+padding: 10px 14px;
+font-weight: 900;
+cursor: pointer;
+}
+.sentinel-summary-period-button:disabled {
+opacity: 0.55;
+cursor: not-allowed;
 }
 .pnl-good {
 color: #35f2a9 !important;
@@ -1060,11 +1262,35 @@ font-size: 12px;
 color: var(--muted, rgba(226,232,240,0.65));
 }
 @media (max-width: 1100px) {
+.mss-admin-tab-grid {
+grid-template-columns: repeat(2, minmax(0, 1fr));
+}
 .sentinel-enhanced-grid {
 grid-template-columns: repeat(2, minmax(0, 1fr));
 }
+.sentinel-summary-period-shell {
+align-items: stretch;
+flex-direction: column;
+}
 }
 @media (max-width: 720px) {
+.mss-admin-command-center {
+position: relative;
+top: auto;
+}
+.mss-admin-command-top {
+align-items: stretch;
+flex-direction: column;
+}
+.mss-admin-command-actions {
+justify-content: stretch;
+}
+.mss-admin-command-actions > * {
+width: 100%;
+}
+.mss-admin-tab-grid {
+grid-template-columns: 1fr;
+}
 .sentinel-enhanced-grid {
 grid-template-columns: 1fr;
 }
@@ -1075,9 +1301,297 @@ flex-direction: column;
 .sentinel-position-sort-select {
 width: 100%;
 }
+.sentinel-summary-period-controls {
+display: grid;
+grid-template-columns: 1fr;
+}
+.sentinel-summary-period-field select,
+.sentinel-summary-period-field input,
+.sentinel-summary-period-button {
+width: 100%;
+}
 }
 `
 document.head.appendChild(style)
+}
+
+function getElementRoot(el) {
+if (!el) return null
+
+const root =
+el.closest("[data-admin-section-root]") ||
+el.closest("section") ||
+el.closest(".admin-section") ||
+el.closest(".admin-card") ||
+el.closest(".panel") ||
+el.closest(".card") ||
+el.closest(".surface") ||
+el.closest(".glass-panel") ||
+el.closest(".compliance-panel") ||
+el.closest(".stack") ||
+el.parentElement
+
+if (!root || root === document.body || root === document.documentElement) return null
+return root
+}
+
+function uniqueElements(items = []) {
+const seen = new Set()
+const output = []
+
+items.forEach((item) => {
+if (!item || seen.has(item)) return
+seen.add(item)
+output.push(item)
+})
+
+return output
+}
+
+function getAdminSectionRoots() {
+const overviewRoots = uniqueElements([
+getElementRoot(els.sentinelBanner),
+getElementRoot(els.refreshSentinelButton),
+getElementRoot(els.sentinelSummaryOpenPositions),
+getElementRoot(els.sentinelSummaryDailyRealizedPnl),
+getElementRoot(els.sentinelEngineStartedValue),
+])
+
+const settingsRoots = uniqueElements([
+getElementRoot(els.saveSentinelSettingsButton),
+getElementRoot(els.sentinelScoutUsdInput),
+getElementRoot(els.sentinelEnableScoutInput),
+getElementRoot(els.sentinelMaxPositionsPerOperatorClusterInput),
+])
+
+const positionsAuditRoots = uniqueElements([
+getElementRoot(els.sentinelPositionsTableBody),
+getElementRoot(els.sentinelAuditTableBody),
+getElementRoot(els.sentinelAdminAuditTableBody),
+getElementRoot(els.refreshSentinelPositionsButton),
+getElementRoot(els.refreshSentinelAuditButton),
+getElementRoot(els.refreshSentinelAdminAuditButton),
+])
+
+const accessRoots = uniqueElements([
+getElementRoot(els.sentinelAccessBanner),
+getElementRoot(els.createSentinelAccessCodeButton),
+getElementRoot(els.sentinelAccessCodesTableBody),
+getElementRoot(els.sentinelAccessRedemptionsTableBody),
+getElementRoot(els.sentinelAccessCodeDetailPanel),
+])
+
+const complianceRoots = uniqueElements([
+getElementRoot(els.banner),
+getElementRoot(els.casesTableBody),
+getElementRoot(els.caseDetailPanel),
+getElementRoot(els.applyFiltersButton),
+])
+
+return [
+{
+id: "overview",
+label: "Sentinel Overview",
+hint: "Status, mode, summary, engine health.",
+roots: overviewRoots,
+},
+{
+id: "settings",
+label: "Sentinel Settings",
+hint: "Risk controls, thresholds, mode changes.",
+roots: settingsRoots,
+},
+{
+id: "positions",
+label: "Positions & Audit",
+hint: "Open positions, PnL, event logs.",
+roots: positionsAuditRoots,
+},
+{
+id: "access",
+label: "Access Codes",
+hint: "Sentinel access codes and redemptions.",
+roots: accessRoots,
+},
+{
+id: "cases",
+label: "Compliance Cases",
+hint: "Manual review queue and actions.",
+roots: complianceRoots,
+},
+]
+}
+
+function scrollToAdminSection(sectionId) {
+const sections = getAdminSectionRoots()
+const section = sections.find((item) => item.id === sectionId)
+const target = section?.roots?.[0]
+if (!target) return
+
+state.ui.activeAdminSection = sectionId
+updateAdminSectionTabs(sectionId)
+
+document.querySelectorAll(".mss-admin-section-highlight").forEach((node) => {
+node.classList.remove("mss-admin-section-highlight")
+})
+
+target.classList.add("mss-admin-section-highlight")
+target.scrollIntoView({ behavior: "smooth", block: "start" })
+
+window.setTimeout(() => {
+target.classList.remove("mss-admin-section-highlight")
+}, 1200)
+}
+
+function updateAdminSectionTabs(activeSectionId = state.ui.activeAdminSection) {
+document.querySelectorAll("[data-mss-admin-tab]").forEach((button) => {
+const id = button.getAttribute("data-mss-admin-tab")
+button.classList.toggle("active", id === activeSectionId)
+})
+}
+
+function toggleAdminSectionCollapse(sectionId) {
+const sections = getAdminSectionRoots()
+const section = sections.find((item) => item.id === sectionId)
+if (!section) return
+
+const isCollapsed = state.ui.collapsedSections.has(sectionId)
+if (isCollapsed) {
+state.ui.collapsedSections.delete(sectionId)
+} else {
+state.ui.collapsedSections.add(sectionId)
+}
+
+section.roots.forEach((root) => {
+root.classList.toggle("mss-admin-collapsed", !isCollapsed)
+})
+
+const button = document.querySelector(`[data-mss-admin-collapse="${sectionId}"]`)
+if (button) {
+button.textContent = isCollapsed ? "Collapse Section" : "Expand Section"
+}
+}
+
+function ensureComplianceAdminCommandCenter() {
+if (document.getElementById("mssAdminCommandCenter")) {
+updateAdminSectionTabs()
+return
+}
+
+const sections = getAdminSectionRoots().filter((section) => section.roots.length)
+if (!sections.length) return
+
+const firstRoot = sections[0].roots[0]
+const host = firstRoot?.parentElement || document.querySelector("main") || document.body
+if (!host) return
+
+const shell = document.createElement("div")
+shell.id = "mssAdminCommandCenter"
+shell.className = "mss-admin-command-center"
+
+const top = document.createElement("div")
+top.className = "mss-admin-command-top"
+
+const title = document.createElement("div")
+title.className = "mss-admin-command-title"
+title.innerHTML = `
+<div class="mss-admin-command-eyebrow">MSS Compliance Admin</div>
+<div class="mss-admin-command-heading">Operational Command Center</div>
+<div class="mss-admin-command-subtitle">Use the sections below to jump between Sentinel overview, controls, audit, access, and manual compliance cases.</div>
+`
+
+const actions = document.createElement("div")
+actions.className = "mss-admin-command-actions"
+
+const refreshAll = document.createElement("button")
+refreshAll.type = "button"
+refreshAll.className = "mss-admin-collapse-button"
+refreshAll.textContent = "Refresh All"
+refreshAll.addEventListener("click", async () => {
+await Promise.allSettled([
+loadCases(),
+loadSentinelBundle({ showSuccess: true }),
+loadSentinelAccessBundle({ showSuccess: true }),
+])
+})
+
+const expandAll = document.createElement("button")
+expandAll.type = "button"
+expandAll.className = "mss-admin-collapse-button"
+expandAll.textContent = "Expand All"
+expandAll.addEventListener("click", () => {
+state.ui.collapsedSections.clear()
+getAdminSectionRoots().forEach((section) => {
+section.roots.forEach((root) => root.classList.remove("mss-admin-collapsed"))
+const button = document.querySelector(`[data-mss-admin-collapse="${section.id}"]`)
+if (button) button.textContent = "Collapse Section"
+})
+})
+
+actions.appendChild(refreshAll)
+actions.appendChild(expandAll)
+
+top.appendChild(title)
+top.appendChild(actions)
+
+const grid = document.createElement("div")
+grid.className = "mss-admin-tab-grid"
+
+sections.forEach((section) => {
+const button = document.createElement("button")
+button.type = "button"
+button.className = "mss-admin-tab"
+button.setAttribute("data-mss-admin-tab", section.id)
+button.innerHTML = `
+<div>${section.label}</div>
+<div style="margin-top:4px;font-size:10px;font-weight:700;letter-spacing:0;text-transform:none;color:inherit;opacity:.72;">${section.hint}</div>
+`
+button.addEventListener("click", () => scrollToAdminSection(section.id))
+grid.appendChild(button)
+})
+
+shell.appendChild(top)
+shell.appendChild(grid)
+
+host.insertBefore(shell, firstRoot)
+
+updateAdminSectionTabs()
+}
+
+function ensureSectionCollapseButtons() {
+const sections = getAdminSectionRoots()
+
+sections.forEach((section) => {
+const root = section.roots[0]
+if (!root || root.querySelector?.(`[data-mss-admin-collapse="${section.id}"]`)) return
+
+const button = document.createElement("button")
+button.type = "button"
+button.className = "mss-admin-collapse-button"
+button.setAttribute("data-mss-admin-collapse", section.id)
+button.textContent = state.ui.collapsedSections.has(section.id)
+? "Expand Section"
+: "Collapse Section"
+button.addEventListener("click", () => toggleAdminSectionCollapse(section.id))
+
+const header =
+root.querySelector(".card-header") ||
+root.querySelector(".panel-header") ||
+root.querySelector("header") ||
+null
+
+if (header) {
+header.appendChild(button)
+} else {
+root.insertBefore(button, root.firstChild)
+}
+})
+}
+
+function ensureComplianceAdminWorkspace() {
+ensureSentinelEnhancementStyles()
+ensureComplianceAdminCommandCenter()
+ensureSectionCollapseButtons()
 }
 
 function createSentinelSummaryCard(id, label, subtitle) {
@@ -1104,8 +1618,171 @@ card.appendChild(subtitleEl)
 return { card, valueEl }
 }
 
+function getPeriodLabel(period) {
+const normalized = cleanText(period, 32).toLowerCase()
+if (normalized === "weekly") return "Weekly"
+if (normalized === "monthly") return "Monthly"
+if (normalized === "overall") return "Overall"
+return "Daily"
+}
+
+function getPeriodSubtitle(period) {
+const normalized = cleanText(period, 32).toLowerCase()
+if (normalized === "weekly") return "Rolling 7-day Sentinel performance window."
+if (normalized === "monthly") return "Rolling 30-day Sentinel performance window."
+if (normalized === "overall") return "All-time Sentinel performance where records exist."
+return "Selected UTC day Sentinel performance."
+}
+
+function updateSentinelPeriodCopy(summary = state.sentinel.summary || null) {
+const period =
+cleanText(summary?.selected_period, 32).toLowerCase() ||
+cleanText(state.sentinel.filters.summaryPeriod, 32).toLowerCase() ||
+"daily"
+
+const label =
+cleanText(summary?.selected_period_label, 80) ||
+getPeriodLabel(period)
+
+const startDate =
+cleanText(summary?.selected_period_start_date, 32) ||
+cleanText(summary?.pnl?.start_date, 32) ||
+""
+
+const endDate =
+cleanText(summary?.selected_period_end_date, 32) ||
+cleanText(summary?.pnl?.end_date, 32) ||
+cleanText(state.sentinel.filters.summaryDate, 32) ||
+todayIso
+
+const rangeText =
+period === "overall"
+? startDate
+? `${startDate} → ${endDate}`
+: `Up to ${endDate}`
+: startDate && endDate && startDate !== endDate
+? `${startDate} → ${endDate}`
+: endDate
+
+setText(els.sentinelSummaryPeriodLabel, `${label} PnL`)
+setText(els.sentinelSummaryPeriodRange, rangeText || "—")
+}
+
+function ensureSentinelSummaryPeriodControls() {
+if (!els.sentinelSummaryPeriodFilter) {
+els.sentinelSummaryPeriodFilter = document.getElementById("sentinelSummaryPeriodFilter")
+}
+if (!els.sentinelSummaryDateInput) {
+els.sentinelSummaryDateInput = document.getElementById("sentinelSummaryDateInput")
+}
+if (!els.refreshSentinelSummaryButton) {
+els.refreshSentinelSummaryButton = document.getElementById("refreshSentinelSummaryButton")
+}
+if (!els.sentinelSummaryPeriodLabel) {
+els.sentinelSummaryPeriodLabel = document.getElementById("sentinelSummaryPeriodLabel")
+}
+if (!els.sentinelSummaryPeriodRange) {
+els.sentinelSummaryPeriodRange = document.getElementById("sentinelSummaryPeriodRange")
+}
+
+if (document.getElementById("sentinelSummaryPeriodShell")) return
+
+const anchor =
+els.sentinelSummaryOpenPositions?.closest(".stat-card") ||
+els.sentinelSummaryDailyRealizedPnl?.closest(".stat-card") ||
+els.sentinelSummaryDailyLoss?.closest(".stat-card") ||
+els.sentinelWatcherEnabledValue?.closest(".stat-card") ||
+els.sentinelOpenPositionsHeroValue?.closest(".stat-card")
+
+const parent = anchor?.parentElement
+if (!parent) return
+
+const shell = document.createElement("div")
+shell.id = "sentinelSummaryPeriodShell"
+shell.className = "sentinel-summary-period-shell"
+
+const copy = document.createElement("div")
+copy.className = "sentinel-summary-period-copy"
+
+const title = document.createElement("div")
+title.className = "sentinel-summary-period-title"
+title.textContent = "Sentinel Summary Window"
+
+const active = document.createElement("div")
+active.id = "sentinelSummaryPeriodLabel"
+active.className = "sentinel-summary-period-active"
+active.textContent = "Daily PnL"
+
+const range = document.createElement("div")
+range.id = "sentinelSummaryPeriodRange"
+range.className = "sentinel-summary-period-range"
+range.textContent = state.sentinel.filters.summaryDate
+
+copy.appendChild(title)
+copy.appendChild(active)
+copy.appendChild(range)
+
+const controls = document.createElement("div")
+controls.className = "sentinel-summary-period-controls"
+
+const periodField = document.createElement("div")
+periodField.className = "sentinel-summary-period-field"
+
+const periodLabel = document.createElement("label")
+periodLabel.htmlFor = "sentinelSummaryPeriodFilter"
+periodLabel.textContent = "Window"
+
+const periodSelect = document.createElement("select")
+periodSelect.id = "sentinelSummaryPeriodFilter"
+periodSelect.innerHTML = `
+<option value="daily">Daily</option>
+<option value="weekly">Weekly</option>
+<option value="monthly">Monthly</option>
+<option value="overall">Overall</option>
+`
+
+periodField.appendChild(periodLabel)
+periodField.appendChild(periodSelect)
+
+const dateField = document.createElement("div")
+dateField.className = "sentinel-summary-period-field"
+
+const dateLabel = document.createElement("label")
+dateLabel.htmlFor = "sentinelSummaryDateInput"
+dateLabel.textContent = "Anchor Date"
+
+const dateInput = document.createElement("input")
+dateInput.id = "sentinelSummaryDateInput"
+dateInput.type = "date"
+
+dateField.appendChild(dateLabel)
+dateField.appendChild(dateInput)
+
+const button = document.createElement("button")
+button.id = "refreshSentinelSummaryButton"
+button.type = "button"
+button.className = "sentinel-summary-period-button"
+button.textContent = "Refresh Summary"
+
+controls.appendChild(periodField)
+controls.appendChild(dateField)
+controls.appendChild(button)
+
+shell.appendChild(copy)
+shell.appendChild(controls)
+
+parent.insertBefore(shell, anchor)
+
+els.sentinelSummaryPeriodFilter = periodSelect
+els.sentinelSummaryDateInput = dateInput
+els.refreshSentinelSummaryButton = button
+els.sentinelSummaryPeriodLabel = active
+els.sentinelSummaryPeriodRange = range
+}
+
 function ensureSentinelEnhancementElements() {
-ensureSentinelEnhancementStyles()
+ensureComplianceAdminWorkspace()
+ensureSentinelSummaryPeriodControls()
 
 if (!els.sentinelSummaryOpenCapital) {
 els.sentinelSummaryOpenCapital = document.getElementById("sentinelSummaryOpenCapital")
@@ -1147,13 +1824,13 @@ const openValue = createSentinelSummaryCard(
 )
 const totalCapital = createSentinelSummaryCard(
 "sentinelSummaryTotalCapital",
-"Total Capital Deployed",
-"Overall capital committed by Sentinel where backend data is available."
+"Period Capital Deployed",
+"Capital committed during the selected Sentinel summary window."
 )
 const portfolioPnl = createSentinelSummaryCard(
 "sentinelSummaryPortfolioPnl",
-"Total Portfolio PnL",
-"Realized plus unrealized performance across Sentinel data."
+"Selected Window PnL",
+"Realized plus current open unrealized PnL for the selected window."
 )
 
 grid.appendChild(openCapital.card)
@@ -1321,6 +1998,7 @@ return bm.unrealizedPnl - am.unrealizedPnl
 function computeSentinelPortfolioMetrics() {
 const positions = arrayify(state.sentinel.positions)
 const summary = state.sentinel.summary || {}
+const pnl = summary.pnl || {}
 const stats = state.sentinel.stats || {}
 
 let openCapital = 0
@@ -1347,6 +2025,8 @@ openUnrealized += metrics.unrealizedPnl
 
 const summaryOpenCapital = firstFiniteNumber(
 [
+pnl.open_remaining_cost_basis_usd,
+pnl.open_cost_basis_usd,
 summary.open_capital_at_risk_usd,
 summary.openCapitalAtRiskUsd,
 summary.open_cost_basis_usd,
@@ -1359,6 +2039,7 @@ null
 
 const summaryOpenValue = firstFiniteNumber(
 [
+pnl.open_current_value_usd,
 summary.open_current_value_usd,
 summary.openCurrentValueUsd,
 summary.current_open_value_usd,
@@ -1371,12 +2052,18 @@ null
 
 const totalCapital = firstFiniteNumber(
 [
+summary.period_total_spend_usd,
+pnl.total_spend_usd,
+pnl.scout_spend_usd == null && pnl.sniper_spend_usd == null
+? null
+: safeNumber(pnl.scout_spend_usd, 0) + safeNumber(pnl.sniper_spend_usd, 0),
 summary.total_capital_deployed_usd,
 summary.totalCapitalDeployedUsd,
 summary.total_invested_usd,
 summary.totalInvestedUsd,
 summary.capital_deployed_usd,
 summary.capitalDeployedUsd,
+stats.total_spend_usd,
 stats.total_capital_deployed_usd,
 stats.totalCapitalDeployedUsd,
 stats.total_invested_usd,
@@ -1392,12 +2079,15 @@ fallbackTotalCapital,
 
 const portfolioPnl = firstFiniteNumber(
 [
+summary.period_net_pnl_usd,
+pnl.net_pnl_usd,
 summary.total_portfolio_pnl_usd,
 summary.totalPortfolioPnlUsd,
 summary.portfolio_pnl_usd,
 summary.portfolioPnlUsd,
 summary.total_pnl_usd,
 summary.totalPnlUsd,
+stats.net_pnl_usd,
 stats.total_portfolio_pnl_usd,
 stats.totalPortfolioPnlUsd,
 stats.total_pnl_usd,
@@ -1719,20 +2409,41 @@ ensureSentinelEnhancementElements()
 state.sentinel.summary = summary || null
 state.sentinel.engine = engine || state.sentinel.engine
 
+const pnl = summary?.pnl || {}
+
 const openPositions = safeNumber(
-summary?.open_positions ?? summary?.openPositions,
+summary?.open_positions ?? summary?.openPositions ?? pnl.open_positions,
 0
 )
-const realized = safeNumber(
-summary?.daily_realized_pnl_usd ?? summary?.dailyRealizedPnlUsd,
+
+const realized = firstFiniteNumber(
+[
+summary?.period_realized_pnl_usd,
+pnl.realized_pnl_usd,
+summary?.daily_realized_pnl_usd,
+summary?.dailyRealizedPnlUsd,
+],
 0
 )
-const unrealized = safeNumber(
-summary?.daily_unrealized_pnl_usd ?? summary?.dailyUnrealizedPnlUsd,
+
+const unrealized = firstFiniteNumber(
+[
+summary?.period_unrealized_pnl_usd,
+pnl.unrealized_pnl_usd,
+pnl.open_unrealized_pnl_usd,
+summary?.daily_unrealized_pnl_usd,
+summary?.dailyUnrealizedPnlUsd,
+],
 0
 )
-const dailyLoss = safeNumber(
-summary?.daily_loss_usd ?? summary?.dailyLossUsd,
+
+const loss = firstFiniteNumber(
+[
+summary?.period_loss_usd,
+pnl.loss_usd,
+summary?.daily_loss_usd,
+summary?.dailyLossUsd,
+],
 0
 )
 
@@ -1752,8 +2463,8 @@ els.sentinelSummaryDailyUnrealizedPnl.textContent = formatSignedCurrency(unreali
 setMoneyTone(els.sentinelSummaryDailyUnrealizedPnl, unrealized)
 }
 if (els.sentinelSummaryDailyLoss) {
-els.sentinelSummaryDailyLoss.textContent = formatCurrency(dailyLoss)
-setMoneyTone(els.sentinelSummaryDailyLoss, dailyLoss, { lossPositive: true })
+els.sentinelSummaryDailyLoss.textContent = formatCurrency(loss)
+setMoneyTone(els.sentinelSummaryDailyLoss, loss, { lossPositive: true })
 }
 
 const mode =
@@ -1768,6 +2479,7 @@ els.sentinelKillSwitchValue.textContent =
 Boolean(summary?.kill_switch_active ?? summary?.killSwitchActive) ? "Active" : "Inactive"
 }
 
+updateSentinelPeriodCopy(summary)
 updateSentinelPortfolioSummary()
 }
 
@@ -2391,21 +3103,38 @@ endCasesLoading()
 }
 }
 
+function buildSentinelSummaryQueryString() {
+const params = new URLSearchParams()
+
+const period = cleanText(state.sentinel.filters.summaryPeriod, 32).toLowerCase() || "daily"
+const date = cleanText(state.sentinel.filters.summaryDate, 32) || todayIso
+
+params.set("period", period)
+params.set("date", date)
+
+const mode = cleanText(state.sentinel.filters.statsMode, 64).toLowerCase()
+if (mode) params.set("mode", mode)
+
+return params.toString()
+}
+
 async function loadSentinelStatus({ manageLoading = true } = {}) {
 if (manageLoading) beginSentinelLoading()
 
 try {
+const queryString = buildSentinelSummaryQueryString()
 const payload = await apiFetchFirst([
-`/api/compliance-admin/sentinel/status`,
+`/api/compliance-admin/sentinel/status${queryString ? `?${queryString}` : ""}`,
 ])
 
 renderSentinelStatus(payload)
 return payload
 } catch (primaryError) {
 try {
+const queryString = buildSentinelSummaryQueryString()
 const [settingsPayload, summaryPayload] = await Promise.all([
 apiFetch(`/api/compliance-admin/sentinel/settings`),
-apiFetch(`/api/compliance-admin/sentinel/summary`),
+apiFetch(`/api/compliance-admin/sentinel/summary${queryString ? `?${queryString}` : ""}`),
 ])
 
 const merged = {
@@ -2427,7 +3156,15 @@ if (manageLoading) endSentinelLoading()
 
 function buildSentinelStatsQueryString() {
 const params = new URLSearchParams()
-if (state.sentinel.filters.statsDate) params.set("date", state.sentinel.filters.statsDate)
+const period = cleanText(state.sentinel.filters.summaryPeriod, 32).toLowerCase() || "daily"
+const date =
+cleanText(state.sentinel.filters.statsDate, 32) ||
+cleanText(state.sentinel.filters.summaryDate, 32) ||
+todayIso
+
+params.set("period", period)
+params.set("date", date)
+
 if (state.sentinel.filters.statsMode) params.set("mode", state.sentinel.filters.statsMode)
 return params.toString()
 }
@@ -2436,11 +3173,27 @@ async function loadSentinelStats({ manageLoading = true } = {}) {
 if (manageLoading) beginSentinelLoading()
 try {
 const queryString = buildSentinelStatsQueryString()
+
+try {
 const payload = await apiFetch(
-`/api/compliance-admin/sentinel/stats/daily${queryString ? `?${queryString}` : ""}`
+`/api/compliance-admin/sentinel/stats/summary${queryString ? `?${queryString}` : ""}`
 )
 renderSentinelStats(payload?.stats || null)
 return payload?.stats || null
+} catch (error) {
+if (error?.status !== 404) throw error
+
+const fallbackParams = new URLSearchParams()
+if (state.sentinel.filters.statsDate) fallbackParams.set("date", state.sentinel.filters.statsDate)
+if (state.sentinel.filters.statsMode) fallbackParams.set("mode", state.sentinel.filters.statsMode)
+
+const fallbackQueryString = fallbackParams.toString()
+const payload = await apiFetch(
+`/api/compliance-admin/sentinel/stats/daily${fallbackQueryString ? `?${fallbackQueryString}` : ""}`
+)
+renderSentinelStats(payload?.stats || null)
+return payload?.stats || null
+}
 } finally {
 if (manageLoading) endSentinelLoading()
 }
@@ -2579,8 +3332,23 @@ if (manageLoading) endSentinelLoading()
 }
 
 function syncSentinelFiltersFromInputs() {
+ensureSentinelEnhancementElements()
+
+state.sentinel.filters.summaryPeriod =
+cleanText(els.sentinelSummaryPeriodFilter?.value, 32).toLowerCase() ||
+state.sentinel.filters.summaryPeriod ||
+"daily"
+
+state.sentinel.filters.summaryDate =
+cleanText(els.sentinelSummaryDateInput?.value, 32) ||
+state.sentinel.filters.summaryDate ||
+todayIso
+
 state.sentinel.filters.statsDate =
-cleanText(els.sentinelStatsDateInput?.value, 32) || new Date().toISOString().slice(0, 10)
+cleanText(els.sentinelStatsDateInput?.value, 32) ||
+state.sentinel.filters.summaryDate ||
+todayIso
+
 state.sentinel.filters.statsMode =
 cleanText(els.sentinelStatsModeFilter?.value, 64) || "paper"
 
@@ -3880,7 +4648,25 @@ assigned_to: assignedTo,
 })
 }
 
+async function refreshSentinelSummaryOnly() {
+beginSentinelLoading()
+try {
+syncSentinelFiltersFromInputs()
+await Promise.all([
+loadSentinelStatus({ manageLoading: false }),
+loadSentinelStats({ manageLoading: false }),
+])
+clearSentinelBanner()
+} catch (error) {
+setSentinelBanner(error?.message || "Failed to refresh Sentinel summary.", "bad")
+} finally {
+endSentinelLoading()
+}
+}
+
 function bindSentinelActions() {
+ensureSentinelEnhancementElements()
+
 els.refreshSentinelButton?.addEventListener("click", async () => {
 syncSentinelFiltersFromInputs()
 await loadSentinelBundle({ showSuccess: true })
@@ -3904,6 +4690,26 @@ await changeSentinelMode("live_mainnet")
 
 els.sentinelEmergencyStopButton?.addEventListener("click", async () => {
 await changeSentinelMode("emergency_stop")
+})
+
+els.sentinelSummaryPeriodFilter?.addEventListener("change", async () => {
+state.sentinel.filters.summaryPeriod =
+cleanText(els.sentinelSummaryPeriodFilter?.value, 32).toLowerCase() || "daily"
+await refreshSentinelSummaryOnly()
+})
+
+els.sentinelSummaryDateInput?.addEventListener("change", async () => {
+state.sentinel.filters.summaryDate =
+cleanText(els.sentinelSummaryDateInput?.value, 32) || todayIso
+state.sentinel.filters.statsDate = state.sentinel.filters.summaryDate
+if (els.sentinelStatsDateInput) {
+els.sentinelStatsDateInput.value = state.sentinel.filters.statsDate
+}
+await refreshSentinelSummaryOnly()
+})
+
+els.refreshSentinelSummaryButton?.addEventListener("click", async () => {
+await refreshSentinelSummaryOnly()
 })
 
 els.sentinelPositionSortFilter?.addEventListener("change", () => {
@@ -4048,6 +4854,12 @@ endSentinelAccessLoading()
 function initDefaults() {
 ensureSentinelEnhancementElements()
 
+if (els.sentinelSummaryPeriodFilter) {
+els.sentinelSummaryPeriodFilter.value = state.sentinel.filters.summaryPeriod
+}
+if (els.sentinelSummaryDateInput) {
+els.sentinelSummaryDateInput.value = state.sentinel.filters.summaryDate
+}
 if (els.sentinelStatsDateInput) {
 els.sentinelStatsDateInput.value = state.sentinel.filters.statsDate
 }
@@ -4067,12 +4879,15 @@ if (els.sentinelPositionSortFilter) {
 els.sentinelPositionSortFilter.value = state.sentinel.filters.positionSort || "pnl_desc"
 }
 
+updateSentinelPeriodCopy()
+
 buildSentinelAccessFilterDefaults()
 updateSentinelAccessSummary()
 renderSentinelAccessCodesTable()
 renderSentinelAccessRedemptionsTable()
 renderSentinelAccessCodeDetail(null)
 updateSentinelPortfolioSummary()
+updateAdminSectionTabs()
 }
 
 async function init() {
@@ -4095,6 +4910,8 @@ loadCases(),
 loadSentinelBundle(),
 loadSentinelAccessBundle(),
 ])
+
+ensureComplianceAdminWorkspace()
 }
 
 init().catch((error) => {

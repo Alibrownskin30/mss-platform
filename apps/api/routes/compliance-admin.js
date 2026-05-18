@@ -44,6 +44,13 @@ const SENTINEL_HISTORY_POSITION_STAGES = new Set(["closed", "invalidated"])
 
 const SENTINEL_POSITION_SCOPES = new Set(["open", "history", "all"])
 
+const SENTINEL_SUMMARY_PERIODS = new Set([
+"daily",
+"weekly",
+"monthly",
+"overall",
+])
+
 const SENTINEL_AUDIT_EVENT_TYPES = new Set([
 "settings_update",
 "mode_change",
@@ -169,6 +176,11 @@ const normalized = cleanText(value, 32).toLowerCase()
 return SENTINEL_POSITION_SCOPES.has(normalized) ? normalized : fallback
 }
 
+function normalizeSentinelSummaryPeriod(value, fallback = "daily") {
+const normalized = cleanText(value, 32).toLowerCase()
+return SENTINEL_SUMMARY_PERIODS.has(normalized) ? normalized : fallback
+}
+
 function normalizeSentinelAuditActorType(value, fallback = "") {
 const normalized = cleanText(value, 32).toLowerCase()
 return SENTINEL_AUDIT_ACTOR_TYPES.has(normalized) ? normalized : fallback
@@ -194,6 +206,74 @@ return fallback
 
 function todayUtcDate() {
 return new Date().toISOString().slice(0, 10)
+}
+
+function isDateOnly(value) {
+return /^\d{4}-\d{2}-\d{2}$/.test(String(value || ""))
+}
+
+function parseDateOnly(value, fallback = todayUtcDate()) {
+const cleaned = cleanText(value, 32)
+return isDateOnly(cleaned) ? cleaned : fallback
+}
+
+function dateOnlyToUtcDate(dateOnly) {
+const safe = parseDateOnly(dateOnly)
+const [year, month, day] = safe.split("-").map((part) => Number(part))
+return new Date(Date.UTC(year, month - 1, day))
+}
+
+function utcDateToDateOnly(date) {
+return date.toISOString().slice(0, 10)
+}
+
+function addUtcDays(dateOnly, days) {
+const date = dateOnlyToUtcDate(dateOnly)
+date.setUTCDate(date.getUTCDate() + Number(days || 0))
+return utcDateToDateOnly(date)
+}
+
+function getSentinelPeriodRange(period = "daily", anchorDate = todayUtcDate()) {
+const normalizedPeriod = normalizeSentinelSummaryPeriod(period, "daily")
+const endDate = parseDateOnly(anchorDate)
+
+if (normalizedPeriod === "overall") {
+return {
+period: normalizedPeriod,
+start_date: null,
+end_date: endDate,
+label: "Overall",
+rolling_days: null,
+}
+}
+
+if (normalizedPeriod === "weekly") {
+return {
+period: normalizedPeriod,
+start_date: addUtcDays(endDate, -6),
+end_date: endDate,
+label: "Weekly",
+rolling_days: 7,
+}
+}
+
+if (normalizedPeriod === "monthly") {
+return {
+period: normalizedPeriod,
+start_date: addUtcDays(endDate, -29),
+end_date: endDate,
+label: "Monthly",
+rolling_days: 30,
+}
+}
+
+return {
+period: "daily",
+start_date: endDate,
+end_date: endDate,
+label: "Daily",
+rolling_days: 1,
+}
 }
 
 function toDbValue(value) {
@@ -479,6 +559,67 @@ reclaim_success_rate_pct: 0,
 avg_market_liquidity_usd: 0,
 created_at: null,
 updated_at: null,
+}
+}
+
+function buildEmptySentinelPeriodStats({
+period = "daily",
+statDate = todayUtcDate(),
+executionMode = "paper",
+} = {}) {
+const range = getSentinelPeriodRange(period, statDate)
+
+return {
+period: range.period,
+label: range.label,
+rolling_days: range.rolling_days,
+start_date: range.start_date,
+end_date: range.end_date,
+execution_mode: executionMode,
+rows_count: 0,
+scouts_opened: 0,
+sniper_adds: 0,
+positions_closed: 0,
+invalidations: 0,
+scout_spend_usd: 0,
+sniper_spend_usd: 0,
+total_spend_usd: 0,
+realized_pnl_usd: 0,
+unrealized_pnl_usd: 0,
+open_unrealized_pnl_usd: 0,
+net_pnl_usd: 0,
+loss_usd: 0,
+consecutive_failures: 0,
+recent_rug_rate_pct: 0,
+reclaim_success_rate_pct: 0,
+avg_market_liquidity_usd: 0,
+note:
+"Realized PnL and spend are period-based. Unrealized PnL reflects currently open Sentinel positions.",
+}
+}
+
+function serializeSentinelDailyStats(row) {
+if (!row) return null
+
+return {
+id: row.id,
+stat_date: row.stat_date,
+execution_mode: row.execution_mode,
+scouts_opened: Number(row.scouts_opened ?? 0),
+sniper_adds: Number(row.sniper_adds ?? 0),
+positions_closed: Number(row.positions_closed ?? 0),
+invalidations: Number(row.invalidations ?? 0),
+daily_scout_spend_usd: Number(row.daily_scout_spend_usd ?? 0),
+daily_sniper_spend_usd: Number(row.daily_sniper_spend_usd ?? 0),
+daily_realized_pnl_usd: Number(row.daily_realized_pnl_usd ?? 0),
+daily_unrealized_pnl_usd: Number(row.daily_unrealized_pnl_usd ?? 0),
+daily_loss_usd: Number(row.daily_loss_usd ?? 0),
+consecutive_failures: Number(row.consecutive_failures ?? 0),
+recent_rug_rate_pct: Number(row.recent_rug_rate_pct ?? 0),
+reclaim_success_rate_pct: Number(row.reclaim_success_rate_pct ?? 0),
+avg_market_liquidity_usd: Number(row.avg_market_liquidity_usd ?? 0),
+created_at: row.created_at || null,
+updated_at: row.updated_at || null,
 }
 }
 
@@ -795,50 +936,212 @@ AND execution_mode = ?
 return Number(row?.count ?? 0)
 }
 
-function serializeSentinelDailyStats(row) {
-if (!row) return null
+async function getSentinelOpenPositionSummary(executionMode) {
+if (!(await tableExists("cassie_sentinel_positions"))) {
+return {
+open_positions: 0,
+open_total_cost_usd: 0,
+open_current_value_usd: 0,
+open_realized_pnl_usd: 0,
+open_unrealized_pnl_usd: 0,
+open_remaining_cost_basis_usd: 0,
+}
+}
+
+const row = await db.get(
+`
+SELECT
+COUNT(*) AS open_positions,
+COALESCE(SUM(total_cost_usd), 0) AS open_total_cost_usd,
+COALESCE(SUM(current_value_usd), 0) AS open_current_value_usd,
+COALESCE(SUM(realized_pnl_usd), 0) AS open_realized_pnl_usd,
+COALESCE(SUM(unrealized_pnl_usd), 0) AS open_unrealized_pnl_usd,
+COALESCE(SUM(
+CASE
+WHEN units IS NOT NULL
+AND units > 0
+AND avg_entry_price IS NOT NULL
+AND avg_entry_price >= 0
+THEN units * avg_entry_price
+ELSE total_cost_usd
+END
+), 0) AS open_remaining_cost_basis_usd
+FROM cassie_sentinel_positions
+WHERE stage IN ('scout_open','sniper_added','half_banked_at_10x','runner_only')
+AND execution_mode = ?
+`,
+[executionMode]
+)
 
 return {
-id: row.id,
-stat_date: row.stat_date,
-execution_mode: row.execution_mode,
-scouts_opened: Number(row.scouts_opened ?? 0),
-sniper_adds: Number(row.sniper_adds ?? 0),
-positions_closed: Number(row.positions_closed ?? 0),
-invalidations: Number(row.invalidations ?? 0),
-daily_scout_spend_usd: Number(row.daily_scout_spend_usd ?? 0),
-daily_sniper_spend_usd: Number(row.daily_sniper_spend_usd ?? 0),
-daily_realized_pnl_usd: Number(row.daily_realized_pnl_usd ?? 0),
-daily_unrealized_pnl_usd: Number(row.daily_unrealized_pnl_usd ?? 0),
-daily_loss_usd: Number(row.daily_loss_usd ?? 0),
-consecutive_failures: Number(row.consecutive_failures ?? 0),
-recent_rug_rate_pct: Number(row.recent_rug_rate_pct ?? 0),
-reclaim_success_rate_pct: Number(row.reclaim_success_rate_pct ?? 0),
-avg_market_liquidity_usd: Number(row.avg_market_liquidity_usd ?? 0),
-created_at: row.created_at || null,
-updated_at: row.updated_at || null,
+open_positions: Number(row?.open_positions ?? 0),
+open_total_cost_usd: Number(row?.open_total_cost_usd ?? 0),
+open_current_value_usd: Number(row?.open_current_value_usd ?? 0),
+open_realized_pnl_usd: Number(row?.open_realized_pnl_usd ?? 0),
+open_unrealized_pnl_usd: Number(row?.open_unrealized_pnl_usd ?? 0),
+open_remaining_cost_basis_usd: Number(row?.open_remaining_cost_basis_usd ?? 0),
 }
 }
 
-async function buildSentinelStatusPayload() {
+async function getSentinelPeriodStats({
+period = "daily",
+statDate = todayUtcDate(),
+executionMode = "paper",
+} = {}) {
+const range = getSentinelPeriodRange(period, statDate)
+const empty = buildEmptySentinelPeriodStats({
+period: range.period,
+statDate: range.end_date,
+executionMode,
+})
+
+if (!(await tableExists("cassie_sentinel_daily_stats"))) {
+return empty
+}
+
+const filters = [`execution_mode = ?`]
+const params = [executionMode]
+
+if (range.period !== "overall") {
+filters.push(`stat_date >= ?`)
+params.push(range.start_date)
+filters.push(`stat_date <= ?`)
+params.push(range.end_date)
+}
+
+const whereSql = `WHERE ${filters.join(" AND ")}`
+
+const aggregate = await db.get(
+`
+SELECT
+COUNT(*) AS rows_count,
+MIN(stat_date) AS first_stat_date,
+MAX(stat_date) AS last_stat_date,
+COALESCE(SUM(scouts_opened), 0) AS scouts_opened,
+COALESCE(SUM(sniper_adds), 0) AS sniper_adds,
+COALESCE(SUM(positions_closed), 0) AS positions_closed,
+COALESCE(SUM(invalidations), 0) AS invalidations,
+COALESCE(SUM(daily_scout_spend_usd), 0) AS scout_spend_usd,
+COALESCE(SUM(daily_sniper_spend_usd), 0) AS sniper_spend_usd,
+COALESCE(SUM(daily_realized_pnl_usd), 0) AS realized_pnl_usd,
+COALESCE(SUM(daily_loss_usd), 0) AS loss_usd,
+COALESCE(AVG(recent_rug_rate_pct), 0) AS recent_rug_rate_pct,
+COALESCE(AVG(reclaim_success_rate_pct), 0) AS reclaim_success_rate_pct,
+COALESCE(AVG(avg_market_liquidity_usd), 0) AS avg_market_liquidity_usd
+FROM cassie_sentinel_daily_stats
+${whereSql}
+`,
+params
+)
+
+const latest = await db.get(
+`
+SELECT *
+FROM cassie_sentinel_daily_stats
+${whereSql}
+ORDER BY stat_date DESC, id DESC
+LIMIT 1
+`,
+params
+)
+
+const openSummary = await getSentinelOpenPositionSummary(executionMode)
+
+const rowsCount = Number(aggregate?.rows_count ?? 0)
+if (!rowsCount) {
+return {
+...empty,
+...openSummary,
+unrealized_pnl_usd: Number(openSummary.open_unrealized_pnl_usd ?? 0),
+open_unrealized_pnl_usd: Number(openSummary.open_unrealized_pnl_usd ?? 0),
+net_pnl_usd: Number(openSummary.open_unrealized_pnl_usd ?? 0),
+}
+}
+
+const realizedPnlUsd = Number(aggregate?.realized_pnl_usd ?? 0)
+const openUnrealizedPnlUsd = Number(openSummary.open_unrealized_pnl_usd ?? 0)
+
+return {
+period: range.period,
+label: range.label,
+rolling_days: range.rolling_days,
+start_date: range.period === "overall" ? aggregate?.first_stat_date || null : range.start_date,
+end_date: aggregate?.last_stat_date || range.end_date,
+execution_mode: executionMode,
+rows_count: rowsCount,
+scouts_opened: Number(aggregate?.scouts_opened ?? 0),
+sniper_adds: Number(aggregate?.sniper_adds ?? 0),
+positions_closed: Number(aggregate?.positions_closed ?? 0),
+invalidations: Number(aggregate?.invalidations ?? 0),
+scout_spend_usd: Number(aggregate?.scout_spend_usd ?? 0),
+sniper_spend_usd: Number(aggregate?.sniper_spend_usd ?? 0),
+total_spend_usd:
+Number(aggregate?.scout_spend_usd ?? 0) +
+Number(aggregate?.sniper_spend_usd ?? 0),
+realized_pnl_usd: realizedPnlUsd,
+latest_daily_unrealized_pnl_usd: Number(latest?.daily_unrealized_pnl_usd ?? 0),
+unrealized_pnl_usd: openUnrealizedPnlUsd,
+open_unrealized_pnl_usd: openUnrealizedPnlUsd,
+net_pnl_usd: realizedPnlUsd + openUnrealizedPnlUsd,
+loss_usd: Number(aggregate?.loss_usd ?? 0),
+consecutive_failures: Number(latest?.consecutive_failures ?? 0),
+recent_rug_rate_pct: Number(aggregate?.recent_rug_rate_pct ?? 0),
+reclaim_success_rate_pct: Number(aggregate?.reclaim_success_rate_pct ?? 0),
+avg_market_liquidity_usd: Number(aggregate?.avg_market_liquidity_usd ?? 0),
+...openSummary,
+note:
+"Realized PnL and spend are period-based. Unrealized PnL reflects currently open Sentinel positions.",
+}
+}
+
+async function buildSentinelStatusPayload({
+period = "daily",
+date = todayUtcDate(),
+mode = null,
+} = {}) {
 const settingsRow = await getSentinelSettingsRow()
 const settings = serializeSentinelSettings(settingsRow)
+const executionMode = mode && SENTINEL_MODES.has(mode) ? mode : settings.execution_mode
 const engine = getCompactSentinelEngineStatus()
-const statDate = todayUtcDate()
-const openPositions = await getSentinelOpenPositionCount(settings.execution_mode)
-const dailyRow = await getSentinelDailyStatsRow(statDate, settings.execution_mode)
+const statDate = parseDateOnly(date)
+const openPositions = await getSentinelOpenPositionCount(executionMode)
+const dailyRow = await getSentinelDailyStatsRow(statDate, executionMode)
 const daily =
 serializeSentinelDailyStats(dailyRow) ||
-buildEmptySentinelDailyStats(statDate, settings.execution_mode)
+buildEmptySentinelDailyStats(statDate, executionMode)
+const periodSummary = await getSentinelPeriodStats({
+period,
+statDate,
+executionMode,
+})
 
 return {
 settings,
 engine,
 summary: {
 watcher_enabled: Boolean(settings.watcher_enabled),
-execution_mode: settings.execution_mode,
+execution_mode: executionMode,
+settings_execution_mode: settings.execution_mode,
 kill_switch_active: settings.execution_mode === "emergency_stop",
 open_positions: openPositions,
+
+selected_period: periodSummary.period,
+selected_period_label: periodSummary.label,
+selected_period_start_date: periodSummary.start_date,
+selected_period_end_date: periodSummary.end_date,
+
+period_realized_pnl_usd: Number(periodSummary.realized_pnl_usd ?? 0),
+period_unrealized_pnl_usd: Number(periodSummary.unrealized_pnl_usd ?? 0),
+period_net_pnl_usd: Number(periodSummary.net_pnl_usd ?? 0),
+period_loss_usd: Number(periodSummary.loss_usd ?? 0),
+period_scout_spend_usd: Number(periodSummary.scout_spend_usd ?? 0),
+period_sniper_spend_usd: Number(periodSummary.sniper_spend_usd ?? 0),
+period_total_spend_usd: Number(periodSummary.total_spend_usd ?? 0),
+period_scouts_opened: Number(periodSummary.scouts_opened ?? 0),
+period_sniper_adds: Number(periodSummary.sniper_adds ?? 0),
+period_positions_closed: Number(periodSummary.positions_closed ?? 0),
+period_invalidations: Number(periodSummary.invalidations ?? 0),
+
 daily_realized_pnl_usd: Number(daily.daily_realized_pnl_usd ?? 0),
 daily_unrealized_pnl_usd: Number(daily.daily_unrealized_pnl_usd ?? 0),
 daily_loss_usd: Number(daily.daily_loss_usd ?? 0),
@@ -847,6 +1150,9 @@ reclaim_success_rate_pct: Number(daily.reclaim_success_rate_pct ?? 0),
 recent_rug_rate_pct: Number(daily.recent_rug_rate_pct ?? 0),
 avg_market_liquidity_usd: Number(daily.avg_market_liquidity_usd ?? 0),
 stat_date: daily.stat_date,
+
+pnl: periodSummary,
+
 last_tick_started_at: engine?.last_tick_started_at || null,
 last_tick_finished_at: engine?.last_tick_finished_at || null,
 last_error: engine?.last_error || null,
@@ -1523,7 +1829,9 @@ message: error?.message || String(error),
 
 router.get("/sentinel/status", async (req, res) => {
 try {
-const payload = await buildSentinelStatusPayload()
+const period = normalizeSentinelSummaryPeriod(req.query.period, "daily")
+const date = parseDateOnly(req.query.date || todayUtcDate())
+const payload = await buildSentinelStatusPayload({ period, date })
 
 return res.json({
 ok: true,
@@ -2154,7 +2462,7 @@ message: error?.message || String(error),
 
 router.get("/sentinel/stats/daily", async (req, res) => {
 try {
-const date = cleanText(req.query.date || todayUtcDate(), 32)
+const date = parseDateOnly(req.query.date || todayUtcDate())
 const mode = normalizeSentinelMode(req.query.mode || "paper", "paper")
 
 const row = await getSentinelDailyStatsRow(date, mode)
@@ -2174,9 +2482,38 @@ message: error?.message || String(error),
 }
 })
 
+router.get("/sentinel/stats/summary", async (req, res) => {
+try {
+const period = normalizeSentinelSummaryPeriod(req.query.period, "daily")
+const date = parseDateOnly(req.query.date || todayUtcDate())
+const mode = normalizeSentinelMode(req.query.mode || "paper", "paper")
+const stats = await getSentinelPeriodStats({
+period,
+statDate: date,
+executionMode: mode,
+})
+
+return res.json({
+ok: true,
+stats,
+})
+} catch (error) {
+console.error("GET /api/compliance-admin/sentinel/stats/summary failed", error)
+return res.status(500).json({
+ok: false,
+error: "Failed to load Sentinel period stats",
+message: error?.message || String(error),
+})
+}
+})
+
 router.get("/sentinel/summary", async (req, res) => {
 try {
-const payload = await buildSentinelStatusPayload()
+const period = normalizeSentinelSummaryPeriod(req.query.period, "daily")
+const date = parseDateOnly(req.query.date || todayUtcDate())
+const requestedMode = cleanText(req.query.mode || "", 64).toLowerCase()
+const mode = SENTINEL_MODES.has(requestedMode) ? requestedMode : null
+const payload = await buildSentinelStatusPayload({ period, date, mode })
 
 return res.json({
 ok: true,

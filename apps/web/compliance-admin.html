@@ -9,7 +9,7 @@ name="description"
 content="Internal compliance review queue, Sentinel Watcher control center, and Sentinel access-code administration for MSS Protocol."
 />
 
-<link rel="stylesheet" href="/assets/app.css?v=20260518-sentinel-admin-v1" />
+<link rel="stylesheet" href="/assets/app.css?v=20260518-sentinel-admin-v3" />
 
 <style>
 :root {
@@ -37,6 +37,10 @@ content="Internal compliance review queue, Sentinel Watcher control center, and 
 box-sizing: border-box;
 }
 
+[hidden] {
+display: none !important;
+}
+
 html,
 body {
 margin: 0;
@@ -59,6 +63,13 @@ linear-gradient(180deg, #030711 0%, #02050c 100%);
 a {
 color: inherit;
 text-decoration: none;
+}
+
+button,
+input,
+select,
+textarea {
+font: inherit;
 }
 
 .page {
@@ -156,7 +167,8 @@ gap: 18px;
 .panel,
 .hero-panel,
 .summary-panel,
-.subpanel {
+.subpanel,
+.admin-section {
 position: relative;
 overflow: hidden;
 background:
@@ -169,7 +181,8 @@ box-shadow: var(--shadow);
 
 .panel,
 .hero-panel,
-.summary-panel {
+.summary-panel,
+.admin-section {
 border-radius: var(--radius);
 padding: 24px;
 }
@@ -186,7 +199,8 @@ margin-top: 14px;
 .panel::before,
 .hero-panel::before,
 .summary-panel::before,
-.subpanel::before {
+.subpanel::before,
+.admin-section::before {
 content: "";
 position: absolute;
 inset: 0 0 auto 0;
@@ -250,7 +264,8 @@ gap: 12px;
 .mini-card,
 .toggle-card,
 .detail-section,
-.detail-meta {
+.detail-meta,
+.control-link {
 border: 1px solid rgba(115, 185, 255, 0.09);
 background: rgba(255, 255, 255, 0.035);
 border-radius: 16px;
@@ -264,7 +279,8 @@ min-height: 92px;
 .hero-point-label,
 .summary-label,
 .mini-card-label,
-.detail-label {
+.detail-label,
+.control-link-label {
 color: var(--muted-2);
 font-size: 10px;
 font-weight: 900;
@@ -275,7 +291,8 @@ letter-spacing: 0.12em;
 .hero-point-value,
 .summary-value,
 .mini-card-value,
-.detail-value {
+.detail-value,
+.control-link-value {
 margin-top: 8px;
 font-weight: 850;
 line-height: 1.4;
@@ -284,6 +301,32 @@ word-break: break-word;
 
 .hero-point-value {
 font-size: 14px;
+}
+
+.control-grid {
+display: grid;
+grid-template-columns: repeat(5, minmax(0, 1fr));
+gap: 12px;
+margin: 0 0 18px;
+}
+
+.control-link {
+padding: 14px;
+transition:
+border-color 0.16s ease,
+transform 0.16s ease,
+background 0.16s ease;
+}
+
+.control-link:hover,
+.control-link.active {
+transform: translateY(-1px);
+border-color: rgba(79, 195, 255, 0.26);
+background: rgba(79, 195, 255, 0.06);
+}
+
+.control-link-value {
+font-size: 13px;
 }
 
 .section-title {
@@ -679,23 +722,135 @@ grid-template-columns: repeat(2, minmax(0, 1fr));
 gap: 12px;
 }
 
-.divider-line {
-height: 1px;
-margin: 18px 0;
-background: linear-gradient(
-90deg,
-transparent 0%,
-rgba(115, 185, 255, 0.16) 12%,
-rgba(235, 215, 171, 0.08) 50%,
-rgba(115, 185, 255, 0.16) 88%,
-transparent 100%
-);
-}
-
 .section-anchor-title {
 margin: 0;
 font-size: 22px;
 letter-spacing: -0.03em;
+}
+
+.admin-section {
+display: block;
+padding: 0;
+}
+
+.admin-section + .admin-section {
+margin-top: 18px;
+}
+
+.admin-section > summary {
+list-style: none;
+cursor: pointer;
+padding: 22px 24px;
+display: flex;
+align-items: center;
+justify-content: space-between;
+gap: 18px;
+border-bottom: 1px solid rgba(115, 185, 255, 0.09);
+}
+
+.admin-section > summary::-webkit-details-marker {
+display: none;
+}
+
+.admin-section-summary-copy {
+display: grid;
+gap: 8px;
+}
+
+.admin-section-kicker {
+font-size: 10px;
+font-weight: 900;
+letter-spacing: 0.16em;
+text-transform: uppercase;
+color: var(--accent-2);
+}
+
+.admin-section-title {
+font-size: 20px;
+font-weight: 900;
+letter-spacing: -0.03em;
+}
+
+.admin-section-subtitle {
+font-size: 13px;
+line-height: 1.55;
+color: var(--muted);
+max-width: 760px;
+}
+
+.admin-section-icon {
+flex: 0 0 auto;
+width: 36px;
+height: 36px;
+display: grid;
+place-items: center;
+border-radius: 999px;
+border: 1px solid rgba(115, 185, 255, 0.18);
+background: rgba(79, 195, 255, 0.06);
+color: var(--accent-2);
+font-weight: 900;
+transition: transform 0.16s ease;
+}
+
+.admin-section[open] > summary .admin-section-icon {
+transform: rotate(180deg);
+}
+
+.admin-section-body {
+padding: 24px;
+}
+
+.admin-nested {
+border: 1px solid rgba(115, 185, 255, 0.1);
+border-radius: 18px;
+background: rgba(255, 255, 255, 0.025);
+overflow: hidden;
+}
+
+.admin-nested + .admin-nested {
+margin-top: 14px;
+}
+
+.admin-nested > summary {
+list-style: none;
+cursor: pointer;
+padding: 16px;
+display: flex;
+justify-content: space-between;
+align-items: center;
+gap: 14px;
+border-bottom: 1px solid rgba(115, 185, 255, 0.08);
+}
+
+.admin-nested > summary::-webkit-details-marker {
+display: none;
+}
+
+.admin-nested-title {
+font-size: 15px;
+font-weight: 900;
+letter-spacing: -0.02em;
+}
+
+.admin-nested-subtitle {
+margin-top: 4px;
+font-size: 13px;
+color: var(--muted);
+line-height: 1.45;
+}
+
+.admin-nested-icon {
+color: var(--accent-2);
+font-weight: 900;
+transition: transform 0.16s ease;
+}
+
+.admin-nested[open] > summary .admin-nested-icon {
+transform: rotate(180deg);
+}
+
+.admin-nested-body {
+padding: 16px;
 }
 
 .sentinel-enhanced-grid {
@@ -757,6 +912,96 @@ margin-top: 6px;
 font-size: 12px;
 line-height: 1.35;
 color: var(--muted);
+}
+
+.sentinel-summary-period-shell {
+display: flex;
+align-items: end;
+justify-content: space-between;
+gap: 14px;
+margin: 18px 0 0;
+padding: 14px;
+border: 1px solid rgba(99, 179, 237, 0.18);
+border-radius: 18px;
+background:
+linear-gradient(135deg, rgba(2, 6, 23, 0.84), rgba(15, 23, 42, 0.62)),
+radial-gradient(circle at top right, rgba(56, 189, 248, 0.12), transparent 46%);
+}
+
+.sentinel-summary-period-copy {
+min-width: 220px;
+}
+
+.sentinel-summary-period-title {
+font-size: 11px;
+font-weight: 900;
+text-transform: uppercase;
+letter-spacing: 0.16em;
+color: var(--muted);
+}
+
+.sentinel-summary-period-active {
+margin-top: 6px;
+font-size: 16px;
+font-weight: 900;
+color: var(--text);
+}
+
+.sentinel-summary-period-range {
+margin-top: 4px;
+font-size: 12px;
+color: var(--muted);
+}
+
+.sentinel-summary-period-controls {
+display: flex;
+align-items: end;
+gap: 10px;
+flex-wrap: wrap;
+}
+
+.sentinel-summary-period-field {
+display: grid;
+gap: 6px;
+}
+
+.sentinel-summary-period-field label {
+font-size: 10px;
+font-weight: 900;
+letter-spacing: 0.14em;
+text-transform: uppercase;
+color: var(--muted);
+}
+
+.sentinel-summary-period-field select,
+.sentinel-summary-period-field input {
+min-width: 160px;
+border: 1px solid rgba(99, 179, 237, 0.28);
+border-radius: 12px;
+background: rgba(2, 6, 23, 0.86);
+color: var(--text);
+padding: 10px 12px;
+font-weight: 800;
+outline: none;
+}
+
+.sentinel-summary-period-field input {
+min-width: 150px;
+}
+
+.sentinel-summary-period-button {
+border: 1px solid rgba(99, 179, 237, 0.35);
+border-radius: 12px;
+background: rgba(14, 165, 233, 0.18);
+color: var(--text);
+padding: 10px 14px;
+font-weight: 900;
+cursor: pointer;
+}
+
+.sentinel-summary-period-button:disabled {
+opacity: 0.55;
+cursor: not-allowed;
 }
 
 .pnl-good {
@@ -834,6 +1079,7 @@ color: var(--muted);
 grid-template-columns: 1fr;
 }
 
+.control-grid,
 .mini-grid,
 .settings-grid,
 .toggle-grid,
@@ -849,6 +1095,11 @@ grid-template-columns: repeat(2, minmax(0, 1fr));
 .toolbar-inline-action {
 grid-template-columns: 1fr;
 }
+
+.sentinel-summary-period-shell {
+align-items: stretch;
+flex-direction: column;
+}
 }
 
 @media (max-width: 820px) {
@@ -862,6 +1113,7 @@ padding-top: 24px;
 }
 
 .hero-points,
+.control-grid,
 .detail-grid,
 .toolbar,
 .action-row,
@@ -880,9 +1132,19 @@ grid-template-columns: 1fr;
 
 .hero-panel,
 .summary-panel,
-.panel {
+.panel,
+.admin-section {
 padding: 18px;
 border-radius: 18px;
+}
+
+.admin-section {
+padding: 0;
+}
+
+.admin-section > summary,
+.admin-section-body {
+padding: 18px;
 }
 
 .subpanel {
@@ -893,12 +1155,16 @@ padding: 14px;
 font-size: clamp(30px, 11vw, 44px);
 }
 
-.sentinel-position-sort-shell {
+.sentinel-position-sort-shell,
+.sentinel-summary-period-controls {
 align-items: stretch;
 flex-direction: column;
 }
 
-.sentinel-position-sort-select {
+.sentinel-position-sort-select,
+.sentinel-summary-period-field select,
+.sentinel-summary-period-field input,
+.sentinel-summary-period-button {
 width: 100%;
 }
 }
@@ -991,16 +1257,51 @@ Current compliance queue state and selected-case posture.
 </section>
 
 <section class="main">
-<section class="section-block">
-<section class="panel">
+<nav id="mssAdminCommandCenter" class="control-grid" aria-label="Admin sections">
+<a class="control-link active" href="#sentinel-overview" data-mss-admin-tab="overview">
+<div class="control-link-label">01</div>
+<div class="control-link-value">Sentinel Overview</div>
+</a>
+<a class="control-link" href="#sentinel-settings" data-mss-admin-tab="settings">
+<div class="control-link-label">02</div>
+<div class="control-link-value">Settings</div>
+</a>
+<a class="control-link" href="#sentinel-intelligence" data-mss-admin-tab="positions">
+<div class="control-link-label">03</div>
+<div class="control-link-value">Positions & Audit</div>
+</a>
+<a class="control-link" href="#sentinel-access" data-mss-admin-tab="access">
+<div class="control-link-label">04</div>
+<div class="control-link-value">Access Codes</div>
+</a>
+<a class="control-link" href="#compliance-cases" data-mss-admin-tab="cases">
+<div class="control-link-label">05</div>
+<div class="control-link-value">Compliance Cases</div>
+</a>
+</nav>
+
+<section id="sentinel-overview" class="section-block">
+<span data-mss-admin-collapse="overview" hidden></span>
+<details class="admin-section" open>
+<summary>
+<div class="admin-section-summary-copy">
+<div class="admin-section-kicker">Sentinel Watcher</div>
+<div class="admin-section-title">Overview and execution mode</div>
+<div class="admin-section-subtitle">
+The high-signal surface: mode state, summary PnL windows, daily stats, runtime engine state, and emergency stop controls.
+</div>
+</div>
+<div class="admin-section-icon">⌄</div>
+</summary>
+
+<div class="admin-section-body">
 <div id="sentinelBanner" class="banner"></div>
 
 <div class="section-header-row">
 <div>
-<div class="eyebrow">Sentinel Watcher</div>
-<h2 class="section-anchor-title" style="margin-top: 14px;">Execution control center</h2>
+<h2 class="section-anchor-title">Execution control center</h2>
 <p class="section-copy" style="margin-top: 10px;">
-Switch execution modes, manage Sentinel thresholds, monitor positions, and review audit events from one control surface.
+Switch execution modes, monitor selected-window PnL, and confirm Sentinel is processing cleanly.
 </p>
 </div>
 
@@ -1068,12 +1369,16 @@ autocomplete="off"
 </div>
 </div>
 
-<div class="subpanel">
-<h3 class="section-title">Engine state</h3>
-<p class="section-copy">
-Runtime status returned from Sentinel engine wiring.
-</p>
+<details class="admin-nested">
+<summary>
+<div>
+<div class="admin-nested-title">Engine state</div>
+<div class="admin-nested-subtitle">Runtime status returned from Sentinel engine wiring.</div>
+</div>
+<div class="admin-nested-icon">⌄</div>
+</summary>
 
+<div class="admin-nested-body">
 <div class="mini-grid">
 <div class="mini-card">
 <div class="mini-card-label">Engine Started</div>
@@ -1109,7 +1414,189 @@ Runtime status returned from Sentinel engine wiring.
 </div>
 </div>
 </div>
+</details>
+</section>
 
+<aside class="stack">
+<div class="subpanel">
+<h3 class="section-title">Sentinel summary</h3>
+<p class="section-copy">
+PnL can now be filtered by daily, weekly, monthly, or overall view.
+</p>
+
+<div id="sentinelSummaryPeriodShell" class="sentinel-summary-period-shell">
+<div class="sentinel-summary-period-copy">
+<div class="sentinel-summary-period-title">Sentinel Summary Window</div>
+<div id="sentinelSummaryPeriodLabel" class="sentinel-summary-period-active">Daily PnL</div>
+<div id="sentinelSummaryPeriodRange" class="sentinel-summary-period-range">—</div>
+</div>
+
+<div class="sentinel-summary-period-controls">
+<div class="sentinel-summary-period-field">
+<label for="sentinelSummaryPeriodFilter">Window</label>
+<select id="sentinelSummaryPeriodFilter">
+<option value="daily">Daily</option>
+<option value="weekly">Weekly</option>
+<option value="monthly">Monthly</option>
+<option value="overall">Overall</option>
+</select>
+</div>
+
+<div class="sentinel-summary-period-field">
+<label for="sentinelSummaryDateInput">Anchor Date</label>
+<input id="sentinelSummaryDateInput" type="date" />
+</div>
+
+<button id="refreshSentinelSummaryButton" class="sentinel-summary-period-button" type="button">
+Refresh Summary
+</button>
+</div>
+</div>
+
+<div class="summary-grid">
+<div class="summary-card">
+<div class="summary-label">Open Positions</div>
+<div class="summary-value" id="sentinelSummaryOpenPositions">0</div>
+<div class="summary-copy">Currently open Sentinel positions in the active mode.</div>
+</div>
+
+<div class="summary-card">
+<div class="summary-label">Period Realized PnL</div>
+<div class="summary-value" id="sentinelSummaryDailyRealizedPnl">$0.00</div>
+<div class="summary-copy">Closed realized performance for the selected summary window.</div>
+</div>
+
+<div class="summary-card">
+<div class="summary-label">Period Unrealized PnL</div>
+<div class="summary-value" id="sentinelSummaryDailyUnrealizedPnl">$0.00</div>
+<div class="summary-copy">Open unrealized position performance for the selected summary window.</div>
+</div>
+
+<div class="summary-card">
+<div class="summary-label">Period Loss</div>
+<div class="summary-value" id="sentinelSummaryDailyLoss">$0.00</div>
+<div class="summary-copy">Loss figure for the selected Sentinel summary window.</div>
+</div>
+</div>
+
+<div id="sentinelEnhancedSummaryCards" class="sentinel-enhanced-grid">
+<div class="sentinel-enhanced-card">
+<div class="sentinel-enhanced-label">Open Capital at Risk</div>
+<div class="sentinel-enhanced-value" id="sentinelSummaryOpenCapital">$0.00</div>
+<div class="sentinel-enhanced-subtitle">Remaining cost basis across currently loaded open positions.</div>
+</div>
+
+<div class="sentinel-enhanced-card">
+<div class="sentinel-enhanced-label">Current Open Value</div>
+<div class="sentinel-enhanced-value" id="sentinelSummaryOpenValue">$0.00</div>
+<div class="sentinel-enhanced-subtitle">Live paper value across currently loaded open positions.</div>
+</div>
+
+<div class="sentinel-enhanced-card">
+<div class="sentinel-enhanced-label">Period Capital Deployed</div>
+<div class="sentinel-enhanced-value" id="sentinelSummaryTotalCapital">$0.00</div>
+<div class="sentinel-enhanced-subtitle">Capital committed during the selected Sentinel summary window.</div>
+</div>
+
+<div class="sentinel-enhanced-card">
+<div class="sentinel-enhanced-label">Selected Window PnL</div>
+<div class="sentinel-enhanced-value" id="sentinelSummaryPortfolioPnl">$0.00</div>
+<div class="sentinel-enhanced-subtitle">Realized plus current open unrealized PnL for the selected window.</div>
+</div>
+</div>
+</div>
+
+<details class="admin-nested">
+<summary>
+<div>
+<div class="admin-nested-title">Stats detail</div>
+<div class="admin-nested-subtitle">Daily operational stats for selected mode and date.</div>
+</div>
+<div class="admin-nested-icon">⌄</div>
+</summary>
+
+<div class="admin-nested-body">
+<div class="toolbar-compact-3">
+<div class="field">
+<label for="sentinelStatsDateInput">Stats Date</label>
+<input id="sentinelStatsDateInput" class="input" type="date" />
+</div>
+
+<div class="field">
+<label for="sentinelStatsModeFilter">Mode</label>
+<select id="sentinelStatsModeFilter" class="select">
+<option value="paper">Paper</option>
+<option value="armed_mainnet">Armed Mainnet</option>
+<option value="live_mainnet">Live Mainnet</option>
+<option value="emergency_stop">Emergency Stop</option>
+</select>
+</div>
+
+<div class="field" style="justify-content: flex-end;">
+<label>&nbsp;</label>
+<button id="refreshSentinelStatsButton" class="button button-secondary" type="button">
+Refresh Stats
+</button>
+</div>
+</div>
+
+<div class="stats-grid">
+<div class="mini-card">
+<div class="mini-card-label">Scouts Opened</div>
+<div class="mini-card-value" id="sentinelStatsScoutsOpened">0</div>
+</div>
+<div class="mini-card">
+<div class="mini-card-label">Sniper Adds</div>
+<div class="mini-card-value" id="sentinelStatsSniperAdds">0</div>
+</div>
+<div class="mini-card">
+<div class="mini-card-label">Positions Closed</div>
+<div class="mini-card-value" id="sentinelStatsPositionsClosed">0</div>
+</div>
+<div class="mini-card">
+<div class="mini-card-label">Invalidations</div>
+<div class="mini-card-value" id="sentinelStatsInvalidations">0</div>
+</div>
+<div class="mini-card">
+<div class="mini-card-label">Consecutive Failures</div>
+<div class="mini-card-value" id="sentinelStatsConsecutiveFailures">0</div>
+</div>
+<div class="mini-card">
+<div class="mini-card-label">Reclaim Success Rate</div>
+<div class="mini-card-value" id="sentinelStatsReclaimSuccessRate">0%</div>
+</div>
+<div class="mini-card">
+<div class="mini-card-label">Recent Rug Rate</div>
+<div class="mini-card-value" id="sentinelStatsRecentRugRate">0%</div>
+</div>
+<div class="mini-card">
+<div class="mini-card-label">Avg Market Liquidity</div>
+<div class="mini-card-value" id="sentinelStatsAvgMarketLiquidity">$0</div>
+</div>
+</div>
+</div>
+</details>
+</aside>
+</div>
+</div>
+</details>
+</section>
+
+<section id="sentinel-settings" class="section-block">
+<span data-mss-admin-collapse="settings" hidden></span>
+<details class="admin-section">
+<summary>
+<div class="admin-section-summary-copy">
+<div class="admin-section-kicker">Sentinel Watcher</div>
+<div class="admin-section-title">Settings and thresholds</div>
+<div class="admin-section-subtitle">
+Collapsed by default to reduce clutter. Expand only when changing allocation sizes, filters, risk caps, or hard-reject thresholds.
+</div>
+</div>
+<div class="admin-section-icon">⌄</div>
+</summary>
+
+<div class="admin-section-body">
 <div class="subpanel">
 <h3 class="section-title">Core Sentinel settings</h3>
 <p class="section-copy">
@@ -1396,140 +1883,25 @@ Full threshold surface aligned to the current config service and admin patch rou
 </div>
 </div>
 </div>
+</div>
+</details>
 </section>
 
-<aside class="stack">
-<div class="subpanel">
-<h3 class="section-title">Sentinel summary</h3>
-<p class="section-copy">
-Live snapshot of the currently active execution mode.
-</p>
+<section id="sentinel-intelligence" class="section-block">
+<span data-mss-admin-collapse="positions" hidden></span>
+<details class="admin-section">
+<summary>
+<div class="admin-section-summary-copy">
+<div class="admin-section-kicker">Sentinel Intelligence</div>
+<div class="admin-section-title">Positions and audit trail</div>
+<div class="admin-section-subtitle">
+Position intelligence, execution decisions, rejects, watchlists, and admin action logs. Kept collapsed unless actively investigating.
+</div>
+</div>
+<div class="admin-section-icon">⌄</div>
+</summary>
 
-<div class="summary-grid">
-<div class="summary-card">
-<div class="summary-label">Open Positions</div>
-<div class="summary-value" id="sentinelSummaryOpenPositions">0</div>
-<div class="summary-copy">Currently open Sentinel positions in the active mode.</div>
-</div>
-
-<div class="summary-card">
-<div class="summary-label">Daily Realized PnL</div>
-<div class="summary-value" id="sentinelSummaryDailyRealizedPnl">$0.00</div>
-<div class="summary-copy">Closed realized performance for the active mode today.</div>
-</div>
-
-<div class="summary-card">
-<div class="summary-label">Daily Unrealized PnL</div>
-<div class="summary-value" id="sentinelSummaryDailyUnrealizedPnl">$0.00</div>
-<div class="summary-copy">Open unrealized position performance for the active mode.</div>
-</div>
-
-<div class="summary-card">
-<div class="summary-label">Daily Loss</div>
-<div class="summary-value" id="sentinelSummaryDailyLoss">$0.00</div>
-<div class="summary-copy">Drawdown consumed against the current daily loss cap.</div>
-</div>
-</div>
-
-<div id="sentinelEnhancedSummaryCards" class="sentinel-enhanced-grid">
-<div class="sentinel-enhanced-card">
-<div class="sentinel-enhanced-label">Open Capital at Risk</div>
-<div class="sentinel-enhanced-value" id="sentinelSummaryOpenCapital">$0.00</div>
-<div class="sentinel-enhanced-subtitle">Remaining cost basis across currently loaded open positions.</div>
-</div>
-
-<div class="sentinel-enhanced-card">
-<div class="sentinel-enhanced-label">Current Open Value</div>
-<div class="sentinel-enhanced-value" id="sentinelSummaryOpenValue">$0.00</div>
-<div class="sentinel-enhanced-subtitle">Live paper value across currently loaded open positions.</div>
-</div>
-
-<div class="sentinel-enhanced-card">
-<div class="sentinel-enhanced-label">Total Capital Deployed</div>
-<div class="sentinel-enhanced-value" id="sentinelSummaryTotalCapital">$0.00</div>
-<div class="sentinel-enhanced-subtitle">Overall capital committed by Sentinel where backend data is available.</div>
-</div>
-
-<div class="sentinel-enhanced-card">
-<div class="sentinel-enhanced-label">Total Portfolio PnL</div>
-<div class="sentinel-enhanced-value" id="sentinelSummaryPortfolioPnl">$0.00</div>
-<div class="sentinel-enhanced-subtitle">Realized plus unrealized performance across Sentinel data.</div>
-</div>
-</div>
-</div>
-
-<div class="subpanel">
-<div class="table-title-row">
-<div>
-<h3 class="section-title">Daily stats</h3>
-<p class="section-copy">Fast daily state for the selected mode and date.</p>
-</div>
-</div>
-
-<div class="toolbar-compact-3">
-<div class="field">
-<label for="sentinelStatsDateInput">Stats Date</label>
-<input id="sentinelStatsDateInput" class="input" type="date" />
-</div>
-
-<div class="field">
-<label for="sentinelStatsModeFilter">Mode</label>
-<select id="sentinelStatsModeFilter" class="select">
-<option value="paper">Paper</option>
-<option value="armed_mainnet">Armed Mainnet</option>
-<option value="live_mainnet">Live Mainnet</option>
-<option value="emergency_stop">Emergency Stop</option>
-</select>
-</div>
-
-<div class="field" style="justify-content: flex-end;">
-<label>&nbsp;</label>
-<button id="refreshSentinelStatsButton" class="button button-secondary" type="button">
-Refresh Stats
-</button>
-</div>
-</div>
-
-<div class="stats-grid">
-<div class="mini-card">
-<div class="mini-card-label">Scouts Opened</div>
-<div class="mini-card-value" id="sentinelStatsScoutsOpened">0</div>
-</div>
-<div class="mini-card">
-<div class="mini-card-label">Sniper Adds</div>
-<div class="mini-card-value" id="sentinelStatsSniperAdds">0</div>
-</div>
-<div class="mini-card">
-<div class="mini-card-label">Positions Closed</div>
-<div class="mini-card-value" id="sentinelStatsPositionsClosed">0</div>
-</div>
-<div class="mini-card">
-<div class="mini-card-label">Invalidations</div>
-<div class="mini-card-value" id="sentinelStatsInvalidations">0</div>
-</div>
-<div class="mini-card">
-<div class="mini-card-label">Consecutive Failures</div>
-<div class="mini-card-value" id="sentinelStatsConsecutiveFailures">0</div>
-</div>
-<div class="mini-card">
-<div class="mini-card-label">Reclaim Success Rate</div>
-<div class="mini-card-value" id="sentinelStatsReclaimSuccessRate">0%</div>
-</div>
-<div class="mini-card">
-<div class="mini-card-label">Recent Rug Rate</div>
-<div class="mini-card-value" id="sentinelStatsRecentRugRate">0%</div>
-</div>
-<div class="mini-card">
-<div class="mini-card-label">Avg Market Liquidity</div>
-<div class="mini-card-value" id="sentinelStatsAvgMarketLiquidity">$0</div>
-</div>
-</div>
-</div>
-</aside>
-</div>
-
-<div class="divider-line"></div>
-
+<div class="admin-section-body">
 <div class="stack">
 <section class="subpanel">
 <div class="table-title-row">
@@ -1813,17 +2185,30 @@ Refresh Admin Audit
 </div>
 </section>
 </div>
-</section>
+</div>
+</details>
 </section>
 
-<section class="section-block">
-<section class="panel">
+<section id="sentinel-access" class="section-block">
+<span data-mss-admin-collapse="access" hidden></span>
+<details class="admin-section">
+<summary>
+<div class="admin-section-summary-copy">
+<div class="admin-section-kicker">Sentinel Access Admin</div>
+<div class="admin-section-title">Access-code and tester entitlement control</div>
+<div class="admin-section-subtitle">
+Create trial codes, bind tester access, monitor redemptions, and disable codes when the tester window ends.
+</div>
+</div>
+<div class="admin-section-icon">⌄</div>
+</summary>
+
+<div class="admin-section-body">
 <div id="sentinelAccessBanner" class="banner"></div>
 
 <div class="section-header-row">
 <div>
-<div class="eyebrow">Sentinel Access Admin</div>
-<h2 class="section-anchor-title" style="margin-top: 14px;">Access-code and tester entitlement control</h2>
+<h2 class="section-anchor-title">Tester access control</h2>
 <p class="section-copy" style="margin-top: 10px;">
 Create trial codes, bind access to selected accounts, monitor redemptions, and disable codes when the tester window ends.
 </p>
@@ -2307,19 +2692,32 @@ Refresh Selected Code
 </section>
 </aside>
 </div>
-</section>
+</div>
+</details>
 </section>
 
-<section class="section-block">
-<section class="panel">
+<section id="compliance-cases" class="section-block">
+<span data-mss-admin-collapse="cases" hidden></span>
+<details class="admin-section">
+<summary>
+<div class="admin-section-summary-copy">
+<div class="admin-section-kicker">Compliance Cases</div>
+<div class="admin-section-title">Case review queue</div>
+<div class="admin-section-subtitle">
+Filter by status, type, risk level, or assignment, then review and resolve cases without leaving the admin shell.
+</div>
+</div>
+<div class="admin-section-icon">⌄</div>
+</summary>
+
+<div class="admin-section-body">
 <div id="banner" class="banner"></div>
 
 <div class="section-header-row">
 <div>
-<div class="eyebrow">Compliance Cases</div>
-<h2 class="section-anchor-title" style="margin-top: 14px;">Case review queue</h2>
+<h2 class="section-anchor-title">Case review queue</h2>
 <p class="section-copy" style="margin-top: 10px;">
-Filter by status, type, risk level, or assignment, then review and resolve cases without leaving the admin shell.
+Compliance case review stays separated from Sentinel controls so the page is easier to operate.
 </p>
 </div>
 </div>
@@ -2396,13 +2794,8 @@ Apply
 <tbody id="casesTableBody"></tbody>
 </table>
 </div>
-</section>
 
-<div class="layout">
-<section class="stack"></section>
-
-<aside class="stack">
-<section class="panel">
+<section class="panel" style="margin-top: 18px;">
 <div>
 <h2 class="section-title">Selected case</h2>
 <p class="section-copy">
@@ -2560,14 +2953,14 @@ Assign Reviewer
 </div>
 </div>
 </section>
-</aside>
 </div>
+</details>
 </section>
 </section>
 </main>
 </div>
 
 <script type="module" src="/assets/layout-shell.js?v=20260514-shell-v3"></script>
-<script type="module" src="/assets/pages/compliance-admin.js?v=20260518-sentinel-admin-v1"></script>
+<script type="module" src="/assets/pages/compliance-admin.js?v=20260518-sentinel-admin-v3"></script>
 </body>
 </html>
