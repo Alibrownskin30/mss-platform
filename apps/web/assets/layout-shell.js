@@ -10,6 +10,18 @@ const NAV_ITEMS = [
 { key: "legal", label: "Legal", href: "./legal.html" },
 ];
 
+const ADMIN_NAV_ITEMS = [
+{ key: "admin", label: "Admin Home", href: "./admin.html" },
+{ key: "compliance-admin", label: "Compliance Cases", href: "./compliance-admin.html" },
+{ key: "sentinel-admin", label: "Sentinel Settings", href: "./sentinel-admin.html" },
+{
+key: "sentinel-access-admin",
+label: "Sentinel Access Codes",
+href: "./sentinel-access-admin.html",
+},
+{ key: "auth", label: "Sentinel User Access", href: "./auth.html" },
+];
+
 const PAGE_LABELS = {
 home: "Home",
 scanner: "Scanner",
@@ -22,7 +34,10 @@ alerts: "Alerts",
 sentinel: "Sentinel Access",
 auth: "Sentinel Access",
 compliance: "Compliance",
+admin: "Admin",
 "compliance-admin": "Compliance Admin",
+"sentinel-admin": "Sentinel Admin",
+"sentinel-access-admin": "Sentinel Access Admin",
 methodology: "Methodology",
 legal: "Legal",
 };
@@ -39,7 +54,10 @@ alerts: "Monitoring Layer",
 sentinel: "Sentinel Watcher Access",
 auth: "Sentinel Watcher Access",
 compliance: "Access Verification",
-"compliance-admin": "Internal Control Surface",
+admin: "Internal Admin Command",
+"compliance-admin": "Compliance Case Control",
+"sentinel-admin": "Sentinel Watcher Control",
+"sentinel-access-admin": "Sentinel Access-Code Control",
 methodology: "Scoring Framework",
 legal: "Policy And Terms",
 };
@@ -458,6 +476,20 @@ scrollbar-color:rgba(115,185,255,.22) transparent;
 
 .mss-shell-drawer-block + .mss-shell-drawer-block{
 margin-top:18px;
+}
+
+.mss-shell-drawer-block-secondary{
+padding-top:2px;
+}
+
+.mss-shell-drawer-block-secondary .mss-shell-drawer-link{
+min-height:50px;
+opacity:.88;
+}
+
+.mss-shell-drawer-block-secondary .mss-shell-drawer-link:hover,
+.mss-shell-drawer-block-secondary .mss-shell-drawer-link.active{
+opacity:1;
 }
 
 .mss-shell-drawer-label{
@@ -987,17 +1019,21 @@ if (value) return value;
 return "";
 }
 
+function normalizePageKey(raw) {
+const normalized = cleanText(raw, 120).toLowerCase();
+
+if (normalized === "token") return "scanner";
+if (normalized === "launcher") return "launchpad";
+if (normalized === "sentinel-access") return "sentinel-access-admin";
+
+return normalized;
+}
+
 function getActiveKey(options = {}) {
 const raw = cleanText(
 options.activeNav ||
 options.activeKey ||
-getBodyDatasetValue(
-"shellActive",
-"activeNav",
-"activePage",
-"page",
-"active"
-) ||
+getBodyDatasetValue("shellActive", "activeNav", "activePage", "page", "active") ||
 "home",
 120
 ).toLowerCase();
@@ -1006,16 +1042,62 @@ if (raw === "token") return "scanner";
 if (raw === "launcher") return "launchpad";
 if (raw === "auth") return "sentinel";
 
-return raw;
+return normalizePageKey(raw);
+}
+
+function getPageKey(options = {}) {
+const raw = cleanText(
+options.activePage ||
+options.pageKey ||
+getBodyDatasetValue("activePage", "page", "shellPage") ||
+getActiveKey(options),
+120
+).toLowerCase();
+
+return normalizePageKey(raw);
+}
+
+function isAdminPage(options = {}) {
+const activeKey = getActiveKey(options);
+const pageKey = getPageKey(options);
+const adminFlag = cleanText(
+options.adminShell ||
+options.isAdminShell ||
+getBodyDatasetValue("adminShell", "shellAdmin", "isAdmin", "shellMode"),
+40
+).toLowerCase();
+
+if (["true", "1", "yes", "admin", "internal"].includes(adminFlag)) return true;
+
+return (
+activeKey === "admin" ||
+pageKey === "admin" ||
+pageKey === "compliance-admin" ||
+pageKey === "sentinel-admin" ||
+pageKey === "sentinel-access-admin"
+);
+}
+
+function getNavActiveKey(options = {}) {
+const activeKey = getActiveKey(options);
+const pageKey = getPageKey(options);
+
+if (isAdminPage(options) && ADMIN_NAV_ITEMS.some((item) => item.key === pageKey)) {
+return pageKey;
+}
+
+return activeKey;
 }
 
 function getSubtitle(options = {}) {
 const activeKey = getActiveKey(options);
+const pageKey = getPageKey(options);
 
 return cleanText(
 options.pageSubtitle ||
 options.pageLabel ||
 getBodyDatasetValue("shellSubtitle", "pageSubtitle") ||
+PAGE_SUBTITLES[pageKey] ||
 PAGE_SUBTITLES[activeKey] ||
 "Blockchain Security Intelligence",
 160
@@ -1024,11 +1106,13 @@ PAGE_SUBTITLES[activeKey] ||
 
 function getPageTitle(options = {}) {
 const activeKey = getActiveKey(options);
+const pageKey = getPageKey(options);
 
 return cleanText(
 options.pageTitle ||
 options.pageLabel ||
 getBodyDatasetValue("shellTitle", "pageTitle") ||
+PAGE_LABELS[pageKey] ||
 PAGE_LABELS[activeKey] ||
 document.title ||
 "MSS Protocol",
@@ -1049,19 +1133,52 @@ builder: "Builder console",
 explore: "Market discovery",
 alerts: "Monitoring layer",
 sentinel: "Access gateway",
+auth: "User access gateway",
+admin: "Internal overview",
+"compliance-admin": "Case review queue",
+"sentinel-admin": "Watcher control surface",
+"sentinel-access-admin": "Tester code control",
 methodology: "Scoring framework",
 legal: "Policy and terms",
 };
+
 return meta[key] || "MSS navigation";
 }
 
-function renderDrawerNav(activeKey) {
-return NAV_ITEMS.map((item, index) => {
+function getActiveNavSet(options = {}) {
+return isAdminPage(options) ? ADMIN_NAV_ITEMS : NAV_ITEMS;
+}
+
+function getActiveDrawerGroups(options = {}) {
+if (isAdminPage(options)) {
+return [
+{
+label: "Admin Surfaces",
+items: ADMIN_NAV_ITEMS,
+},
+{
+label: "Public Platform",
+items: NAV_ITEMS,
+},
+];
+}
+
+return [
+{
+label: "Navigate",
+items: NAV_ITEMS,
+},
+];
+}
+
+function renderDrawerNavItems(items, activeKey, startIndex = 0) {
+return items
+.map((item, index) => {
 const activeClass = item.key === activeKey ? " active" : "";
 return `
 <a class="mss-shell-drawer-link${activeClass}" href="${item.href}" data-shell-close="true">
 <span class="mss-shell-drawer-link-main">
-<span class="mss-shell-drawer-link-index">${String(index + 1).padStart(2, "0")}</span>
+<span class="mss-shell-drawer-link-index">${String(startIndex + index + 1).padStart(2, "0")}</span>
 <span class="mss-shell-drawer-link-text">
 <span class="mss-shell-drawer-link-title">${item.label}</span>
 <span class="mss-shell-drawer-link-sub">${getNavMeta(item.key)}</span>
@@ -1070,15 +1187,48 @@ return `
 <span class="mss-shell-drawer-link-arrow">→</span>
 </a>
 `;
-}).join("");
+})
+.join("");
+}
+
+function renderDrawerNav(activeKey, options = {}) {
+const groups = getActiveDrawerGroups(options);
+let runningIndex = 0;
+
+return groups
+.map((group, groupIndex) => {
+const groupStartIndex = runningIndex;
+runningIndex += group.items.length;
+
+return `
+<div class="mss-shell-drawer-block${groupIndex === 0 ? "" : " mss-shell-drawer-block-secondary"}">
+<div class="mss-shell-drawer-label">${group.label}</div>
+<nav class="mss-shell-drawer-nav" aria-label="${group.label}">
+${renderDrawerNavItems(group.items, activeKey, groupStartIndex)}
+</nav>
+</div>
+`;
+})
+.join("");
+}
+
+function getAccountAccessCopy(options = {}) {
+if (isAdminPage(options)) {
+return "Internal admin surfaces should remain gated. Use this access block for session state and account controls.";
+}
+
+return "Open account access, session controls, and wallet-linked product entry from one command surface.";
 }
 
 function renderHeader(options = {}) {
-const activeKey = getActiveKey(options);
+const pageKey = getPageKey(options);
+const activeKey = getNavActiveKey(options);
 const subtitle = getSubtitle(options);
 const pageTitle = getPageTitle(options);
+const activeNavSet = getActiveNavSet(options);
 const activeLabel =
-NAV_ITEMS.find((item) => item.key === activeKey)?.label ||
+activeNavSet.find((item) => item.key === activeKey)?.label ||
+PAGE_LABELS[pageKey] ||
 PAGE_LABELS[activeKey] ||
 "Menu";
 
@@ -1141,18 +1291,13 @@ aria-label="Close navigation menu"
 </div>
 
 <div class="mss-shell-drawer-scroll">
-<div class="mss-shell-drawer-block">
-<div class="mss-shell-drawer-label">Navigate</div>
-<nav class="mss-shell-drawer-nav" aria-label="Primary">
-${renderDrawerNav(activeKey)}
-</nav>
-</div>
+${renderDrawerNav(activeKey, options)}
 
 <div class="mss-shell-drawer-block">
 <div class="mss-shell-drawer-label">Account Access</div>
 <div class="mss-shell-account-card">
 <div class="mss-shell-account-copy">
-Open account access, session controls, and wallet-linked product entry from one command surface.
+${getAccountAccessCopy(options)}
 </div>
 <button id="sessionPill" class="mss-shell-session" type="button" title="Login">
 <span id="sessionDot" class="mss-shell-status-dot"></span>
@@ -1219,8 +1364,25 @@ Blockchain Security Intelligence
 `;
 }
 
-function renderFooter() {
+function renderFooter(options = {}) {
 const year = getFooterYear();
+const adminMode = isAdminPage(options);
+
+const frameworkLinks = adminMode
+? `
+<a class="mss-shell-footer-link" href="./admin.html">Admin Home</a>
+<a class="mss-shell-footer-link" href="./compliance-admin.html">Compliance Cases</a>
+<a class="mss-shell-footer-link" href="./sentinel-admin.html">Sentinel Settings</a>
+<a class="mss-shell-footer-link" href="./sentinel-access-admin.html">Sentinel Access Codes</a>
+<a class="mss-shell-footer-link" href="./auth.html">Sentinel User Access</a>
+`
+: `
+<a class="mss-shell-footer-link" href="./methodology.html">Methodology</a>
+<a class="mss-shell-footer-link" href="./legal.html">Legal</a>
+<a class="mss-shell-footer-link" href="./auth.html">Sentinel Access</a>
+`;
+
+const frameworkHeading = adminMode ? "Internal Admin" : "Framework";
 
 return `
 <footer class="mss-shell-footer" id="mssShellFooter">
@@ -1252,11 +1414,9 @@ Blockchain security intelligence for transparent crypto markets. Built to surfac
 </div>
 
 <div class="mss-shell-footer-col">
-<div class="mss-shell-footer-heading">Framework</div>
+<div class="mss-shell-footer-heading">${frameworkHeading}</div>
 <div class="mss-shell-footer-links">
-<a class="mss-shell-footer-link" href="./methodology.html">Methodology</a>
-<a class="mss-shell-footer-link" href="./legal.html">Legal</a>
-<a class="mss-shell-footer-link" href="./auth.html">Sentinel Access</a>
+${frameworkLinks}
 </div>
 </div>
 
@@ -1346,15 +1506,9 @@ document.body.insertAdjacentHTML("beforeend", markup);
 }
 
 function setBodyScrollLock(open) {
-const scrollbarWidth = Math.max(
-0,
-window.innerWidth - document.documentElement.clientWidth
-);
+const scrollbarWidth = Math.max(0, window.innerWidth - document.documentElement.clientWidth);
 
-document.documentElement.style.setProperty(
-"--mss-shell-scrollbar-width",
-`${scrollbarWidth}px`
-);
+document.documentElement.style.setProperty("--mss-shell-scrollbar-width", `${scrollbarWidth}px`);
 
 document.documentElement.classList.toggle("mss-shell-lock", open);
 document.body.classList.toggle("mss-shell-lock", open);
@@ -1384,8 +1538,7 @@ toggle.setAttribute("aria-expanded", open ? "true" : "false");
 setBodyScrollLock(open);
 
 if (open) {
-lastFocusedElement =
-document.activeElement instanceof HTMLElement ? document.activeElement : toggle;
+lastFocusedElement = document.activeElement instanceof HTMLElement ? document.activeElement : toggle;
 window.requestAnimationFrame(() => {
 closeBtn?.focus?.({ preventScroll: true });
 });
@@ -1427,14 +1580,8 @@ setOpen(false);
 
 window.addEventListener("resize", () => {
 if (!drawer.classList.contains("is-open")) return;
-const scrollbarWidth = Math.max(
-0,
-window.innerWidth - document.documentElement.clientWidth
-);
-document.documentElement.style.setProperty(
-"--mss-shell-scrollbar-width",
-`${scrollbarWidth}px`
-);
+const scrollbarWidth = Math.max(0, window.innerWidth - document.documentElement.clientWidth);
+document.documentElement.style.setProperty("--mss-shell-scrollbar-width", `${scrollbarWidth}px`);
 });
 }
 
@@ -1448,6 +1595,7 @@ if (document.body.dataset.activePage) return true;
 if (document.body.dataset.page) return true;
 if (document.body.dataset.activeNav) return true;
 if (document.body.dataset.shellActive) return true;
+if (document.body.dataset.adminShell) return true;
 if (document.getElementById("layoutShellHeader")) return true;
 if (document.getElementById("layoutShellFooter")) return true;
 
@@ -1472,10 +1620,10 @@ injectMarkup(headerTarget, renderHeader(options));
 
 if (footerTarget.mode === "target") {
 if (!footerTarget.node.querySelector("#mssShellFooter")) {
-injectMarkup(footerTarget, renderFooter());
+injectMarkup(footerTarget, renderFooter(options));
 }
 } else if (!document.getElementById("mssShellFooter")) {
-injectMarkup(footerTarget, renderFooter());
+injectMarkup(footerTarget, renderFooter(options));
 }
 
 const header = document.getElementById("mssShellHeader");

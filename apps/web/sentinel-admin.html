@@ -1,0 +1,912 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>MSS Protocol — Sentinel Settings Admin</title>
+<meta
+name="description"
+content="Internal Sentinel Watcher settings, execution mode, engine health, positions, and audit control surface for MSS Protocol."
+/>
+
+<link rel="stylesheet" href="/assets/app.css?v=20260518-admin-split-v3" />
+</head>
+
+<body
+data-shell-auto="true"
+data-page="sentinel-admin"
+data-active-page="sentinel-admin"
+data-shell-active="admin"
+data-active-nav="admin"
+>
+<div id="layoutShellHeader"></div>
+
+<main class="admin-page">
+<section class="admin-hero">
+<div class="admin-hero-copy">
+<div class="admin-eyebrow">Sentinel Watcher Control</div>
+<h1>Sentinel settings and execution control.</h1>
+<p>
+Internal surface for Sentinel Watcher mode control, risk thresholds, summary windows, engine health, positions, and audit trails.
+</p>
+</div>
+
+<div class="admin-hero-panel">
+<div class="admin-status-row">
+<span class="admin-chip neutral">
+<span>API</span>
+<strong id="apiStatusChip">Idle</strong>
+</span>
+<span class="admin-chip neutral">
+<span>Mode</span>
+<strong id="sentinelModeChip">Paper</strong>
+</span>
+</div>
+
+<div class="admin-mini-grid">
+<div class="admin-mini-card">
+<div class="admin-mini-label">Current Mode</div>
+<div class="admin-mini-value" id="heroSentinelModeValue">Paper</div>
+</div>
+<div class="admin-mini-card">
+<div class="admin-mini-label">Open Positions</div>
+<div class="admin-mini-value" id="sentinelOpenPositionsHeroValue">0</div>
+</div>
+<div class="admin-mini-card">
+<div class="admin-mini-label">Watcher Enabled</div>
+<div class="admin-mini-value" id="sentinelWatcherEnabledValue">—</div>
+</div>
+<div class="admin-mini-card">
+<div class="admin-mini-label">Kill Switch</div>
+<div class="admin-mini-value" id="sentinelKillSwitchValue">—</div>
+</div>
+</div>
+
+<div class="admin-action-row">
+<a class="admin-button secondary" href="./admin.html">Admin Home</a>
+<a class="admin-button secondary" href="./compliance-admin.html">Compliance Cases</a>
+<button id="refreshSentinelButton" class="admin-button primary" type="button">
+Refresh Sentinel
+</button>
+</div>
+</div>
+</section>
+
+<section class="admin-main-grid">
+<section class="admin-stack">
+<div id="sentinelBanner" class="admin-banner"></div>
+
+<section class="admin-card">
+<div class="admin-card-header">
+<div>
+<div class="admin-kicker">Execution Mode</div>
+<h2>Runtime control center</h2>
+<p>
+Paper mode remains the safe default until evaluator quality, audit accuracy, and guardrails are proven.
+</p>
+</div>
+
+<button id="saveSentinelSettingsButton" class="admin-button primary" type="button">
+Save Settings
+</button>
+</div>
+
+<div class="admin-metric-grid four">
+<div class="admin-metric">
+<div class="admin-metric-label">Current Mode</div>
+<div class="admin-metric-value" id="sentinelCurrentModeValue">Paper</div>
+</div>
+<div class="admin-metric">
+<div class="admin-metric-label">Engine Started</div>
+<div class="admin-metric-value" id="sentinelEngineStartedValue">—</div>
+</div>
+<div class="admin-metric">
+<div class="admin-metric-label">Engine Running</div>
+<div class="admin-metric-value" id="sentinelEngineRunningValue">—</div>
+</div>
+<div class="admin-metric">
+<div class="admin-metric-label">Tick Count</div>
+<div class="admin-metric-value" id="sentinelTickCountValue">—</div>
+</div>
+</div>
+
+<div class="admin-action-row">
+<button id="sentinelModePaperButton" class="admin-button secondary" type="button">
+Paper
+</button>
+<button id="sentinelModeArmedButton" class="admin-button secondary" type="button">
+Armed Mainnet
+</button>
+<button id="sentinelModeLiveButton" class="admin-button secondary" type="button">
+Live Mainnet
+</button>
+<button id="sentinelEmergencyStopButton" class="admin-button danger" type="button">
+Emergency Stop
+</button>
+</div>
+
+<div class="admin-form-grid one">
+<div class="admin-field">
+<label for="sentinelModeReasonInput">Mode Change Reason</label>
+<input
+id="sentinelModeReasonInput"
+class="admin-input"
+type="text"
+placeholder="Reason for arming, live activation, paper reset, or emergency stop"
+autocomplete="off"
+/>
+</div>
+</div>
+</section>
+
+<section class="admin-card">
+<div class="admin-card-header">
+<div>
+<div class="admin-kicker">Sentinel Summary</div>
+<h2>Performance window</h2>
+<p>
+Filter Sentinel PnL by daily, weekly, monthly, or overall view.
+</p>
+</div>
+
+<button id="refreshSentinelSummaryButton" class="admin-button secondary" type="button">
+Refresh Summary
+</button>
+</div>
+
+<div id="sentinelSummaryPeriodShell" class="admin-period-shell">
+<div class="admin-period-copy">
+<div class="admin-period-title">Sentinel Summary Window</div>
+<div id="sentinelSummaryPeriodLabel" class="admin-period-active">Daily PnL</div>
+<div id="sentinelSummaryPeriodRange" class="admin-period-range">—</div>
+</div>
+
+<div class="admin-period-controls">
+<div class="admin-field compact">
+<label for="sentinelSummaryPeriodFilter">Window</label>
+<select id="sentinelSummaryPeriodFilter" class="admin-select">
+<option value="daily">Daily</option>
+<option value="weekly">Weekly</option>
+<option value="monthly">Monthly</option>
+<option value="overall">Overall</option>
+</select>
+</div>
+
+<div class="admin-field compact">
+<label for="sentinelSummaryDateInput">Anchor Date</label>
+<input id="sentinelSummaryDateInput" class="admin-input" type="date" />
+</div>
+</div>
+</div>
+
+<div class="admin-metric-grid four">
+<div class="admin-metric">
+<div class="admin-metric-label">Open Positions</div>
+<div class="admin-metric-value" id="sentinelSummaryOpenPositions">0</div>
+</div>
+<div class="admin-metric">
+<div class="admin-metric-label">Period Realized PnL</div>
+<div class="admin-metric-value" id="sentinelSummaryDailyRealizedPnl">$0.00</div>
+</div>
+<div class="admin-metric">
+<div class="admin-metric-label">Period Unrealized PnL</div>
+<div class="admin-metric-value" id="sentinelSummaryDailyUnrealizedPnl">$0.00</div>
+</div>
+<div class="admin-metric">
+<div class="admin-metric-label">Period Loss</div>
+<div class="admin-metric-value" id="sentinelSummaryDailyLoss">$0.00</div>
+</div>
+</div>
+
+<div id="sentinelEnhancedSummaryCards" class="admin-metric-grid four">
+<div class="admin-metric premium">
+<div class="admin-metric-label">Open Capital at Risk</div>
+<div class="admin-metric-value" id="sentinelSummaryOpenCapital">$0.00</div>
+<div class="admin-metric-sub">Remaining cost basis across loaded open positions.</div>
+</div>
+<div class="admin-metric premium">
+<div class="admin-metric-label">Current Open Value</div>
+<div class="admin-metric-value" id="sentinelSummaryOpenValue">$0.00</div>
+<div class="admin-metric-sub">Current paper value across open positions.</div>
+</div>
+<div class="admin-metric premium">
+<div class="admin-metric-label">Period Capital Deployed</div>
+<div class="admin-metric-value" id="sentinelSummaryTotalCapital">$0.00</div>
+<div class="admin-metric-sub">Capital committed during selected window.</div>
+</div>
+<div class="admin-metric premium">
+<div class="admin-metric-label">Selected Window PnL</div>
+<div class="admin-metric-value" id="sentinelSummaryPortfolioPnl">$0.00</div>
+<div class="admin-metric-sub">Realized plus open unrealized PnL.</div>
+</div>
+</div>
+</section>
+
+<section class="admin-card">
+<div class="admin-card-header">
+<div>
+<div class="admin-kicker">Core Settings</div>
+<h2>Risk and allocation controls</h2>
+<p>
+Primary Sentinel config wired into the admin settings patch route.
+</p>
+</div>
+</div>
+
+<div class="admin-form-grid three">
+<div class="admin-field">
+<label for="sentinelScoutUsdInput">Scout USD</label>
+<input id="sentinelScoutUsdInput" class="admin-input" type="number" step="0.01" min="0" />
+</div>
+
+<div class="admin-field">
+<label for="sentinelSniperAddUsdInput">Sniper Add USD</label>
+<input id="sentinelSniperAddUsdInput" class="admin-input" type="number" step="0.01" min="0" />
+</div>
+
+<div class="admin-field">
+<label for="sentinelMaxTotalPositionUsdInput">Max Total Position USD</label>
+<input id="sentinelMaxTotalPositionUsdInput" class="admin-input" type="number" step="0.01" min="0" />
+</div>
+
+<div class="admin-field">
+<label for="sentinelMaxOpenPositionsInput">Max Open Positions</label>
+<input id="sentinelMaxOpenPositionsInput" class="admin-input" type="number" step="1" min="0" />
+</div>
+
+<div class="admin-field">
+<label for="sentinelMaxDailyLossUsdInput">Max Daily Loss USD</label>
+<input id="sentinelMaxDailyLossUsdInput" class="admin-input" type="number" step="0.01" min="0" />
+</div>
+
+<div class="admin-field">
+<label for="sentinelMaxConsecutiveFailuresInput">Max Consecutive Failures</label>
+<input id="sentinelMaxConsecutiveFailuresInput" class="admin-input" type="number" step="1" min="0" />
+</div>
+
+<div class="admin-field">
+<label for="sentinelMaxDailyScoutSpendUsdInput">Max Daily Scout Spend USD</label>
+<input id="sentinelMaxDailyScoutSpendUsdInput" class="admin-input" type="number" step="0.01" min="0" />
+</div>
+
+<div class="admin-field">
+<label for="sentinelMaxDailySniperSpendUsdInput">Max Daily Sniper Spend USD</label>
+<input id="sentinelMaxDailySniperSpendUsdInput" class="admin-input" type="number" step="0.01" min="0" />
+</div>
+
+<div class="admin-field">
+<label for="sentinelAutoBankMultipleInput">Auto-Bank Multiple</label>
+<input id="sentinelAutoBankMultipleInput" class="admin-input" type="number" step="0.1" min="1" />
+</div>
+
+<div class="admin-field">
+<label for="sentinelAutoBankFractionInput">Auto-Bank Fraction</label>
+<input id="sentinelAutoBankFractionInput" class="admin-input" type="number" step="0.01" min="0" max="1" />
+</div>
+
+<div class="admin-field">
+<label for="sentinelMinOperatorQualityScoreInput">Min Operator Quality Score</label>
+<input id="sentinelMinOperatorQualityScoreInput" class="admin-input" type="number" step="0.1" min="0" max="100" />
+</div>
+
+<div class="admin-field">
+<label for="sentinelMaxHiddenControlRiskInput">Max Hidden Control Risk</label>
+<input id="sentinelMaxHiddenControlRiskInput" class="admin-input" type="number" step="0.1" min="0" max="100" />
+</div>
+
+<div class="admin-field">
+<label for="sentinelMinRegimeScoreScoutInput">Min Regime Score For Scout</label>
+<input id="sentinelMinRegimeScoreScoutInput" class="admin-input" type="number" step="0.1" min="0" max="100" />
+</div>
+
+<div class="admin-field">
+<label for="sentinelMinRegimeScoreSniperInput">Min Regime Score For Sniper</label>
+<input id="sentinelMinRegimeScoreSniperInput" class="admin-input" type="number" step="0.1" min="0" max="100" />
+</div>
+
+<div class="admin-field">
+<label for="sentinelMinReclaimStrengthScoreInput">Min Reclaim Strength Score</label>
+<input id="sentinelMinReclaimStrengthScoreInput" class="admin-input" type="number" step="0.1" min="0" max="100" />
+</div>
+
+<div class="admin-field">
+<label for="sentinelMinBuyPressureScoreInput">Min Buy Pressure Score</label>
+<input id="sentinelMinBuyPressureScoreInput" class="admin-input" type="number" step="0.1" min="0" max="100" />
+</div>
+
+<div class="admin-field">
+<label for="sentinelMinPersistenceScoreInput">Min Persistence Score</label>
+<input id="sentinelMinPersistenceScoreInput" class="admin-input" type="number" step="0.1" min="0" max="100" />
+</div>
+
+<div class="admin-field">
+<label for="sentinelMinPostEntryHealthScoreInput">Min Post-Entry Health Score</label>
+<input id="sentinelMinPostEntryHealthScoreInput" class="admin-input" type="number" step="0.1" min="0" max="100" />
+</div>
+</div>
+
+<div class="admin-form-grid three admin-form-gap-top">
+<div class="admin-field">
+<label for="sentinelWatcherEnabledInput">Watcher Enabled</label>
+<select id="sentinelWatcherEnabledInput" class="admin-select">
+<option value="true">Enabled</option>
+<option value="false">Disabled</option>
+</select>
+</div>
+
+<div class="admin-field">
+<label for="sentinelAutoBankEnabledInput">Auto-Bank Enabled</label>
+<select id="sentinelAutoBankEnabledInput" class="admin-select">
+<option value="true">Enabled</option>
+<option value="false">Disabled</option>
+</select>
+</div>
+
+<div class="admin-field">
+<label for="sentinelEnableScoutInput">Enable Scout</label>
+<select id="sentinelEnableScoutInput" class="admin-select">
+<option value="true">Enabled</option>
+<option value="false">Disabled</option>
+</select>
+</div>
+
+<div class="admin-field">
+<label for="sentinelEnableSniperInput">Enable Sniper</label>
+<select id="sentinelEnableSniperInput" class="admin-select">
+<option value="true">Enabled</option>
+<option value="false">Disabled</option>
+</select>
+</div>
+
+<div class="admin-field">
+<label for="sentinelEnableRunnerManagementInput">Enable Runner Management</label>
+<select id="sentinelEnableRunnerManagementInput" class="admin-select">
+<option value="true">Enabled</option>
+<option value="false">Disabled</option>
+</select>
+</div>
+
+<div class="admin-field">
+<label for="sentinelRiskOffDisableNewEntriesInput">Risk-Off Disables New Entries</label>
+<select id="sentinelRiskOffDisableNewEntriesInput" class="admin-select">
+<option value="true">Enabled</option>
+<option value="false">Disabled</option>
+</select>
+</div>
+</div>
+</section>
+
+<section class="admin-card">
+<div class="admin-card-header">
+<div>
+<div class="admin-kicker">Advanced Thresholds</div>
+<h2>Hard reject and quality gates</h2>
+<p>
+Operator, liquidity, holder concentration, contamination, spread, and post-entry thresholds.
+</p>
+</div>
+</div>
+
+<div class="admin-form-grid three">
+<div class="admin-field">
+<label for="sentinelMaxPositionsPerOperatorClusterInput">Max Positions Per Operator Cluster</label>
+<input id="sentinelMaxPositionsPerOperatorClusterInput" class="admin-input" type="number" step="1" min="1" />
+</div>
+
+<div class="admin-field">
+<label for="sentinelMaxTokensPerHourInput">Max Tokens Per Hour</label>
+<input id="sentinelMaxTokensPerHourInput" class="admin-input" type="number" step="1" min="0" />
+</div>
+
+<div class="admin-field">
+<label for="sentinelCooldownAfterCloseSecInput">Cooldown After Close Sec</label>
+<input id="sentinelCooldownAfterCloseSecInput" class="admin-input" type="number" step="1" min="0" />
+</div>
+
+<div class="admin-field">
+<label for="sentinelCooldownAfterInvalidationSecInput">Cooldown After Invalidation Sec</label>
+<input id="sentinelCooldownAfterInvalidationSecInput" class="admin-input" type="number" step="1" min="0" />
+</div>
+
+<div class="admin-field">
+<label for="sentinelEarlyFailTimeoutSecInput">Early Fail Timeout Sec</label>
+<input id="sentinelEarlyFailTimeoutSecInput" class="admin-input" type="number" step="1" min="0" />
+</div>
+
+<div class="admin-field">
+<label for="sentinelWeakStallTimeoutSecInput">Weak Stall Timeout Sec</label>
+<input id="sentinelWeakStallTimeoutSecInput" class="admin-input" type="number" step="1" min="0" />
+</div>
+
+<div class="admin-field">
+<label for="sentinelRunnerFailedBreakoutLimitInput">Runner Failed Breakout Limit</label>
+<input id="sentinelRunnerFailedBreakoutLimitInput" class="admin-input" type="number" step="1" min="0" />
+</div>
+
+<div class="admin-field">
+<label for="sentinelMaxContaminationRiskInput">Max Contamination Risk</label>
+<input id="sentinelMaxContaminationRiskInput" class="admin-input" type="number" step="0.1" min="0" max="100" />
+</div>
+
+<div class="admin-field">
+<label for="sentinelMaxWalletCoordinationRiskInput">Max Wallet Coordination Risk</label>
+<input id="sentinelMaxWalletCoordinationRiskInput" class="admin-input" type="number" step="0.1" min="0" max="100" />
+</div>
+
+<div class="admin-field">
+<label for="sentinelMaxTopHolderPctInput">Max Top Holder %</label>
+<input id="sentinelMaxTopHolderPctInput" class="admin-input" type="number" step="0.1" min="0" max="100" />
+</div>
+
+<div class="admin-field">
+<label for="sentinelMaxTop5HolderPctInput">Max Top 5 Holder %</label>
+<input id="sentinelMaxTop5HolderPctInput" class="admin-input" type="number" step="0.1" min="0" max="100" />
+</div>
+
+<div class="admin-field">
+<label for="sentinelMinLiquidityUsdInput">Min Liquidity USD</label>
+<input id="sentinelMinLiquidityUsdInput" class="admin-input" type="number" step="0.01" min="0" />
+</div>
+
+<div class="admin-field">
+<label for="sentinelMaxSpreadBpsInput">Max Spread BPS</label>
+<input id="sentinelMaxSpreadBpsInput" class="admin-input" type="number" step="0.1" min="0" />
+</div>
+
+<div class="admin-field">
+<label for="sentinelMaxPriceImpactBpsInput">Max Price Impact BPS</label>
+<input id="sentinelMaxPriceImpactBpsInput" class="admin-input" type="number" step="0.1" min="0" />
+</div>
+
+<div class="admin-field">
+<label for="sentinelMaxVerticalExtensionScoreForAddInput">Max Vertical Extension For Add</label>
+<input id="sentinelMaxVerticalExtensionScoreForAddInput" class="admin-input" type="number" step="0.1" min="0" max="100" />
+</div>
+
+<div class="admin-field">
+<label for="sentinelMaxInsiderSellScoreInput">Max Insider Sell Score</label>
+<input id="sentinelMaxInsiderSellScoreInput" class="admin-input" type="number" step="0.1" min="0" max="100" />
+</div>
+
+<div class="admin-field">
+<label for="sentinelMaxLiquidityDecayScoreInput">Max Liquidity Decay Score</label>
+<input id="sentinelMaxLiquidityDecayScoreInput" class="admin-input" type="number" step="0.1" min="0" max="100" />
+</div>
+</div>
+
+<div class="admin-form-grid three admin-form-gap-top">
+<div class="admin-field">
+<label for="sentinelEnableMarketRegimeFilterInput">Enable Market Regime Filter</label>
+<select id="sentinelEnableMarketRegimeFilterInput" class="admin-select">
+<option value="true">Enabled</option>
+<option value="false">Disabled</option>
+</select>
+</div>
+
+<div class="admin-field">
+<label for="sentinelEnableOperatorFilterInput">Enable Operator Filter</label>
+<select id="sentinelEnableOperatorFilterInput" class="admin-select">
+<option value="true">Enabled</option>
+<option value="false">Disabled</option>
+</select>
+</div>
+
+<div class="admin-field">
+<label for="sentinelEnableHardRejectsInput">Enable Hard Rejects</label>
+<select id="sentinelEnableHardRejectsInput" class="admin-select">
+<option value="true">Enabled</option>
+<option value="false">Disabled</option>
+</select>
+</div>
+</div>
+</section>
+</section>
+
+<aside class="admin-stack">
+<section class="admin-card">
+<div class="admin-card-header">
+<div>
+<div class="admin-kicker">Engine Health</div>
+<h2>Runtime telemetry</h2>
+<p>
+Current Sentinel engine state returned by the backend runtime wiring.
+</p>
+</div>
+</div>
+
+<div class="admin-detail-grid">
+<div class="admin-detail">
+<div class="admin-detail-label">Snapshot Provider</div>
+<div class="admin-detail-value" id="sentinelSnapshotProviderValue">—</div>
+</div>
+<div class="admin-detail">
+<div class="admin-detail-label">Last Tick Started</div>
+<div class="admin-detail-value" id="sentinelLastTickStartedValue">—</div>
+</div>
+<div class="admin-detail">
+<div class="admin-detail-label">Last Tick Finished</div>
+<div class="admin-detail-value" id="sentinelLastTickFinishedValue">—</div>
+</div>
+<div class="admin-detail">
+<div class="admin-detail-label">Last Error</div>
+<div class="admin-detail-value" id="sentinelLastErrorValue">—</div>
+</div>
+<div class="admin-detail wide">
+<div class="admin-detail-label">Last Tick Summary</div>
+<div class="admin-detail-value" id="sentinelLastTickSummaryValue">—</div>
+</div>
+</div>
+</section>
+
+<section class="admin-card">
+<div class="admin-card-header">
+<div>
+<div class="admin-kicker">Stats Detail</div>
+<h2>Daily operations</h2>
+<p>
+Operational counters for selected mode and date.
+</p>
+</div>
+
+<button id="refreshSentinelStatsButton" class="admin-button secondary" type="button">
+Refresh Stats
+</button>
+</div>
+
+<div class="admin-form-grid two">
+<div class="admin-field">
+<label for="sentinelStatsDateInput">Stats Date</label>
+<input id="sentinelStatsDateInput" class="admin-input" type="date" />
+</div>
+
+<div class="admin-field">
+<label for="sentinelStatsModeFilter">Mode</label>
+<select id="sentinelStatsModeFilter" class="admin-select">
+<option value="paper">Paper</option>
+<option value="armed_mainnet">Armed Mainnet</option>
+<option value="live_mainnet">Live Mainnet</option>
+<option value="emergency_stop">Emergency Stop</option>
+</select>
+</div>
+</div>
+
+<div class="admin-metric-grid two">
+<div class="admin-metric">
+<div class="admin-metric-label">Scouts Opened</div>
+<div class="admin-metric-value" id="sentinelStatsScoutsOpened">0</div>
+</div>
+<div class="admin-metric">
+<div class="admin-metric-label">Sniper Adds</div>
+<div class="admin-metric-value" id="sentinelStatsSniperAdds">0</div>
+</div>
+<div class="admin-metric">
+<div class="admin-metric-label">Positions Closed</div>
+<div class="admin-metric-value" id="sentinelStatsPositionsClosed">0</div>
+</div>
+<div class="admin-metric">
+<div class="admin-metric-label">Invalidations</div>
+<div class="admin-metric-value" id="sentinelStatsInvalidations">0</div>
+</div>
+<div class="admin-metric">
+<div class="admin-metric-label">Consecutive Failures</div>
+<div class="admin-metric-value" id="sentinelStatsConsecutiveFailures">0</div>
+</div>
+<div class="admin-metric">
+<div class="admin-metric-label">Reclaim Success Rate</div>
+<div class="admin-metric-value" id="sentinelStatsReclaimSuccessRate">0%</div>
+</div>
+<div class="admin-metric">
+<div class="admin-metric-label">Recent Rug Rate</div>
+<div class="admin-metric-value" id="sentinelStatsRecentRugRate">0%</div>
+</div>
+<div class="admin-metric">
+<div class="admin-metric-label">Avg Market Liquidity</div>
+<div class="admin-metric-value" id="sentinelStatsAvgMarketLiquidity">$0</div>
+</div>
+</div>
+</section>
+
+<section class="admin-card">
+<div class="admin-card-header">
+<div>
+<div class="admin-kicker">Admin Navigation</div>
+<h2>Separated surfaces</h2>
+<p>
+Sentinel access codes and compliance cases now live on separate admin pages.
+</p>
+</div>
+</div>
+
+<div class="admin-link-grid">
+<a class="admin-link-card" href="./admin.html">
+<span>Admin Home</span>
+<strong>Overview and notifications</strong>
+</a>
+<a class="admin-link-card" href="./compliance-admin.html">
+<span>Compliance Cases</span>
+<strong>Manual review queue</strong>
+</a>
+<a class="admin-link-card" href="./sentinel-access-admin.html">
+<span>Sentinel Access Codes</span>
+<strong>Tester and entitlement control</strong>
+</a>
+</div>
+</section>
+</aside>
+</section>
+
+<section class="admin-card admin-wide-card">
+<div class="admin-card-header">
+<div>
+<div class="admin-kicker">Positions</div>
+<h2>Sentinel position intelligence</h2>
+<p>
+Open, runner, closed, and invalidated positions across paper and future live modes.
+</p>
+</div>
+
+<button id="refreshSentinelPositionsButton" class="admin-button secondary" type="button">
+Refresh Positions
+</button>
+</div>
+
+<div class="admin-form-grid six">
+<div class="admin-field">
+<label for="sentinelPositionScopeFilter">Scope</label>
+<select id="sentinelPositionScopeFilter" class="admin-select">
+<option value="open">Open</option>
+<option value="history">History</option>
+<option value="all">All</option>
+</select>
+</div>
+
+<div class="admin-field">
+<label for="sentinelPositionStageFilter">Stage</label>
+<select id="sentinelPositionStageFilter" class="admin-select">
+<option value="">All</option>
+<option value="scout_open">Scout Open</option>
+<option value="sniper_added">Sniper Added</option>
+<option value="half_banked_at_10x">Half Banked At 10x</option>
+<option value="runner_only">Runner Only</option>
+<option value="closed">Closed</option>
+<option value="invalidated">Invalidated</option>
+</select>
+</div>
+
+<div class="admin-field">
+<label for="sentinelPositionOutcomeFilter">Outcome</label>
+<select id="sentinelPositionOutcomeFilter" class="admin-select">
+<option value="">All</option>
+<option value="closed">Closed</option>
+<option value="invalidated">Invalidated</option>
+</select>
+</div>
+
+<div class="admin-field">
+<label for="sentinelPositionsModeFilter">Mode</label>
+<select id="sentinelPositionsModeFilter" class="admin-select">
+<option value="">All</option>
+<option value="paper">Paper</option>
+<option value="armed_mainnet">Armed Mainnet</option>
+<option value="live_mainnet">Live Mainnet</option>
+<option value="emergency_stop">Emergency Stop</option>
+</select>
+</div>
+
+<div class="admin-field">
+<label for="sentinelPositionsTokenFilter">Token ID</label>
+<input id="sentinelPositionsTokenFilter" class="admin-input" type="text" placeholder="Optional token id" />
+</div>
+
+<div class="admin-field">
+<label for="sentinelPositionSortFilter">Sort</label>
+<select id="sentinelPositionSortFilter" class="admin-select">
+<option value="pnl_desc">Highest gain first</option>
+<option value="pnl_asc">Highest loss first</option>
+<option value="pnl_pct_desc">Highest PnL % first</option>
+<option value="pnl_pct_asc">Lowest PnL % first</option>
+<option value="current_value_desc">Highest current value</option>
+<option value="capital_desc">Highest capital at risk</option>
+<option value="newest">Newest opened</option>
+<option value="oldest">Oldest opened</option>
+</select>
+</div>
+</div>
+
+<div class="admin-form-grid one admin-form-gap-top">
+<div class="admin-field">
+<label for="sentinelPositionsMintFilter">Mint Address</label>
+<input id="sentinelPositionsMintFilter" class="admin-input" type="text" placeholder="Optional mint address" />
+</div>
+</div>
+
+<div class="admin-table-wrap">
+<table class="admin-table">
+<thead>
+<tr>
+<th>Token</th>
+<th>Stage</th>
+<th>Mode</th>
+<th>Cost</th>
+<th>Current</th>
+<th>Realized</th>
+<th>Unrealized</th>
+<th>10x Banked</th>
+<th>Opened</th>
+</tr>
+</thead>
+<tbody id="sentinelPositionsTableBody"></tbody>
+</table>
+</div>
+</section>
+
+<section class="admin-card admin-wide-card">
+<div class="admin-card-header">
+<div>
+<div class="admin-kicker">Sentinel Audit</div>
+<h2>Decision and execution trail</h2>
+<p>
+Rejects, watchlists, entries, adds, banks, exits, settings, and kill-switch events.
+</p>
+</div>
+
+<button id="refreshSentinelAuditButton" class="admin-button secondary" type="button">
+Refresh Audit
+</button>
+</div>
+
+<div class="admin-form-grid six">
+<div class="admin-field">
+<label for="sentinelAuditEventTypeFilter">Event Type</label>
+<select id="sentinelAuditEventTypeFilter" class="admin-select">
+<option value="">All</option>
+<option value="settings_update">Settings Update</option>
+<option value="mode_change">Mode Change</option>
+<option value="emergency_stop">Emergency Stop</option>
+<option value="token_reject">Token Reject</option>
+<option value="watchlist">Watchlist</option>
+<option value="hold">Hold</option>
+<option value="scout_entry">Scout Entry</option>
+<option value="sniper_add">Sniper Add</option>
+<option value="partial_take_profit">Partial Take Profit</option>
+<option value="runner_exit">Runner Exit</option>
+<option value="full_exit">Full Exit</option>
+<option value="kill_switch">Kill Switch</option>
+<option value="decision">Decision</option>
+</select>
+</div>
+
+<div class="admin-field">
+<label for="sentinelAuditDecisionFilter">Decision</label>
+<input id="sentinelAuditDecisionFilter" class="admin-input" type="text" placeholder="Optional decision" />
+</div>
+
+<div class="admin-field">
+<label for="sentinelAuditExecutionStatusFilter">Execution Status</label>
+<select id="sentinelAuditExecutionStatusFilter" class="admin-select">
+<option value="">All</option>
+<option value="planned">Planned</option>
+<option value="submitted">Submitted</option>
+<option value="filled">Filled</option>
+<option value="simulated">Simulated</option>
+<option value="skipped">Skipped</option>
+<option value="failed">Failed</option>
+</select>
+</div>
+
+<div class="admin-field">
+<label for="sentinelAuditModeFilter">Mode</label>
+<select id="sentinelAuditModeFilter" class="admin-select">
+<option value="">All</option>
+<option value="paper">Paper</option>
+<option value="armed_mainnet">Armed Mainnet</option>
+<option value="live_mainnet">Live Mainnet</option>
+<option value="emergency_stop">Emergency Stop</option>
+</select>
+</div>
+
+<div class="admin-field">
+<label for="sentinelAuditTokenFilter">Token ID</label>
+<input id="sentinelAuditTokenFilter" class="admin-input" type="text" placeholder="Optional token id" />
+</div>
+
+<div class="admin-field">
+<label for="sentinelAuditMintFilter">Mint Address</label>
+<input id="sentinelAuditMintFilter" class="admin-input" type="text" placeholder="Optional mint address" />
+</div>
+
+<div class="admin-field">
+<label for="sentinelAuditActorTypeFilter">Actor Type</label>
+<select id="sentinelAuditActorTypeFilter" class="admin-select">
+<option value="">All</option>
+<option value="system">System</option>
+<option value="admin">Admin</option>
+<option value="user">User</option>
+</select>
+</div>
+
+<div class="admin-field">
+<label for="sentinelAuditActorIdFilter">Actor ID</label>
+<input id="sentinelAuditActorIdFilter" class="admin-input" type="text" placeholder="Optional actor id" />
+</div>
+
+<div class="admin-field">
+<label for="sentinelAuditReasonCodeFilter">Reason Code</label>
+<input id="sentinelAuditReasonCodeFilter" class="admin-input" type="text" placeholder="Optional reason code" />
+</div>
+</div>
+
+<div class="admin-table-wrap">
+<table class="admin-table">
+<thead>
+<tr>
+<th>Time</th>
+<th>Event</th>
+<th>Decision</th>
+<th>Mode</th>
+<th>Token</th>
+<th>Reasons</th>
+<th>Status</th>
+</tr>
+</thead>
+<tbody id="sentinelAuditTableBody"></tbody>
+</table>
+</div>
+</section>
+
+<section class="admin-card admin-wide-card">
+<div class="admin-card-header">
+<div>
+<div class="admin-kicker">Admin Audit</div>
+<h2>Internal control log</h2>
+<p>
+Admin-control log for mode changes, settings changes, and emergency-stop actions.
+</p>
+</div>
+
+<button id="refreshSentinelAdminAuditButton" class="admin-button secondary" type="button">
+Refresh Admin Audit
+</button>
+</div>
+
+<div class="admin-form-grid four">
+<div class="admin-field">
+<label for="sentinelAdminAuditActionFilter">Action</label>
+<input id="sentinelAdminAuditActionFilter" class="admin-input" type="text" placeholder="Optional action" />
+</div>
+
+<div class="admin-field">
+<label for="sentinelAdminAuditActorFilter">Actor ID</label>
+<input id="sentinelAdminAuditActorFilter" class="admin-input" type="text" placeholder="Optional actor id" />
+</div>
+
+<div class="admin-field">
+<label for="sentinelAdminAuditTargetTypeFilter">Target Type</label>
+<input id="sentinelAdminAuditTargetTypeFilter" class="admin-input" type="text" placeholder="Optional target type" />
+</div>
+</div>
+
+<div class="admin-table-wrap">
+<table class="admin-table">
+<thead>
+<tr>
+<th>Time</th>
+<th>Action</th>
+<th>Actor</th>
+<th>Target</th>
+<th>Details</th>
+<th>State</th>
+</tr>
+</thead>
+<tbody id="sentinelAdminAuditTableBody"></tbody>
+</table>
+</div>
+</section>
+</main>
+
+<div id="layoutShellFooter"></div>
+
+<script type="module" src="/assets/layout-shell.js?v=20260518-admin-shell-v3"></script>
+<script type="module" src="/assets/pages/sentinel-admin.js?v=20260518-admin-split-v3"></script>
+</body>
+</html>

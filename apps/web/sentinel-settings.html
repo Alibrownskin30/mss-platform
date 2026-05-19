@@ -1,0 +1,1139 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>MSS Protocol — Sentinel Settings</title>
+<meta
+name="description"
+content="Internal Sentinel Watcher settings, execution controls, emergency stop, and risk thresholds for MSS Protocol."
+/>
+
+<link rel="stylesheet" href="/assets/app.css?v=20260518-sentinel-settings-v1" />
+
+<style>
+:root {
+--bg: #030711;
+--panel: rgba(8, 14, 27, 0.92);
+--panel-2: rgba(5, 9, 20, 0.94);
+--border: rgba(115, 185, 255, 0.14);
+--border-strong: rgba(115, 185, 255, 0.26);
+--text: #eef6ff;
+--muted: rgba(198, 211, 226, 0.66);
+--muted-2: rgba(198, 211, 226, 0.48);
+--accent: #4fc3ff;
+--accent-2: #8fe3ff;
+--gold: #ebd7ab;
+--good: #7bffb1;
+--warn: #ffcf66;
+--bad: #ff8787;
+--shadow: 0 28px 70px rgba(0, 0, 0, 0.38);
+--radius: 22px;
+--max: 1480px;
+}
+
+* {
+box-sizing: border-box;
+}
+
+html,
+body {
+margin: 0;
+padding: 0;
+color: var(--text);
+font-family:
+Inter,
+ui-sans-serif,
+system-ui,
+-apple-system,
+BlinkMacSystemFont,
+"Segoe UI",
+sans-serif;
+background:
+radial-gradient(980px 280px at 15% 0%, rgba(79, 195, 255, 0.11), transparent 42%),
+radial-gradient(760px 240px at 90% 0%, rgba(235, 215, 171, 0.045), transparent 44%),
+linear-gradient(180deg, #030711 0%, #02050c 100%);
+}
+
+a {
+color: inherit;
+text-decoration: none;
+}
+
+button,
+input,
+select,
+textarea {
+font: inherit;
+}
+
+.page {
+min-height: 100vh;
+}
+
+.shell {
+width: min(var(--max), calc(100% - 32px));
+margin: 0 auto;
+}
+
+.topbar-actions,
+.admin-status-strip {
+display: flex;
+align-items: center;
+gap: 10px;
+flex-wrap: wrap;
+}
+
+.admin-status-strip {
+margin-bottom: 18px;
+}
+
+.chip {
+display: inline-flex;
+align-items: center;
+gap: 8px;
+min-height: 38px;
+padding: 0 12px;
+border-radius: 999px;
+border: 1px solid var(--border);
+background: rgba(255, 255, 255, 0.035);
+color: var(--muted);
+font-size: 12px;
+}
+
+.chip strong {
+color: var(--text);
+}
+
+.button {
+appearance: none;
+border: 0;
+cursor: pointer;
+min-height: 42px;
+padding: 0 16px;
+border-radius: 14px;
+font-weight: 900;
+font-size: 13px;
+letter-spacing: 0.02em;
+transition:
+transform 0.16s ease,
+opacity 0.16s ease,
+border-color 0.16s ease,
+background 0.16s ease;
+}
+
+.button:hover:not(:disabled) {
+transform: translateY(-1px);
+}
+
+.button:disabled {
+opacity: 0.55;
+cursor: not-allowed;
+}
+
+.button-primary {
+color: #04111d;
+background: linear-gradient(135deg, var(--accent-2), var(--accent));
+box-shadow: 0 14px 34px rgba(79, 195, 255, 0.14);
+}
+
+.button-secondary {
+color: var(--text);
+background: rgba(255, 255, 255, 0.045);
+border: 1px solid var(--border);
+}
+
+.button-danger {
+color: #ffd5d5;
+background: rgba(42, 14, 14, 0.78);
+border: 1px solid rgba(255, 135, 135, 0.2);
+}
+
+.hero {
+padding: 38px 0 18px;
+}
+
+.hero-grid {
+display: grid;
+grid-template-columns: minmax(0, 1.2fr) minmax(360px, 0.8fr);
+gap: 18px;
+}
+
+.panel,
+.hero-panel,
+.summary-panel,
+.subpanel,
+.warning-panel {
+position: relative;
+overflow: hidden;
+background:
+radial-gradient(780px 220px at 0% 0%, rgba(79, 195, 255, 0.1), transparent 44%),
+radial-gradient(520px 180px at 100% 0%, rgba(235, 215, 171, 0.04), transparent 42%),
+linear-gradient(180deg, var(--panel), var(--panel-2));
+border: 1px solid var(--border);
+box-shadow: var(--shadow);
+}
+
+.panel,
+.hero-panel,
+.summary-panel,
+.warning-panel {
+border-radius: var(--radius);
+padding: 24px;
+}
+
+.subpanel {
+padding: 18px;
+border-radius: 18px;
+}
+
+.warning-panel {
+border-color: rgba(255, 207, 102, 0.22);
+background:
+radial-gradient(720px 220px at 0% 0%, rgba(255, 207, 102, 0.09), transparent 44%),
+linear-gradient(180deg, rgba(19, 16, 9, 0.92), rgba(6, 8, 16, 0.94));
+}
+
+.panel::before,
+.hero-panel::before,
+.summary-panel::before,
+.subpanel::before,
+.warning-panel::before {
+content: "";
+position: absolute;
+inset: 0 0 auto 0;
+height: 1px;
+background: linear-gradient(
+90deg,
+transparent,
+rgba(79, 195, 255, 0.36),
+rgba(235, 215, 171, 0.16),
+transparent
+);
+pointer-events: none;
+}
+
+.eyebrow {
+display: inline-flex;
+align-items: center;
+gap: 8px;
+min-height: 30px;
+padding: 0 12px;
+border-radius: 999px;
+border: 1px solid rgba(115, 185, 255, 0.18);
+color: var(--accent-2);
+background: rgba(79, 195, 255, 0.06);
+font-size: 11px;
+font-weight: 900;
+letter-spacing: 0.12em;
+text-transform: uppercase;
+}
+
+.hero h1 {
+margin: 18px 0 12px;
+font-size: clamp(30px, 4.4vw, 50px);
+line-height: 1;
+letter-spacing: -0.045em;
+}
+
+.hero p,
+.section-copy,
+.summary-copy,
+.dim {
+color: var(--muted);
+}
+
+.hero p {
+margin: 0;
+font-size: 15px;
+line-height: 1.7;
+max-width: 780px;
+}
+
+.hero-points,
+.mini-grid {
+margin-top: 18px;
+display: grid;
+grid-template-columns: repeat(4, minmax(0, 1fr));
+gap: 12px;
+}
+
+.hero-points {
+margin-top: 22px;
+}
+
+.hero-point,
+.summary-card,
+.mini-card,
+.toggle-card,
+.control-link {
+border: 1px solid rgba(115, 185, 255, 0.09);
+background: rgba(255, 255, 255, 0.035);
+border-radius: 16px;
+}
+
+.hero-point,
+.summary-card,
+.mini-card,
+.toggle-card,
+.control-link {
+padding: 14px;
+}
+
+.hero-point {
+min-height: 92px;
+}
+
+.hero-point-label,
+.summary-label,
+.mini-card-label,
+.control-link-label {
+color: var(--muted-2);
+font-size: 10px;
+font-weight: 900;
+text-transform: uppercase;
+letter-spacing: 0.12em;
+}
+
+.hero-point-value,
+.summary-value,
+.mini-card-value,
+.control-link-value {
+margin-top: 8px;
+font-weight: 850;
+line-height: 1.4;
+word-break: break-word;
+}
+
+.control-grid {
+display: grid;
+grid-template-columns: repeat(5, minmax(0, 1fr));
+gap: 12px;
+margin: 0 0 18px;
+}
+
+.control-link {
+transition:
+border-color 0.16s ease,
+transform 0.16s ease,
+background 0.16s ease,
+opacity 0.16s ease;
+}
+
+.control-link:hover,
+.control-link.active {
+transform: translateY(-1px);
+border-color: rgba(79, 195, 255, 0.26);
+background: rgba(79, 195, 255, 0.06);
+}
+
+.control-link.is-disabled {
+opacity: 0.56;
+cursor: default;
+}
+
+.section-title {
+margin: 0 0 6px;
+font-size: 18px;
+letter-spacing: -0.025em;
+}
+
+.section-copy {
+margin: 0;
+font-size: 14px;
+line-height: 1.65;
+}
+
+.summary-grid {
+margin-top: 18px;
+display: grid;
+gap: 12px;
+}
+
+.summary-card {
+padding: 14px;
+}
+
+.summary-copy {
+margin-top: 8px;
+font-size: 13px;
+line-height: 1.55;
+}
+
+.main {
+padding: 8px 0 42px;
+display: grid;
+gap: 18px;
+}
+
+.layout {
+display: grid;
+grid-template-columns: minmax(0, 1.05fr) minmax(400px, 0.95fr);
+gap: 18px;
+align-items: start;
+}
+
+.stack,
+.section-block,
+.action-stack {
+display: grid;
+gap: 18px;
+}
+
+.section-header-row,
+.table-title-row {
+display: flex;
+align-items: flex-start;
+justify-content: space-between;
+gap: 16px;
+flex-wrap: wrap;
+}
+
+.section-anchor-title {
+margin: 0;
+font-size: 22px;
+letter-spacing: -0.03em;
+}
+
+.field {
+display: flex;
+flex-direction: column;
+gap: 8px;
+}
+
+.field label {
+color: var(--muted-2);
+font-size: 11px;
+font-weight: 900;
+letter-spacing: 0.1em;
+text-transform: uppercase;
+}
+
+.input,
+.select,
+.textarea {
+width: 100%;
+border: 1px solid rgba(115, 185, 255, 0.13);
+background: rgba(2, 6, 14, 0.72);
+color: var(--text);
+border-radius: 14px;
+outline: none;
+transition:
+border-color 0.16s ease,
+box-shadow 0.16s ease,
+background 0.16s ease;
+}
+
+.input,
+.select {
+min-height: 46px;
+padding: 0 14px;
+}
+
+.textarea {
+min-height: 100px;
+resize: vertical;
+padding: 14px;
+}
+
+.input:focus,
+.select:focus,
+.textarea:focus {
+border-color: rgba(79, 195, 255, 0.42);
+box-shadow: 0 0 0 4px rgba(79, 195, 255, 0.08);
+background: rgba(2, 6, 14, 0.88);
+}
+
+.banner {
+display: none;
+margin-bottom: 18px;
+padding: 14px 16px;
+border-radius: 16px;
+border: 1px solid rgba(115, 185, 255, 0.14);
+background: rgba(255, 255, 255, 0.04);
+font-size: 14px;
+line-height: 1.55;
+}
+
+.banner.show {
+display: block;
+}
+
+.banner.good {
+color: var(--good);
+border-color: rgba(123, 255, 177, 0.22);
+}
+
+.banner.warn {
+color: var(--warn);
+border-color: rgba(255, 207, 102, 0.22);
+}
+
+.banner.bad {
+color: var(--bad);
+border-color: rgba(255, 135, 135, 0.22);
+}
+
+.mode-toolbar {
+display: flex;
+flex-wrap: wrap;
+gap: 10px;
+margin-top: 18px;
+}
+
+.mode-toolbar .button {
+min-width: 150px;
+}
+
+.settings-grid {
+display: grid;
+grid-template-columns: repeat(3, minmax(0, 1fr));
+gap: 12px;
+margin-top: 18px;
+}
+
+.toggle-grid {
+display: grid;
+grid-template-columns: repeat(3, minmax(0, 1fr));
+gap: 12px;
+margin-top: 18px;
+}
+
+.toggle-card {
+display: grid;
+gap: 10px;
+}
+
+.sticky-save {
+position: sticky;
+top: 12px;
+z-index: 4;
+}
+
+.pill {
+display: inline-flex;
+align-items: center;
+gap: 8px;
+min-height: 30px;
+padding: 0 10px;
+border-radius: 999px;
+border: 1px solid rgba(115, 185, 255, 0.14);
+background: rgba(255, 255, 255, 0.04);
+font-size: 10px;
+font-weight: 900;
+letter-spacing: 0.1em;
+text-transform: uppercase;
+white-space: nowrap;
+}
+
+.pill.good {
+color: var(--good);
+border-color: rgba(123, 255, 177, 0.24);
+}
+
+.pill.warn {
+color: var(--warn);
+border-color: rgba(255, 207, 102, 0.24);
+}
+
+.pill.bad {
+color: var(--bad);
+border-color: rgba(255, 135, 135, 0.24);
+}
+
+.pill.neutral {
+color: var(--muted);
+}
+
+.divider-line {
+height: 1px;
+margin: 18px 0;
+background: linear-gradient(
+90deg,
+transparent 0%,
+rgba(115, 185, 255, 0.16) 12%,
+rgba(235, 215, 171, 0.08) 50%,
+rgba(115, 185, 255, 0.16) 88%,
+transparent 100%
+);
+}
+
+@media (max-width: 1180px) {
+.hero-grid,
+.layout {
+grid-template-columns: 1fr;
+}
+
+.control-grid,
+.hero-points,
+.mini-grid,
+.settings-grid,
+.toggle-grid {
+grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.sticky-save {
+position: relative;
+top: auto;
+}
+}
+
+@media (max-width: 820px) {
+.shell {
+width: min(var(--max), calc(100% - 20px));
+}
+
+.hero,
+.main {
+padding-top: 24px;
+}
+
+.control-grid,
+.hero-points,
+.mini-grid,
+.settings-grid,
+.toggle-grid {
+grid-template-columns: 1fr;
+}
+
+.hero-panel,
+.summary-panel,
+.panel,
+.warning-panel {
+padding: 18px;
+border-radius: 18px;
+}
+
+.subpanel {
+padding: 14px;
+}
+
+.hero h1 {
+font-size: clamp(30px, 11vw, 44px);
+}
+
+.mode-toolbar .button,
+.topbar-actions .button {
+width: 100%;
+}
+}
+</style>
+</head>
+
+<body
+data-shell-auto="true"
+data-page="sentinel-settings"
+data-active-page="sentinel-settings"
+data-shell-active="launchpad"
+data-active-nav="launchpad"
+>
+<div class="page">
+<main class="shell">
+<section class="hero">
+<div class="hero-grid">
+<section class="hero-panel">
+<div class="eyebrow">Sentinel Settings</div>
+<h1>Execution controls and risk thresholds.</h1>
+<p>
+Restricted internal settings surface for Sentinel Watcher mode control, emergency stop, Scout/Sniper sizing, market filters, operator filters, hard rejects, and execution guardrails.
+</p>
+
+<div class="hero-points">
+<div class="hero-point">
+<div class="hero-point-label">Current Mode</div>
+<div class="hero-point-value" id="sentinelCurrentModeValue">Paper</div>
+</div>
+<div class="hero-point">
+<div class="hero-point-label">Watcher Enabled</div>
+<div class="hero-point-value" id="sentinelWatcherEnabledValue">—</div>
+</div>
+<div class="hero-point">
+<div class="hero-point-label">Kill Switch</div>
+<div class="hero-point-value" id="sentinelKillSwitchValue">—</div>
+</div>
+<div class="hero-point">
+<div class="hero-point-label">Settings State</div>
+<div class="hero-point-value" id="sentinelSettingsStateValue">Awaiting refresh</div>
+</div>
+</div>
+</section>
+
+<aside class="summary-panel sticky-save">
+<div class="admin-status-strip">
+<div class="chip">
+<span>API</span>
+<strong id="apiStatusChip">Idle</strong>
+</div>
+<div class="chip">
+<span>Sentinel</span>
+<strong id="sentinelModeChip">Paper</strong>
+</div>
+<div class="chip">
+<span>Engine</span>
+<strong id="sentinelEngineRunningChip">—</strong>
+</div>
+</div>
+
+<h2 class="section-title">Settings actions</h2>
+<p class="section-copy">
+Refresh the latest backend config before making changes. Save only intentional threshold updates.
+</p>
+
+<div class="summary-grid">
+<button id="refreshSentinelButton" class="button button-secondary" type="button">
+Refresh Settings
+</button>
+<button id="saveSentinelSettingsButton" class="button button-primary" type="button">
+Save Settings
+</button>
+</div>
+
+<div class="divider-line"></div>
+
+<div class="summary-card">
+<div class="summary-label">Safety Note</div>
+<div class="summary-value">Paper mode stays default</div>
+<div class="summary-copy">
+Live execution should only be enabled after backend execution routing, audit accuracy, and guardrails have been verified.
+</div>
+</div>
+</aside>
+</div>
+</section>
+
+<section class="main">
+<nav id="mssAdminCommandCenter" class="control-grid" aria-label="Admin sections">
+<a class="control-link" href="/compliance-admin.html">
+<div class="control-link-label">Compliance</div>
+<div class="control-link-value">Case Queue</div>
+</a>
+
+<a class="control-link" href="/sentinel-admin.html">
+<div class="control-link-label">Sentinel</div>
+<div class="control-link-value">Operations</div>
+</a>
+
+<a class="control-link active" href="/sentinel-settings.html">
+<div class="control-link-label">Active</div>
+<div class="control-link-value">Sentinel Settings</div>
+</a>
+
+<a class="control-link is-disabled" href="#" aria-disabled="true">
+<div class="control-link-label">Next</div>
+<div class="control-link-value">Access Codes</div>
+</a>
+
+<a class="control-link is-disabled" href="#" aria-disabled="true">
+<div class="control-link-label">Planned</div>
+<div class="control-link-value">Admin Hub</div>
+</a>
+</nav>
+
+<section id="sentinel-settings-page" class="section-block">
+<div id="sentinelBanner" class="banner"></div>
+
+<div class="layout">
+<section class="stack">
+<div class="warning-panel">
+<div class="section-header-row">
+<div>
+<h2 class="section-anchor-title">Execution mode control</h2>
+<p class="section-copy" style="margin-top: 10px;">
+Mode changes are high-authority actions. Emergency stop should be used immediately if execution conditions become unsafe.
+</p>
+</div>
+</div>
+
+<div class="mode-toolbar">
+<button id="sentinelModePaperButton" class="button button-secondary" type="button">
+Paper
+</button>
+<button id="sentinelModeArmedButton" class="button button-secondary" type="button">
+Armed Mainnet
+</button>
+<button id="sentinelModeLiveButton" class="button button-secondary" type="button">
+Live Mainnet
+</button>
+<button id="sentinelEmergencyStopButton" class="button button-danger" type="button">
+Emergency Stop
+</button>
+</div>
+
+<div class="field" style="margin-top: 16px;">
+<label for="sentinelModeReasonInput">Mode Change Reason</label>
+<input
+id="sentinelModeReasonInput"
+class="input"
+type="text"
+placeholder="Reason for arming, live activation, paper reset, or emergency stop"
+autocomplete="off"
+/>
+</div>
+</div>
+
+<div class="panel">
+<div class="section-header-row">
+<div>
+<h2 class="section-anchor-title">Core Sentinel settings</h2>
+<p class="section-copy" style="margin-top: 10px;">
+Primary control inputs wired into the Sentinel settings API.
+</p>
+</div>
+</div>
+
+<div class="settings-grid">
+<div class="field">
+<label for="sentinelScoutUsdInput">Scout USD</label>
+<input id="sentinelScoutUsdInput" class="input" type="number" step="0.01" min="0" />
+</div>
+
+<div class="field">
+<label for="sentinelSniperAddUsdInput">Sniper Add USD</label>
+<input id="sentinelSniperAddUsdInput" class="input" type="number" step="0.01" min="0" />
+</div>
+
+<div class="field">
+<label for="sentinelMaxTotalPositionUsdInput">Max Total Position USD</label>
+<input id="sentinelMaxTotalPositionUsdInput" class="input" type="number" step="0.01" min="0" />
+</div>
+
+<div class="field">
+<label for="sentinelMaxOpenPositionsInput">Max Open Positions</label>
+<input id="sentinelMaxOpenPositionsInput" class="input" type="number" step="1" min="0" />
+</div>
+
+<div class="field">
+<label for="sentinelMaxDailyLossUsdInput">Max Daily Loss USD</label>
+<input id="sentinelMaxDailyLossUsdInput" class="input" type="number" step="0.01" min="0" />
+</div>
+
+<div class="field">
+<label for="sentinelMaxConsecutiveFailuresInput">Max Consecutive Failures</label>
+<input id="sentinelMaxConsecutiveFailuresInput" class="input" type="number" step="1" min="0" />
+</div>
+
+<div class="field">
+<label for="sentinelMaxDailyScoutSpendUsdInput">Max Daily Scout Spend USD</label>
+<input id="sentinelMaxDailyScoutSpendUsdInput" class="input" type="number" step="0.01" min="0" />
+</div>
+
+<div class="field">
+<label for="sentinelMaxDailySniperSpendUsdInput">Max Daily Sniper Spend USD</label>
+<input id="sentinelMaxDailySniperSpendUsdInput" class="input" type="number" step="0.01" min="0" />
+</div>
+
+<div class="field">
+<label for="sentinelAutoBankMultipleInput">Auto-Bank Multiple</label>
+<input id="sentinelAutoBankMultipleInput" class="input" type="number" step="0.1" min="1" />
+</div>
+
+<div class="field">
+<label for="sentinelAutoBankFractionInput">Auto-Bank Fraction</label>
+<input id="sentinelAutoBankFractionInput" class="input" type="number" step="0.01" min="0" max="1" />
+</div>
+
+<div class="field">
+<label for="sentinelMinOperatorQualityScoreInput">Min Operator Quality Score</label>
+<input id="sentinelMinOperatorQualityScoreInput" class="input" type="number" step="0.1" min="0" max="100" />
+</div>
+
+<div class="field">
+<label for="sentinelMaxHiddenControlRiskInput">Max Hidden Control Risk</label>
+<input id="sentinelMaxHiddenControlRiskInput" class="input" type="number" step="0.1" min="0" max="100" />
+</div>
+
+<div class="field">
+<label for="sentinelMinRegimeScoreScoutInput">Min Regime Score For Scout</label>
+<input id="sentinelMinRegimeScoreScoutInput" class="input" type="number" step="0.1" min="0" max="100" />
+</div>
+
+<div class="field">
+<label for="sentinelMinRegimeScoreSniperInput">Min Regime Score For Sniper</label>
+<input id="sentinelMinRegimeScoreSniperInput" class="input" type="number" step="0.1" min="0" max="100" />
+</div>
+
+<div class="field">
+<label for="sentinelMinReclaimStrengthScoreInput">Min Reclaim Strength Score</label>
+<input id="sentinelMinReclaimStrengthScoreInput" class="input" type="number" step="0.1" min="0" max="100" />
+</div>
+
+<div class="field">
+<label for="sentinelMinBuyPressureScoreInput">Min Buy Pressure Score</label>
+<input id="sentinelMinBuyPressureScoreInput" class="input" type="number" step="0.1" min="0" max="100" />
+</div>
+
+<div class="field">
+<label for="sentinelMinPersistenceScoreInput">Min Persistence Score</label>
+<input id="sentinelMinPersistenceScoreInput" class="input" type="number" step="0.1" min="0" max="100" />
+</div>
+
+<div class="field">
+<label for="sentinelMinPostEntryHealthScoreInput">Min Post-Entry Health Score</label>
+<input id="sentinelMinPostEntryHealthScoreInput" class="input" type="number" step="0.1" min="0" max="100" />
+</div>
+</div>
+
+<div class="toggle-grid">
+<div class="toggle-card">
+<div class="field">
+<label for="sentinelWatcherEnabledInput">Watcher Enabled</label>
+<select id="sentinelWatcherEnabledInput" class="select">
+<option value="true">Enabled</option>
+<option value="false">Disabled</option>
+</select>
+</div>
+</div>
+
+<div class="toggle-card">
+<div class="field">
+<label for="sentinelAutoBankEnabledInput">Auto-Bank Enabled</label>
+<select id="sentinelAutoBankEnabledInput" class="select">
+<option value="true">Enabled</option>
+<option value="false">Disabled</option>
+</select>
+</div>
+</div>
+
+<div class="toggle-card">
+<div class="field">
+<label for="sentinelEnableScoutInput">Enable Scout</label>
+<select id="sentinelEnableScoutInput" class="select">
+<option value="true">Enabled</option>
+<option value="false">Disabled</option>
+</select>
+</div>
+</div>
+
+<div class="toggle-card">
+<div class="field">
+<label for="sentinelEnableSniperInput">Enable Sniper</label>
+<select id="sentinelEnableSniperInput" class="select">
+<option value="true">Enabled</option>
+<option value="false">Disabled</option>
+</select>
+</div>
+</div>
+
+<div class="toggle-card">
+<div class="field">
+<label for="sentinelEnableRunnerManagementInput">Enable Runner Management</label>
+<select id="sentinelEnableRunnerManagementInput" class="select">
+<option value="true">Enabled</option>
+<option value="false">Disabled</option>
+</select>
+</div>
+</div>
+
+<div class="toggle-card">
+<div class="field">
+<label for="sentinelRiskOffDisableNewEntriesInput">Risk-Off Disables New Entries</label>
+<select id="sentinelRiskOffDisableNewEntriesInput" class="select">
+<option value="true">Enabled</option>
+<option value="false">Disabled</option>
+</select>
+</div>
+</div>
+</div>
+</div>
+</section>
+
+<aside class="stack">
+<div class="panel">
+<h2 class="section-title">Current backend state</h2>
+<p class="section-copy">
+Read-only state returned with settings/status payloads.
+</p>
+
+<div class="mini-grid">
+<div class="mini-card">
+<div class="mini-card-label">Engine Started</div>
+<div class="mini-card-value" id="sentinelEngineStartedValue">—</div>
+</div>
+<div class="mini-card">
+<div class="mini-card-label">Engine Running</div>
+<div class="mini-card-value" id="sentinelEngineRunningValue">—</div>
+</div>
+<div class="mini-card">
+<div class="mini-card-label">Tick Count</div>
+<div class="mini-card-value" id="sentinelTickCountValue">—</div>
+</div>
+<div class="mini-card">
+<div class="mini-card-label">Last Error</div>
+<div class="mini-card-value" id="sentinelLastErrorValue">—</div>
+</div>
+</div>
+</div>
+
+<div class="panel">
+<h2 class="section-title">Mode guardrails</h2>
+<p class="section-copy">
+Armed and live mainnet modes should remain gated behind manual confirmation. Emergency stop must stay available from this page at all times.
+</p>
+
+<div class="summary-grid">
+<div class="summary-card">
+<div class="summary-label">Paper</div>
+<div class="summary-value">Safe default</div>
+<div class="summary-copy">Use for paper evaluation, rule tuning, and admin UI verification.</div>
+</div>
+
+<div class="summary-card">
+<div class="summary-label">Armed Mainnet</div>
+<div class="summary-value">Controlled arming</div>
+<div class="summary-copy">Use only after confirming evaluator quality and backend routing conditions.</div>
+</div>
+
+<div class="summary-card">
+<div class="summary-label">Live Mainnet</div>
+<div class="summary-value">Execution authority</div>
+<div class="summary-copy">Use only when all production checks are intentionally green.</div>
+</div>
+
+<div class="summary-card">
+<div class="summary-label">Emergency Stop</div>
+<div class="summary-value">Risk halt</div>
+<div class="summary-copy">Stops new entries and should be used immediately under unsafe conditions.</div>
+</div>
+</div>
+</div>
+</aside>
+</div>
+
+<section class="panel">
+<div class="section-header-row">
+<div>
+<h2 class="section-anchor-title">Advanced Sentinel thresholds</h2>
+<p class="section-copy" style="margin-top: 10px;">
+Full threshold surface aligned to the current config service and admin patch route.
+</p>
+</div>
+</div>
+
+<div class="settings-grid">
+<div class="field">
+<label for="sentinelMaxPositionsPerOperatorClusterInput">Max Positions Per Operator Cluster</label>
+<input id="sentinelMaxPositionsPerOperatorClusterInput" class="input" type="number" step="1" min="1" />
+</div>
+
+<div class="field">
+<label for="sentinelMaxTokensPerHourInput">Max Tokens Per Hour</label>
+<input id="sentinelMaxTokensPerHourInput" class="input" type="number" step="1" min="0" />
+</div>
+
+<div class="field">
+<label for="sentinelCooldownAfterCloseSecInput">Cooldown After Close Sec</label>
+<input id="sentinelCooldownAfterCloseSecInput" class="input" type="number" step="1" min="0" />
+</div>
+
+<div class="field">
+<label for="sentinelCooldownAfterInvalidationSecInput">Cooldown After Invalidation Sec</label>
+<input id="sentinelCooldownAfterInvalidationSecInput" class="input" type="number" step="1" min="0" />
+</div>
+
+<div class="field">
+<label for="sentinelEarlyFailTimeoutSecInput">Early Fail Timeout Sec</label>
+<input id="sentinelEarlyFailTimeoutSecInput" class="input" type="number" step="1" min="0" />
+</div>
+
+<div class="field">
+<label for="sentinelWeakStallTimeoutSecInput">Weak Stall Timeout Sec</label>
+<input id="sentinelWeakStallTimeoutSecInput" class="input" type="number" step="1" min="0" />
+</div>
+
+<div class="field">
+<label for="sentinelRunnerFailedBreakoutLimitInput">Runner Failed Breakout Limit</label>
+<input id="sentinelRunnerFailedBreakoutLimitInput" class="input" type="number" step="1" min="0" />
+</div>
+
+<div class="field">
+<label for="sentinelMaxContaminationRiskInput">Max Contamination Risk</label>
+<input id="sentinelMaxContaminationRiskInput" class="input" type="number" step="0.1" min="0" max="100" />
+</div>
+
+<div class="field">
+<label for="sentinelMaxWalletCoordinationRiskInput">Max Wallet Coordination Risk</label>
+<input id="sentinelMaxWalletCoordinationRiskInput" class="input" type="number" step="0.1" min="0" max="100" />
+</div>
+
+<div class="field">
+<label for="sentinelMaxTopHolderPctInput">Max Top Holder %</label>
+<input id="sentinelMaxTopHolderPctInput" class="input" type="number" step="0.1" min="0" max="100" />
+</div>
+
+<div class="field">
+<label for="sentinelMaxTop5HolderPctInput">Max Top 5 Holder %</label>
+<input id="sentinelMaxTop5HolderPctInput" class="input" type="number" step="0.1" min="0" max="100" />
+</div>
+
+<div class="field">
+<label for="sentinelMinLiquidityUsdInput">Min Liquidity USD</label>
+<input id="sentinelMinLiquidityUsdInput" class="input" type="number" step="0.01" min="0" />
+</div>
+
+<div class="field">
+<label for="sentinelMaxSpreadBpsInput">Max Spread BPS</label>
+<input id="sentinelMaxSpreadBpsInput" class="input" type="number" step="0.1" min="0" />
+</div>
+
+<div class="field">
+<label for="sentinelMaxPriceImpactBpsInput">Max Price Impact BPS</label>
+<input id="sentinelMaxPriceImpactBpsInput" class="input" type="number" step="0.1" min="0" />
+</div>
+
+<div class="field">
+<label for="sentinelMaxVerticalExtensionScoreForAddInput">Max Vertical Extension For Add</label>
+<input id="sentinelMaxVerticalExtensionScoreForAddInput" class="input" type="number" step="0.1" min="0" max="100" />
+</div>
+
+<div class="field">
+<label for="sentinelMaxInsiderSellScoreInput">Max Insider Sell Score</label>
+<input id="sentinelMaxInsiderSellScoreInput" class="input" type="number" step="0.1" min="0" max="100" />
+</div>
+
+<div class="field">
+<label for="sentinelMaxLiquidityDecayScoreInput">Max Liquidity Decay Score</label>
+<input id="sentinelMaxLiquidityDecayScoreInput" class="input" type="number" step="0.1" min="0" max="100" />
+</div>
+</div>
+
+<div class="toggle-grid">
+<div class="toggle-card">
+<div class="field">
+<label for="sentinelEnableMarketRegimeFilterInput">Enable Market Regime Filter</label>
+<select id="sentinelEnableMarketRegimeFilterInput" class="select">
+<option value="true">Enabled</option>
+<option value="false">Disabled</option>
+</select>
+</div>
+</div>
+
+<div class="toggle-card">
+<div class="field">
+<label for="sentinelEnableOperatorFilterInput">Enable Operator Filter</label>
+<select id="sentinelEnableOperatorFilterInput" class="select">
+<option value="true">Enabled</option>
+<option value="false">Disabled</option>
+</select>
+</div>
+</div>
+
+<div class="toggle-card">
+<div class="field">
+<label for="sentinelEnableHardRejectsInput">Enable Hard Rejects</label>
+<select id="sentinelEnableHardRejectsInput" class="select">
+<option value="true">Enabled</option>
+<option value="false">Disabled</option>
+</select>
+</div>
+</div>
+</div>
+</section>
+</section>
+</section>
+</main>
+</div>
+
+<script type="module" src="/assets/layout-shell.js?v=20260514-shell-v3"></script>
+<script type="module" src="/assets/pages/sentinel-settings.js?v=20260518-sentinel-settings-v1"></script>
+</body>
+</html>

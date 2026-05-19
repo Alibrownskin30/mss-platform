@@ -3,2729 +3,128 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>MSS Protocol — Compliance & Sentinel Admin</title>
+<title>MSS Protocol — Compliance Admin</title>
 <meta
 name="description"
-content="Internal compliance review queue, Sentinel Watcher control center, and Sentinel access-code administration for MSS Protocol."
+content="Internal MSS Protocol compliance case review queue and manual access decision surface."
 />
 
-<link rel="stylesheet" href="/assets/app.css?v=20260518-sentinel-admin-v3" />
-
-<style>
-:root {
---bg: #030711;
---panel: rgba(8, 14, 27, 0.92);
---panel-2: rgba(5, 9, 20, 0.94);
---border: rgba(115, 185, 255, 0.14);
---border-strong: rgba(115, 185, 255, 0.26);
---text: #eef6ff;
---muted: rgba(198, 211, 226, 0.66);
---muted-2: rgba(198, 211, 226, 0.48);
---accent: #4fc3ff;
---accent-2: #8fe3ff;
---gold: #ebd7ab;
---good: #7bffb1;
---warn: #ffcf66;
---bad: #ff8787;
---shadow: 0 28px 70px rgba(0, 0, 0, 0.38);
---radius: 22px;
---radius-sm: 14px;
---max: 1480px;
-}
-
-* {
-box-sizing: border-box;
-}
-
-[hidden] {
-display: none !important;
-}
-
-html,
-body {
-margin: 0;
-padding: 0;
-color: var(--text);
-font-family:
-Inter,
-ui-sans-serif,
-system-ui,
--apple-system,
-BlinkMacSystemFont,
-"Segoe UI",
-sans-serif;
-background:
-radial-gradient(980px 280px at 15% 0%, rgba(79, 195, 255, 0.11), transparent 42%),
-radial-gradient(760px 240px at 90% 0%, rgba(235, 215, 171, 0.045), transparent 44%),
-linear-gradient(180deg, #030711 0%, #02050c 100%);
-}
-
-a {
-color: inherit;
-text-decoration: none;
-}
-
-button,
-input,
-select,
-textarea {
-font: inherit;
-}
-
-.page {
-min-height: 100vh;
-}
-
-.shell {
-width: min(var(--max), calc(100% - 32px));
-margin: 0 auto;
-}
-
-.topbar-actions,
-.admin-status-strip {
-display: flex;
-align-items: center;
-gap: 10px;
-flex-wrap: wrap;
-}
-
-.admin-status-strip {
-margin-bottom: 18px;
-}
-
-.chip {
-display: inline-flex;
-align-items: center;
-gap: 8px;
-min-height: 38px;
-padding: 0 12px;
-border-radius: 999px;
-border: 1px solid var(--border);
-background: rgba(255, 255, 255, 0.035);
-color: var(--muted);
-font-size: 12px;
-}
-
-.chip strong {
-color: var(--text);
-}
-
-.button {
-appearance: none;
-border: 0;
-cursor: pointer;
-min-height: 42px;
-padding: 0 16px;
-border-radius: 14px;
-font-weight: 900;
-font-size: 13px;
-letter-spacing: 0.02em;
-transition:
-transform 0.16s ease,
-opacity 0.16s ease,
-border-color 0.16s ease,
-background 0.16s ease;
-}
-
-.button:hover:not(:disabled) {
-transform: translateY(-1px);
-}
-
-.button:disabled {
-opacity: 0.55;
-cursor: not-allowed;
-}
-
-.button-primary {
-color: #04111d;
-background: linear-gradient(135deg, var(--accent-2), var(--accent));
-box-shadow: 0 14px 34px rgba(79, 195, 255, 0.14);
-}
-
-.button-secondary {
-color: var(--text);
-background: rgba(255, 255, 255, 0.045);
-border: 1px solid var(--border);
-}
-
-.button-danger {
-color: #ffd5d5;
-background: rgba(42, 14, 14, 0.78);
-border: 1px solid rgba(255, 135, 135, 0.2);
-}
-
-.hero {
-padding: 38px 0 18px;
-}
-
-.hero-grid {
-display: grid;
-grid-template-columns: minmax(0, 1.2fr) minmax(360px, 0.8fr);
-gap: 18px;
-}
-
-.panel,
-.hero-panel,
-.summary-panel,
-.subpanel,
-.admin-section {
-position: relative;
-overflow: hidden;
-background:
-radial-gradient(780px 220px at 0% 0%, rgba(79, 195, 255, 0.1), transparent 44%),
-radial-gradient(520px 180px at 100% 0%, rgba(235, 215, 171, 0.04), transparent 42%),
-linear-gradient(180deg, var(--panel), var(--panel-2));
-border: 1px solid var(--border);
-box-shadow: var(--shadow);
-}
-
-.panel,
-.hero-panel,
-.summary-panel,
-.admin-section {
-border-radius: var(--radius);
-padding: 24px;
-}
-
-.subpanel {
-padding: 16px;
-border-radius: 18px;
-}
-
-.subpanel + .subpanel {
-margin-top: 14px;
-}
-
-.panel::before,
-.hero-panel::before,
-.summary-panel::before,
-.subpanel::before,
-.admin-section::before {
-content: "";
-position: absolute;
-inset: 0 0 auto 0;
-height: 1px;
-background: linear-gradient(
-90deg,
-transparent,
-rgba(79, 195, 255, 0.36),
-rgba(235, 215, 171, 0.16),
-transparent
-);
-pointer-events: none;
-}
-
-.eyebrow {
-display: inline-flex;
-align-items: center;
-gap: 8px;
-min-height: 30px;
-padding: 0 12px;
-border-radius: 999px;
-border: 1px solid rgba(115, 185, 255, 0.18);
-color: var(--accent-2);
-background: rgba(79, 195, 255, 0.06);
-font-size: 11px;
-font-weight: 900;
-letter-spacing: 0.12em;
-text-transform: uppercase;
-}
-
-.hero h1 {
-margin: 18px 0 12px;
-font-size: clamp(30px, 4.4vw, 50px);
-line-height: 1;
-letter-spacing: -0.045em;
-}
-
-.hero p,
-.section-copy,
-.summary-copy,
-.dim {
-color: var(--muted);
-}
-
-.hero p {
-margin: 0;
-font-size: 15px;
-line-height: 1.7;
-max-width: 780px;
-}
-
-.hero-points {
-margin-top: 22px;
-display: grid;
-grid-template-columns: repeat(4, minmax(0, 1fr));
-gap: 12px;
-}
-
-.hero-point,
-.summary-card,
-.mini-card,
-.toggle-card,
-.detail-section,
-.detail-meta,
-.control-link {
-border: 1px solid rgba(115, 185, 255, 0.09);
-background: rgba(255, 255, 255, 0.035);
-border-radius: 16px;
-}
-
-.hero-point {
-padding: 14px;
-min-height: 92px;
-}
-
-.hero-point-label,
-.summary-label,
-.mini-card-label,
-.detail-label,
-.control-link-label {
-color: var(--muted-2);
-font-size: 10px;
-font-weight: 900;
-text-transform: uppercase;
-letter-spacing: 0.12em;
-}
-
-.hero-point-value,
-.summary-value,
-.mini-card-value,
-.detail-value,
-.control-link-value {
-margin-top: 8px;
-font-weight: 850;
-line-height: 1.4;
-word-break: break-word;
-}
-
-.hero-point-value {
-font-size: 14px;
-}
-
-.control-grid {
-display: grid;
-grid-template-columns: repeat(5, minmax(0, 1fr));
-gap: 12px;
-margin: 0 0 18px;
-}
-
-.control-link {
-padding: 14px;
-transition:
-border-color 0.16s ease,
-transform 0.16s ease,
-background 0.16s ease;
-}
-
-.control-link:hover,
-.control-link.active {
-transform: translateY(-1px);
-border-color: rgba(79, 195, 255, 0.26);
-background: rgba(79, 195, 255, 0.06);
-}
-
-.control-link-value {
-font-size: 13px;
-}
-
-.section-title {
-margin: 0 0 6px;
-font-size: 18px;
-letter-spacing: -0.025em;
-}
-
-.section-copy {
-margin: 0;
-font-size: 14px;
-line-height: 1.65;
-}
-
-.summary-grid {
-margin-top: 18px;
-display: grid;
-gap: 12px;
-}
-
-.summary-card {
-padding: 14px;
-}
-
-.summary-value {
-font-size: 15px;
-}
-
-.summary-copy {
-margin-top: 8px;
-font-size: 13px;
-line-height: 1.55;
-}
-
-.main {
-padding: 8px 0 42px;
-display: grid;
-gap: 18px;
-}
-
-.layout {
-display: grid;
-grid-template-columns: minmax(0, 1.1fr) minmax(380px, 0.9fr);
-gap: 18px;
-}
-
-.stack,
-.section-block,
-.action-stack {
-display: grid;
-gap: 18px;
-}
-
-.toolbar {
-display: grid;
-grid-template-columns: 1.1fr 0.9fr 0.9fr 0.9fr auto;
-gap: 10px;
-margin-top: 18px;
-}
-
-.field {
-display: flex;
-flex-direction: column;
-gap: 8px;
-}
-
-.field label {
-color: var(--muted-2);
-font-size: 11px;
-font-weight: 900;
-letter-spacing: 0.1em;
-text-transform: uppercase;
-}
-
-.input,
-.select,
-.textarea {
-width: 100%;
-border: 1px solid rgba(115, 185, 255, 0.13);
-background: rgba(2, 6, 14, 0.72);
-color: var(--text);
-border-radius: 14px;
-outline: none;
-transition:
-border-color 0.16s ease,
-box-shadow 0.16s ease,
-background 0.16s ease;
-}
-
-.input,
-.select {
-min-height: 46px;
-padding: 0 14px;
-}
-
-.textarea {
-min-height: 112px;
-resize: vertical;
-padding: 14px;
-}
-
-.input:focus,
-.select:focus,
-.textarea:focus {
-border-color: rgba(79, 195, 255, 0.42);
-box-shadow: 0 0 0 4px rgba(79, 195, 255, 0.08);
-background: rgba(2, 6, 14, 0.88);
-}
-
-.banner {
-display: none;
-margin-bottom: 18px;
-padding: 14px 16px;
-border-radius: 16px;
-border: 1px solid rgba(115, 185, 255, 0.14);
-background: rgba(255, 255, 255, 0.04);
-font-size: 14px;
-line-height: 1.55;
-}
-
-.banner.show {
-display: block;
-}
-
-.banner.good {
-color: var(--good);
-border-color: rgba(123, 255, 177, 0.22);
-}
-
-.banner.warn {
-color: var(--warn);
-border-color: rgba(255, 207, 102, 0.22);
-}
-
-.banner.bad {
-color: var(--bad);
-border-color: rgba(255, 135, 135, 0.22);
-}
-
-.table-wrap {
-overflow: auto;
-border-radius: 18px;
-border: 1px solid rgba(115, 185, 255, 0.1);
-background: rgba(2, 6, 14, 0.62);
-margin-top: 18px;
-}
-
-table {
-width: 100%;
-border-collapse: collapse;
-min-width: 920px;
-}
-
-thead th {
-position: sticky;
-top: 0;
-z-index: 1;
-background: rgba(5, 9, 20, 0.98);
-color: var(--muted-2);
-font-size: 10px;
-font-weight: 900;
-text-transform: uppercase;
-letter-spacing: 0.12em;
-text-align: left;
-padding: 14px;
-border-bottom: 1px solid rgba(115, 185, 255, 0.1);
-}
-
-tbody td {
-padding: 14px;
-border-bottom: 1px solid rgba(115, 185, 255, 0.07);
-vertical-align: top;
-font-size: 13px;
-line-height: 1.5;
-}
-
-tbody tr {
-transition: background 0.14s ease;
-cursor: pointer;
-}
-
-tbody tr:hover {
-background: rgba(79, 195, 255, 0.06);
-}
-
-tbody tr.active {
-background: rgba(79, 195, 255, 0.1);
-}
-
-.pill {
-display: inline-flex;
-align-items: center;
-gap: 8px;
-min-height: 30px;
-padding: 0 10px;
-border-radius: 999px;
-border: 1px solid rgba(115, 185, 255, 0.14);
-background: rgba(255, 255, 255, 0.04);
-font-size: 10px;
-font-weight: 900;
-letter-spacing: 0.1em;
-text-transform: uppercase;
-white-space: nowrap;
-}
-
-.pill.good {
-color: var(--good);
-border-color: rgba(123, 255, 177, 0.24);
-}
-
-.pill.warn {
-color: var(--warn);
-border-color: rgba(255, 207, 102, 0.24);
-}
-
-.pill.bad {
-color: var(--bad);
-border-color: rgba(255, 135, 135, 0.24);
-}
-
-.pill.neutral {
-color: var(--muted);
-}
-
-.mono {
-font-family:
-ui-monospace,
-SFMono-Regular,
-Menlo,
-Consolas,
-monospace;
-}
-
-.detail-card {
-display: grid;
-gap: 16px;
-}
-
-.detail-section {
-padding: 16px;
-}
-
-.detail-section h3 {
-margin: 0 0 8px;
-font-size: 15px;
-letter-spacing: -0.02em;
-}
-
-.detail-grid {
-display: grid;
-grid-template-columns: repeat(2, minmax(0, 1fr));
-gap: 12px;
-}
-
-.detail-meta {
-padding: 12px;
-}
-
-.detail-value {
-font-size: 13px;
-}
-
-.action-row {
-display: grid;
-grid-template-columns: repeat(2, minmax(0, 1fr));
-gap: 10px;
-}
-
-.empty-state {
-display: grid;
-place-items: center;
-min-height: 260px;
-text-align: center;
-color: var(--muted);
-border: 1px dashed rgba(115, 185, 255, 0.14);
-border-radius: 18px;
-background: rgba(255, 255, 255, 0.025);
-}
-
-.empty-state strong {
-display: block;
-color: var(--text);
-font-size: 16px;
-margin-bottom: 8px;
-}
-
-.notes-block {
-margin-top: 14px;
-}
-
-.section-header-row,
-.table-title-row {
-display: flex;
-align-items: flex-start;
-justify-content: space-between;
-gap: 16px;
-flex-wrap: wrap;
-}
-
-.sentinel-grid {
-display: grid;
-grid-template-columns: minmax(0, 1.12fr) minmax(380px, 0.88fr);
-gap: 18px;
-}
-
-.mode-toolbar {
-display: flex;
-flex-wrap: wrap;
-gap: 10px;
-margin-top: 18px;
-}
-
-.mode-toolbar .button {
-min-width: 150px;
-}
-
-.mini-grid {
-margin-top: 18px;
-display: grid;
-grid-template-columns: repeat(4, minmax(0, 1fr));
-gap: 12px;
-}
-
-.mini-card {
-padding: 14px;
-}
-
-.mini-card-value {
-font-size: 16px;
-}
-
-.settings-grid {
-display: grid;
-grid-template-columns: repeat(3, minmax(0, 1fr));
-gap: 12px;
-margin-top: 18px;
-}
-
-.toggle-grid {
-display: grid;
-grid-template-columns: repeat(3, minmax(0, 1fr));
-gap: 12px;
-margin-top: 18px;
-}
-
-.toggle-card {
-padding: 14px;
-display: grid;
-gap: 10px;
-}
-
-.toggle-card .field {
-gap: 6px;
-}
-
-.toolbar-compact,
-.toolbar-compact-3,
-.toolbar-compact-4,
-.toolbar-compact-5 {
-display: grid;
-gap: 10px;
-margin-top: 16px;
-}
-
-.toolbar-compact {
-grid-template-columns: repeat(4, minmax(0, 1fr));
-}
-
-.toolbar-compact-3 {
-grid-template-columns: repeat(3, minmax(0, 1fr));
-}
-
-.toolbar-compact-4 {
-grid-template-columns: repeat(4, minmax(0, 1fr));
-}
-
-.toolbar-compact-5 {
-grid-template-columns: repeat(5, minmax(0, 1fr));
-}
-
-.toolbar-inline-action {
-display: grid;
-grid-template-columns: minmax(0, 1fr) auto;
-gap: 10px;
-margin-top: 16px;
-align-items: end;
-}
-
-.stats-grid {
-margin-top: 18px;
-display: grid;
-grid-template-columns: repeat(2, minmax(0, 1fr));
-gap: 12px;
-}
-
-.section-anchor-title {
-margin: 0;
-font-size: 22px;
-letter-spacing: -0.03em;
-}
-
-.admin-section {
-display: block;
-padding: 0;
-}
-
-.admin-section + .admin-section {
-margin-top: 18px;
-}
-
-.admin-section > summary {
-list-style: none;
-cursor: pointer;
-padding: 22px 24px;
-display: flex;
-align-items: center;
-justify-content: space-between;
-gap: 18px;
-border-bottom: 1px solid rgba(115, 185, 255, 0.09);
-}
-
-.admin-section > summary::-webkit-details-marker {
-display: none;
-}
-
-.admin-section-summary-copy {
-display: grid;
-gap: 8px;
-}
-
-.admin-section-kicker {
-font-size: 10px;
-font-weight: 900;
-letter-spacing: 0.16em;
-text-transform: uppercase;
-color: var(--accent-2);
-}
-
-.admin-section-title {
-font-size: 20px;
-font-weight: 900;
-letter-spacing: -0.03em;
-}
-
-.admin-section-subtitle {
-font-size: 13px;
-line-height: 1.55;
-color: var(--muted);
-max-width: 760px;
-}
-
-.admin-section-icon {
-flex: 0 0 auto;
-width: 36px;
-height: 36px;
-display: grid;
-place-items: center;
-border-radius: 999px;
-border: 1px solid rgba(115, 185, 255, 0.18);
-background: rgba(79, 195, 255, 0.06);
-color: var(--accent-2);
-font-weight: 900;
-transition: transform 0.16s ease;
-}
-
-.admin-section[open] > summary .admin-section-icon {
-transform: rotate(180deg);
-}
-
-.admin-section-body {
-padding: 24px;
-}
-
-.admin-nested {
-border: 1px solid rgba(115, 185, 255, 0.1);
-border-radius: 18px;
-background: rgba(255, 255, 255, 0.025);
-overflow: hidden;
-}
-
-.admin-nested + .admin-nested {
-margin-top: 14px;
-}
-
-.admin-nested > summary {
-list-style: none;
-cursor: pointer;
-padding: 16px;
-display: flex;
-justify-content: space-between;
-align-items: center;
-gap: 14px;
-border-bottom: 1px solid rgba(115, 185, 255, 0.08);
-}
-
-.admin-nested > summary::-webkit-details-marker {
-display: none;
-}
-
-.admin-nested-title {
-font-size: 15px;
-font-weight: 900;
-letter-spacing: -0.02em;
-}
-
-.admin-nested-subtitle {
-margin-top: 4px;
-font-size: 13px;
-color: var(--muted);
-line-height: 1.45;
-}
-
-.admin-nested-icon {
-color: var(--accent-2);
-font-weight: 900;
-transition: transform 0.16s ease;
-}
-
-.admin-nested[open] > summary .admin-nested-icon {
-transform: rotate(180deg);
-}
-
-.admin-nested-body {
-padding: 16px;
-}
-
-.sentinel-enhanced-grid {
-display: grid;
-grid-template-columns: repeat(4, minmax(0, 1fr));
-gap: 12px;
-margin-top: 14px;
-}
-
-.sentinel-enhanced-card {
-position: relative;
-overflow: hidden;
-padding: 16px;
-border: 1px solid rgba(99, 179, 237, 0.22);
-border-radius: 18px;
-background:
-linear-gradient(135deg, rgba(7, 16, 32, 0.94), rgba(13, 31, 58, 0.76)),
-radial-gradient(circle at top right, rgba(79, 209, 197, 0.14), transparent 45%);
-box-shadow:
-inset 0 1px 0 rgba(255, 255, 255, 0.05),
-0 18px 46px rgba(0, 0, 0, 0.22);
-}
-
-.sentinel-enhanced-card::after {
-content: "";
-position: absolute;
-inset: auto -30px -48px auto;
-width: 130px;
-height: 130px;
-border-radius: 999px;
-background: rgba(56, 189, 248, 0.1);
-filter: blur(10px);
-}
-
-.sentinel-enhanced-label {
-position: relative;
-z-index: 1;
-font-size: 10px;
-letter-spacing: 0.16em;
-text-transform: uppercase;
-color: var(--muted);
-font-weight: 900;
-}
-
-.sentinel-enhanced-value {
-position: relative;
-z-index: 1;
-margin-top: 8px;
-font-size: 22px;
-font-weight: 900;
-letter-spacing: -0.03em;
-color: var(--text);
-}
-
-.sentinel-enhanced-subtitle {
-position: relative;
-z-index: 1;
-margin-top: 6px;
-font-size: 12px;
-line-height: 1.35;
-color: var(--muted);
-}
-
-.sentinel-summary-period-shell {
-display: flex;
-align-items: end;
-justify-content: space-between;
-gap: 14px;
-margin: 18px 0 0;
-padding: 14px;
-border: 1px solid rgba(99, 179, 237, 0.18);
-border-radius: 18px;
-background:
-linear-gradient(135deg, rgba(2, 6, 23, 0.84), rgba(15, 23, 42, 0.62)),
-radial-gradient(circle at top right, rgba(56, 189, 248, 0.12), transparent 46%);
-}
-
-.sentinel-summary-period-copy {
-min-width: 220px;
-}
-
-.sentinel-summary-period-title {
-font-size: 11px;
-font-weight: 900;
-text-transform: uppercase;
-letter-spacing: 0.16em;
-color: var(--muted);
-}
-
-.sentinel-summary-period-active {
-margin-top: 6px;
-font-size: 16px;
-font-weight: 900;
-color: var(--text);
-}
-
-.sentinel-summary-period-range {
-margin-top: 4px;
-font-size: 12px;
-color: var(--muted);
-}
-
-.sentinel-summary-period-controls {
-display: flex;
-align-items: end;
-gap: 10px;
-flex-wrap: wrap;
-}
-
-.sentinel-summary-period-field {
-display: grid;
-gap: 6px;
-}
-
-.sentinel-summary-period-field label {
-font-size: 10px;
-font-weight: 900;
-letter-spacing: 0.14em;
-text-transform: uppercase;
-color: var(--muted);
-}
-
-.sentinel-summary-period-field select,
-.sentinel-summary-period-field input {
-min-width: 160px;
-border: 1px solid rgba(99, 179, 237, 0.28);
-border-radius: 12px;
-background: rgba(2, 6, 23, 0.86);
-color: var(--text);
-padding: 10px 12px;
-font-weight: 800;
-outline: none;
-}
-
-.sentinel-summary-period-field input {
-min-width: 150px;
-}
-
-.sentinel-summary-period-button {
-border: 1px solid rgba(99, 179, 237, 0.35);
-border-radius: 12px;
-background: rgba(14, 165, 233, 0.18);
-color: var(--text);
-padding: 10px 14px;
-font-weight: 900;
-cursor: pointer;
-}
-
-.sentinel-summary-period-button:disabled {
-opacity: 0.55;
-cursor: not-allowed;
-}
-
-.pnl-good {
-color: #35f2a9 !important;
-text-shadow: 0 0 18px rgba(53, 242, 169, 0.2);
-}
-
-.pnl-bad {
-color: #ff6b7a !important;
-text-shadow: 0 0 18px rgba(255, 107, 122, 0.18);
-}
-
-.pnl-neutral {
-color: var(--text) !important;
-}
-
-.sentinel-position-gain {
-background: linear-gradient(90deg, rgba(16, 185, 129, 0.08), transparent 52%);
-}
-
-.sentinel-position-loss {
-background: linear-gradient(90deg, rgba(244, 63, 94, 0.08), transparent 52%);
-}
-
-.sentinel-position-sort-shell {
-display: flex;
-justify-content: space-between;
-align-items: center;
-gap: 12px;
-margin: 14px 0 0;
-padding: 12px 14px;
-border: 1px solid rgba(99, 179, 237, 0.18);
-border-radius: 16px;
-background: rgba(8, 18, 34, 0.72);
-}
-
-.sentinel-position-sort-title {
-font-size: 11px;
-font-weight: 900;
-text-transform: uppercase;
-letter-spacing: 0.15em;
-color: var(--muted);
-}
-
-.sentinel-position-sort-select {
-min-width: 220px;
-border: 1px solid rgba(99, 179, 237, 0.28);
-border-radius: 12px;
-background: rgba(2, 6, 23, 0.86);
-color: var(--text);
-padding: 10px 12px;
-font-weight: 800;
-outline: none;
-}
-
-.sentinel-pnl-stack {
-display: grid;
-gap: 4px;
-}
-
-.sentinel-pnl-main {
-font-weight: 900;
-letter-spacing: -0.02em;
-}
-
-.sentinel-pnl-sub {
-font-size: 12px;
-color: var(--muted);
-}
-
-@media (max-width: 1180px) {
-.hero-grid,
-.layout,
-.sentinel-grid {
-grid-template-columns: 1fr;
-}
-
-.control-grid,
-.mini-grid,
-.settings-grid,
-.toggle-grid,
-.stats-grid,
-.toolbar-compact,
-.toolbar-compact-3,
-.toolbar-compact-4,
-.toolbar-compact-5,
-.sentinel-enhanced-grid {
-grid-template-columns: repeat(2, minmax(0, 1fr));
-}
-
-.toolbar-inline-action {
-grid-template-columns: 1fr;
-}
-
-.sentinel-summary-period-shell {
-align-items: stretch;
-flex-direction: column;
-}
-}
-
-@media (max-width: 820px) {
-.shell {
-width: min(var(--max), calc(100% - 20px));
-}
-
-.hero,
-.main {
-padding-top: 24px;
-}
-
-.hero-points,
-.control-grid,
-.detail-grid,
-.toolbar,
-.action-row,
-.mini-grid,
-.settings-grid,
-.toggle-grid,
-.toolbar-compact,
-.toolbar-compact-3,
-.toolbar-compact-4,
-.toolbar-compact-5,
-.stats-grid,
-.toolbar-inline-action,
-.sentinel-enhanced-grid {
-grid-template-columns: 1fr;
-}
-
-.hero-panel,
-.summary-panel,
-.panel,
-.admin-section {
-padding: 18px;
-border-radius: 18px;
-}
-
-.admin-section {
-padding: 0;
-}
-
-.admin-section > summary,
-.admin-section-body {
-padding: 18px;
-}
-
-.subpanel {
-padding: 14px;
-}
-
-.hero h1 {
-font-size: clamp(30px, 11vw, 44px);
-}
-
-.sentinel-position-sort-shell,
-.sentinel-summary-period-controls {
-align-items: stretch;
-flex-direction: column;
-}
-
-.sentinel-position-sort-select,
-.sentinel-summary-period-field select,
-.sentinel-summary-period-field input,
-.sentinel-summary-period-button {
-width: 100%;
-}
-}
-</style>
+<link rel="stylesheet" href="/assets/app.css?v=20260518-admin-split-v4" />
 </head>
 
 <body
 data-shell-auto="true"
 data-page="compliance-admin"
 data-active-page="compliance-admin"
-data-shell-active="launchpad"
-data-active-nav="launchpad"
+data-shell-active="compliance-admin"
+data-active-nav="compliance-admin"
+data-shell-title="Compliance Admin"
+data-shell-subtitle="Manual Review Queue"
 >
-<div class="page">
-<main class="shell">
-<section class="hero">
-<div class="hero-grid">
-<section class="hero-panel">
-<div class="eyebrow">Internal Control Surface</div>
-<h1>Compliance operations and Sentinel execution control.</h1>
+<div id="layoutShellHeader"></div>
+
+<main class="admin-page">
+<section class="admin-shell">
+<section class="admin-hero">
+<div class="admin-hero-main">
+<div class="admin-eyebrow">Compliance Operations</div>
+<h1>Manual review queue and compliance case control.</h1>
 <p>
-Internal review surface for compliance cases, Sentinel Watcher controls, tester access codes, audit trails, positions, risk settings, and emergency-stop handling.
+Review wallet, builder, participant, launch, and transaction cases from one focused compliance surface. Sentinel settings now live separately so this page stays clean and operational.
 </p>
 
-<div class="hero-points">
-<div class="hero-point">
-<div class="hero-point-label">Active Filter</div>
-<div class="hero-point-value" id="heroFilterValue">All cases</div>
-</div>
-<div class="hero-point">
-<div class="hero-point-label">Selected Case</div>
-<div class="hero-point-value" id="heroSelectedValue">None selected</div>
-</div>
-<div class="hero-point">
-<div class="hero-point-label">Review State</div>
-<div class="hero-point-value" id="heroReviewStateValue">Awaiting refresh</div>
-</div>
-<div class="hero-point">
-<div class="hero-point-label">Sentinel Mode</div>
-<div class="hero-point-value" id="heroSentinelModeValue">Paper</div>
-</div>
-</div>
-</section>
-
-<aside class="summary-panel">
-<div class="admin-status-strip">
-<div class="chip">
-<span>Queue</span>
-<strong id="queueCountChip">0 cases</strong>
-</div>
-<div class="chip">
-<span>API</span>
-<strong id="apiStatusChip">Idle</strong>
-</div>
-<div class="chip">
-<span>Sentinel</span>
-<strong id="sentinelModeChip">Paper</strong>
-</div>
-<button id="refreshCasesButton" class="button button-secondary" type="button">
+<div class="admin-hero-actions">
+<a class="admin-button admin-button-secondary" href="./admin.html">
+Admin Dashboard
+</a>
+<a class="admin-button admin-button-secondary" href="./sentinel-admin.html">
+Sentinel Admin
+</a>
+<button id="refreshCasesButton" class="admin-button admin-button-primary" type="button">
 Refresh Cases
 </button>
 </div>
-
-<h2 class="section-title">Queue summary</h2>
-<p class="section-copy">
-Current compliance queue state and selected-case posture.
-</p>
-
-<div class="summary-grid">
-<div class="summary-card">
-<div class="summary-label">Open / Pending</div>
-<div class="summary-value" id="openCountValue">0</div>
-<div class="summary-copy">Cases waiting for decision or additional information.</div>
 </div>
 
-<div class="summary-card">
-<div class="summary-label">Escalated / Frozen</div>
-<div class="summary-value" id="escalatedCountValue">0</div>
-<div class="summary-copy">Cases requiring stricter review or access restriction handling.</div>
+<aside class="admin-hero-side">
+<div class="admin-status-strip">
+<div class="admin-chip">
+<span>Queue</span>
+<strong id="queueCountChip">0 cases</strong>
+</div>
+<div class="admin-chip">
+<span>API</span>
+<strong id="apiStatusChip">Idle</strong>
+</div>
 </div>
 
-<div class="summary-card">
-<div class="summary-label">Approved / Rejected</div>
-<div class="summary-value" id="resolvedCountValue">0</div>
-<div class="summary-copy">Closed decisions affecting builder or participant access.</div>
+<div class="admin-summary-grid">
+<div class="admin-summary-card">
+<div class="admin-summary-label">Open / Pending</div>
+<div class="admin-summary-value" id="openCountValue">0</div>
+<div class="admin-summary-copy">Cases waiting for review or additional information.</div>
+</div>
+
+<div class="admin-summary-card">
+<div class="admin-summary-label">Escalated / Frozen</div>
+<div class="admin-summary-value" id="escalatedCountValue">0</div>
+<div class="admin-summary-copy">Cases requiring stricter access handling.</div>
+</div>
+
+<div class="admin-summary-card">
+<div class="admin-summary-label">Approved / Rejected</div>
+<div class="admin-summary-value" id="resolvedCountValue">0</div>
+<div class="admin-summary-copy">Closed review outcomes.</div>
 </div>
 </div>
 </aside>
+</section>
+
+<section class="admin-mini-rail" aria-label="Compliance summary">
+<div class="admin-mini-card">
+<div class="admin-mini-label">Active Filter</div>
+<div class="admin-mini-value" id="heroFilterValue">All cases</div>
+</div>
+
+<div class="admin-mini-card">
+<div class="admin-mini-label">Selected Case</div>
+<div class="admin-mini-value" id="heroSelectedValue">None selected</div>
+</div>
+
+<div class="admin-mini-card">
+<div class="admin-mini-label">Review State</div>
+<div class="admin-mini-value" id="heroReviewStateValue">Awaiting refresh</div>
+</div>
+
+<div class="admin-mini-card">
+<div class="admin-mini-label">Notification Surface</div>
+<div class="admin-mini-value" id="complianceNotificationValue">Queue based</div>
 </div>
 </section>
 
-<section class="main">
-<nav id="mssAdminCommandCenter" class="control-grid" aria-label="Admin sections">
-<a class="control-link active" href="#sentinel-overview" data-mss-admin-tab="overview">
-<div class="control-link-label">01</div>
-<div class="control-link-value">Sentinel Overview</div>
-</a>
-<a class="control-link" href="#sentinel-settings" data-mss-admin-tab="settings">
-<div class="control-link-label">02</div>
-<div class="control-link-value">Settings</div>
-</a>
-<a class="control-link" href="#sentinel-intelligence" data-mss-admin-tab="positions">
-<div class="control-link-label">03</div>
-<div class="control-link-value">Positions & Audit</div>
-</a>
-<a class="control-link" href="#sentinel-access" data-mss-admin-tab="access">
-<div class="control-link-label">04</div>
-<div class="control-link-value">Access Codes</div>
-</a>
-<a class="control-link" href="#compliance-cases" data-mss-admin-tab="cases">
-<div class="control-link-label">05</div>
-<div class="control-link-value">Compliance Cases</div>
-</a>
-</nav>
-
-<section id="sentinel-overview" class="section-block">
-<span data-mss-admin-collapse="overview" hidden></span>
-<details class="admin-section" open>
-<summary>
-<div class="admin-section-summary-copy">
-<div class="admin-section-kicker">Sentinel Watcher</div>
-<div class="admin-section-title">Overview and execution mode</div>
-<div class="admin-section-subtitle">
-The high-signal surface: mode state, summary PnL windows, daily stats, runtime engine state, and emergency stop controls.
-</div>
-</div>
-<div class="admin-section-icon">⌄</div>
-</summary>
-
-<div class="admin-section-body">
-<div id="sentinelBanner" class="banner"></div>
-
-<div class="section-header-row">
+<section class="admin-section">
+<div class="admin-section-head">
 <div>
-<h2 class="section-anchor-title">Execution control center</h2>
-<p class="section-copy" style="margin-top: 10px;">
-Switch execution modes, monitor selected-window PnL, and confirm Sentinel is processing cleanly.
-</p>
-</div>
-
-<div class="topbar-actions">
-<button id="refreshSentinelButton" class="button button-secondary" type="button">
-Refresh Sentinel
-</button>
-<button id="saveSentinelSettingsButton" class="button button-primary" type="button">
-Save Settings
-</button>
-</div>
-</div>
-
-<div class="sentinel-grid" style="margin-top: 18px;">
-<section class="stack">
-<div class="subpanel">
-<h3 class="section-title">Execution mode</h3>
-<p class="section-copy">
-Paper mode remains the safe default until evaluator quality, audit accuracy, and guardrails are proven.
-</p>
-
-<div class="mini-grid">
-<div class="mini-card">
-<div class="mini-card-label">Current mode</div>
-<div class="mini-card-value" id="sentinelCurrentModeValue">Paper</div>
-</div>
-<div class="mini-card">
-<div class="mini-card-label">Watcher enabled</div>
-<div class="mini-card-value" id="sentinelWatcherEnabledValue">Yes</div>
-</div>
-<div class="mini-card">
-<div class="mini-card-label">Kill switch</div>
-<div class="mini-card-value" id="sentinelKillSwitchValue">Inactive</div>
-</div>
-<div class="mini-card">
-<div class="mini-card-label">Open positions</div>
-<div class="mini-card-value" id="sentinelOpenPositionsHeroValue">0</div>
-</div>
-</div>
-
-<div class="mode-toolbar">
-<button id="sentinelModePaperButton" class="button button-secondary" type="button">
-Paper
-</button>
-<button id="sentinelModeArmedButton" class="button button-secondary" type="button">
-Armed Mainnet
-</button>
-<button id="sentinelModeLiveButton" class="button button-secondary" type="button">
-Live Mainnet
-</button>
-<button id="sentinelEmergencyStopButton" class="button button-danger" type="button">
-Emergency Stop
-</button>
-</div>
-
-<div class="field" style="margin-top: 16px;">
-<label for="sentinelModeReasonInput">Mode Change Reason</label>
-<input
-id="sentinelModeReasonInput"
-class="input"
-type="text"
-placeholder="Reason for arming, live activation, or emergency stop"
-autocomplete="off"
-/>
-</div>
-</div>
-
-<details class="admin-nested">
-<summary>
-<div>
-<div class="admin-nested-title">Engine state</div>
-<div class="admin-nested-subtitle">Runtime status returned from Sentinel engine wiring.</div>
-</div>
-<div class="admin-nested-icon">⌄</div>
-</summary>
-
-<div class="admin-nested-body">
-<div class="mini-grid">
-<div class="mini-card">
-<div class="mini-card-label">Engine Started</div>
-<div class="mini-card-value" id="sentinelEngineStartedValue">—</div>
-</div>
-<div class="mini-card">
-<div class="mini-card-label">Engine Running</div>
-<div class="mini-card-value" id="sentinelEngineRunningValue">—</div>
-</div>
-<div class="mini-card">
-<div class="mini-card-label">Tick Count</div>
-<div class="mini-card-value" id="sentinelTickCountValue">—</div>
-</div>
-<div class="mini-card">
-<div class="mini-card-label">Snapshot Provider</div>
-<div class="mini-card-value" id="sentinelSnapshotProviderValue">—</div>
-</div>
-<div class="mini-card">
-<div class="mini-card-label">Last Tick Started</div>
-<div class="mini-card-value" id="sentinelLastTickStartedValue">—</div>
-</div>
-<div class="mini-card">
-<div class="mini-card-label">Last Tick Finished</div>
-<div class="mini-card-value" id="sentinelLastTickFinishedValue">—</div>
-</div>
-<div class="mini-card" style="grid-column: span 2;">
-<div class="mini-card-label">Last Error</div>
-<div class="mini-card-value" id="sentinelLastErrorValue">—</div>
-</div>
-<div class="mini-card" style="grid-column: span 2;">
-<div class="mini-card-label">Last Tick Summary</div>
-<div class="mini-card-value" id="sentinelLastTickSummaryValue">—</div>
-</div>
-</div>
-</div>
-</details>
-</section>
-
-<aside class="stack">
-<div class="subpanel">
-<h3 class="section-title">Sentinel summary</h3>
-<p class="section-copy">
-PnL can now be filtered by daily, weekly, monthly, or overall view.
-</p>
-
-<div id="sentinelSummaryPeriodShell" class="sentinel-summary-period-shell">
-<div class="sentinel-summary-period-copy">
-<div class="sentinel-summary-period-title">Sentinel Summary Window</div>
-<div id="sentinelSummaryPeriodLabel" class="sentinel-summary-period-active">Daily PnL</div>
-<div id="sentinelSummaryPeriodRange" class="sentinel-summary-period-range">—</div>
-</div>
-
-<div class="sentinel-summary-period-controls">
-<div class="sentinel-summary-period-field">
-<label for="sentinelSummaryPeriodFilter">Window</label>
-<select id="sentinelSummaryPeriodFilter">
-<option value="daily">Daily</option>
-<option value="weekly">Weekly</option>
-<option value="monthly">Monthly</option>
-<option value="overall">Overall</option>
-</select>
-</div>
-
-<div class="sentinel-summary-period-field">
-<label for="sentinelSummaryDateInput">Anchor Date</label>
-<input id="sentinelSummaryDateInput" type="date" />
-</div>
-
-<button id="refreshSentinelSummaryButton" class="sentinel-summary-period-button" type="button">
-Refresh Summary
-</button>
-</div>
-</div>
-
-<div class="summary-grid">
-<div class="summary-card">
-<div class="summary-label">Open Positions</div>
-<div class="summary-value" id="sentinelSummaryOpenPositions">0</div>
-<div class="summary-copy">Currently open Sentinel positions in the active mode.</div>
-</div>
-
-<div class="summary-card">
-<div class="summary-label">Period Realized PnL</div>
-<div class="summary-value" id="sentinelSummaryDailyRealizedPnl">$0.00</div>
-<div class="summary-copy">Closed realized performance for the selected summary window.</div>
-</div>
-
-<div class="summary-card">
-<div class="summary-label">Period Unrealized PnL</div>
-<div class="summary-value" id="sentinelSummaryDailyUnrealizedPnl">$0.00</div>
-<div class="summary-copy">Open unrealized position performance for the selected summary window.</div>
-</div>
-
-<div class="summary-card">
-<div class="summary-label">Period Loss</div>
-<div class="summary-value" id="sentinelSummaryDailyLoss">$0.00</div>
-<div class="summary-copy">Loss figure for the selected Sentinel summary window.</div>
-</div>
-</div>
-
-<div id="sentinelEnhancedSummaryCards" class="sentinel-enhanced-grid">
-<div class="sentinel-enhanced-card">
-<div class="sentinel-enhanced-label">Open Capital at Risk</div>
-<div class="sentinel-enhanced-value" id="sentinelSummaryOpenCapital">$0.00</div>
-<div class="sentinel-enhanced-subtitle">Remaining cost basis across currently loaded open positions.</div>
-</div>
-
-<div class="sentinel-enhanced-card">
-<div class="sentinel-enhanced-label">Current Open Value</div>
-<div class="sentinel-enhanced-value" id="sentinelSummaryOpenValue">$0.00</div>
-<div class="sentinel-enhanced-subtitle">Live paper value across currently loaded open positions.</div>
-</div>
-
-<div class="sentinel-enhanced-card">
-<div class="sentinel-enhanced-label">Period Capital Deployed</div>
-<div class="sentinel-enhanced-value" id="sentinelSummaryTotalCapital">$0.00</div>
-<div class="sentinel-enhanced-subtitle">Capital committed during the selected Sentinel summary window.</div>
-</div>
-
-<div class="sentinel-enhanced-card">
-<div class="sentinel-enhanced-label">Selected Window PnL</div>
-<div class="sentinel-enhanced-value" id="sentinelSummaryPortfolioPnl">$0.00</div>
-<div class="sentinel-enhanced-subtitle">Realized plus current open unrealized PnL for the selected window.</div>
-</div>
-</div>
-</div>
-
-<details class="admin-nested">
-<summary>
-<div>
-<div class="admin-nested-title">Stats detail</div>
-<div class="admin-nested-subtitle">Daily operational stats for selected mode and date.</div>
-</div>
-<div class="admin-nested-icon">⌄</div>
-</summary>
-
-<div class="admin-nested-body">
-<div class="toolbar-compact-3">
-<div class="field">
-<label for="sentinelStatsDateInput">Stats Date</label>
-<input id="sentinelStatsDateInput" class="input" type="date" />
-</div>
-
-<div class="field">
-<label for="sentinelStatsModeFilter">Mode</label>
-<select id="sentinelStatsModeFilter" class="select">
-<option value="paper">Paper</option>
-<option value="armed_mainnet">Armed Mainnet</option>
-<option value="live_mainnet">Live Mainnet</option>
-<option value="emergency_stop">Emergency Stop</option>
-</select>
-</div>
-
-<div class="field" style="justify-content: flex-end;">
-<label>&nbsp;</label>
-<button id="refreshSentinelStatsButton" class="button button-secondary" type="button">
-Refresh Stats
-</button>
-</div>
-</div>
-
-<div class="stats-grid">
-<div class="mini-card">
-<div class="mini-card-label">Scouts Opened</div>
-<div class="mini-card-value" id="sentinelStatsScoutsOpened">0</div>
-</div>
-<div class="mini-card">
-<div class="mini-card-label">Sniper Adds</div>
-<div class="mini-card-value" id="sentinelStatsSniperAdds">0</div>
-</div>
-<div class="mini-card">
-<div class="mini-card-label">Positions Closed</div>
-<div class="mini-card-value" id="sentinelStatsPositionsClosed">0</div>
-</div>
-<div class="mini-card">
-<div class="mini-card-label">Invalidations</div>
-<div class="mini-card-value" id="sentinelStatsInvalidations">0</div>
-</div>
-<div class="mini-card">
-<div class="mini-card-label">Consecutive Failures</div>
-<div class="mini-card-value" id="sentinelStatsConsecutiveFailures">0</div>
-</div>
-<div class="mini-card">
-<div class="mini-card-label">Reclaim Success Rate</div>
-<div class="mini-card-value" id="sentinelStatsReclaimSuccessRate">0%</div>
-</div>
-<div class="mini-card">
-<div class="mini-card-label">Recent Rug Rate</div>
-<div class="mini-card-value" id="sentinelStatsRecentRugRate">0%</div>
-</div>
-<div class="mini-card">
-<div class="mini-card-label">Avg Market Liquidity</div>
-<div class="mini-card-value" id="sentinelStatsAvgMarketLiquidity">$0</div>
-</div>
-</div>
-</div>
-</details>
-</aside>
-</div>
-</div>
-</details>
-</section>
-
-<section id="sentinel-settings" class="section-block">
-<span data-mss-admin-collapse="settings" hidden></span>
-<details class="admin-section">
-<summary>
-<div class="admin-section-summary-copy">
-<div class="admin-section-kicker">Sentinel Watcher</div>
-<div class="admin-section-title">Settings and thresholds</div>
-<div class="admin-section-subtitle">
-Collapsed by default to reduce clutter. Expand only when changing allocation sizes, filters, risk caps, or hard-reject thresholds.
-</div>
-</div>
-<div class="admin-section-icon">⌄</div>
-</summary>
-
-<div class="admin-section-body">
-<div class="subpanel">
-<h3 class="section-title">Core Sentinel settings</h3>
-<p class="section-copy">
-Primary control inputs wired into the Sentinel admin API.
-</p>
-
-<div class="settings-grid">
-<div class="field">
-<label for="sentinelScoutUsdInput">Scout USD</label>
-<input id="sentinelScoutUsdInput" class="input" type="number" step="0.01" min="0" />
-</div>
-
-<div class="field">
-<label for="sentinelSniperAddUsdInput">Sniper Add USD</label>
-<input id="sentinelSniperAddUsdInput" class="input" type="number" step="0.01" min="0" />
-</div>
-
-<div class="field">
-<label for="sentinelMaxTotalPositionUsdInput">Max Total Position USD</label>
-<input id="sentinelMaxTotalPositionUsdInput" class="input" type="number" step="0.01" min="0" />
-</div>
-
-<div class="field">
-<label for="sentinelMaxOpenPositionsInput">Max Open Positions</label>
-<input id="sentinelMaxOpenPositionsInput" class="input" type="number" step="1" min="0" />
-</div>
-
-<div class="field">
-<label for="sentinelMaxDailyLossUsdInput">Max Daily Loss USD</label>
-<input id="sentinelMaxDailyLossUsdInput" class="input" type="number" step="0.01" min="0" />
-</div>
-
-<div class="field">
-<label for="sentinelMaxConsecutiveFailuresInput">Max Consecutive Failures</label>
-<input id="sentinelMaxConsecutiveFailuresInput" class="input" type="number" step="1" min="0" />
-</div>
-
-<div class="field">
-<label for="sentinelMaxDailyScoutSpendUsdInput">Max Daily Scout Spend USD</label>
-<input id="sentinelMaxDailyScoutSpendUsdInput" class="input" type="number" step="0.01" min="0" />
-</div>
-
-<div class="field">
-<label for="sentinelMaxDailySniperSpendUsdInput">Max Daily Sniper Spend USD</label>
-<input id="sentinelMaxDailySniperSpendUsdInput" class="input" type="number" step="0.01" min="0" />
-</div>
-
-<div class="field">
-<label for="sentinelAutoBankMultipleInput">Auto-Bank Multiple</label>
-<input id="sentinelAutoBankMultipleInput" class="input" type="number" step="0.1" min="1" />
-</div>
-
-<div class="field">
-<label for="sentinelAutoBankFractionInput">Auto-Bank Fraction</label>
-<input id="sentinelAutoBankFractionInput" class="input" type="number" step="0.01" min="0" max="1" />
-</div>
-
-<div class="field">
-<label for="sentinelMinOperatorQualityScoreInput">Min Operator Quality Score</label>
-<input id="sentinelMinOperatorQualityScoreInput" class="input" type="number" step="0.1" min="0" max="100" />
-</div>
-
-<div class="field">
-<label for="sentinelMaxHiddenControlRiskInput">Max Hidden Control Risk</label>
-<input id="sentinelMaxHiddenControlRiskInput" class="input" type="number" step="0.1" min="0" max="100" />
-</div>
-
-<div class="field">
-<label for="sentinelMinRegimeScoreScoutInput">Min Regime Score For Scout</label>
-<input id="sentinelMinRegimeScoreScoutInput" class="input" type="number" step="0.1" min="0" max="100" />
-</div>
-
-<div class="field">
-<label for="sentinelMinRegimeScoreSniperInput">Min Regime Score For Sniper</label>
-<input id="sentinelMinRegimeScoreSniperInput" class="input" type="number" step="0.1" min="0" max="100" />
-</div>
-
-<div class="field">
-<label for="sentinelMinReclaimStrengthScoreInput">Min Reclaim Strength Score</label>
-<input id="sentinelMinReclaimStrengthScoreInput" class="input" type="number" step="0.1" min="0" max="100" />
-</div>
-
-<div class="field">
-<label for="sentinelMinBuyPressureScoreInput">Min Buy Pressure Score</label>
-<input id="sentinelMinBuyPressureScoreInput" class="input" type="number" step="0.1" min="0" max="100" />
-</div>
-
-<div class="field">
-<label for="sentinelMinPersistenceScoreInput">Min Persistence Score</label>
-<input id="sentinelMinPersistenceScoreInput" class="input" type="number" step="0.1" min="0" max="100" />
-</div>
-
-<div class="field">
-<label for="sentinelMinPostEntryHealthScoreInput">Min Post-Entry Health Score</label>
-<input id="sentinelMinPostEntryHealthScoreInput" class="input" type="number" step="0.1" min="0" max="100" />
-</div>
-</div>
-
-<div class="toggle-grid">
-<div class="toggle-card">
-<div class="field">
-<label for="sentinelWatcherEnabledInput">Watcher Enabled</label>
-<select id="sentinelWatcherEnabledInput" class="select">
-<option value="true">Enabled</option>
-<option value="false">Disabled</option>
-</select>
-</div>
-</div>
-
-<div class="toggle-card">
-<div class="field">
-<label for="sentinelAutoBankEnabledInput">Auto-Bank Enabled</label>
-<select id="sentinelAutoBankEnabledInput" class="select">
-<option value="true">Enabled</option>
-<option value="false">Disabled</option>
-</select>
-</div>
-</div>
-
-<div class="toggle-card">
-<div class="field">
-<label for="sentinelEnableScoutInput">Enable Scout</label>
-<select id="sentinelEnableScoutInput" class="select">
-<option value="true">Enabled</option>
-<option value="false">Disabled</option>
-</select>
-</div>
-</div>
-
-<div class="toggle-card">
-<div class="field">
-<label for="sentinelEnableSniperInput">Enable Sniper</label>
-<select id="sentinelEnableSniperInput" class="select">
-<option value="true">Enabled</option>
-<option value="false">Disabled</option>
-</select>
-</div>
-</div>
-
-<div class="toggle-card">
-<div class="field">
-<label for="sentinelEnableRunnerManagementInput">Enable Runner Management</label>
-<select id="sentinelEnableRunnerManagementInput" class="select">
-<option value="true">Enabled</option>
-<option value="false">Disabled</option>
-</select>
-</div>
-</div>
-
-<div class="toggle-card">
-<div class="field">
-<label for="sentinelRiskOffDisableNewEntriesInput">Risk-Off Disables New Entries</label>
-<select id="sentinelRiskOffDisableNewEntriesInput" class="select">
-<option value="true">Enabled</option>
-<option value="false">Disabled</option>
-</select>
-</div>
-</div>
-</div>
-</div>
-
-<div class="subpanel">
-<h3 class="section-title">Advanced Sentinel thresholds</h3>
-<p class="section-copy">
-Full threshold surface aligned to the current config service and admin patch route.
-</p>
-
-<div class="settings-grid">
-<div class="field">
-<label for="sentinelMaxPositionsPerOperatorClusterInput">Max Positions Per Operator Cluster</label>
-<input id="sentinelMaxPositionsPerOperatorClusterInput" class="input" type="number" step="1" min="1" />
-</div>
-
-<div class="field">
-<label for="sentinelMaxTokensPerHourInput">Max Tokens Per Hour</label>
-<input id="sentinelMaxTokensPerHourInput" class="input" type="number" step="1" min="0" />
-</div>
-
-<div class="field">
-<label for="sentinelCooldownAfterCloseSecInput">Cooldown After Close Sec</label>
-<input id="sentinelCooldownAfterCloseSecInput" class="input" type="number" step="1" min="0" />
-</div>
-
-<div class="field">
-<label for="sentinelCooldownAfterInvalidationSecInput">Cooldown After Invalidation Sec</label>
-<input id="sentinelCooldownAfterInvalidationSecInput" class="input" type="number" step="1" min="0" />
-</div>
-
-<div class="field">
-<label for="sentinelEarlyFailTimeoutSecInput">Early Fail Timeout Sec</label>
-<input id="sentinelEarlyFailTimeoutSecInput" class="input" type="number" step="1" min="0" />
-</div>
-
-<div class="field">
-<label for="sentinelWeakStallTimeoutSecInput">Weak Stall Timeout Sec</label>
-<input id="sentinelWeakStallTimeoutSecInput" class="input" type="number" step="1" min="0" />
-</div>
-
-<div class="field">
-<label for="sentinelRunnerFailedBreakoutLimitInput">Runner Failed Breakout Limit</label>
-<input id="sentinelRunnerFailedBreakoutLimitInput" class="input" type="number" step="1" min="0" />
-</div>
-
-<div class="field">
-<label for="sentinelMaxContaminationRiskInput">Max Contamination Risk</label>
-<input id="sentinelMaxContaminationRiskInput" class="input" type="number" step="0.1" min="0" max="100" />
-</div>
-
-<div class="field">
-<label for="sentinelMaxWalletCoordinationRiskInput">Max Wallet Coordination Risk</label>
-<input id="sentinelMaxWalletCoordinationRiskInput" class="input" type="number" step="0.1" min="0" max="100" />
-</div>
-
-<div class="field">
-<label for="sentinelMaxTopHolderPctInput">Max Top Holder %</label>
-<input id="sentinelMaxTopHolderPctInput" class="input" type="number" step="0.1" min="0" max="100" />
-</div>
-
-<div class="field">
-<label for="sentinelMaxTop5HolderPctInput">Max Top 5 Holder %</label>
-<input id="sentinelMaxTop5HolderPctInput" class="input" type="number" step="0.1" min="0" max="100" />
-</div>
-
-<div class="field">
-<label for="sentinelMinLiquidityUsdInput">Min Liquidity USD</label>
-<input id="sentinelMinLiquidityUsdInput" class="input" type="number" step="0.01" min="0" />
-</div>
-
-<div class="field">
-<label for="sentinelMaxSpreadBpsInput">Max Spread BPS</label>
-<input id="sentinelMaxSpreadBpsInput" class="input" type="number" step="0.1" min="0" />
-</div>
-
-<div class="field">
-<label for="sentinelMaxPriceImpactBpsInput">Max Price Impact BPS</label>
-<input id="sentinelMaxPriceImpactBpsInput" class="input" type="number" step="0.1" min="0" />
-</div>
-
-<div class="field">
-<label for="sentinelMaxVerticalExtensionScoreForAddInput">Max Vertical Extension For Add</label>
-<input id="sentinelMaxVerticalExtensionScoreForAddInput" class="input" type="number" step="0.1" min="0" max="100" />
-</div>
-
-<div class="field">
-<label for="sentinelMaxInsiderSellScoreInput">Max Insider Sell Score</label>
-<input id="sentinelMaxInsiderSellScoreInput" class="input" type="number" step="0.1" min="0" max="100" />
-</div>
-
-<div class="field">
-<label for="sentinelMaxLiquidityDecayScoreInput">Max Liquidity Decay Score</label>
-<input id="sentinelMaxLiquidityDecayScoreInput" class="input" type="number" step="0.1" min="0" max="100" />
-</div>
-</div>
-
-<div class="toggle-grid">
-<div class="toggle-card">
-<div class="field">
-<label for="sentinelEnableMarketRegimeFilterInput">Enable Market Regime Filter</label>
-<select id="sentinelEnableMarketRegimeFilterInput" class="select">
-<option value="true">Enabled</option>
-<option value="false">Disabled</option>
-</select>
-</div>
-</div>
-
-<div class="toggle-card">
-<div class="field">
-<label for="sentinelEnableOperatorFilterInput">Enable Operator Filter</label>
-<select id="sentinelEnableOperatorFilterInput" class="select">
-<option value="true">Enabled</option>
-<option value="false">Disabled</option>
-</select>
-</div>
-</div>
-
-<div class="toggle-card">
-<div class="field">
-<label for="sentinelEnableHardRejectsInput">Enable Hard Rejects</label>
-<select id="sentinelEnableHardRejectsInput" class="select">
-<option value="true">Enabled</option>
-<option value="false">Disabled</option>
-</select>
-</div>
-</div>
-</div>
-</div>
-</div>
-</details>
-</section>
-
-<section id="sentinel-intelligence" class="section-block">
-<span data-mss-admin-collapse="positions" hidden></span>
-<details class="admin-section">
-<summary>
-<div class="admin-section-summary-copy">
-<div class="admin-section-kicker">Sentinel Intelligence</div>
-<div class="admin-section-title">Positions and audit trail</div>
-<div class="admin-section-subtitle">
-Position intelligence, execution decisions, rejects, watchlists, and admin action logs. Kept collapsed unless actively investigating.
-</div>
-</div>
-<div class="admin-section-icon">⌄</div>
-</summary>
-
-<div class="admin-section-body">
-<div class="stack">
-<section class="subpanel">
-<div class="table-title-row">
-<div>
-<h3 class="section-title">Sentinel positions</h3>
-<p class="section-copy">
-Open, runner, closed, and invalidated positions across paper and future live modes.
-</p>
-</div>
-</div>
-
-<div class="toolbar-compact-5">
-<div class="field">
-<label for="sentinelPositionScopeFilter">Scope</label>
-<select id="sentinelPositionScopeFilter" class="select">
-<option value="open">Open</option>
-<option value="history">History</option>
-<option value="all">All</option>
-</select>
-</div>
-
-<div class="field">
-<label for="sentinelPositionStageFilter">Stage</label>
-<select id="sentinelPositionStageFilter" class="select">
-<option value="">All</option>
-<option value="scout_open">Scout Open</option>
-<option value="sniper_added">Sniper Added</option>
-<option value="half_banked_at_10x">Half Banked At 10x</option>
-<option value="runner_only">Runner Only</option>
-<option value="closed">Closed</option>
-<option value="invalidated">Invalidated</option>
-</select>
-</div>
-
-<div class="field">
-<label for="sentinelPositionOutcomeFilter">Outcome</label>
-<select id="sentinelPositionOutcomeFilter" class="select">
-<option value="">All</option>
-<option value="closed">Closed</option>
-<option value="invalidated">Invalidated</option>
-</select>
-</div>
-
-<div class="field">
-<label for="sentinelPositionsModeFilter">Mode</label>
-<select id="sentinelPositionsModeFilter" class="select">
-<option value="">All</option>
-<option value="paper">Paper</option>
-<option value="armed_mainnet">Armed Mainnet</option>
-<option value="live_mainnet">Live Mainnet</option>
-<option value="emergency_stop">Emergency Stop</option>
-</select>
-</div>
-
-<div class="field">
-<label for="sentinelPositionsTokenFilter">Token ID</label>
-<input id="sentinelPositionsTokenFilter" class="input" type="text" placeholder="Optional token id" />
-</div>
-</div>
-
-<div class="toolbar-inline-action">
-<div class="field">
-<label for="sentinelPositionsMintFilter">Mint Address</label>
-<input id="sentinelPositionsMintFilter" class="input" type="text" placeholder="Optional mint address" />
-</div>
-
-<div class="field">
-<label>&nbsp;</label>
-<button id="refreshSentinelPositionsButton" class="button button-secondary" type="button">
-Refresh Positions
-</button>
-</div>
-</div>
-
-<div id="sentinelPositionSortShell" class="sentinel-position-sort-shell">
-<div>
-<div class="sentinel-position-sort-title">Position Intelligence View</div>
-<div class="dim" style="font-size: 12px; margin-top: 4px;">
-Sort loaded positions by gain, loss, value, capital at risk, or entry time.
-</div>
-</div>
-
-<select id="sentinelPositionSortFilter" class="sentinel-position-sort-select">
-<option value="pnl_desc">Highest gain first</option>
-<option value="pnl_asc">Highest loss first</option>
-<option value="pnl_pct_desc">Highest PnL % first</option>
-<option value="pnl_pct_asc">Lowest PnL % first</option>
-<option value="current_value_desc">Highest current value</option>
-<option value="capital_desc">Highest capital at risk</option>
-<option value="newest">Newest opened</option>
-<option value="oldest">Oldest opened</option>
-</select>
-</div>
-
-<div class="table-wrap">
-<table>
-<thead>
-<tr>
-<th>Token</th>
-<th>Stage</th>
-<th>Mode</th>
-<th>Cost</th>
-<th>Current</th>
-<th>Realized</th>
-<th>Unrealized</th>
-<th>10x Banked</th>
-<th>Opened</th>
-</tr>
-</thead>
-<tbody id="sentinelPositionsTableBody"></tbody>
-</table>
-</div>
-</section>
-
-<section class="subpanel">
-<div class="table-title-row">
-<div>
-<h3 class="section-title">Sentinel audit</h3>
-<p class="section-copy">
-Decision trail for rejects, watchlists, entries, adds, banks, exits, settings, and kill-switch events.
-</p>
-</div>
-</div>
-
-<div class="toolbar-compact-5">
-<div class="field">
-<label for="sentinelAuditEventTypeFilter">Event Type</label>
-<select id="sentinelAuditEventTypeFilter" class="select">
-<option value="">All</option>
-<option value="settings_update">Settings Update</option>
-<option value="mode_change">Mode Change</option>
-<option value="emergency_stop">Emergency Stop</option>
-<option value="token_reject">Token Reject</option>
-<option value="watchlist">Watchlist</option>
-<option value="hold">Hold</option>
-<option value="scout_entry">Scout Entry</option>
-<option value="sniper_add">Sniper Add</option>
-<option value="partial_take_profit">Partial Take Profit</option>
-<option value="runner_exit">Runner Exit</option>
-<option value="full_exit">Full Exit</option>
-<option value="kill_switch">Kill Switch</option>
-<option value="decision">Decision</option>
-</select>
-</div>
-
-<div class="field">
-<label for="sentinelAuditDecisionFilter">Decision</label>
-<input id="sentinelAuditDecisionFilter" class="input" type="text" placeholder="Optional decision" />
-</div>
-
-<div class="field">
-<label for="sentinelAuditExecutionStatusFilter">Execution Status</label>
-<select id="sentinelAuditExecutionStatusFilter" class="select">
-<option value="">All</option>
-<option value="planned">Planned</option>
-<option value="submitted">Submitted</option>
-<option value="filled">Filled</option>
-<option value="simulated">Simulated</option>
-<option value="skipped">Skipped</option>
-<option value="failed">Failed</option>
-</select>
-</div>
-
-<div class="field">
-<label for="sentinelAuditModeFilter">Mode</label>
-<select id="sentinelAuditModeFilter" class="select">
-<option value="">All</option>
-<option value="paper">Paper</option>
-<option value="armed_mainnet">Armed Mainnet</option>
-<option value="live_mainnet">Live Mainnet</option>
-<option value="emergency_stop">Emergency Stop</option>
-</select>
-</div>
-
-<div class="field">
-<label for="sentinelAuditTokenFilter">Token ID</label>
-<input id="sentinelAuditTokenFilter" class="input" type="text" placeholder="Optional token id" />
-</div>
-</div>
-
-<div class="toolbar-compact-5">
-<div class="field">
-<label for="sentinelAuditMintFilter">Mint Address</label>
-<input id="sentinelAuditMintFilter" class="input" type="text" placeholder="Optional mint address" />
-</div>
-
-<div class="field">
-<label for="sentinelAuditActorTypeFilter">Actor Type</label>
-<select id="sentinelAuditActorTypeFilter" class="select">
-<option value="">All</option>
-<option value="system">System</option>
-<option value="admin">Admin</option>
-<option value="user">User</option>
-</select>
-</div>
-
-<div class="field">
-<label for="sentinelAuditActorIdFilter">Actor ID</label>
-<input id="sentinelAuditActorIdFilter" class="input" type="text" placeholder="Optional actor id" />
-</div>
-
-<div class="field">
-<label for="sentinelAuditReasonCodeFilter">Reason Code</label>
-<input id="sentinelAuditReasonCodeFilter" class="input" type="text" placeholder="Optional reason code" />
-</div>
-
-<div class="field" style="justify-content: flex-end;">
-<label>&nbsp;</label>
-<button id="refreshSentinelAuditButton" class="button button-secondary" type="button">
-Refresh Audit
-</button>
-</div>
-</div>
-
-<div class="table-wrap">
-<table>
-<thead>
-<tr>
-<th>Time</th>
-<th>Event</th>
-<th>Decision</th>
-<th>Mode</th>
-<th>Token</th>
-<th>Reasons</th>
-<th>Status</th>
-</tr>
-</thead>
-<tbody id="sentinelAuditTableBody"></tbody>
-</table>
-</div>
-</section>
-
-<section class="subpanel">
-<div class="table-title-row">
-<div>
-<h3 class="section-title">Sentinel admin audit</h3>
-<p class="section-copy">
-Internal admin-control log for mode changes, settings changes, and emergency stop actions.
-</p>
-</div>
-</div>
-
-<div class="toolbar-compact-4">
-<div class="field">
-<label for="sentinelAdminAuditActionFilter">Action</label>
-<input id="sentinelAdminAuditActionFilter" class="input" type="text" placeholder="Optional action" />
-</div>
-
-<div class="field">
-<label for="sentinelAdminAuditActorFilter">Actor ID</label>
-<input id="sentinelAdminAuditActorFilter" class="input" type="text" placeholder="Optional actor id" />
-</div>
-
-<div class="field">
-<label for="sentinelAdminAuditTargetTypeFilter">Target Type</label>
-<input id="sentinelAdminAuditTargetTypeFilter" class="input" type="text" placeholder="Optional target type" />
-</div>
-
-<div class="field" style="justify-content: flex-end;">
-<label>&nbsp;</label>
-<button id="refreshSentinelAdminAuditButton" class="button button-secondary" type="button">
-Refresh Admin Audit
-</button>
-</div>
-</div>
-
-<div class="table-wrap">
-<table>
-<thead>
-<tr>
-<th>Time</th>
-<th>Action</th>
-<th>Actor</th>
-<th>Target</th>
-<th>Details</th>
-<th>State</th>
-</tr>
-</thead>
-<tbody id="sentinelAdminAuditTableBody"></tbody>
-</table>
-</div>
-</section>
-</div>
-</div>
-</details>
-</section>
-
-<section id="sentinel-access" class="section-block">
-<span data-mss-admin-collapse="access" hidden></span>
-<details class="admin-section">
-<summary>
-<div class="admin-section-summary-copy">
-<div class="admin-section-kicker">Sentinel Access Admin</div>
-<div class="admin-section-title">Access-code and tester entitlement control</div>
-<div class="admin-section-subtitle">
-Create trial codes, bind tester access, monitor redemptions, and disable codes when the tester window ends.
-</div>
-</div>
-<div class="admin-section-icon">⌄</div>
-</summary>
-
-<div class="admin-section-body">
-<div id="sentinelAccessBanner" class="banner"></div>
-
-<div class="section-header-row">
-<div>
-<h2 class="section-anchor-title">Tester access control</h2>
-<p class="section-copy" style="margin-top: 10px;">
-Create trial codes, bind access to selected accounts, monitor redemptions, and disable codes when the tester window ends.
-</p>
-</div>
-
-<div class="topbar-actions">
-<button id="refreshSentinelAccessAdminButton" class="button button-secondary" type="button">
-Refresh Access Data
-</button>
-<button id="createSentinelAccessCodeButton" class="button button-primary" type="button">
-Create Access Code
-</button>
-</div>
-</div>
-
-<div class="layout" style="margin-top: 18px;">
-<section class="stack">
-<div class="subpanel">
-<h3 class="section-title">Access overview</h3>
-<p class="section-copy">
-Live tester access and code usage state.
-</p>
-
-<div class="mini-grid">
-<div class="mini-card">
-<div class="mini-card-label">Total Codes</div>
-<div class="mini-card-value" id="sentinelAccessTotalCodesValue">0</div>
-</div>
-<div class="mini-card">
-<div class="mini-card-label">Active Codes</div>
-<div class="mini-card-value" id="sentinelAccessActiveCodesValue">0</div>
-</div>
-<div class="mini-card">
-<div class="mini-card-label">Redeemed Codes</div>
-<div class="mini-card-value" id="sentinelAccessRedeemedCodesValue">0</div>
-</div>
-<div class="mini-card">
-<div class="mini-card-label">Live Entitlements</div>
-<div class="mini-card-value" id="sentinelAccessLiveEntitlementsValue">0</div>
-</div>
-</div>
-</div>
-
-<div class="subpanel">
-<h3 class="section-title">Create access code</h3>
-<p class="section-copy">
-For selected early-user issuance, including one-person one-week trial access.
-</p>
-
-<div class="settings-grid">
-<div class="field">
-<label for="sentinelAccessCustomCodeInput">Custom Code</label>
-<input
-id="sentinelAccessCustomCodeInput"
-class="input mono"
-type="text"
-placeholder="Optional custom code"
-autocomplete="off"
-/>
-</div>
-
-<div class="field">
-<label for="sentinelAccessCodeTypeInput">Code Type</label>
-<select id="sentinelAccessCodeTypeInput" class="select">
-<option value="trial">Trial</option>
-<option value="comp">Comp</option>
-<option value="partner">Partner</option>
-<option value="admin">Admin</option>
-</select>
-</div>
-
-<div class="field">
-<label for="sentinelAccessMaxRedemptionsInput">Max Redemptions</label>
-<input
-id="sentinelAccessMaxRedemptionsInput"
-class="input"
-type="number"
-min="1"
-step="1"
-value="1"
-/>
-</div>
-
-<div class="field">
-<label for="sentinelAccessPlanKeyInput">Plan Key</label>
-<input
-id="sentinelAccessPlanKeyInput"
-class="input"
-type="text"
-placeholder="sentinel_trial"
-autocomplete="off"
-/>
-</div>
-
-<div class="field">
-<label for="sentinelAccessPlanLabelInput">Plan Label</label>
-<input
-id="sentinelAccessPlanLabelInput"
-class="input"
-type="text"
-placeholder="Early Access Trial"
-autocomplete="off"
-/>
-</div>
-
-<div class="field">
-<label for="sentinelAccessDurationDaysInput">Duration Days</label>
-<input
-id="sentinelAccessDurationDaysInput"
-class="input"
-type="number"
-min="0"
-step="1"
-value="7"
-/>
-</div>
-
-<div class="field">
-<label for="sentinelAccessBoundUserIdInput">Bound User ID</label>
-<input
-id="sentinelAccessBoundUserIdInput"
-class="input"
-type="number"
-min="1"
-step="1"
-placeholder="Optional account id"
-/>
-</div>
-
-<div class="field">
-<label for="sentinelAccessStartsAtInput">Starts At</label>
-<input id="sentinelAccessStartsAtInput" class="input" type="datetime-local" />
-</div>
-
-<div class="field">
-<label for="sentinelAccessExpiresAtInput">Absolute Expiry</label>
-<input id="sentinelAccessExpiresAtInput" class="input" type="datetime-local" />
-</div>
-
-<div class="field">
-<label for="sentinelAccessCreatedByUserIdInput">Created By User ID</label>
-<input
-id="sentinelAccessCreatedByUserIdInput"
-class="input"
-type="number"
-min="1"
-step="1"
-placeholder="Optional internal user id"
-/>
-</div>
-
-<div class="field" style="grid-column: span 2;">
-<label for="sentinelAccessNotesInput">Notes</label>
-<textarea
-id="sentinelAccessNotesInput"
-class="textarea"
-placeholder="Internal note for the tester, campaign, or reason for issuance."
-></textarea>
-</div>
-
-<div class="field">
-<label for="sentinelAccessGeneratedCodeValue">Last Generated Code</label>
-<input
-id="sentinelAccessGeneratedCodeValue"
-class="input mono"
-type="text"
-readonly
-placeholder="Generated code will appear here"
-/>
-</div>
-
-<div class="field">
-<label for="sentinelAccessActorIdInput">Actor ID</label>
-<input
-id="sentinelAccessActorIdInput"
-class="input"
-type="text"
-placeholder="admin"
-autocomplete="off"
-/>
-</div>
-</div>
-</div>
-
-<div class="subpanel">
-<div class="table-title-row">
-<div>
-<h3 class="section-title">Access codes</h3>
-<p class="section-copy">
-Issued codes, account-bound trials, and usage state.
-</p>
-</div>
-</div>
-
-<div class="toolbar-compact-5">
-<div class="field">
-<label for="sentinelAccessCodesActiveFilter">Code State</label>
-<select id="sentinelAccessCodesActiveFilter" class="select">
-<option value="">All</option>
-<option value="active">Active</option>
-<option value="inactive">Inactive</option>
-</select>
-</div>
-
-<div class="field">
-<label for="sentinelAccessCodesTypeFilter">Code Type</label>
-<select id="sentinelAccessCodesTypeFilter" class="select">
-<option value="">All</option>
-<option value="trial">Trial</option>
-<option value="comp">Comp</option>
-<option value="partner">Partner</option>
-<option value="admin">Admin</option>
-</select>
-</div>
-
-<div class="field">
-<label for="sentinelAccessCodesPlanFilter">Plan Key</label>
-<input
-id="sentinelAccessCodesPlanFilter"
-class="input"
-type="text"
-placeholder="Optional plan key"
-/>
-</div>
-
-<div class="field">
-<label for="sentinelAccessCodesBoundUserFilter">Bound User ID</label>
-<input
-id="sentinelAccessCodesBoundUserFilter"
-class="input"
-type="number"
-min="1"
-step="1"
-placeholder="Optional user id"
-/>
-</div>
-
-<div class="field" style="justify-content: flex-end;">
-<label>&nbsp;</label>
-<button id="refreshSentinelAccessCodesButton" class="button button-secondary" type="button">
-Refresh Codes
-</button>
-</div>
-</div>
-
-<div class="table-wrap">
-<table>
-<thead>
-<tr>
-<th>Code</th>
-<th>Type</th>
-<th>Plan</th>
-<th>State</th>
-<th>Usage</th>
-<th>Bound User</th>
-<th>Window</th>
-<th>Updated</th>
-</tr>
-</thead>
-<tbody id="sentinelAccessCodesTableBody"></tbody>
-</table>
-</div>
-</div>
-
-<div class="subpanel">
-<div class="table-title-row">
-<div>
-<h3 class="section-title">Code redemptions</h3>
-<p class="section-copy">
-Tester redemptions and entitlement linkage trail.
-</p>
-</div>
-</div>
-
-<div class="toolbar-compact-4">
-<div class="field">
-<label for="sentinelAccessRedemptionsCodeFilter">Code</label>
-<input
-id="sentinelAccessRedemptionsCodeFilter"
-class="input"
-type="text"
-placeholder="Optional code"
-/>
-</div>
-
-<div class="field">
-<label for="sentinelAccessRedemptionsUserFilter">User ID</label>
-<input
-id="sentinelAccessRedemptionsUserFilter"
-class="input"
-type="number"
-min="1"
-step="1"
-placeholder="Optional user id"
-/>
-</div>
-
-<div class="field">
-<label for="sentinelAccessRedemptionsStatusFilter">Redemption Status</label>
-<select id="sentinelAccessRedemptionsStatusFilter" class="select">
-<option value="">All</option>
-<option value="success">Success</option>
-<option value="failed">Failed</option>
-</select>
-</div>
-
-<div class="field" style="justify-content: flex-end;">
-<label>&nbsp;</label>
-<button id="refreshSentinelAccessRedemptionsButton" class="button button-secondary" type="button">
-Refresh Redemptions
-</button>
-</div>
-</div>
-
-<div class="table-wrap">
-<table>
-<thead>
-<tr>
-<th>Redeemed At</th>
-<th>Code</th>
-<th>User</th>
-<th>Entitlement</th>
-<th>Wallet At Redeem</th>
-<th>Status</th>
-</tr>
-</thead>
-<tbody id="sentinelAccessRedemptionsTableBody"></tbody>
-</table>
-</div>
-</div>
-</section>
-
-<aside class="stack">
-<section class="panel">
-<div>
-<h2 class="section-title">Selected access code</h2>
-<p class="section-copy">
-Review code state, binding, validity window, and internal actions.
-</p>
-</div>
-
-<div id="sentinelAccessCodeDetailEmpty" class="empty-state">
-<div>
-<strong>No access code selected</strong>
-Select a code from the access-code table to review detail and management actions.
-</div>
-</div>
-
-<div id="sentinelAccessCodeDetailPanel" class="detail-card" style="display: none;">
-<div class="detail-section">
-<h3>Code overview</h3>
-<div class="detail-grid">
-<div class="detail-meta">
-<div class="detail-label">Code ID</div>
-<div class="detail-value mono" id="sentinelAccessDetailCodeId">—</div>
-</div>
-<div class="detail-meta">
-<div class="detail-label">Code</div>
-<div class="detail-value mono" id="sentinelAccessDetailCodeValue">—</div>
-</div>
-<div class="detail-meta">
-<div class="detail-label">Type</div>
-<div class="detail-value" id="sentinelAccessDetailCodeType">—</div>
-</div>
-<div class="detail-meta">
-<div class="detail-label">State</div>
-<div class="detail-value" id="sentinelAccessDetailCodeState">—</div>
-</div>
-<div class="detail-meta">
-<div class="detail-label">Plan Key</div>
-<div class="detail-value" id="sentinelAccessDetailPlanKey">—</div>
-</div>
-<div class="detail-meta">
-<div class="detail-label">Plan Label</div>
-<div class="detail-value" id="sentinelAccessDetailPlanLabel">—</div>
-</div>
-</div>
-</div>
-
-<div class="detail-section">
-<h3>Limits and timing</h3>
-<div class="detail-grid">
-<div class="detail-meta">
-<div class="detail-label">Duration Days</div>
-<div class="detail-value" id="sentinelAccessDetailDurationDays">—</div>
-</div>
-<div class="detail-meta">
-<div class="detail-label">Max Redemptions</div>
-<div class="detail-value" id="sentinelAccessDetailMaxRedemptions">—</div>
-</div>
-<div class="detail-meta">
-<div class="detail-label">Redeemed Count</div>
-<div class="detail-value" id="sentinelAccessDetailRedeemedCount">—</div>
-</div>
-<div class="detail-meta">
-<div class="detail-label">Bound User ID</div>
-<div class="detail-value" id="sentinelAccessDetailBoundUserId">—</div>
-</div>
-<div class="detail-meta">
-<div class="detail-label">Starts At</div>
-<div class="detail-value" id="sentinelAccessDetailStartsAt">—</div>
-</div>
-<div class="detail-meta">
-<div class="detail-label">Expires At</div>
-<div class="detail-value" id="sentinelAccessDetailExpiresAt">—</div>
-</div>
-</div>
-</div>
-
-<div class="detail-section">
-<h3>Internal metadata</h3>
-<div class="detail-grid">
-<div class="detail-meta">
-<div class="detail-label">Created By</div>
-<div class="detail-value" id="sentinelAccessDetailCreatedByUserId">—</div>
-</div>
-<div class="detail-meta">
-<div class="detail-label">Created At</div>
-<div class="detail-value" id="sentinelAccessDetailCreatedAt">—</div>
-</div>
-<div class="detail-meta">
-<div class="detail-label">Updated At</div>
-<div class="detail-value" id="sentinelAccessDetailUpdatedAt">—</div>
-</div>
-<div class="detail-meta">
-<div class="detail-label">Latest Redemption</div>
-<div class="detail-value" id="sentinelAccessDetailLatestRedemptionAt">—</div>
-</div>
-</div>
-
-<div class="notes-block">
-<div class="detail-label">Notes</div>
-<div class="detail-value" id="sentinelAccessDetailNotes">—</div>
-</div>
-</div>
-
-<div class="detail-section">
-<h3>Code actions</h3>
-
-<div class="field">
-<label for="sentinelAccessCodeActionActorIdInput">Actor ID</label>
-<input
-id="sentinelAccessCodeActionActorIdInput"
-class="input"
-type="text"
-placeholder="admin"
-autocomplete="off"
-/>
-</div>
-
-<div class="field" style="margin-top: 12px;">
-<label for="sentinelAccessCodeActionNotesInput">Action Notes</label>
-<textarea
-id="sentinelAccessCodeActionNotesInput"
-class="textarea"
-placeholder="Reason for deactivating, reactivating, or updating tester access."
-></textarea>
-</div>
-
-<div class="action-stack" style="margin-top: 16px;">
-<div class="action-row">
-<button id="sentinelAccessCopyCodeButton" class="button button-secondary" type="button">
-Copy Code
-</button>
-<button id="sentinelAccessDeactivateCodeButton" class="button button-danger" type="button">
-Deactivate Code
-</button>
-</div>
-
-<div class="action-row">
-<button id="sentinelAccessActivateCodeButton" class="button button-secondary" type="button">
-Reactivate Code
-</button>
-<button id="sentinelAccessRefreshSelectedCodeButton" class="button button-primary" type="button">
-Refresh Selected Code
-</button>
-</div>
-</div>
-</div>
-</div>
-</section>
-</aside>
-</div>
-</div>
-</details>
-</section>
-
-<section id="compliance-cases" class="section-block">
-<span data-mss-admin-collapse="cases" hidden></span>
-<details class="admin-section">
-<summary>
-<div class="admin-section-summary-copy">
 <div class="admin-section-kicker">Compliance Cases</div>
-<div class="admin-section-title">Case review queue</div>
-<div class="admin-section-subtitle">
-Filter by status, type, risk level, or assignment, then review and resolve cases without leaving the admin shell.
-</div>
-</div>
-<div class="admin-section-icon">⌄</div>
-</summary>
-
-<div class="admin-section-body">
-<div id="banner" class="banner"></div>
-
-<div class="section-header-row">
-<div>
-<h2 class="section-anchor-title">Case review queue</h2>
-<p class="section-copy" style="margin-top: 10px;">
-Compliance case review stays separated from Sentinel controls so the page is easier to operate.
+<h2>Case review queue</h2>
+<p>
+Filter by status, case type, risk level, or assigned reviewer. Select a row to load full review context and decision actions.
 </p>
 </div>
+
+<div class="admin-section-actions">
+<button id="applyFiltersButton" class="admin-button admin-button-primary" type="button">
+Apply Filters
+</button>
+</div>
 </div>
 
-<div class="toolbar">
-<div class="field">
+<div id="banner" class="admin-banner"></div>
+
+<div class="admin-filter-grid">
+<div class="admin-field">
 <label for="filterStatus">Status</label>
-<select id="filterStatus" class="select">
+<select id="filterStatus" class="admin-select">
 <option value="">All</option>
 <option value="open">Open</option>
 <option value="pending_info">Pending Info</option>
@@ -2736,9 +135,9 @@ Compliance case review stays separated from Sentinel controls so the page is eas
 </select>
 </div>
 
-<div class="field">
+<div class="admin-field">
 <label for="filterCaseType">Case Type</label>
-<select id="filterCaseType" class="select">
+<select id="filterCaseType" class="admin-select">
 <option value="">All</option>
 <option value="participant">Participant</option>
 <option value="customer">Customer</option>
@@ -2748,9 +147,9 @@ Compliance case review stays separated from Sentinel controls so the page is eas
 </select>
 </div>
 
-<div class="field">
+<div class="admin-field">
 <label for="filterRiskLevel">Risk Level</label>
-<select id="filterRiskLevel" class="select">
+<select id="filterRiskLevel" class="admin-select">
 <option value="">All</option>
 <option value="low">Low</option>
 <option value="medium">Medium</option>
@@ -2759,27 +158,29 @@ Compliance case review stays separated from Sentinel controls so the page is eas
 </select>
 </div>
 
-<div class="field">
+<div class="admin-field">
 <label for="filterAssignedTo">Assigned To</label>
 <input
 id="filterAssignedTo"
-class="input"
+class="admin-input"
 type="text"
 placeholder="Reviewer handle or name"
 autocomplete="off"
 />
 </div>
+</div>
 
-<div class="field" style="justify-content: flex-end;">
-<label>&nbsp;</label>
-<button id="applyFiltersButton" class="button button-primary" type="button">
-Apply
-</button>
+<div class="admin-layout">
+<section class="admin-panel">
+<div class="admin-table-head">
+<div>
+<h3>Cases</h3>
+<p>Current filtered compliance queue.</p>
 </div>
 </div>
 
-<div class="table-wrap">
-<table>
+<div class="admin-table-wrap">
+<table class="admin-table">
 <thead>
 <tr>
 <th>Case</th>
@@ -2794,173 +195,188 @@ Apply
 <tbody id="casesTableBody"></tbody>
 </table>
 </div>
+</section>
 
-<section class="panel" style="margin-top: 18px;">
+<aside class="admin-panel admin-detail-panel">
+<div class="admin-table-head">
 <div>
-<h2 class="section-title">Selected case</h2>
-<p class="section-copy">
-Review wallet, launch, and profile context before taking action.
-</p>
+<h3>Selected case</h3>
+<p>Review wallet, profile, launch, and decision context.</p>
+</div>
 </div>
 
-<div id="caseDetailEmpty" class="empty-state">
+<div id="caseDetailEmpty" class="admin-empty-state">
 <div>
 <strong>No case selected</strong>
-Select a case from the queue to load full detail and review controls.
+Select a case from the queue to load detail and review controls.
 </div>
 </div>
 
-<div id="caseDetailPanel" class="detail-card" style="display: none;">
-<div class="detail-section">
+<div id="caseDetailPanel" class="admin-detail-card" style="display: none;">
+<section class="admin-detail-section">
 <h3>Case overview</h3>
-<div class="detail-grid">
-<div class="detail-meta">
-<div class="detail-label">Case ID</div>
-<div class="detail-value mono" id="detailCaseId">—</div>
+
+<div class="admin-detail-grid">
+<div class="admin-detail-meta">
+<div class="admin-detail-label">Case ID</div>
+<div class="admin-detail-value mono" id="detailCaseId">—</div>
 </div>
-<div class="detail-meta">
-<div class="detail-label">Case Type</div>
-<div class="detail-value" id="detailCaseType">—</div>
+
+<div class="admin-detail-meta">
+<div class="admin-detail-label">Case Type</div>
+<div class="admin-detail-value" id="detailCaseType">—</div>
 </div>
-<div class="detail-meta">
-<div class="detail-label">Status</div>
-<div class="detail-value" id="detailStatus">—</div>
+
+<div class="admin-detail-meta">
+<div class="admin-detail-label">Status</div>
+<div class="admin-detail-value" id="detailStatus">—</div>
 </div>
-<div class="detail-meta">
-<div class="detail-label">Risk</div>
-<div class="detail-value" id="detailRisk">—</div>
+
+<div class="admin-detail-meta">
+<div class="admin-detail-label">Risk</div>
+<div class="admin-detail-value" id="detailRisk">—</div>
 </div>
 </div>
 
-<div class="notes-block">
-<div class="detail-label">Review Reason</div>
-<div class="detail-value" id="detailReviewReason">—</div>
+<div class="admin-notes-block">
+<div class="admin-detail-label">Review Reason</div>
+<div class="admin-detail-value" id="detailReviewReason">—</div>
 </div>
-</div>
+</section>
 
-<div class="detail-section">
+<section class="admin-detail-section">
 <h3>Profile context</h3>
-<div class="detail-grid">
-<div class="detail-meta">
-<div class="detail-label">Wallet</div>
-<div class="detail-value mono" id="detailWallet">—</div>
+
+<div class="admin-detail-grid">
+<div class="admin-detail-meta">
+<div class="admin-detail-label">Wallet</div>
+<div class="admin-detail-value mono" id="detailWallet">—</div>
 </div>
-<div class="detail-meta">
-<div class="detail-label">Profile Type</div>
-<div class="detail-value" id="detailProfileType">—</div>
+
+<div class="admin-detail-meta">
+<div class="admin-detail-label">Profile Type</div>
+<div class="admin-detail-value" id="detailProfileType">—</div>
 </div>
-<div class="detail-meta">
-<div class="detail-label">Profile Status</div>
-<div class="detail-value" id="detailProfileStatus">—</div>
+
+<div class="admin-detail-meta">
+<div class="admin-detail-label">Profile Status</div>
+<div class="admin-detail-value" id="detailProfileStatus">—</div>
 </div>
-<div class="detail-meta">
-<div class="detail-label">Profile Risk</div>
-<div class="detail-value" id="detailProfileRisk">—</div>
+
+<div class="admin-detail-meta">
+<div class="admin-detail-label">Profile Risk</div>
+<div class="admin-detail-value" id="detailProfileRisk">—</div>
 </div>
-<div class="detail-meta">
-<div class="detail-label">Country</div>
-<div class="detail-value" id="detailCountry">—</div>
+
+<div class="admin-detail-meta">
+<div class="admin-detail-label">Country</div>
+<div class="admin-detail-value" id="detailCountry">—</div>
 </div>
-<div class="detail-meta">
-<div class="detail-label">Manual Review</div>
-<div class="detail-value" id="detailManualReview">—</div>
+
+<div class="admin-detail-meta">
+<div class="admin-detail-label">Manual Review</div>
+<div class="admin-detail-value" id="detailManualReview">—</div>
 </div>
 </div>
 
-<div class="notes-block">
-<div class="detail-label">Profile Name</div>
-<div class="detail-value" id="detailProfileName">—</div>
+<div class="admin-notes-block">
+<div class="admin-detail-label">Profile Name</div>
+<div class="admin-detail-value" id="detailProfileName">—</div>
 </div>
-</div>
+</section>
 
-<div class="detail-section">
+<section class="admin-detail-section">
 <h3>Launch context</h3>
-<div class="detail-grid">
-<div class="detail-meta">
-<div class="detail-label">Launch</div>
-<div class="detail-value" id="detailLaunchName">—</div>
-</div>
-<div class="detail-meta">
-<div class="detail-label">Launch Status</div>
-<div class="detail-value" id="detailLaunchStatus">—</div>
-</div>
-<div class="detail-meta">
-<div class="detail-label">Template</div>
-<div class="detail-value" id="detailLaunchTemplate">—</div>
-</div>
-<div class="detail-meta">
-<div class="detail-label">Builder Wallet</div>
-<div class="detail-value mono" id="detailBuilderWallet">—</div>
-</div>
-</div>
+
+<div class="admin-detail-grid">
+<div class="admin-detail-meta">
+<div class="admin-detail-label">Launch</div>
+<div class="admin-detail-value" id="detailLaunchName">—</div>
 </div>
 
-<div class="detail-section">
+<div class="admin-detail-meta">
+<div class="admin-detail-label">Launch Status</div>
+<div class="admin-detail-value" id="detailLaunchStatus">—</div>
+</div>
+
+<div class="admin-detail-meta">
+<div class="admin-detail-label">Template</div>
+<div class="admin-detail-value" id="detailLaunchTemplate">—</div>
+</div>
+
+<div class="admin-detail-meta">
+<div class="admin-detail-label">Builder Wallet</div>
+<div class="admin-detail-value mono" id="detailBuilderWallet">—</div>
+</div>
+</div>
+</section>
+
+<section class="admin-detail-section">
 <h3>Review actions</h3>
 
-<div class="field">
+<div class="admin-field">
 <label for="assignedToInput">Assign To</label>
 <input
 id="assignedToInput"
-class="input"
+class="admin-input"
 type="text"
 placeholder="Reviewer handle or name"
 autocomplete="off"
 />
 </div>
 
-<div class="field" style="margin-top: 12px;">
+<div class="admin-field" style="margin-top: 12px;">
 <label for="actionNotes">Action Notes</label>
 <textarea
 id="actionNotes"
-class="textarea"
+class="admin-textarea"
 placeholder="Reasoning, restrictions, approval note, or escalation context."
 ></textarea>
 </div>
 
-<div class="field" style="margin-top: 12px;">
+<div class="admin-field" style="margin-top: 12px;">
 <label for="escalationRiskLevel">Escalation Risk Level</label>
-<select id="escalationRiskLevel" class="select">
+<select id="escalationRiskLevel" class="admin-select">
 <option value="high">High</option>
 <option value="critical">Critical</option>
 <option value="medium">Medium</option>
 </select>
 </div>
 
-<div class="action-stack" style="margin-top: 16px;">
-<div class="action-row">
-<button id="approveCaseButton" class="button button-primary" type="button">
+<div class="admin-action-stack">
+<div class="admin-action-row">
+<button id="approveCaseButton" class="admin-button admin-button-primary" type="button">
 Approve
 </button>
-<button id="rejectCaseButton" class="button button-secondary" type="button">
+<button id="rejectCaseButton" class="admin-button admin-button-secondary" type="button">
 Reject
 </button>
 </div>
 
-<div class="action-row">
-<button id="freezeCaseButton" class="button button-danger" type="button">
+<div class="admin-action-row">
+<button id="freezeCaseButton" class="admin-button admin-button-danger" type="button">
 Freeze
 </button>
-<button id="escalateCaseButton" class="button button-secondary" type="button">
+<button id="escalateCaseButton" class="admin-button admin-button-secondary" type="button">
 Escalate
 </button>
 </div>
 
-<button id="assignCaseButton" class="button button-secondary" type="button">
+<button id="assignCaseButton" class="admin-button admin-button-secondary" type="button">
 Assign Reviewer
 </button>
 </div>
-</div>
-</div>
 </section>
 </div>
-</details>
+</aside>
+</div>
 </section>
 </section>
 </main>
-</div>
 
-<script type="module" src="/assets/layout-shell.js?v=20260514-shell-v3"></script>
-<script type="module" src="/assets/pages/compliance-admin.js?v=20260518-sentinel-admin-v3"></script>
+<div id="layoutShellFooter"></div>
+
+<script type="module" src="/assets/layout-shell.js?v=20260518-admin-shell-v5"></script>
+<script type="module" src="/assets/pages/compliance-admin.js?v=20260518-admin-split-v4"></script>
 </body>
 </html>
