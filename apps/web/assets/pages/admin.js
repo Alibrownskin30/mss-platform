@@ -1,3 +1,16 @@
+import {
+apiFetch,
+arrayify,
+cleanText,
+createAdminKeyApiFetch,
+formatDateTime,
+formatNumber,
+formatSignedCurrency,
+safeNumber,
+setText,
+titleCase,
+} from "./admin-core.js"
+
 const todayIso = new Date().toISOString().slice(0, 10)
 
 const state = {
@@ -37,233 +50,19 @@ adminApiStatusValue: document.getElementById("adminApiStatusValue"),
 adminUpdatedAtValue: document.getElementById("adminUpdatedAtValue"),
 }
 
-const SENTINEL_ACCESS_ADMIN_KEY_STORAGE_KEY = "mss_sentinel_access_admin_key"
-let sentinelAccessAdminKeyPromptInFlight = null
-
-function cleanText(value, max = 500) {
-return String(value ?? "").trim().slice(0, max)
-}
-
-function safeNumber(value, fallback = 0) {
-const num = Number(value)
-return Number.isFinite(num) ? num : fallback
-}
-
-function arrayify(value) {
-return Array.isArray(value) ? value : []
-}
-
-function titleCase(value) {
-return cleanText(value, 120)
-.replace(/_/g, " ")
-.replace(/-/g, " ")
-.split(" ")
-.filter(Boolean)
-.map((part) => part.charAt(0).toUpperCase() + part.slice(1))
-.join(" ")
-}
-
-function formatNumber(value, fractionDigits = 0) {
-const num = Number(value)
-if (!Number.isFinite(num)) return "0"
-
-return new Intl.NumberFormat(undefined, {
-maximumFractionDigits: fractionDigits,
-minimumFractionDigits: fractionDigits,
-}).format(num)
-}
-
-function formatCurrency(value) {
-const num = Number(value)
-if (!Number.isFinite(num)) return "$0.00"
-
-return new Intl.NumberFormat(undefined, {
-style: "currency",
-currency: "USD",
-maximumFractionDigits: 2,
-}).format(num)
-}
-
-function formatSignedCurrency(value) {
-const num = Number(value)
-if (!Number.isFinite(num)) return "$0.00"
-
-const abs = Math.abs(num)
-const formatted = new Intl.NumberFormat(undefined, {
-style: "currency",
-currency: "USD",
-maximumFractionDigits: 2,
-}).format(abs)
-
-if (num > 0) return `+${formatted}`
-if (num < 0) return `-${formatted}`
-return formatted
-}
-
-function formatDateTime(value) {
-const date = new Date(value)
-if (!value || Number.isNaN(date.getTime())) return "—"
-return date.toLocaleString()
-}
-
-function getApiBase() {
-const { protocol, hostname } = window.location
-const override = cleanText(window.__API_BASE__ || "", 1000)
-
-if (override) return override.replace(/\/$/, "")
-
-if (
-hostname === "127.0.0.1" ||
-hostname === "localhost" ||
-hostname === "[::1]"
-) {
-return `${protocol}//${hostname}:8787`
-}
-
-if (hostname.includes("-3000.app.github.dev")) {
-return `${protocol}//${hostname.replace("-3000.app.github.dev", "-8787.app.github.dev")}`
-}
-
-if (hostname.includes("-3001.app.github.dev")) {
-return `${protocol}//${hostname.replace("-3001.app.github.dev", "-8787.app.github.dev")}`
-}
-
-if (hostname.includes("-4173.app.github.dev")) {
-return `${protocol}//${hostname.replace("-4173.app.github.dev", "-8787.app.github.dev")}`
-}
-
-if (/:\d+$/.test(window.location.host)) {
-return `${protocol}//${hostname}:8787`
-}
-
-return window.location.origin
-}
-
-const API_BASE = getApiBase()
-
-async function apiFetch(path, options = {}) {
-const response = await fetch(`${API_BASE}${path}`, {
-credentials: "include",
-headers: {
-"Content-Type": "application/json",
-...(options.headers || {}),
-},
-...options,
+const apiFetchSentinelAccessAdmin = createAdminKeyApiFetch({
+basePath: "/api/sentinel-access-admin",
+storageKey: "mss_sentinel_access_admin_key",
+windowOverrideKey: "__SENTINEL_ACCESS_ADMIN_KEY__",
+headerName: "x-admin-key",
+promptLabel: "Enter Sentinel Access admin key",
 })
 
-let payload = null
-
-try {
-payload = await response.json()
-} catch {
-payload = null
-}
-
-if (!response.ok) {
-const error = new Error(
-payload?.error || payload?.message || `Request failed (${response.status})`
-)
-error.status = response.status
-error.payload = payload
-throw error
-}
-
-return payload
-}
-
-function getStoredSentinelAccessAdminKey() {
-const override = cleanText(window.__SENTINEL_ACCESS_ADMIN_KEY__ || "", 2000)
-if (override) return override
-
-try {
-return cleanText(localStorage.getItem(SENTINEL_ACCESS_ADMIN_KEY_STORAGE_KEY), 2000)
-} catch {
-return ""
-}
-}
-
-function storeSentinelAccessAdminKey(value) {
-try {
-const clean = cleanText(value, 2000)
-
-if (!clean) {
-localStorage.removeItem(SENTINEL_ACCESS_ADMIN_KEY_STORAGE_KEY)
-return
-}
-
-localStorage.setItem(SENTINEL_ACCESS_ADMIN_KEY_STORAGE_KEY, clean)
-} catch {}
-}
-
-function requestSentinelAccessAdminKey() {
-if (sentinelAccessAdminKeyPromptInFlight) {
-return sentinelAccessAdminKeyPromptInFlight
-}
-
-sentinelAccessAdminKeyPromptInFlight = Promise.resolve().then(() => {
-const entered = window.prompt("Enter Sentinel Access admin key")
-const clean = cleanText(entered, 2000)
-
-if (clean) {
-storeSentinelAccessAdminKey(clean)
-return clean
-}
-
-return ""
-})
-
-return sentinelAccessAdminKeyPromptInFlight.finally(() => {
-sentinelAccessAdminKeyPromptInFlight = null
-})
-}
-
-async function apiFetchSentinelAccessAdmin(path, options = {}, { retryOnUnauthorized = true } = {}) {
-const storedKey = getStoredSentinelAccessAdminKey()
-const headers = {
-...(options.headers || {}),
-}
-
-if (storedKey) {
-headers["x-admin-key"] = storedKey
-}
-
-try {
-return await apiFetch(`/api/sentinel-access-admin${path}`, {
-...options,
-headers,
-})
-} catch (error) {
-if (retryOnUnauthorized && error?.status === 401) {
-storeSentinelAccessAdminKey("")
-const retryKey = await requestSentinelAccessAdminKey()
-
-if (!retryKey) {
-throw new Error("Sentinel Access admin key is required.")
-}
-
-return apiFetch(`/api/sentinel-access-admin${path}`, {
-...options,
-headers: {
-...(options.headers || {}),
-"x-admin-key": retryKey,
-},
-})
-}
-
-throw error
-}
-}
-
-function setText(el, value) {
-if (!el) return
-el.textContent = value == null || value === "" ? "—" : String(value)
-}
-
-function setBanner(message = "", variant = "good") {
+function setAdminBanner(message = "", variant = "good") {
 if (!els.adminBanner) return
 
 els.adminBanner.textContent = message || ""
-els.adminBanner.className = "admin-banner"
+els.adminBanner.className = "admin-banner banner"
 
 if (message) {
 els.adminBanner.classList.add("show")
@@ -275,11 +74,15 @@ function setChip(el, label, variant = "warn") {
 if (!el) return
 
 el.textContent = label || "Unknown"
-el.className = "admin-chip"
+el.className = "admin-chip chip"
 
 if (variant) {
 el.classList.add(variant)
 }
+}
+
+function isLoading() {
+return state.loadingCount > 0
 }
 
 function beginLoading() {
@@ -293,7 +96,7 @@ refreshLoadingUi()
 }
 
 function refreshLoadingUi() {
-const loading = state.loadingCount > 0
+const loading = isLoading()
 
 if (els.refreshAdminButton) {
 els.refreshAdminButton.disabled = loading
@@ -322,7 +125,76 @@ state.errors.push({
 scope,
 message: error?.message || "Request failed.",
 status: error?.status || null,
+payload: error?.payload || null,
 })
+}
+
+function getCaseStatus(item) {
+return cleanText(item?.status, 32).toLowerCase()
+}
+
+function getSentinelMode(payload = state.sentinel || {}) {
+const settings = payload.settings || {}
+const summary = payload.summary || {}
+const engine = payload.engine || {}
+
+return (
+cleanText(settings.execution_mode, 64) ||
+cleanText(summary.execution_mode || summary.executionMode, 64) ||
+cleanText(engine.current_mode || engine.currentMode, 64) ||
+"paper"
+)
+}
+
+function getSentinelSummary(payload = state.sentinel || {}) {
+return payload.summary || {}
+}
+
+function getSentinelPnl(payload = state.sentinel || {}) {
+const summary = getSentinelSummary(payload)
+return summary.pnl || {}
+}
+
+function getSentinelOpenPositions(payload = state.sentinel || {}) {
+const summary = getSentinelSummary(payload)
+const pnl = getSentinelPnl(payload)
+
+return safeNumber(
+summary.open_positions ??
+summary.openPositions ??
+pnl.open_positions ??
+pnl.openPositions,
+0
+)
+}
+
+function getSentinelRealizedPnl(payload = state.sentinel || {}) {
+const summary = getSentinelSummary(payload)
+const pnl = getSentinelPnl(payload)
+
+return safeNumber(
+summary.period_realized_pnl_usd ??
+summary.periodRealizedPnlUsd ??
+pnl.realized_pnl_usd ??
+pnl.realizedPnlUsd ??
+summary.daily_realized_pnl_usd ??
+summary.dailyRealizedPnlUsd,
+0
+)
+}
+
+function getSentinelKillSwitch(payload = state.sentinel || {}) {
+const settings = payload.settings || {}
+const summary = getSentinelSummary(payload)
+const mode = getSentinelMode(payload)
+
+return Boolean(
+summary.kill_switch_active ??
+summary.killSwitchActive ??
+settings.kill_switch_active ??
+settings.killSwitchActive ??
+mode === "emergency_stop"
+)
 }
 
 async function loadComplianceSnapshot() {
@@ -333,13 +205,32 @@ return state.cases
 
 async function loadSentinelSnapshot() {
 const params = new URLSearchParams()
+
 params.set("period", "daily")
 params.set("date", todayIso)
 params.set("mode", "paper")
 
+try {
 const payload = await apiFetch(`/api/compliance-admin/sentinel/status?${params.toString()}`)
 state.sentinel = payload || null
 return state.sentinel
+} catch (error) {
+if (error?.status !== 404) throw error
+
+const [settingsPayload, summaryPayload] = await Promise.all([
+apiFetch("/api/compliance-admin/sentinel/settings"),
+apiFetch(`/api/compliance-admin/sentinel/summary?${params.toString()}`),
+])
+
+state.sentinel = {
+ok: true,
+settings: settingsPayload?.settings || null,
+engine: settingsPayload?.engine || summaryPayload?.engine || null,
+summary: summaryPayload?.summary || null,
+}
+
+return state.sentinel
+}
 }
 
 async function loadAccessSnapshot() {
@@ -358,18 +249,18 @@ entitlements: state.accessEntitlements,
 }
 
 function renderComplianceSnapshot() {
-const cases = state.cases
+const cases = arrayify(state.cases)
 
 const openLike = cases.filter((item) =>
-["open", "pending_info"].includes(cleanText(item.status, 32).toLowerCase())
+["open", "pending_info"].includes(getCaseStatus(item))
 ).length
 
 const escalatedLike = cases.filter((item) =>
-["escalated", "frozen"].includes(cleanText(item.status, 32).toLowerCase())
+["escalated", "frozen"].includes(getCaseStatus(item))
 ).length
 
 const resolvedLike = cases.filter((item) =>
-["approved", "rejected"].includes(cleanText(item.status, 32).toLowerCase())
+["approved", "rejected"].includes(getCaseStatus(item))
 ).length
 
 setText(els.adminOpenCasesValue, formatNumber(openLike))
@@ -393,38 +284,27 @@ setChip(els.complianceHealthChip, "Clear", "good")
 
 function renderSentinelSnapshot() {
 const payload = state.sentinel || {}
-const settings = payload.settings || {}
-const summary = payload.summary || {}
-const pnl = summary.pnl || {}
-
-const mode =
-cleanText(settings.execution_mode, 64) ||
-cleanText(summary.execution_mode, 64) ||
-"paper"
-
-const openPositions = safeNumber(
-summary.open_positions ?? summary.openPositions ?? pnl.open_positions,
-0
-)
-
-const realizedPnl = safeNumber(
-summary.period_realized_pnl_usd ??
-pnl.realized_pnl_usd ??
-summary.daily_realized_pnl_usd ??
-summary.dailyRealizedPnlUsd,
-0
-)
-
-const killSwitchActive = Boolean(
-summary.kill_switch_active ??
-summary.killSwitchActive ??
-cleanText(settings.execution_mode, 64) === "emergency_stop"
-)
+const mode = getSentinelMode(payload)
+const openPositions = getSentinelOpenPositions(payload)
+const realizedPnl = getSentinelRealizedPnl(payload)
+const killSwitchActive = getSentinelKillSwitch(payload)
 
 setText(els.adminSentinelModeValue, titleCase(mode) || "Paper")
 setText(els.adminSentinelOpenPositionsValue, formatNumber(openPositions))
 setText(els.adminSentinelRealizedPnlValue, formatSignedCurrency(realizedPnl))
 setText(els.adminSentinelKillSwitchValue, killSwitchActive ? "Active" : "Inactive")
+
+els.adminSentinelRealizedPnlValue?.classList.remove("pnl-good", "pnl-bad", "pnl-neutral")
+
+if (els.adminSentinelRealizedPnlValue) {
+if (realizedPnl > 0) {
+els.adminSentinelRealizedPnlValue.classList.add("pnl-good")
+} else if (realizedPnl < 0) {
+els.adminSentinelRealizedPnlValue.classList.add("pnl-bad")
+} else {
+els.adminSentinelRealizedPnlValue.classList.add("pnl-neutral")
+}
+}
 
 if (state.errors.some((item) => item.scope === "sentinel")) {
 setChip(els.sentinelHealthChip, "Error", "bad")
@@ -444,9 +324,20 @@ setChip(els.sentinelHealthChip, "Paper", "good")
 
 function renderAccessSnapshot() {
 const summary = state.accessSummary || {}
-const totalCodes = safeNumber(summary.total_codes, 0)
-const activeCodes = safeNumber(summary.active_codes, 0)
-const redemptions = safeNumber(summary.total_redemptions, 0)
+
+const fallbackActiveCodes = safeNumber(summary.active_codes ?? summary.activeCodes, 0)
+const fallbackTotalCodes = safeNumber(summary.total_codes ?? summary.totalCodes, 0)
+const fallbackRedemptions = safeNumber(
+summary.total_redemptions ??
+summary.totalRedemptions ??
+summary.redeemed_codes ??
+summary.redeemedCodes,
+0
+)
+
+const totalCodes = fallbackTotalCodes
+const activeCodes = fallbackActiveCodes
+const redemptions = fallbackRedemptions
 const liveEntitlements = state.accessEntitlements.filter(isLiveEntitlement).length
 
 setText(els.adminAccessTotalCodesValue, formatNumber(totalCodes))
@@ -470,29 +361,21 @@ setChip(els.accessHealthChip, "No Live Access", "warn")
 
 function buildNotifications() {
 const notifications = []
+const cases = arrayify(state.cases)
 
-const cases = state.cases
 const openLike = cases.filter((item) =>
-["open", "pending_info"].includes(cleanText(item.status, 32).toLowerCase())
-).length
-const escalatedLike = cases.filter((item) =>
-["escalated", "frozen"].includes(cleanText(item.status, 32).toLowerCase())
+["open", "pending_info"].includes(getCaseStatus(item))
 ).length
 
-const sentinelSummary = state.sentinel?.summary || {}
-const sentinelSettings = state.sentinel?.settings || {}
-const sentinelMode =
-cleanText(sentinelSettings.execution_mode, 64) ||
-cleanText(sentinelSummary.execution_mode, 64) ||
-"paper"
-const killSwitchActive = Boolean(
-sentinelSummary.kill_switch_active ??
-sentinelSummary.killSwitchActive ??
-sentinelMode === "emergency_stop"
-)
+const escalatedLike = cases.filter((item) =>
+["escalated", "frozen"].includes(getCaseStatus(item))
+).length
+
+const sentinelMode = getSentinelMode(state.sentinel || {})
+const killSwitchActive = getSentinelKillSwitch(state.sentinel || {})
 
 const accessSummary = state.accessSummary || {}
-const activeCodes = safeNumber(accessSummary.active_codes, 0)
+const activeCodes = safeNumber(accessSummary.active_codes ?? accessSummary.activeCodes, 0)
 const liveEntitlements = state.accessEntitlements.filter(isLiveEntitlement).length
 
 state.errors.forEach((error) => {
@@ -537,6 +420,12 @@ title: "Sentinel is armed for mainnet",
 copy: "Armed mode should be monitored closely before any transition to live execution.",
 priority: "warn",
 })
+} else {
+notifications.push({
+title: "Sentinel is running in paper posture",
+copy: "Paper mode remains the correct default while devnet/staging observation and audit accuracy are being proven.",
+priority: "good",
+})
 }
 
 if (activeCodes > 0 || liveEntitlements > 0) {
@@ -579,7 +468,7 @@ node.innerHTML = `
 <div class="admin-notification-title">${cleanText(item.title, 180)}</div>
 <div class="admin-notification-copy">${cleanText(item.copy, 500)}</div>
 </div>
-<span class="admin-chip ${chipVariant}">${chipLabel}</span>
+<span class="admin-chip chip ${chipVariant}">${chipLabel}</span>
 </div>
 `
 
@@ -617,17 +506,17 @@ addError(scopes[index], result.reason)
 renderSnapshot()
 
 if (state.errors.length) {
-setBanner(
+setAdminBanner(
 `${state.errors.length} admin surface${state.errors.length === 1 ? "" : "s"} could not be loaded. Review notifications below.`,
 "bad"
 )
 } else if (showSuccess) {
-setBanner("Admin snapshot refreshed.", "good")
+setAdminBanner("Admin snapshot refreshed.", "good")
 } else {
-setBanner("")
+setAdminBanner("")
 }
 } catch (error) {
-setBanner(error?.message || "Failed to load admin snapshot.", "bad")
+setAdminBanner(error?.message || "Failed to load admin snapshot.", "bad")
 } finally {
 endLoading()
 }
@@ -661,6 +550,7 @@ setText(els.adminAccessEntitlementsValue, "—")
 
 setText(els.adminApiStatusValue, "Idle")
 setText(els.adminUpdatedAtValue, "—")
+setAdminBanner("")
 }
 
 async function init() {
@@ -673,5 +563,5 @@ await loadAdminSnapshot()
 
 init().catch((error) => {
 console.error("Failed to initialize admin page", error)
-setBanner(error?.message || "Failed to initialize admin page.", "bad")
+setAdminBanner(error?.message || "Failed to initialize admin page.", "bad")
 })

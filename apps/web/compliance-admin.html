@@ -9,7 +9,7 @@ name="description"
 content="Internal MSS Protocol compliance case review queue and manual access decision surface."
 />
 
-<link rel="stylesheet" href="/assets/app.css?v=20260518-admin-split-v4" />
+<link rel="stylesheet" href="/assets/app.css?v=20260519-admin-ui-v1" />
 </head>
 
 <body
@@ -23,61 +23,91 @@ data-shell-subtitle="Manual Review Queue"
 >
 <div id="layoutShellHeader"></div>
 
-<main class="admin-page">
-<section class="admin-shell">
-<section class="admin-hero">
-<div class="admin-hero-main">
+<main class="admin-page admin-page--compliance">
+<section class="admin-hero admin-hero--compliance">
+<div class="admin-hero-copy">
 <div class="admin-eyebrow">Compliance Operations</div>
-<h1>Manual review queue and compliance case control.</h1>
+<h1>Compliance case command center.</h1>
 <p>
-Review wallet, builder, participant, launch, and transaction cases from one focused compliance surface. Sentinel settings now live separately so this page stays clean and operational.
+Focused internal surface for reviewing wallet, builder, participant, launch, and transaction cases. Sentinel settings and access-code controls now live on separate admin pages.
 </p>
 
 <div class="admin-hero-actions">
-<a class="admin-button admin-button-secondary" href="./admin.html">
-Admin Dashboard
+<a class="admin-button secondary admin-button-secondary" href="./admin.html">
+Admin Home
 </a>
-<a class="admin-button admin-button-secondary" href="./sentinel-admin.html">
-Sentinel Admin
+<a class="admin-button secondary admin-button-secondary" href="./sentinel-admin.html">
+Sentinel Settings
 </a>
-<button id="refreshCasesButton" class="admin-button admin-button-primary" type="button">
+<a class="admin-button secondary admin-button-secondary" href="./sentinel-access-admin.html">
+Access Codes
+</a>
+</div>
+</div>
+
+<aside class="admin-hero-panel">
+<div class="admin-status-row">
+<span class="admin-chip neutral">
+<span>Queue</span>
+<strong id="queueCountChip">0 cases</strong>
+</span>
+<span class="admin-chip neutral">
+<span>API</span>
+<strong id="apiStatusChip">Idle</strong>
+</span>
+</div>
+
+<div class="admin-mini-grid">
+<div class="admin-mini-card">
+<div class="admin-mini-label">Open / Pending</div>
+<div class="admin-mini-value" id="openCountValue">0</div>
+</div>
+
+<div class="admin-mini-card">
+<div class="admin-mini-label">Escalated / Frozen</div>
+<div class="admin-mini-value" id="escalatedCountValue">0</div>
+</div>
+
+<div class="admin-mini-card">
+<div class="admin-mini-label">Approved / Rejected</div>
+<div class="admin-mini-value" id="resolvedCountValue">0</div>
+</div>
+
+<div class="admin-mini-card">
+<div class="admin-mini-label">Notification Surface</div>
+<div class="admin-mini-value" id="complianceNotificationValue">Queue based</div>
+</div>
+</div>
+
+<div class="admin-action-row">
+<button id="refreshCasesButton" class="admin-button primary admin-button-primary" type="button">
 Refresh Cases
 </button>
 </div>
-</div>
-
-<aside class="admin-hero-side">
-<div class="admin-status-strip">
-<div class="admin-chip">
-<span>Queue</span>
-<strong id="queueCountChip">0 cases</strong>
-</div>
-<div class="admin-chip">
-<span>API</span>
-<strong id="apiStatusChip">Idle</strong>
-</div>
-</div>
-
-<div class="admin-summary-grid">
-<div class="admin-summary-card">
-<div class="admin-summary-label">Open / Pending</div>
-<div class="admin-summary-value" id="openCountValue">0</div>
-<div class="admin-summary-copy">Cases waiting for review or additional information.</div>
-</div>
-
-<div class="admin-summary-card">
-<div class="admin-summary-label">Escalated / Frozen</div>
-<div class="admin-summary-value" id="escalatedCountValue">0</div>
-<div class="admin-summary-copy">Cases requiring stricter access handling.</div>
-</div>
-
-<div class="admin-summary-card">
-<div class="admin-summary-label">Approved / Rejected</div>
-<div class="admin-summary-value" id="resolvedCountValue">0</div>
-<div class="admin-summary-copy">Closed review outcomes.</div>
-</div>
-</div>
 </aside>
+</section>
+
+<section class="admin-command-strip" aria-label="Compliance admin sections">
+<a class="admin-command-link" href="#case-filters">
+<span>01</span>
+<strong>Filters</strong>
+</a>
+<a class="admin-command-link" href="#case-queue">
+<span>02</span>
+<strong>Queue</strong>
+</a>
+<a class="admin-command-link" href="#case-detail">
+<span>03</span>
+<strong>Case Detail</strong>
+</a>
+<a class="admin-command-link" href="./sentinel-admin.html">
+<span>04</span>
+<strong>Sentinel</strong>
+</a>
+<a class="admin-command-link" href="./sentinel-access-admin.html">
+<span>05</span>
+<strong>Access Codes</strong>
+</a>
 </section>
 
 <section class="admin-mini-rail" aria-label="Compliance summary">
@@ -95,33 +125,26 @@ Refresh Cases
 <div class="admin-mini-label">Review State</div>
 <div class="admin-mini-value" id="heroReviewStateValue">Awaiting refresh</div>
 </div>
-
-<div class="admin-mini-card">
-<div class="admin-mini-label">Notification Surface</div>
-<div class="admin-mini-value" id="complianceNotificationValue">Queue based</div>
-</div>
 </section>
-
-<section class="admin-section">
-<div class="admin-section-head">
-<div>
-<div class="admin-section-kicker">Compliance Cases</div>
-<h2>Case review queue</h2>
-<p>
-Filter by status, case type, risk level, or assigned reviewer. Select a row to load full review context and decision actions.
-</p>
-</div>
-
-<div class="admin-section-actions">
-<button id="applyFiltersButton" class="admin-button admin-button-primary" type="button">
-Apply Filters
-</button>
-</div>
-</div>
 
 <div id="banner" class="admin-banner"></div>
 
-<div class="admin-filter-grid">
+<section id="case-filters" class="admin-card admin-wide-card">
+<div class="admin-card-header">
+<div>
+<div class="admin-kicker">Compliance Cases</div>
+<h2>Case filters</h2>
+<p>
+Filter by status, case type, risk level, or assigned reviewer before loading the queue.
+</p>
+</div>
+
+<button id="applyFiltersButton" class="admin-button primary admin-button-primary" type="button">
+Apply Filters
+</button>
+</div>
+
+<div class="admin-form-grid four">
 <div class="admin-field">
 <label for="filterStatus">Status</label>
 <select id="filterStatus" class="admin-select">
@@ -169,13 +192,17 @@ autocomplete="off"
 />
 </div>
 </div>
+</section>
 
-<div class="admin-layout">
-<section class="admin-panel">
-<div class="admin-table-head">
+<section class="admin-main-grid admin-main-grid--compliance">
+<section id="case-queue" class="admin-card">
+<div class="admin-card-header">
 <div>
-<h3>Cases</h3>
-<p>Current filtered compliance queue.</p>
+<div class="admin-kicker">Review Queue</div>
+<h2>Cases</h2>
+<p>
+Current filtered compliance queue. Select a row to load full context and available actions.
+</p>
 </div>
 </div>
 
@@ -197,11 +224,14 @@ autocomplete="off"
 </div>
 </section>
 
-<aside class="admin-panel admin-detail-panel">
-<div class="admin-table-head">
+<aside id="case-detail" class="admin-card admin-detail-panel">
+<div class="admin-card-header">
 <div>
-<h3>Selected case</h3>
-<p>Review wallet, profile, launch, and decision context.</p>
+<div class="admin-kicker">Selected Case</div>
+<h2>Review detail</h2>
+<p>
+Review wallet, profile, launch, and decision context before taking action.
+</p>
 </div>
 </div>
 
@@ -345,38 +375,36 @@ placeholder="Reasoning, restrictions, approval note, or escalation context."
 
 <div class="admin-action-stack">
 <div class="admin-action-row">
-<button id="approveCaseButton" class="admin-button admin-button-primary" type="button">
+<button id="approveCaseButton" class="admin-button primary admin-button-primary" type="button">
 Approve
 </button>
-<button id="rejectCaseButton" class="admin-button admin-button-secondary" type="button">
+<button id="rejectCaseButton" class="admin-button secondary admin-button-secondary" type="button">
 Reject
 </button>
 </div>
 
 <div class="admin-action-row">
-<button id="freezeCaseButton" class="admin-button admin-button-danger" type="button">
+<button id="freezeCaseButton" class="admin-button danger admin-button-danger" type="button">
 Freeze
 </button>
-<button id="escalateCaseButton" class="admin-button admin-button-secondary" type="button">
+<button id="escalateCaseButton" class="admin-button secondary admin-button-secondary" type="button">
 Escalate
 </button>
 </div>
 
-<button id="assignCaseButton" class="admin-button admin-button-secondary" type="button">
+<button id="assignCaseButton" class="admin-button secondary admin-button-secondary" type="button">
 Assign Reviewer
 </button>
 </div>
 </section>
 </div>
 </aside>
-</div>
-</section>
 </section>
 </main>
 
 <div id="layoutShellFooter"></div>
 
-<script type="module" src="/assets/layout-shell.js?v=20260518-admin-shell-v5"></script>
-<script type="module" src="/assets/pages/compliance-admin.js?v=20260518-admin-split-v4"></script>
+<script type="module" src="/assets/layout-shell.js?v=20260519-admin-shell-v1"></script>
+<script type="module" src="/assets/pages/compliance-admin.js?v=20260519-admin-ui-v1"></script>
 </body>
 </html>

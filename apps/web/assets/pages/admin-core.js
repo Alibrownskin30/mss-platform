@@ -39,8 +39,10 @@ return fallback
 
 export function shortenWallet(wallet, front = 6, back = 6) {
 const value = cleanText(wallet, 200)
+
 if (!value) return "—"
 if (value.length <= front + back + 2) return value
+
 return `${value.slice(0, front)}…${value.slice(-back)}`
 }
 
@@ -90,6 +92,7 @@ maximumFractionDigits: 2,
 
 if (num > 0) return `+${formatted}`
 if (num < 0) return `-${formatted}`
+
 return formatted
 }
 
@@ -102,6 +105,7 @@ return `${num.toFixed(fractionDigits)}%`
 export function formatSignedPercent(value, fractionDigits = 1) {
 const num = Number(value)
 if (!Number.isFinite(num)) return "0%"
+
 const prefix = num > 0 ? "+" : ""
 return `${prefix}${num.toFixed(fractionDigits)}%`
 }
@@ -147,7 +151,9 @@ el.style.display = visible ? display : "none"
 }
 
 export function setDisabled(items = [], disabled = false) {
-arrayify(items).forEach((item) => {
+const list = Array.isArray(items) ? items : []
+
+list.forEach((item) => {
 if (item) item.disabled = Boolean(disabled)
 })
 }
@@ -248,22 +254,45 @@ throw error
 throw lastError || new Error("Request failed")
 }
 
+function getBannerBaseClass(el) {
+if (!el) return "admin-banner"
+
+const stored = cleanText(el.dataset?.bannerBaseClass, 240)
+if (stored) return stored
+
+const removable = new Set(["show", "good", "warn", "bad", "neutral"])
+const baseClasses = Array.from(el.classList || []).filter((className) => {
+return !removable.has(className)
+})
+
+const baseClass = baseClasses.length
+? baseClasses.join(" ")
+: "admin-banner"
+
+el.dataset.bannerBaseClass = baseClass
+return baseClass
+}
+
 export function setBanner(el, message = "", variant = "warn") {
 if (!el) return
 
+const baseClass = getBannerBaseClass(el)
+
 el.textContent = message || ""
-el.className = "banner"
+el.className = baseClass
 
 if (message) {
 el.classList.add("show")
-el.classList.add(variant)
+el.classList.add(variant || "warn")
 }
 }
 
 export function clearBanner(el) {
 if (!el) return
 
-el.className = "banner"
+const baseClass = getBannerBaseClass(el)
+
+el.className = baseClass
 el.textContent = ""
 }
 
@@ -280,7 +309,7 @@ clearBanner(el)
 
 export function createPill(text, variant = "neutral") {
 const span = document.createElement("span")
-span.className = `pill ${variant}`
+span.className = `pill admin-pill ${variant}`
 span.textContent = cleanText(text, 120) || "—"
 return span
 }
@@ -294,6 +323,7 @@ const row = document.createElement("tr")
 const td = document.createElement("td")
 
 td.colSpan = colspan
+td.className = "admin-table-empty"
 td.style.padding = "24px"
 td.style.color = "var(--muted)"
 td.style.textAlign = "center"
@@ -306,7 +336,19 @@ tbody.appendChild(row)
 export function getStatusVariant(status) {
 const normalized = cleanText(status, 32).toLowerCase()
 
-if (["approved", "active", "success", "filled", "simulated", "live"].includes(normalized)) {
+if (
+[
+"approved",
+"active",
+"success",
+"filled",
+"simulated",
+"live",
+"clear",
+"ready",
+"enabled",
+].includes(normalized)
+) {
 return "good"
 }
 
@@ -322,6 +364,8 @@ if (
 "bad",
 "critical",
 "high",
+"error",
+"disabled",
 ].includes(normalized)
 ) {
 return "bad"
@@ -338,6 +382,9 @@ if (
 "armed_mainnet",
 "medium",
 "warn",
+"warning",
+"loading",
+"review",
 ].includes(normalized)
 ) {
 return "warn"
@@ -479,6 +526,7 @@ storageKey,
 windowOverrideKey = "",
 headerName = "x-admin-key",
 promptLabel = "Enter admin key",
+missingKeyMessage = "Admin key is required.",
 } = {}) {
 const requestAdminKey = createAdminKeyPrompt({
 storageKey,
@@ -513,7 +561,7 @@ storeAdminKey(storageKey, "")
 const retryKey = await requestAdminKey()
 
 if (!retryKey) {
-throw new Error("Admin key is required.")
+throw new Error(missingKeyMessage)
 }
 
 return apiFetch(`${basePath}${path}`, {

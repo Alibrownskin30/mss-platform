@@ -195,9 +195,12 @@ return String(value ?? "").trim().slice(0, max)
 
 function parseBool(value, fallback = false) {
 if (typeof value === "boolean") return value
+
 const normalized = cleanText(value, 16).toLowerCase()
-if (normalized === "true" || normalized === "1" || normalized === "yes") return true
-if (normalized === "false" || normalized === "0" || normalized === "no") return false
+
+if (["true", "1", "yes", "y", "enabled", "on"].includes(normalized)) return true
+if (["false", "0", "no", "n", "disabled", "off"].includes(normalized)) return false
+
 return fallback
 }
 
@@ -286,6 +289,7 @@ return Number.isFinite(num) ? num : fallback
 function firstFiniteNumber(values = [], fallback = 0) {
 for (const value of values) {
 if (value == null || value === "") continue
+
 const num = Number(value)
 if (Number.isFinite(num)) return num
 }
@@ -371,8 +375,10 @@ if (!response.ok) {
 const error = new Error(
 payload?.error || payload?.message || `Request failed (${response.status})`
 )
+
 error.status = response.status
 error.payload = payload
+
 throw error
 }
 
@@ -412,7 +418,7 @@ function setSentinelBanner(message = "", variant = "warn") {
 if (!els.sentinelBanner) return
 
 els.sentinelBanner.textContent = message || ""
-els.sentinelBanner.className = "admin-banner"
+els.sentinelBanner.className = "admin-banner banner"
 
 if (message) {
 els.sentinelBanner.classList.add("show")
@@ -422,7 +428,7 @@ els.sentinelBanner.classList.add(variant)
 
 function clearSentinelBanner() {
 if (!els.sentinelBanner) return
-els.sentinelBanner.className = "admin-banner"
+els.sentinelBanner.className = "admin-banner banner"
 els.sentinelBanner.textContent = ""
 }
 
@@ -431,8 +437,7 @@ return state.loadingCount > 0
 }
 
 function refreshApiStatus() {
-if (!els.apiStatusChip) return
-els.apiStatusChip.textContent = isLoading() ? "Loading" : "Ready"
+setText(els.apiStatusChip, isLoading() ? "Loading" : "Ready")
 }
 
 function updateControlDisabledState() {
@@ -469,46 +474,56 @@ updateControlDisabledState()
 
 function getSentinelModeVariant(mode) {
 const normalized = cleanText(mode, 64).toLowerCase()
+
 if (normalized === "live_mainnet") return "good"
 if (normalized === "armed_mainnet") return "warn"
 if (normalized === "emergency_stop") return "bad"
 if (normalized === "paper") return "neutral"
+
 return "neutral"
 }
 
 function getSentinelStageVariant(stage) {
 const normalized = cleanText(stage, 64).toLowerCase()
+
 if (normalized === "half_banked_at_10x" || normalized === "runner_only") return "good"
 if (normalized === "invalidated") return "bad"
 if (normalized === "closed") return "neutral"
+
 return "warn"
 }
 
 function getExecutionStatusVariant(status) {
 const normalized = cleanText(status, 64).toLowerCase()
+
 if (normalized === "filled" || normalized === "simulated") return "good"
 if (normalized === "failed") return "bad"
 if (normalized === "submitted" || normalized === "planned") return "warn"
+
 return "neutral"
 }
 
 function getPnlVariant(value) {
 const num = Number(value)
+
 if (!Number.isFinite(num) || Math.abs(num) < 0.005) return "neutral"
+
 return num > 0 ? "good" : "bad"
 }
 
 function getPnlClass(value) {
 const variant = getPnlVariant(value)
+
 if (variant === "good") return "pnl-good"
 if (variant === "bad") return "pnl-bad"
+
 return "pnl-neutral"
 }
 
 function setMoneyTone(el, value, { lossPositive = false } = {}) {
 if (!el) return
 
-el.classList.remove("pnl-good", "pnl-bad", "pnl-neutral")
+el.classList.remove("pnl-good", "pnl-bad", "pnl-neutral", "sentinel-loss-metric")
 
 const num = Number(value)
 
@@ -519,6 +534,7 @@ return
 
 if (lossPositive) {
 el.classList.add(num > 0 ? "pnl-bad" : "pnl-neutral")
+el.classList.add("sentinel-loss-metric")
 return
 }
 
@@ -527,7 +543,7 @@ el.classList.add(num > 0 ? "pnl-good" : "pnl-bad")
 
 function createPill(text, variant = "neutral") {
 const span = document.createElement("span")
-span.className = `admin-pill ${variant}`
+span.className = `pill admin-pill ${variant}`
 span.textContent = cleanText(text, 120) || "—"
 return span
 }
@@ -542,7 +558,7 @@ const td = document.createElement("td")
 
 td.colSpan = colspan
 td.style.padding = "24px"
-td.style.color = "var(--muted)"
+td.style.color = "var(--admin-muted, var(--muted))"
 td.style.textAlign = "center"
 td.textContent = message
 
@@ -552,9 +568,11 @@ tbody.appendChild(row)
 
 function getPeriodLabel(period) {
 const normalized = cleanText(period, 32).toLowerCase()
+
 if (normalized === "weekly") return "Weekly"
 if (normalized === "monthly") return "Monthly"
 if (normalized === "overall") return "Overall"
+
 return "Daily"
 }
 
@@ -842,14 +860,16 @@ const modeButtons = [
 modeButtons.forEach(({ el, mode: buttonMode, base }) => {
 if (!el) return
 
-el.classList.remove("primary", "secondary", "danger")
+el.classList.remove("primary", "secondary", "danger", "admin-button-primary", "admin-button-secondary", "admin-button-danger")
 
 if (buttonMode === normalizedMode && buttonMode !== "emergency_stop") {
-el.classList.add("primary")
+el.classList.add("primary", "admin-button-primary")
 } else if (buttonMode === normalizedMode && buttonMode === "emergency_stop") {
-el.classList.add("danger")
+el.classList.add("danger", "admin-button-danger")
+} else if (base === "danger") {
+el.classList.add("danger", "admin-button-danger")
 } else {
-el.classList.add(base)
+el.classList.add("secondary", "admin-button-secondary")
 }
 })
 }
@@ -1727,7 +1747,7 @@ return parseBool(inputEl.value, Boolean(fallback))
 }
 
 function getActorId() {
-return "admin"
+return cleanText(window.__MSS_ADMIN_ACTOR_ID__ || "", 120) || "admin"
 }
 
 function buildSentinelSettingsPayload() {
@@ -2250,6 +2270,7 @@ if (els.sentinelPositionSortFilter) {
 els.sentinelPositionSortFilter.value = state.sentinel.filters.positionSort || "pnl_desc"
 }
 
+clearSentinelBanner()
 updateSentinelPeriodCopy()
 updateSentinelPortfolioSummary()
 renderSentinelPositions()
@@ -2257,6 +2278,7 @@ renderSentinelAudit()
 renderSentinelAdminAudit()
 updateControlDisabledState()
 refreshApiStatus()
+applySentinelModeToUi("paper")
 }
 
 async function init() {

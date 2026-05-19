@@ -142,8 +142,9 @@ clearBanner(els.sentinelAccessBanner)
 }
 
 function refreshApiStatus() {
-setText(els.apiStatusChip, isLoading() ? "Loading" : "Ready")
-setText(els.sentinelAccessStateChip, isLoading() ? "Loading" : "Ready")
+const label = isLoading() ? "Loading" : "Ready"
+setText(els.apiStatusChip, label)
+setText(els.sentinelAccessStateChip, label)
 }
 
 function updateControlDisabledState() {
@@ -1123,6 +1124,30 @@ setValue(els.sentinelAccessDurationDaysInput, "7")
 }
 }
 
+function bindFilterShortcuts() {
+;[
+els.sentinelAccessCodesPlanFilter,
+els.sentinelAccessCodesBoundUserFilter,
+].forEach((input) => {
+input?.addEventListener("keydown", async (event) => {
+if (event.key !== "Enter") return
+syncFiltersFromInputs()
+await loadCodes()
+})
+})
+
+;[
+els.sentinelAccessRedemptionsCodeFilter,
+els.sentinelAccessRedemptionsUserFilter,
+].forEach((input) => {
+input?.addEventListener("keydown", async (event) => {
+if (event.key !== "Enter") return
+syncFiltersFromInputs()
+await loadRedemptions()
+})
+})
+}
+
 function bindActions() {
 els.refreshSentinelAccessAdminButton?.addEventListener("click", async () => {
 syncFiltersFromInputs()
@@ -1196,6 +1221,8 @@ setSentinelAccessBanner(error?.message || "Failed to refresh selected access cod
 endLoading()
 }
 })
+
+bindFilterShortcuts()
 }
 
 function initDefaults() {

@@ -9,377 +9,7 @@ name="description"
 content="Internal MSS Protocol admin command center for compliance, Sentinel Watcher, and access-code operations."
 />
 
-<link rel="stylesheet" href="/assets/app.css?v=20260518-admin-v1" />
-
-<style>
-.admin-page {
-width: min(var(--max, 1320px), calc(100% - 32px));
-margin: 0 auto;
-padding: 34px 0 70px;
-}
-
-.admin-hero {
-position: relative;
-overflow: hidden;
-border: 1px solid rgba(115, 185, 255, 0.14);
-border-radius: 26px;
-padding: 28px;
-background:
-radial-gradient(900px 260px at 0% 0%, rgba(79, 195, 255, 0.12), transparent 46%),
-radial-gradient(640px 220px at 100% 0%, rgba(235, 215, 171, 0.055), transparent 44%),
-linear-gradient(180deg, rgba(8, 14, 27, 0.94), rgba(5, 9, 20, 0.92));
-box-shadow: 0 30px 90px rgba(0, 0, 0, 0.42);
-}
-
-.admin-hero::before,
-.admin-card::before,
-.admin-panel::before {
-content: "";
-position: absolute;
-inset: 0 0 auto 0;
-height: 1px;
-background: linear-gradient(
-90deg,
-transparent,
-rgba(79, 195, 255, 0.38),
-rgba(235, 215, 171, 0.18),
-transparent
-);
-pointer-events: none;
-}
-
-.admin-eyebrow {
-display: inline-flex;
-align-items: center;
-gap: 8px;
-min-height: 30px;
-padding: 0 12px;
-border-radius: 999px;
-border: 1px solid rgba(115, 185, 255, 0.18);
-color: #8fe3ff;
-background: rgba(79, 195, 255, 0.06);
-font-size: 11px;
-font-weight: 900;
-letter-spacing: 0.14em;
-text-transform: uppercase;
-}
-
-.admin-hero h1 {
-margin: 18px 0 12px;
-font-size: clamp(32px, 5vw, 58px);
-line-height: 0.98;
-letter-spacing: -0.055em;
-}
-
-.admin-hero p {
-max-width: 790px;
-margin: 0;
-color: rgba(198, 211, 226, 0.72);
-font-size: 15px;
-line-height: 1.75;
-}
-
-.admin-hero-actions {
-display: flex;
-flex-wrap: wrap;
-gap: 10px;
-margin-top: 22px;
-}
-
-.admin-button {
-display: inline-flex;
-align-items: center;
-justify-content: center;
-min-height: 44px;
-padding: 0 16px;
-border-radius: 14px;
-border: 1px solid rgba(115, 185, 255, 0.16);
-background: rgba(255, 255, 255, 0.045);
-color: #eef6ff;
-font-size: 12px;
-font-weight: 900;
-letter-spacing: 0.1em;
-text-transform: uppercase;
-cursor: pointer;
-transition:
-transform 0.16s ease,
-border-color 0.16s ease,
-background 0.16s ease;
-}
-
-.admin-button:hover {
-transform: translateY(-1px);
-border-color: rgba(79, 195, 255, 0.32);
-background: rgba(79, 195, 255, 0.08);
-}
-
-.admin-button.primary {
-color: #04111d;
-border-color: rgba(79, 195, 255, 0.28);
-background: linear-gradient(135deg, #8fe3ff, #4fc3ff);
-box-shadow: 0 16px 34px rgba(79, 195, 255, 0.13);
-}
-
-.admin-grid {
-display: grid;
-grid-template-columns: repeat(3, minmax(0, 1fr));
-gap: 16px;
-margin-top: 18px;
-}
-
-.admin-card,
-.admin-panel {
-position: relative;
-overflow: hidden;
-border: 1px solid rgba(115, 185, 255, 0.12);
-border-radius: 22px;
-background:
-radial-gradient(580px 180px at 0% 0%, rgba(79, 195, 255, 0.08), transparent 44%),
-linear-gradient(180deg, rgba(8, 14, 27, 0.9), rgba(5, 9, 20, 0.9));
-box-shadow: 0 24px 64px rgba(0, 0, 0, 0.3);
-}
-
-.admin-card {
-padding: 20px;
-min-height: 290px;
-display: flex;
-flex-direction: column;
-gap: 16px;
-}
-
-.admin-card-head {
-display: flex;
-justify-content: space-between;
-gap: 12px;
-align-items: flex-start;
-}
-
-.admin-card-kicker,
-.admin-label {
-color: rgba(198, 211, 226, 0.5);
-font-size: 10px;
-font-weight: 900;
-letter-spacing: 0.14em;
-text-transform: uppercase;
-}
-
-.admin-card-title {
-margin-top: 8px;
-font-size: 22px;
-font-weight: 950;
-letter-spacing: -0.035em;
-}
-
-.admin-card-copy {
-color: rgba(198, 211, 226, 0.7);
-font-size: 13px;
-line-height: 1.65;
-}
-
-.admin-chip {
-display: inline-flex;
-align-items: center;
-justify-content: center;
-min-height: 30px;
-padding: 0 10px;
-border-radius: 999px;
-border: 1px solid rgba(115, 185, 255, 0.15);
-background: rgba(255, 255, 255, 0.04);
-color: rgba(238, 246, 255, 0.82);
-font-size: 10px;
-font-weight: 900;
-letter-spacing: 0.1em;
-text-transform: uppercase;
-white-space: nowrap;
-}
-
-.admin-chip.good {
-color: #7bffb1;
-border-color: rgba(123, 255, 177, 0.24);
-}
-
-.admin-chip.warn {
-color: #ffcf66;
-border-color: rgba(255, 207, 102, 0.24);
-}
-
-.admin-chip.bad {
-color: #ff8787;
-border-color: rgba(255, 135, 135, 0.24);
-}
-
-.admin-metrics {
-display: grid;
-grid-template-columns: repeat(2, minmax(0, 1fr));
-gap: 10px;
-}
-
-.admin-metric {
-padding: 12px;
-border-radius: 16px;
-border: 1px solid rgba(115, 185, 255, 0.09);
-background: rgba(255, 255, 255, 0.03);
-}
-
-.admin-value {
-margin-top: 7px;
-color: #eef6ff;
-font-size: 19px;
-font-weight: 950;
-letter-spacing: -0.02em;
-word-break: break-word;
-}
-
-.admin-card-footer {
-margin-top: auto;
-display: flex;
-gap: 10px;
-flex-wrap: wrap;
-}
-
-.admin-main {
-display: grid;
-grid-template-columns: minmax(0, 1.1fr) minmax(360px, 0.9fr);
-gap: 16px;
-margin-top: 18px;
-}
-
-.admin-panel {
-padding: 20px;
-}
-
-.admin-panel-title {
-margin: 0;
-font-size: 20px;
-letter-spacing: -0.03em;
-}
-
-.admin-panel-copy {
-margin: 8px 0 0;
-color: rgba(198, 211, 226, 0.68);
-font-size: 13px;
-line-height: 1.65;
-}
-
-.admin-notification-list,
-.admin-action-list {
-display: grid;
-gap: 10px;
-margin-top: 16px;
-}
-
-.admin-notification,
-.admin-action {
-border: 1px solid rgba(115, 185, 255, 0.1);
-border-radius: 16px;
-padding: 14px;
-background: rgba(255, 255, 255, 0.03);
-}
-
-.admin-notification-title,
-.admin-action-title {
-font-size: 14px;
-font-weight: 900;
-letter-spacing: -0.015em;
-}
-
-.admin-notification-copy,
-.admin-action-copy {
-margin-top: 6px;
-color: rgba(198, 211, 226, 0.68);
-font-size: 13px;
-line-height: 1.55;
-}
-
-.admin-status-row {
-display: flex;
-flex-wrap: wrap;
-gap: 10px;
-margin-top: 16px;
-}
-
-.admin-status-pill {
-display: inline-flex;
-align-items: center;
-gap: 8px;
-min-height: 36px;
-padding: 0 12px;
-border-radius: 999px;
-border: 1px solid rgba(115, 185, 255, 0.14);
-background: rgba(255, 255, 255, 0.035);
-color: rgba(198, 211, 226, 0.72);
-font-size: 12px;
-}
-
-.admin-status-pill strong {
-color: #eef6ff;
-}
-
-.admin-banner {
-display: none;
-margin-top: 18px;
-padding: 14px 16px;
-border-radius: 16px;
-border: 1px solid rgba(115, 185, 255, 0.14);
-background: rgba(255, 255, 255, 0.04);
-color: rgba(198, 211, 226, 0.78);
-font-size: 13px;
-line-height: 1.55;
-}
-
-.admin-banner.show {
-display: block;
-}
-
-.admin-banner.bad {
-color: #ff8787;
-border-color: rgba(255, 135, 135, 0.24);
-}
-
-.admin-banner.good {
-color: #7bffb1;
-border-color: rgba(123, 255, 177, 0.24);
-}
-
-.admin-empty {
-color: rgba(198, 211, 226, 0.6);
-}
-
-@media (max-width: 1120px) {
-.admin-grid,
-.admin-main {
-grid-template-columns: 1fr;
-}
-}
-
-@media (max-width: 760px) {
-.admin-page {
-width: min(var(--max, 1320px), calc(100% - 20px));
-padding-top: 24px;
-}
-
-.admin-hero,
-.admin-card,
-.admin-panel {
-border-radius: 18px;
-padding: 18px;
-}
-
-.admin-metrics {
-grid-template-columns: 1fr;
-}
-
-.admin-hero-actions,
-.admin-card-footer {
-flex-direction: column;
-align-items: stretch;
-}
-
-.admin-button {
-width: 100%;
-}
-}
-</style>
+<link rel="stylesheet" href="/assets/app.css?v=20260519-admin-ui-v1" />
 </head>
 
 <body
@@ -389,146 +19,236 @@ data-page="admin"
 data-active-page="admin"
 data-active-nav="admin"
 data-shell-active="admin"
+data-shell-title="Admin Command Center"
+data-shell-subtitle="Internal Admin Command"
 >
 <div id="layoutShellHeader"></div>
 
-<main class="admin-page">
-<section class="admin-hero">
+<main class="admin-page admin-page--dashboard">
+<section class="admin-hero admin-hero--dashboard">
+<div class="admin-hero-copy">
 <div class="admin-eyebrow">Internal Admin</div>
 <h1>MSS admin command center.</h1>
 <p>
-Central admin surface for compliance case notifications, Sentinel Watcher operating state, tester access-code control, and internal risk operations.
+Central internal surface for compliance notifications, Sentinel Watcher operating state, tester access-code control, and admin risk operations.
 </p>
 
 <div class="admin-hero-actions">
-<a class="admin-button primary" href="./compliance-admin.html">Open Compliance Cases</a>
-<a class="admin-button" href="./sentinel-admin.html">Open Sentinel Settings</a>
-<a class="admin-button" href="./sentinel-access-admin.html">Open Access Codes</a>
-<button id="refreshAdminButton" class="admin-button" type="button">Refresh Admin Snapshot</button>
+<a class="admin-button primary admin-button-primary" href="./compliance-admin.html">
+Open Compliance Cases
+</a>
+<a class="admin-button secondary admin-button-secondary" href="./sentinel-admin.html">
+Open Sentinel Settings
+</a>
+<a class="admin-button secondary admin-button-secondary" href="./sentinel-access-admin.html">
+Open Access Codes
+</a>
+<button id="refreshAdminButton" class="admin-button secondary admin-button-secondary" type="button">
+Refresh Snapshot
+</button>
+</div>
 </div>
 
-<div id="adminBanner" class="admin-banner"></div>
+<aside class="admin-hero-panel">
+<div class="admin-status-row">
+<span class="admin-chip neutral">
+<span>API</span>
+<strong id="adminApiStatusValue">Idle</strong>
+</span>
+<span class="admin-chip neutral">
+<span>Updated</span>
+<strong id="adminUpdatedAtValue">—</strong>
+</span>
+</div>
+
+<div class="admin-mini-grid">
+<div class="admin-mini-card">
+<div class="admin-mini-label">Compliance</div>
+<div class="admin-mini-value" id="adminOpenCasesValue">—</div>
+</div>
+
+<div class="admin-mini-card">
+<div class="admin-mini-label">Sentinel Mode</div>
+<div class="admin-mini-value" id="adminSentinelModeValue">—</div>
+</div>
+
+<div class="admin-mini-card">
+<div class="admin-mini-label">Access Codes</div>
+<div class="admin-mini-value" id="adminAccessTotalCodesValue">—</div>
+</div>
+
+<div class="admin-mini-card">
+<div class="admin-mini-label">Live Entitlements</div>
+<div class="admin-mini-value" id="adminAccessEntitlementsValue">—</div>
+</div>
+</div>
+</aside>
 </section>
 
-<section class="admin-grid" aria-label="Admin overview cards">
-<article class="admin-card">
-<div class="admin-card-head">
+<div id="adminBanner" class="admin-banner"></div>
+
+<section class="admin-command-strip" aria-label="Admin command surfaces">
+<a class="admin-command-link" href="./compliance-admin.html">
+<span>01</span>
+<strong>Compliance Cases</strong>
+</a>
+<a class="admin-command-link" href="./sentinel-admin.html">
+<span>02</span>
+<strong>Sentinel Settings</strong>
+</a>
+<a class="admin-command-link" href="./sentinel-access-admin.html">
+<span>03</span>
+<strong>Access Codes</strong>
+</a>
+<a class="admin-command-link" href="./auth.html">
+<span>04</span>
+<strong>User Access</strong>
+</a>
+<a class="admin-command-link" href="./launchpad.html">
+<span>05</span>
+<strong>Launchpad</strong>
+</a>
+</section>
+
+<section class="admin-dashboard-grid" aria-label="Admin overview cards">
+<article class="admin-card admin-dashboard-card">
+<div class="admin-card-header">
 <div>
-<div class="admin-card-kicker">Compliance</div>
-<div class="admin-card-title">Case review queue</div>
+<div class="admin-kicker">Compliance</div>
+<h2>Case review queue</h2>
+<p>
+Manual review queue for wallet, builder, participant, launch, and transaction cases.
+</p>
 </div>
+
 <span id="complianceHealthChip" class="admin-chip warn">Loading</span>
 </div>
 
-<div class="admin-card-copy">
-Review manual compliance cases, open/pending items, escalations, frozen cases, and resolved case decisions.
+<div class="admin-metric-grid two">
+<div class="admin-metric">
+<div class="admin-metric-label">Open / Pending</div>
+<div id="adminOpenCasesValueMirror" class="admin-metric-value">—</div>
 </div>
 
-<div class="admin-metrics">
 <div class="admin-metric">
-<div class="admin-label">Open / Pending</div>
-<div id="adminOpenCasesValue" class="admin-value">—</div>
+<div class="admin-metric-label">Escalated / Frozen</div>
+<div id="adminEscalatedCasesValue" class="admin-metric-value">—</div>
 </div>
+
 <div class="admin-metric">
-<div class="admin-label">Escalated / Frozen</div>
-<div id="adminEscalatedCasesValue" class="admin-value">—</div>
+<div class="admin-metric-label">Resolved</div>
+<div id="adminResolvedCasesValue" class="admin-metric-value">—</div>
 </div>
+
 <div class="admin-metric">
-<div class="admin-label">Resolved</div>
-<div id="adminResolvedCasesValue" class="admin-value">—</div>
-</div>
-<div class="admin-metric">
-<div class="admin-label">Total Loaded</div>
-<div id="adminTotalCasesValue" class="admin-value">—</div>
+<div class="admin-metric-label">Total Loaded</div>
+<div id="adminTotalCasesValue" class="admin-metric-value">—</div>
 </div>
 </div>
 
-<div class="admin-card-footer">
-<a class="admin-button primary" href="./compliance-admin.html">Review Cases</a>
+<div class="admin-card-actions">
+<a class="admin-button primary admin-button-primary" href="./compliance-admin.html">
+Review Cases
+</a>
 </div>
 </article>
 
-<article class="admin-card">
-<div class="admin-card-head">
+<article class="admin-card admin-dashboard-card">
+<div class="admin-card-header">
 <div>
-<div class="admin-card-kicker">Sentinel Watcher</div>
-<div class="admin-card-title">Execution control</div>
+<div class="admin-kicker">Sentinel Watcher</div>
+<h2>Execution control</h2>
+<p>
+Monitor Sentinel mode, open positions, selected-window PnL, engine health, and emergency-stop posture.
+</p>
 </div>
+
 <span id="sentinelHealthChip" class="admin-chip warn">Loading</span>
 </div>
 
-<div class="admin-card-copy">
-Monitor Sentinel mode, open positions, selected-window PnL, engine state, and emergency-stop posture.
+<div class="admin-metric-grid two">
+<div class="admin-metric">
+<div class="admin-metric-label">Mode</div>
+<div id="adminSentinelModeValueMirror" class="admin-metric-value">—</div>
 </div>
 
-<div class="admin-metrics">
 <div class="admin-metric">
-<div class="admin-label">Mode</div>
-<div id="adminSentinelModeValue" class="admin-value">—</div>
+<div class="admin-metric-label">Open Positions</div>
+<div id="adminSentinelOpenPositionsValue" class="admin-metric-value">—</div>
 </div>
+
 <div class="admin-metric">
-<div class="admin-label">Open Positions</div>
-<div id="adminSentinelOpenPositionsValue" class="admin-value">—</div>
+<div class="admin-metric-label">Realized PnL</div>
+<div id="adminSentinelRealizedPnlValue" class="admin-metric-value">—</div>
 </div>
+
 <div class="admin-metric">
-<div class="admin-label">Realized PnL</div>
-<div id="adminSentinelRealizedPnlValue" class="admin-value">—</div>
-</div>
-<div class="admin-metric">
-<div class="admin-label">Kill Switch</div>
-<div id="adminSentinelKillSwitchValue" class="admin-value">—</div>
+<div class="admin-metric-label">Kill Switch</div>
+<div id="adminSentinelKillSwitchValue" class="admin-metric-value">—</div>
 </div>
 </div>
 
-<div class="admin-card-footer">
-<a class="admin-button primary" href="./sentinel-admin.html">Open Sentinel</a>
+<div class="admin-card-actions">
+<a class="admin-button primary admin-button-primary" href="./sentinel-admin.html">
+Open Sentinel
+</a>
 </div>
 </article>
 
-<article class="admin-card">
-<div class="admin-card-head">
+<article class="admin-card admin-dashboard-card">
+<div class="admin-card-header">
 <div>
-<div class="admin-card-kicker">Access Codes</div>
-<div class="admin-card-title">Tester entitlements</div>
+<div class="admin-kicker">Access Codes</div>
+<h2>Tester entitlements</h2>
+<p>
+Create trial codes, monitor redemptions, review live entitlements, and disable or reactivate tester access.
+</p>
 </div>
+
 <span id="accessHealthChip" class="admin-chip warn">Loading</span>
 </div>
 
-<div class="admin-card-copy">
-Create trial codes, monitor redemptions, review live entitlements, and disable or reactivate tester access.
+<div class="admin-metric-grid two">
+<div class="admin-metric">
+<div class="admin-metric-label">Total Codes</div>
+<div id="adminAccessTotalCodesValueMirror" class="admin-metric-value">—</div>
 </div>
 
-<div class="admin-metrics">
 <div class="admin-metric">
-<div class="admin-label">Total Codes</div>
-<div id="adminAccessTotalCodesValue" class="admin-value">—</div>
+<div class="admin-metric-label">Active Codes</div>
+<div id="adminAccessActiveCodesValue" class="admin-metric-value">—</div>
 </div>
+
 <div class="admin-metric">
-<div class="admin-label">Active Codes</div>
-<div id="adminAccessActiveCodesValue" class="admin-value">—</div>
+<div class="admin-metric-label">Redemptions</div>
+<div id="adminAccessRedemptionsValue" class="admin-metric-value">—</div>
 </div>
+
 <div class="admin-metric">
-<div class="admin-label">Redemptions</div>
-<div id="adminAccessRedemptionsValue" class="admin-value">—</div>
-</div>
-<div class="admin-metric">
-<div class="admin-label">Live Entitlements</div>
-<div id="adminAccessEntitlementsValue" class="admin-value">—</div>
+<div class="admin-metric-label">Live Entitlements</div>
+<div id="adminAccessEntitlementsValueMirror" class="admin-metric-value">—</div>
 </div>
 </div>
 
-<div class="admin-card-footer">
-<a class="admin-button primary" href="./sentinel-access-admin.html">Manage Codes</a>
+<div class="admin-card-actions">
+<a class="admin-button primary admin-button-primary" href="./sentinel-access-admin.html">
+Manage Codes
+</a>
 </div>
 </article>
 </section>
 
-<section class="admin-main">
-<section class="admin-panel">
-<h2 class="admin-panel-title">Notifications</h2>
-<p class="admin-panel-copy">
-High-priority admin items surface here so compliance, Sentinel, and access-code issues are visible before opening individual pages.
+<section class="admin-main-grid admin-main-grid--dashboard">
+<section class="admin-card">
+<div class="admin-card-header">
+<div>
+<div class="admin-kicker">Notifications</div>
+<h2>Admin notifications</h2>
+<p>
+High-priority compliance, Sentinel, and access-code items surface here before opening the individual admin pages.
 </p>
+</div>
+</div>
 
 <div id="adminNotificationsList" class="admin-notification-list">
 <div class="admin-notification">
@@ -538,43 +258,37 @@ High-priority admin items surface here so compliance, Sentinel, and access-code 
 </div>
 </section>
 
-<aside class="admin-panel">
-<h2 class="admin-panel-title">Admin surfaces</h2>
-<p class="admin-panel-copy">
-Use these links instead of keeping everything inside one overloaded page.
+<aside class="admin-card">
+<div class="admin-card-header">
+<div>
+<div class="admin-kicker">Admin Surfaces</div>
+<h2>Separated control pages</h2>
+<p>
+Keep each operating surface focused instead of overloading one admin page.
 </p>
-
-<div class="admin-action-list">
-<a class="admin-action" href="./compliance-admin.html">
-<div class="admin-action-title">Compliance Cases</div>
-<div class="admin-action-copy">Manual review queue, case detail, approval, rejection, freeze, escalation, and assignment controls.</div>
-</a>
-
-<a class="admin-action" href="./sentinel-admin.html">
-<div class="admin-action-title">Sentinel Settings</div>
-<div class="admin-action-copy">Execution mode, settings, thresholds, summary PnL windows, positions, audit, and emergency stop.</div>
-</a>
-
-<a class="admin-action" href="./sentinel-access-admin.html">
-<div class="admin-action-title">Sentinel Access Codes</div>
-<div class="admin-action-copy">Trial code creation, code state, tester redemptions, entitlements, and access-code actions.</div>
-</a>
-
-<a class="admin-action" href="./auth.html">
-<div class="admin-action-title">Sentinel User Access</div>
-<div class="admin-action-copy">Public/user-facing Sentinel access gateway and account session entry.</div>
-</a>
+</div>
 </div>
 
-<div class="admin-status-row">
-<div class="admin-status-pill">
-<span>API</span>
-<strong id="adminApiStatusValue">Idle</strong>
-</div>
-<div class="admin-status-pill">
-<span>Updated</span>
-<strong id="adminUpdatedAtValue">—</strong>
-</div>
+<div class="admin-link-grid">
+<a class="admin-link-card" href="./compliance-admin.html">
+<span>Compliance Cases</span>
+<strong>Manual review queue, approval, rejection, freeze, escalation, and assignment controls.</strong>
+</a>
+
+<a class="admin-link-card" href="./sentinel-admin.html">
+<span>Sentinel Settings</span>
+<strong>Execution mode, thresholds, summary windows, positions, audit, and emergency stop.</strong>
+</a>
+
+<a class="admin-link-card" href="./sentinel-access-admin.html">
+<span>Sentinel Access Codes</span>
+<strong>Trial code creation, code state, tester redemptions, entitlements, and code actions.</strong>
+</a>
+
+<a class="admin-link-card" href="./auth.html">
+<span>Sentinel User Access</span>
+<strong>User-facing Sentinel access gateway and account session entry.</strong>
+</a>
 </div>
 </aside>
 </section>
@@ -582,7 +296,8 @@ Use these links instead of keeping everything inside one overloaded page.
 
 <div id="layoutShellFooter"></div>
 
-<script type="module" src="/assets/layout-shell.js?v=20260518-admin-shell-v2"></script>
-<script type="module" src="/assets/pages/admin.js?v=20260518-admin-v1"></script>
+<script type="module" src="/assets/layout-shell.js?v=20260519-admin-shell-v1"></script>
+<script type="module" src="/assets/pages/admin-core.js?v=20260519-admin-ui-v1"></script>
+<script type="module" src="/assets/pages/admin.js?v=20260519-admin-ui-v1"></script>
 </body>
 </html>

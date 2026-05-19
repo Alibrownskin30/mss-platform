@@ -9,196 +9,142 @@ name="description"
 content="Internal Sentinel access-code administration surface for tester codes, redemptions, entitlements, and access control."
 />
 
-<link rel="stylesheet" href="/assets/app.css?v=20260518-admin-split-v1" />
+<link rel="stylesheet" href="/assets/app.css?v=20260519-admin-ui-v2" />
 </head>
 
 <body
 data-shell-auto="true"
+data-admin-shell="true"
 data-page="sentinel-access-admin"
 data-active-page="sentinel-access-admin"
-data-shell-active="admin"
-data-active-nav="admin"
+data-shell-active="sentinel-access-admin"
+data-active-nav="sentinel-access-admin"
+data-shell-title="Sentinel Access Admin"
+data-shell-subtitle="Access-Code Control"
 >
-<div class="page">
-<main class="shell">
-<section class="hero">
-<div class="hero-grid">
-<section class="hero-panel">
-<div class="eyebrow">Sentinel Access Admin</div>
+<div id="layoutShellHeader"></div>
+
+<main class="admin-page admin-page--sentinel-access">
+<section class="admin-hero admin-hero--sentinel-access">
+<div class="admin-hero-copy">
+<div class="admin-eyebrow">Sentinel Access Admin</div>
 <h1>Tester access codes and entitlements.</h1>
 <p>
-Dedicated access-control surface for creating Sentinel trial codes, binding tester access, monitoring redemptions, reviewing entitlement state, and disabling codes when needed.
+Dedicated internal surface for Sentinel trial codes, tester access windows, redemptions, entitlement state, and code disable/reactivate actions.
 </p>
 
-<div class="hero-points">
-<div class="hero-point">
-<div class="hero-point-label">Total Codes</div>
-<div class="hero-point-value" id="sentinelAccessTotalCodesValue">0</div>
+<div class="admin-hero-actions">
+<a class="admin-button secondary admin-button-secondary" href="./admin.html">
+Admin Home
+</a>
+<a class="admin-button secondary admin-button-secondary" href="./sentinel-admin.html">
+Sentinel Settings
+</a>
+<a class="admin-button secondary admin-button-secondary" href="./compliance-admin.html">
+Compliance Cases
+</a>
+</div>
 </div>
 
-<div class="hero-point">
-<div class="hero-point-label">Active Codes</div>
-<div class="hero-point-value" id="sentinelAccessActiveCodesValue">0</div>
-</div>
-
-<div class="hero-point">
-<div class="hero-point-label">Redeemed Codes</div>
-<div class="hero-point-value" id="sentinelAccessRedeemedCodesValue">0</div>
-</div>
-
-<div class="hero-point">
-<div class="hero-point-label">Live Entitlements</div>
-<div class="hero-point-value" id="sentinelAccessLiveEntitlementsValue">0</div>
-</div>
-</div>
-</section>
-
-<aside class="summary-panel">
-<div class="admin-status-strip">
-<div class="chip">
+<aside class="admin-hero-panel">
+<div class="admin-status-row">
+<span class="admin-chip neutral">
 <span>API</span>
 <strong id="apiStatusChip">Idle</strong>
-</div>
-
-<div class="chip">
+</span>
+<span class="admin-chip neutral">
 <span>Area</span>
 <strong>Access Admin</strong>
+</span>
 </div>
 
-<a class="button button-secondary" href="/admin.html">Admin Home</a>
+<div class="admin-mini-grid">
+<div class="admin-mini-card">
+<div class="admin-mini-label">Total Codes</div>
+<div class="admin-mini-value" id="sentinelAccessTotalCodesValue">0</div>
+</div>
 
-<button id="refreshSentinelAccessAdminButton" class="button button-secondary" type="button">
+<div class="admin-mini-card">
+<div class="admin-mini-label">Active Codes</div>
+<div class="admin-mini-value" id="sentinelAccessActiveCodesValue">0</div>
+</div>
+
+<div class="admin-mini-card">
+<div class="admin-mini-label">Redeemed Codes</div>
+<div class="admin-mini-value" id="sentinelAccessRedeemedCodesValue">0</div>
+</div>
+
+<div class="admin-mini-card">
+<div class="admin-mini-label">Live Entitlements</div>
+<div class="admin-mini-value" id="sentinelAccessLiveEntitlementsValue">0</div>
+</div>
+</div>
+
+<div class="admin-action-row">
+<button id="refreshSentinelAccessAdminButton" class="admin-button primary admin-button-primary" type="button">
 Refresh Access Data
 </button>
 </div>
-
-<h2 class="section-title">Access summary</h2>
-<p class="section-copy">
-Access-code administration is now separated from Sentinel settings and compliance case review.
-</p>
-
-<div class="summary-grid">
-<div class="summary-card">
-<div class="summary-label">Purpose</div>
-<div class="summary-value">Tester control</div>
-<div class="summary-copy">Issue controlled Sentinel access without cluttering execution settings.</div>
-</div>
-
-<div class="summary-card">
-<div class="summary-label">Default Trial</div>
-<div class="summary-value">7 days</div>
-<div class="summary-copy">Default early-access code setup for one-user test windows.</div>
-</div>
-
-<div class="summary-card">
-<div class="summary-label">Code State</div>
-<div class="summary-value">Auditable</div>
-<div class="summary-copy">Redemptions, entitlement links, expiry, and code status stay visible.</div>
-</div>
-</div>
 </aside>
-</div>
 </section>
 
-<section class="main">
-<nav class="control-grid" aria-label="Admin sections">
-<a class="control-link" href="/admin.html">
-<div class="control-link-label">Admin</div>
-<div class="control-link-value">Command Center</div>
+<section class="admin-command-strip" aria-label="Sentinel access admin sections">
+<a class="admin-command-link" href="#create-access-code">
+<span>01</span>
+<strong>Create Code</strong>
 </a>
-
-<a class="control-link" href="/compliance-admin.html">
-<div class="control-link-label">Compliance</div>
-<div class="control-link-value">Case Queue</div>
+<a class="admin-command-link" href="#access-codes">
+<span>02</span>
+<strong>Access Codes</strong>
 </a>
-
-<a class="control-link" href="/sentinel-admin.html">
-<div class="control-link-label">Sentinel</div>
-<div class="control-link-value">Settings & Audit</div>
+<a class="admin-command-link" href="#code-redemptions">
+<span>03</span>
+<strong>Redemptions</strong>
 </a>
-
-<a class="control-link" href="/sentinel-access-admin.html">
-<div class="control-link-label">Access</div>
-<div class="control-link-value">Tester Codes</div>
+<a class="admin-command-link" href="#selected-access-code">
+<span>04</span>
+<strong>Selected Code</strong>
 </a>
-
-<a class="control-link" href="/auth.html">
-<div class="control-link-label">Account</div>
-<div class="control-link-value">Auth / Login</div>
+<a class="admin-command-link" href="./sentinel-admin.html">
+<span>05</span>
+<strong>Sentinel Settings</strong>
 </a>
-</nav>
+</section>
 
-<section class="admin-section">
-<div class="admin-section-body">
-<div id="sentinelAccessBanner" class="banner"></div>
+<div id="sentinelAccessBanner" class="admin-banner"></div>
 
-<div class="section-header-row">
+<section class="admin-main-grid admin-main-grid--access">
+<section class="admin-stack">
+<section id="create-access-code" class="admin-card">
+<div class="admin-card-header">
 <div>
-<h2 class="section-anchor-title">Tester access control</h2>
-<p class="section-copy" style="margin-top: 10px;">
-Create trial codes, bind access to selected accounts, monitor redemptions, and disable codes when the tester window ends.
+<div class="admin-kicker">Access Issuance</div>
+<h2>Create access code</h2>
+<p>
+Create controlled Sentinel trial, comp, partner, or admin codes. Default setup supports one-user early-access trial windows.
 </p>
 </div>
 
-<div class="topbar-actions">
-<button id="createSentinelAccessCodeButton" class="button button-primary" type="button">
+<button id="createSentinelAccessCodeButton" class="admin-button primary admin-button-primary" type="button">
 Create Access Code
 </button>
 </div>
-</div>
 
-<div class="layout" style="margin-top: 18px;">
-<section class="stack">
-<div class="subpanel">
-<h3 class="section-title">Access overview</h3>
-<p class="section-copy">
-Live tester access and code usage state.
-</p>
-
-<div class="mini-grid">
-<div class="mini-card">
-<div class="mini-card-label">Total Codes</div>
-<div class="mini-card-value" id="sentinelAccessTotalCodesValue">0</div>
-</div>
-
-<div class="mini-card">
-<div class="mini-card-label">Active Codes</div>
-<div class="mini-card-value" id="sentinelAccessActiveCodesValue">0</div>
-</div>
-
-<div class="mini-card">
-<div class="mini-card-label">Redeemed Codes</div>
-<div class="mini-card-value" id="sentinelAccessRedeemedCodesValue">0</div>
-</div>
-
-<div class="mini-card">
-<div class="mini-card-label">Live Entitlements</div>
-<div class="mini-card-value" id="sentinelAccessLiveEntitlementsValue">0</div>
-</div>
-</div>
-</div>
-
-<div class="subpanel">
-<h3 class="section-title">Create access code</h3>
-<p class="section-copy">
-For selected early-user issuance, including one-person one-week trial access.
-</p>
-
-<div class="settings-grid">
-<div class="field">
+<div class="admin-form-grid three">
+<div class="admin-field">
 <label for="sentinelAccessCustomCodeInput">Custom Code</label>
 <input
 id="sentinelAccessCustomCodeInput"
-class="input mono"
+class="admin-input mono"
 type="text"
 placeholder="Optional custom code"
 autocomplete="off"
 />
 </div>
 
-<div class="field">
+<div class="admin-field">
 <label for="sentinelAccessCodeTypeInput">Code Type</label>
-<select id="sentinelAccessCodeTypeInput" class="select">
+<select id="sentinelAccessCodeTypeInput" class="admin-select">
 <option value="trial">Trial</option>
 <option value="comp">Comp</option>
 <option value="partner">Partner</option>
@@ -206,11 +152,11 @@ autocomplete="off"
 </select>
 </div>
 
-<div class="field">
+<div class="admin-field">
 <label for="sentinelAccessMaxRedemptionsInput">Max Redemptions</label>
 <input
 id="sentinelAccessMaxRedemptionsInput"
-class="input"
+class="admin-input"
 type="number"
 min="1"
 step="1"
@@ -218,33 +164,33 @@ value="1"
 />
 </div>
 
-<div class="field">
+<div class="admin-field">
 <label for="sentinelAccessPlanKeyInput">Plan Key</label>
 <input
 id="sentinelAccessPlanKeyInput"
-class="input"
+class="admin-input"
 type="text"
 placeholder="sentinel_trial"
 autocomplete="off"
 />
 </div>
 
-<div class="field">
+<div class="admin-field">
 <label for="sentinelAccessPlanLabelInput">Plan Label</label>
 <input
 id="sentinelAccessPlanLabelInput"
-class="input"
+class="admin-input"
 type="text"
 placeholder="Early Access Trial"
 autocomplete="off"
 />
 </div>
 
-<div class="field">
+<div class="admin-field">
 <label for="sentinelAccessDurationDaysInput">Duration Days</label>
 <input
 id="sentinelAccessDurationDaysInput"
-class="input"
+class="admin-input"
 type="number"
 min="0"
 step="1"
@@ -252,11 +198,11 @@ value="7"
 />
 </div>
 
-<div class="field">
+<div class="admin-field">
 <label for="sentinelAccessBoundUserIdInput">Bound User ID</label>
 <input
 id="sentinelAccessBoundUserIdInput"
-class="input"
+class="admin-input"
 type="number"
 min="1"
 step="1"
@@ -264,21 +210,21 @@ placeholder="Optional account id"
 />
 </div>
 
-<div class="field">
+<div class="admin-field">
 <label for="sentinelAccessStartsAtInput">Starts At</label>
-<input id="sentinelAccessStartsAtInput" class="input" type="datetime-local" />
+<input id="sentinelAccessStartsAtInput" class="admin-input" type="datetime-local" />
 </div>
 
-<div class="field">
+<div class="admin-field">
 <label for="sentinelAccessExpiresAtInput">Absolute Expiry</label>
-<input id="sentinelAccessExpiresAtInput" class="input" type="datetime-local" />
+<input id="sentinelAccessExpiresAtInput" class="admin-input" type="datetime-local" />
 </div>
 
-<div class="field">
+<div class="admin-field">
 <label for="sentinelAccessCreatedByUserIdInput">Created By User ID</label>
 <input
 id="sentinelAccessCreatedByUserIdInput"
-class="input"
+class="admin-input"
 type="number"
 min="1"
 step="1"
@@ -286,62 +232,67 @@ placeholder="Optional internal user id"
 />
 </div>
 
-<div class="field" style="grid-column: span 2;">
-<label for="sentinelAccessNotesInput">Notes</label>
-<textarea
-id="sentinelAccessNotesInput"
-class="textarea"
-placeholder="Internal note for the tester, campaign, or reason for issuance."
-></textarea>
-</div>
-
-<div class="field">
+<div class="admin-field">
 <label for="sentinelAccessGeneratedCodeValue">Last Generated Code</label>
 <input
 id="sentinelAccessGeneratedCodeValue"
-class="input mono"
+class="admin-input mono"
 type="text"
 readonly
 placeholder="Generated code will appear here"
 />
 </div>
 
-<div class="field">
+<div class="admin-field">
 <label for="sentinelAccessActorIdInput">Actor ID</label>
 <input
 id="sentinelAccessActorIdInput"
-class="input"
+class="admin-input"
 type="text"
 placeholder="admin"
 autocomplete="off"
 />
 </div>
-</div>
-</div>
 
-<div class="subpanel">
-<div class="table-title-row">
+<div class="admin-field admin-field-span-3">
+<label for="sentinelAccessNotesInput">Notes</label>
+<textarea
+id="sentinelAccessNotesInput"
+class="admin-textarea"
+placeholder="Internal note for the tester, campaign, or reason for issuance."
+></textarea>
+</div>
+</div>
+</section>
+
+<section id="access-codes" class="admin-card admin-wide-card">
+<div class="admin-card-header">
 <div>
-<h3 class="section-title">Access codes</h3>
-<p class="section-copy">
-Issued codes, account-bound trials, and usage state.
+<div class="admin-kicker">Issued Codes</div>
+<h2>Access codes</h2>
+<p>
+Review issued codes, account-bound trials, validity windows, and usage state.
 </p>
 </div>
+
+<button id="refreshSentinelAccessCodesButton" class="admin-button secondary admin-button-secondary" type="button">
+Refresh Codes
+</button>
 </div>
 
-<div class="toolbar-compact-5">
-<div class="field">
+<div class="admin-form-grid four">
+<div class="admin-field">
 <label for="sentinelAccessCodesActiveFilter">Code State</label>
-<select id="sentinelAccessCodesActiveFilter" class="select">
+<select id="sentinelAccessCodesActiveFilter" class="admin-select">
 <option value="">All</option>
 <option value="active">Active</option>
 <option value="inactive">Inactive</option>
 </select>
 </div>
 
-<div class="field">
+<div class="admin-field">
 <label for="sentinelAccessCodesTypeFilter">Code Type</label>
-<select id="sentinelAccessCodesTypeFilter" class="select">
+<select id="sentinelAccessCodesTypeFilter" class="admin-select">
 <option value="">All</option>
 <option value="trial">Trial</option>
 <option value="comp">Comp</option>
@@ -350,38 +301,31 @@ Issued codes, account-bound trials, and usage state.
 </select>
 </div>
 
-<div class="field">
+<div class="admin-field">
 <label for="sentinelAccessCodesPlanFilter">Plan Key</label>
 <input
 id="sentinelAccessCodesPlanFilter"
-class="input"
+class="admin-input"
 type="text"
 placeholder="Optional plan key"
 />
 </div>
 
-<div class="field">
+<div class="admin-field">
 <label for="sentinelAccessCodesBoundUserFilter">Bound User ID</label>
 <input
 id="sentinelAccessCodesBoundUserFilter"
-class="input"
+class="admin-input"
 type="number"
 min="1"
 step="1"
 placeholder="Optional user id"
 />
 </div>
-
-<div class="field" style="justify-content: flex-end;">
-<label>&nbsp;</label>
-<button id="refreshSentinelAccessCodesButton" class="button button-secondary" type="button">
-Refresh Codes
-</button>
-</div>
 </div>
 
-<div class="table-wrap">
-<table>
+<div class="admin-table-wrap">
+<table class="admin-table">
 <thead>
 <tr>
 <th>Code</th>
@@ -397,34 +341,39 @@ Refresh Codes
 <tbody id="sentinelAccessCodesTableBody"></tbody>
 </table>
 </div>
-</div>
+</section>
 
-<div class="subpanel">
-<div class="table-title-row">
+<section id="code-redemptions" class="admin-card admin-wide-card">
+<div class="admin-card-header">
 <div>
-<h3 class="section-title">Code redemptions</h3>
-<p class="section-copy">
-Tester redemptions and entitlement linkage trail.
+<div class="admin-kicker">Redemption Trail</div>
+<h2>Code redemptions</h2>
+<p>
+Monitor tester redemptions and entitlement linkage history.
 </p>
 </div>
+
+<button id="refreshSentinelAccessRedemptionsButton" class="admin-button secondary admin-button-secondary" type="button">
+Refresh Redemptions
+</button>
 </div>
 
-<div class="toolbar-compact-4">
-<div class="field">
+<div class="admin-form-grid three">
+<div class="admin-field">
 <label for="sentinelAccessRedemptionsCodeFilter">Code</label>
 <input
 id="sentinelAccessRedemptionsCodeFilter"
-class="input"
+class="admin-input"
 type="text"
 placeholder="Optional code"
 />
 </div>
 
-<div class="field">
+<div class="admin-field">
 <label for="sentinelAccessRedemptionsUserFilter">User ID</label>
 <input
 id="sentinelAccessRedemptionsUserFilter"
-class="input"
+class="admin-input"
 type="number"
 min="1"
 step="1"
@@ -432,25 +381,18 @@ placeholder="Optional user id"
 />
 </div>
 
-<div class="field">
+<div class="admin-field">
 <label for="sentinelAccessRedemptionsStatusFilter">Redemption Status</label>
-<select id="sentinelAccessRedemptionsStatusFilter" class="select">
+<select id="sentinelAccessRedemptionsStatusFilter" class="admin-select">
 <option value="">All</option>
 <option value="success">Success</option>
 <option value="failed">Failed</option>
 </select>
 </div>
-
-<div class="field" style="justify-content: flex-end;">
-<label>&nbsp;</label>
-<button id="refreshSentinelAccessRedemptionsButton" class="button button-secondary" type="button">
-Refresh Redemptions
-</button>
-</div>
 </div>
 
-<div class="table-wrap">
-<table>
+<div class="admin-table-wrap">
+<table class="admin-table">
 <thead>
 <tr>
 <th>Redeemed At</th>
@@ -464,186 +406,185 @@ Refresh Redemptions
 <tbody id="sentinelAccessRedemptionsTableBody"></tbody>
 </table>
 </div>
-</div>
+</section>
 </section>
 
-<aside class="stack">
-<section class="panel">
+<aside id="selected-access-code" class="admin-card admin-detail-panel">
+<div class="admin-card-header">
 <div>
-<h2 class="section-title">Selected access code</h2>
-<p class="section-copy">
-Review code state, binding, validity window, and internal actions.
+<div class="admin-kicker">Selected Code</div>
+<h2>Access code detail</h2>
+<p>
+Review code state, binding, validity window, internal metadata, and management actions.
 </p>
 </div>
+</div>
 
-<div id="sentinelAccessCodeDetailEmpty" class="empty-state">
+<div id="sentinelAccessCodeDetailEmpty" class="admin-empty-state">
 <div>
 <strong>No access code selected</strong>
 Select a code from the access-code table to review detail and management actions.
 </div>
 </div>
 
-<div id="sentinelAccessCodeDetailPanel" class="detail-card" style="display: none;">
-<div class="detail-section">
+<div id="sentinelAccessCodeDetailPanel" class="admin-detail-card" style="display: none;">
+<section class="admin-detail-section">
 <h3>Code overview</h3>
 
-<div class="detail-grid">
-<div class="detail-meta">
-<div class="detail-label">Code ID</div>
-<div class="detail-value mono" id="sentinelAccessDetailCodeId">—</div>
+<div class="admin-detail-grid">
+<div class="admin-detail-meta">
+<div class="admin-detail-label">Code ID</div>
+<div class="admin-detail-value mono" id="sentinelAccessDetailCodeId">—</div>
 </div>
 
-<div class="detail-meta">
-<div class="detail-label">Code</div>
-<div class="detail-value mono" id="sentinelAccessDetailCodeValue">—</div>
+<div class="admin-detail-meta">
+<div class="admin-detail-label">Code</div>
+<div class="admin-detail-value mono" id="sentinelAccessDetailCodeValue">—</div>
 </div>
 
-<div class="detail-meta">
-<div class="detail-label">Type</div>
-<div class="detail-value" id="sentinelAccessDetailCodeType">—</div>
+<div class="admin-detail-meta">
+<div class="admin-detail-label">Type</div>
+<div class="admin-detail-value" id="sentinelAccessDetailCodeType">—</div>
 </div>
 
-<div class="detail-meta">
-<div class="detail-label">State</div>
-<div class="detail-value" id="sentinelAccessDetailCodeState">—</div>
+<div class="admin-detail-meta">
+<div class="admin-detail-label">State</div>
+<div class="admin-detail-value" id="sentinelAccessDetailCodeState">—</div>
 </div>
 
-<div class="detail-meta">
-<div class="detail-label">Plan Key</div>
-<div class="detail-value" id="sentinelAccessDetailPlanKey">—</div>
+<div class="admin-detail-meta">
+<div class="admin-detail-label">Plan Key</div>
+<div class="admin-detail-value" id="sentinelAccessDetailPlanKey">—</div>
 </div>
 
-<div class="detail-meta">
-<div class="detail-label">Plan Label</div>
-<div class="detail-value" id="sentinelAccessDetailPlanLabel">—</div>
+<div class="admin-detail-meta">
+<div class="admin-detail-label">Plan Label</div>
+<div class="admin-detail-value" id="sentinelAccessDetailPlanLabel">—</div>
 </div>
 </div>
-</div>
+</section>
 
-<div class="detail-section">
+<section class="admin-detail-section">
 <h3>Limits and timing</h3>
 
-<div class="detail-grid">
-<div class="detail-meta">
-<div class="detail-label">Duration Days</div>
-<div class="detail-value" id="sentinelAccessDetailDurationDays">—</div>
+<div class="admin-detail-grid">
+<div class="admin-detail-meta">
+<div class="admin-detail-label">Duration Days</div>
+<div class="admin-detail-value" id="sentinelAccessDetailDurationDays">—</div>
 </div>
 
-<div class="detail-meta">
-<div class="detail-label">Max Redemptions</div>
-<div class="detail-value" id="sentinelAccessDetailMaxRedemptions">—</div>
+<div class="admin-detail-meta">
+<div class="admin-detail-label">Max Redemptions</div>
+<div class="admin-detail-value" id="sentinelAccessDetailMaxRedemptions">—</div>
 </div>
 
-<div class="detail-meta">
-<div class="detail-label">Redeemed Count</div>
-<div class="detail-value" id="sentinelAccessDetailRedeemedCount">—</div>
+<div class="admin-detail-meta">
+<div class="admin-detail-label">Redeemed Count</div>
+<div class="admin-detail-value" id="sentinelAccessDetailRedeemedCount">—</div>
 </div>
 
-<div class="detail-meta">
-<div class="detail-label">Bound User ID</div>
-<div class="detail-value" id="sentinelAccessDetailBoundUserId">—</div>
+<div class="admin-detail-meta">
+<div class="admin-detail-label">Bound User ID</div>
+<div class="admin-detail-value" id="sentinelAccessDetailBoundUserId">—</div>
 </div>
 
-<div class="detail-meta">
-<div class="detail-label">Starts At</div>
-<div class="detail-value" id="sentinelAccessDetailStartsAt">—</div>
+<div class="admin-detail-meta">
+<div class="admin-detail-label">Starts At</div>
+<div class="admin-detail-value" id="sentinelAccessDetailStartsAt">—</div>
 </div>
 
-<div class="detail-meta">
-<div class="detail-label">Expires At</div>
-<div class="detail-value" id="sentinelAccessDetailExpiresAt">—</div>
+<div class="admin-detail-meta">
+<div class="admin-detail-label">Expires At</div>
+<div class="admin-detail-value" id="sentinelAccessDetailExpiresAt">—</div>
 </div>
 </div>
-</div>
+</section>
 
-<div class="detail-section">
+<section class="admin-detail-section">
 <h3>Internal metadata</h3>
 
-<div class="detail-grid">
-<div class="detail-meta">
-<div class="detail-label">Created By</div>
-<div class="detail-value" id="sentinelAccessDetailCreatedByUserId">—</div>
+<div class="admin-detail-grid">
+<div class="admin-detail-meta">
+<div class="admin-detail-label">Created By</div>
+<div class="admin-detail-value" id="sentinelAccessDetailCreatedByUserId">—</div>
 </div>
 
-<div class="detail-meta">
-<div class="detail-label">Created At</div>
-<div class="detail-value" id="sentinelAccessDetailCreatedAt">—</div>
+<div class="admin-detail-meta">
+<div class="admin-detail-label">Created At</div>
+<div class="admin-detail-value" id="sentinelAccessDetailCreatedAt">—</div>
 </div>
 
-<div class="detail-meta">
-<div class="detail-label">Updated At</div>
-<div class="detail-value" id="sentinelAccessDetailUpdatedAt">—</div>
+<div class="admin-detail-meta">
+<div class="admin-detail-label">Updated At</div>
+<div class="admin-detail-value" id="sentinelAccessDetailUpdatedAt">—</div>
 </div>
 
-<div class="detail-meta">
-<div class="detail-label">Latest Redemption</div>
-<div class="detail-value" id="sentinelAccessDetailLatestRedemptionAt">—</div>
-</div>
-</div>
-
-<div class="notes-block">
-<div class="detail-label">Notes</div>
-<div class="detail-value" id="sentinelAccessDetailNotes">—</div>
+<div class="admin-detail-meta">
+<div class="admin-detail-label">Latest Redemption</div>
+<div class="admin-detail-value" id="sentinelAccessDetailLatestRedemptionAt">—</div>
 </div>
 </div>
 
-<div class="detail-section">
+<div class="admin-notes-block">
+<div class="admin-detail-label">Notes</div>
+<div class="admin-detail-value" id="sentinelAccessDetailNotes">—</div>
+</div>
+</section>
+
+<section class="admin-detail-section">
 <h3>Code actions</h3>
 
-<div class="field">
+<div class="admin-field">
 <label for="sentinelAccessCodeActionActorIdInput">Actor ID</label>
 <input
 id="sentinelAccessCodeActionActorIdInput"
-class="input"
+class="admin-input"
 type="text"
 placeholder="admin"
 autocomplete="off"
 />
 </div>
 
-<div class="field" style="margin-top: 12px;">
+<div class="admin-field" style="margin-top: 12px;">
 <label for="sentinelAccessCodeActionNotesInput">Action Notes</label>
 <textarea
 id="sentinelAccessCodeActionNotesInput"
-class="textarea"
+class="admin-textarea"
 placeholder="Reason for deactivating, reactivating, or updating tester access."
 ></textarea>
 </div>
 
-<div class="action-stack" style="margin-top: 16px;">
-<div class="action-row">
-<button id="sentinelAccessCopyCodeButton" class="button button-secondary" type="button">
+<div class="admin-action-stack">
+<div class="admin-action-row">
+<button id="sentinelAccessCopyCodeButton" class="admin-button secondary admin-button-secondary" type="button">
 Copy Code
 </button>
 
-<button id="sentinelAccessDeactivateCodeButton" class="button button-danger" type="button">
+<button id="sentinelAccessDeactivateCodeButton" class="admin-button danger admin-button-danger" type="button">
 Deactivate Code
 </button>
 </div>
 
-<div class="action-row">
-<button id="sentinelAccessActivateCodeButton" class="button button-secondary" type="button">
+<div class="admin-action-row">
+<button id="sentinelAccessActivateCodeButton" class="admin-button secondary admin-button-secondary" type="button">
 Reactivate Code
 </button>
 
-<button id="sentinelAccessRefreshSelectedCodeButton" class="button button-primary" type="button">
+<button id="sentinelAccessRefreshSelectedCodeButton" class="admin-button primary admin-button-primary" type="button">
 Refresh Selected Code
 </button>
 </div>
 </div>
-</div>
-</div>
 </section>
+</div>
 </aside>
-</div>
-</div>
-</section>
 </section>
 </main>
-</div>
 
-<script type="module" src="/assets/layout-shell.js?v=20260514-shell-v3"></script>
-<script type="module" src="/assets/pages/admin-core.js?v=20260518-admin-split-v1"></script>
-<script type="module" src="/assets/pages/sentinel-access-admin.js?v=20260518-admin-split-v1"></script>
+<div id="layoutShellFooter"></div>
+
+<script type="module" src="/assets/layout-shell.js?v=20260519-admin-shell-v2"></script>
+<script type="module" src="/assets/pages/admin-core.js?v=20260519-admin-ui-v2"></script>
+<script type="module" src="/assets/pages/sentinel-access-admin.js?v=20260519-admin-ui-v2"></script>
 </body>
 </html>

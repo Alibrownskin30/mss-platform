@@ -3,36 +3,53 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>MSS Protocol — Sentinel Settings Admin</title>
+<title>MSS Protocol — Sentinel Operations Admin</title>
 <meta
 name="description"
-content="Internal Sentinel Watcher settings, execution mode, engine health, positions, and audit control surface for MSS Protocol."
+content="Internal Sentinel Watcher operations terminal for MSS Protocol settings, execution mode, engine health, positions, and audit control."
 />
 
-<link rel="stylesheet" href="/assets/app.css?v=20260518-admin-split-v3" />
+<link rel="stylesheet" href="/assets/app.css?v=20260519-sentinel-admin-ops-v1" />
 </head>
 
 <body
 data-shell-auto="true"
 data-page="sentinel-admin"
 data-active-page="sentinel-admin"
-data-shell-active="admin"
-data-active-nav="admin"
+data-shell-active="sentinel-admin"
+data-active-nav="sentinel-admin"
+data-shell-title="Sentinel Operations"
+data-shell-subtitle="Watcher Control Terminal"
 >
 <div id="layoutShellHeader"></div>
 
-<main class="admin-page">
-<section class="admin-hero">
-<div class="admin-hero-copy">
-<div class="admin-eyebrow">Sentinel Watcher Control</div>
-<h1>Sentinel settings and execution control.</h1>
+<main class="admin-page admin-page--sentinel">
+<section class="sentinel-ops-hero">
+<div class="sentinel-ops-hero__copy">
+<div class="admin-eyebrow">Sentinel Watcher Operations</div>
+<h1>Execution control, risk gates, and live paper telemetry.</h1>
 <p>
-Internal surface for Sentinel Watcher mode control, risk thresholds, summary windows, engine health, positions, and audit trails.
+Dedicated internal control surface for Sentinel Watcher. Keep paper mode as the default, tune thresholds deliberately, monitor scout/add behaviour, and review audit trails before any devnet or mainnet activation.
 </p>
+
+<div class="sentinel-ops-hero__actions">
+<a class="admin-button secondary admin-button-secondary" href="./admin.html">
+Admin Home
+</a>
+<a class="admin-button secondary admin-button-secondary" href="./compliance-admin.html">
+Compliance Cases
+</a>
+<a class="admin-button secondary admin-button-secondary" href="./sentinel-access-admin.html">
+Access Codes
+</a>
+<button id="refreshSentinelButton" class="admin-button primary admin-button-primary" type="button">
+Refresh Sentinel
+</button>
+</div>
 </div>
 
-<div class="admin-hero-panel">
-<div class="admin-status-row">
+<aside class="sentinel-ops-status">
+<div class="sentinel-ops-status__top">
 <span class="admin-chip neutral">
 <span>API</span>
 <strong id="apiStatusChip">Idle</strong>
@@ -43,86 +60,128 @@ Internal surface for Sentinel Watcher mode control, risk thresholds, summary win
 </span>
 </div>
 
-<div class="admin-mini-grid">
+<div class="sentinel-mode-orb" aria-hidden="true">
+<div class="sentinel-mode-orb__ring"></div>
+<div class="sentinel-mode-orb__core"></div>
+</div>
+
+<div class="admin-mini-grid sentinel-ops-mini-grid">
 <div class="admin-mini-card">
 <div class="admin-mini-label">Current Mode</div>
 <div class="admin-mini-value" id="heroSentinelModeValue">Paper</div>
 </div>
+
 <div class="admin-mini-card">
 <div class="admin-mini-label">Open Positions</div>
 <div class="admin-mini-value" id="sentinelOpenPositionsHeroValue">0</div>
 </div>
+
 <div class="admin-mini-card">
 <div class="admin-mini-label">Watcher Enabled</div>
 <div class="admin-mini-value" id="sentinelWatcherEnabledValue">—</div>
 </div>
+
 <div class="admin-mini-card">
 <div class="admin-mini-label">Kill Switch</div>
 <div class="admin-mini-value" id="sentinelKillSwitchValue">—</div>
 </div>
 </div>
-
-<div class="admin-action-row">
-<a class="admin-button secondary" href="./admin.html">Admin Home</a>
-<a class="admin-button secondary" href="./compliance-admin.html">Compliance Cases</a>
-<button id="refreshSentinelButton" class="admin-button primary" type="button">
-Refresh Sentinel
-</button>
-</div>
-</div>
+</aside>
 </section>
 
-<section class="admin-main-grid">
-<section class="admin-stack">
+<section class="admin-command-strip sentinel-command-strip" aria-label="Sentinel operations sections">
+<a class="admin-command-link" href="#sentinel-runtime">
+<span>01</span>
+<strong>Runtime</strong>
+</a>
+<a class="admin-command-link" href="#sentinel-summary">
+<span>02</span>
+<strong>Summary</strong>
+</a>
+<a class="admin-command-link" href="#sentinel-settings">
+<span>03</span>
+<strong>Settings</strong>
+</a>
+<a class="admin-command-link" href="#sentinel-advanced">
+<span>04</span>
+<strong>Risk Gates</strong>
+</a>
+<a class="admin-command-link" href="#sentinel-positions">
+<span>05</span>
+<strong>Positions</strong>
+</a>
+<a class="admin-command-link" href="#sentinel-audit">
+<span>06</span>
+<strong>Audit</strong>
+</a>
+</section>
+
 <div id="sentinelBanner" class="admin-banner"></div>
 
-<section class="admin-card">
-<div class="admin-card-header">
+<section class="sentinel-ops-grid">
+<section class="sentinel-ops-main">
+<section id="sentinel-runtime" class="admin-card sentinel-control-card">
+<div class="admin-card-header sentinel-card-header">
 <div>
-<div class="admin-kicker">Execution Mode</div>
-<h2>Runtime control center</h2>
+<div class="admin-kicker">Runtime Control</div>
+<h2>Execution mode and emergency posture</h2>
 <p>
-Paper mode remains the safe default until evaluator quality, audit accuracy, and guardrails are proven.
+Mode changes are deliberate actions. Paper is the safe operating default until Sentinel has proven entry quality, risk discipline, audit accuracy, and stable mark-to-market behaviour.
 </p>
 </div>
 
-<button id="saveSentinelSettingsButton" class="admin-button primary" type="button">
+<button id="saveSentinelSettingsButton" class="admin-button primary admin-button-primary sentinel-save-button" type="button">
 Save Settings
 </button>
 </div>
 
-<div class="admin-metric-grid four">
+<div class="admin-metric-grid four sentinel-runtime-metrics">
 <div class="admin-metric">
 <div class="admin-metric-label">Current Mode</div>
 <div class="admin-metric-value" id="sentinelCurrentModeValue">Paper</div>
 </div>
+
 <div class="admin-metric">
 <div class="admin-metric-label">Engine Started</div>
 <div class="admin-metric-value" id="sentinelEngineStartedValue">—</div>
 </div>
+
 <div class="admin-metric">
 <div class="admin-metric-label">Engine Running</div>
 <div class="admin-metric-value" id="sentinelEngineRunningValue">—</div>
 </div>
+
 <div class="admin-metric">
 <div class="admin-metric-label">Tick Count</div>
 <div class="admin-metric-value" id="sentinelTickCountValue">—</div>
 </div>
 </div>
 
-<div class="admin-action-row">
-<button id="sentinelModePaperButton" class="admin-button secondary" type="button">
+<div class="sentinel-mode-panel">
+<div class="sentinel-mode-panel__copy">
+<div class="admin-kicker">Mode Switch</div>
+<p>
+Use Paper for full-time validation. Armed and Live should remain locked behind gate-key controls and final deployment checks.
+</p>
+</div>
+
+<div class="admin-action-row sentinel-mode-actions">
+<button id="sentinelModePaperButton" class="admin-button secondary admin-button-secondary" type="button">
 Paper
 </button>
-<button id="sentinelModeArmedButton" class="admin-button secondary" type="button">
+
+<button id="sentinelModeArmedButton" class="admin-button secondary admin-button-secondary" type="button">
 Armed Mainnet
 </button>
-<button id="sentinelModeLiveButton" class="admin-button secondary" type="button">
+
+<button id="sentinelModeLiveButton" class="admin-button secondary admin-button-secondary" type="button">
 Live Mainnet
 </button>
-<button id="sentinelEmergencyStopButton" class="admin-button danger" type="button">
+
+<button id="sentinelEmergencyStopButton" class="admin-button danger admin-button-danger" type="button">
 Emergency Stop
 </button>
+</div>
 </div>
 
 <div class="admin-form-grid one">
@@ -132,29 +191,29 @@ Emergency Stop
 id="sentinelModeReasonInput"
 class="admin-input"
 type="text"
-placeholder="Reason for arming, live activation, paper reset, or emergency stop"
+placeholder="Reason for paper reset, arming, live activation, or emergency stop"
 autocomplete="off"
 />
 </div>
 </div>
 </section>
 
-<section class="admin-card">
+<section id="sentinel-summary" class="admin-card">
 <div class="admin-card-header">
 <div>
-<div class="admin-kicker">Sentinel Summary</div>
-<h2>Performance window</h2>
+<div class="admin-kicker">Performance Window</div>
+<h2>Sentinel summary and PnL window</h2>
 <p>
-Filter Sentinel PnL by daily, weekly, monthly, or overall view.
+Track daily, weekly, monthly, or all-time Sentinel performance while validating paper behaviour.
 </p>
 </div>
 
-<button id="refreshSentinelSummaryButton" class="admin-button secondary" type="button">
+<button id="refreshSentinelSummaryButton" class="admin-button secondary admin-button-secondary" type="button">
 Refresh Summary
 </button>
 </div>
 
-<div id="sentinelSummaryPeriodShell" class="admin-period-shell">
+<div id="sentinelSummaryPeriodShell" class="admin-period-shell sentinel-period-shell">
 <div class="admin-period-copy">
 <div class="admin-period-title">Sentinel Summary Window</div>
 <div id="sentinelSummaryPeriodLabel" class="admin-period-active">Daily PnL</div>
@@ -184,36 +243,42 @@ Refresh Summary
 <div class="admin-metric-label">Open Positions</div>
 <div class="admin-metric-value" id="sentinelSummaryOpenPositions">0</div>
 </div>
+
 <div class="admin-metric">
 <div class="admin-metric-label">Period Realized PnL</div>
 <div class="admin-metric-value" id="sentinelSummaryDailyRealizedPnl">$0.00</div>
 </div>
+
 <div class="admin-metric">
 <div class="admin-metric-label">Period Unrealized PnL</div>
 <div class="admin-metric-value" id="sentinelSummaryDailyUnrealizedPnl">$0.00</div>
 </div>
+
 <div class="admin-metric">
 <div class="admin-metric-label">Period Loss</div>
 <div class="admin-metric-value" id="sentinelSummaryDailyLoss">$0.00</div>
 </div>
 </div>
 
-<div id="sentinelEnhancedSummaryCards" class="admin-metric-grid four">
+<div id="sentinelEnhancedSummaryCards" class="admin-metric-grid four sentinel-pnl-grid">
 <div class="admin-metric premium">
 <div class="admin-metric-label">Open Capital at Risk</div>
 <div class="admin-metric-value" id="sentinelSummaryOpenCapital">$0.00</div>
 <div class="admin-metric-sub">Remaining cost basis across loaded open positions.</div>
 </div>
+
 <div class="admin-metric premium">
 <div class="admin-metric-label">Current Open Value</div>
 <div class="admin-metric-value" id="sentinelSummaryOpenValue">$0.00</div>
 <div class="admin-metric-sub">Current paper value across open positions.</div>
 </div>
+
 <div class="admin-metric premium">
 <div class="admin-metric-label">Period Capital Deployed</div>
 <div class="admin-metric-value" id="sentinelSummaryTotalCapital">$0.00</div>
 <div class="admin-metric-sub">Capital committed during selected window.</div>
 </div>
+
 <div class="admin-metric premium">
 <div class="admin-metric-label">Selected Window PnL</div>
 <div class="admin-metric-value" id="sentinelSummaryPortfolioPnl">$0.00</div>
@@ -222,15 +287,19 @@ Refresh Summary
 </div>
 </section>
 
-<section class="admin-card">
+<section id="sentinel-settings" class="admin-card">
 <div class="admin-card-header">
 <div>
-<div class="admin-kicker">Core Settings</div>
-<h2>Risk and allocation controls</h2>
+<div class="admin-kicker">Core Sentinel Settings</div>
+<h2>Allocation, scout, sniper, and quality controls</h2>
 <p>
-Primary Sentinel config wired into the admin settings patch route.
+Primary controls for paper allocation sizing, scout entries, sniper adds, open position limits, and entry-quality thresholds.
 </p>
 </div>
+
+<button class="admin-button primary admin-button-primary sentinel-save-button" type="button" onclick="document.getElementById('saveSentinelSettingsButton')?.click()">
+Save Settings
+</button>
 </div>
 
 <div class="admin-form-grid three">
@@ -325,7 +394,7 @@ Primary Sentinel config wired into the admin settings patch route.
 </div>
 </div>
 
-<div class="admin-form-grid three admin-form-gap-top">
+<div class="sentinel-toggle-panel">
 <div class="admin-field">
 <label for="sentinelWatcherEnabledInput">Watcher Enabled</label>
 <select id="sentinelWatcherEnabledInput" class="admin-select">
@@ -376,15 +445,19 @@ Primary Sentinel config wired into the admin settings patch route.
 </div>
 </section>
 
-<section class="admin-card">
+<section id="sentinel-advanced" class="admin-card">
 <div class="admin-card-header">
 <div>
-<div class="admin-kicker">Advanced Thresholds</div>
-<h2>Hard reject and quality gates</h2>
+<div class="admin-kicker">Advanced Risk Gates</div>
+<h2>Hard rejects, operator limits, liquidity, and holder control</h2>
 <p>
-Operator, liquidity, holder concentration, contamination, spread, and post-entry thresholds.
+These controls decide whether Sentinel has permission to scout, add, hold, or invalidate. Keep thresholds strict enough to avoid traps, but not so strict that paper mode never learns.
 </p>
 </div>
+
+<button class="admin-button primary admin-button-primary sentinel-save-button" type="button" onclick="document.getElementById('saveSentinelSettingsButton')?.click()">
+Save Settings
+</button>
 </div>
 
 <div class="admin-form-grid three">
@@ -474,7 +547,7 @@ Operator, liquidity, holder concentration, contamination, spread, and post-entry
 </div>
 </div>
 
-<div class="admin-form-grid three admin-form-gap-top">
+<div class="sentinel-toggle-panel">
 <div class="admin-field">
 <label for="sentinelEnableMarketRegimeFilterInput">Enable Market Regime Filter</label>
 <select id="sentinelEnableMarketRegimeFilterInput" class="admin-select">
@@ -502,14 +575,14 @@ Operator, liquidity, holder concentration, contamination, spread, and post-entry
 </section>
 </section>
 
-<aside class="admin-stack">
-<section class="admin-card">
+<aside class="sentinel-ops-side">
+<section class="admin-card sentinel-health-card">
 <div class="admin-card-header">
 <div>
 <div class="admin-kicker">Engine Health</div>
 <h2>Runtime telemetry</h2>
 <p>
-Current Sentinel engine state returned by the backend runtime wiring.
+Use this to confirm full-time paper mode is actually ticking, ingesting snapshots, and updating state.
 </p>
 </div>
 </div>
@@ -519,18 +592,22 @@ Current Sentinel engine state returned by the backend runtime wiring.
 <div class="admin-detail-label">Snapshot Provider</div>
 <div class="admin-detail-value" id="sentinelSnapshotProviderValue">—</div>
 </div>
+
 <div class="admin-detail">
 <div class="admin-detail-label">Last Tick Started</div>
 <div class="admin-detail-value" id="sentinelLastTickStartedValue">—</div>
 </div>
+
 <div class="admin-detail">
 <div class="admin-detail-label">Last Tick Finished</div>
 <div class="admin-detail-value" id="sentinelLastTickFinishedValue">—</div>
 </div>
+
 <div class="admin-detail">
 <div class="admin-detail-label">Last Error</div>
 <div class="admin-detail-value" id="sentinelLastErrorValue">—</div>
 </div>
+
 <div class="admin-detail wide">
 <div class="admin-detail-label">Last Tick Summary</div>
 <div class="admin-detail-value" id="sentinelLastTickSummaryValue">—</div>
@@ -541,14 +618,14 @@ Current Sentinel engine state returned by the backend runtime wiring.
 <section class="admin-card">
 <div class="admin-card-header">
 <div>
-<div class="admin-kicker">Stats Detail</div>
-<h2>Daily operations</h2>
+<div class="admin-kicker">Operational Counters</div>
+<h2>Daily stats</h2>
 <p>
-Operational counters for selected mode and date.
+Review scout entries, sniper adds, invalidations, and failure pressure for the selected mode and date.
 </p>
 </div>
 
-<button id="refreshSentinelStatsButton" class="admin-button secondary" type="button">
+<button id="refreshSentinelStatsButton" class="admin-button secondary admin-button-secondary" type="button">
 Refresh Stats
 </button>
 </div>
@@ -575,30 +652,37 @@ Refresh Stats
 <div class="admin-metric-label">Scouts Opened</div>
 <div class="admin-metric-value" id="sentinelStatsScoutsOpened">0</div>
 </div>
+
 <div class="admin-metric">
 <div class="admin-metric-label">Sniper Adds</div>
 <div class="admin-metric-value" id="sentinelStatsSniperAdds">0</div>
 </div>
+
 <div class="admin-metric">
 <div class="admin-metric-label">Positions Closed</div>
 <div class="admin-metric-value" id="sentinelStatsPositionsClosed">0</div>
 </div>
+
 <div class="admin-metric">
 <div class="admin-metric-label">Invalidations</div>
 <div class="admin-metric-value" id="sentinelStatsInvalidations">0</div>
 </div>
+
 <div class="admin-metric">
 <div class="admin-metric-label">Consecutive Failures</div>
 <div class="admin-metric-value" id="sentinelStatsConsecutiveFailures">0</div>
 </div>
+
 <div class="admin-metric">
 <div class="admin-metric-label">Reclaim Success Rate</div>
 <div class="admin-metric-value" id="sentinelStatsReclaimSuccessRate">0%</div>
 </div>
+
 <div class="admin-metric">
 <div class="admin-metric-label">Recent Rug Rate</div>
 <div class="admin-metric-value" id="sentinelStatsRecentRugRate">0%</div>
 </div>
+
 <div class="admin-metric">
 <div class="admin-metric-label">Avg Market Liquidity</div>
 <div class="admin-metric-value" id="sentinelStatsAvgMarketLiquidity">$0</div>
@@ -606,13 +690,13 @@ Refresh Stats
 </div>
 </section>
 
-<section class="admin-card">
+<section class="admin-card sentinel-route-card">
 <div class="admin-card-header">
 <div>
-<div class="admin-kicker">Admin Navigation</div>
-<h2>Separated surfaces</h2>
+<div class="admin-kicker">Admin Routing</div>
+<h2>Separated admin surfaces</h2>
 <p>
-Sentinel access codes and compliance cases now live on separate admin pages.
+Sentinel settings, compliance cases, and tester access codes are now separate operational surfaces.
 </p>
 </div>
 </div>
@@ -622,10 +706,12 @@ Sentinel access codes and compliance cases now live on separate admin pages.
 <span>Admin Home</span>
 <strong>Overview and notifications</strong>
 </a>
+
 <a class="admin-link-card" href="./compliance-admin.html">
 <span>Compliance Cases</span>
 <strong>Manual review queue</strong>
 </a>
+
 <a class="admin-link-card" href="./sentinel-access-admin.html">
 <span>Sentinel Access Codes</span>
 <strong>Tester and entitlement control</strong>
@@ -635,17 +721,17 @@ Sentinel access codes and compliance cases now live on separate admin pages.
 </aside>
 </section>
 
-<section class="admin-card admin-wide-card">
+<section id="sentinel-positions" class="admin-card admin-wide-card sentinel-table-card">
 <div class="admin-card-header">
 <div>
-<div class="admin-kicker">Positions</div>
-<h2>Sentinel position intelligence</h2>
+<div class="admin-kicker">Position Intelligence</div>
+<h2>Sentinel positions</h2>
 <p>
 Open, runner, closed, and invalidated positions across paper and future live modes.
 </p>
 </div>
 
-<button id="refreshSentinelPositionsButton" class="admin-button secondary" type="button">
+<button id="refreshSentinelPositionsButton" class="admin-button secondary admin-button-secondary" type="button">
 Refresh Positions
 </button>
 </div>
@@ -740,7 +826,7 @@ Refresh Positions
 </div>
 </section>
 
-<section class="admin-card admin-wide-card">
+<section id="sentinel-audit" class="admin-card admin-wide-card sentinel-table-card">
 <div class="admin-card-header">
 <div>
 <div class="admin-kicker">Sentinel Audit</div>
@@ -750,7 +836,7 @@ Rejects, watchlists, entries, adds, banks, exits, settings, and kill-switch even
 </p>
 </div>
 
-<button id="refreshSentinelAuditButton" class="admin-button secondary" type="button">
+<button id="refreshSentinelAuditButton" class="admin-button secondary admin-button-secondary" type="button">
 Refresh Audit
 </button>
 </div>
@@ -854,7 +940,7 @@ Refresh Audit
 </div>
 </section>
 
-<section class="admin-card admin-wide-card">
+<section class="admin-card admin-wide-card sentinel-table-card">
 <div class="admin-card-header">
 <div>
 <div class="admin-kicker">Admin Audit</div>
@@ -864,7 +950,7 @@ Admin-control log for mode changes, settings changes, and emergency-stop actions
 </p>
 </div>
 
-<button id="refreshSentinelAdminAuditButton" class="admin-button secondary" type="button">
+<button id="refreshSentinelAdminAuditButton" class="admin-button secondary admin-button-secondary" type="button">
 Refresh Admin Audit
 </button>
 </div>
@@ -906,7 +992,7 @@ Refresh Admin Audit
 
 <div id="layoutShellFooter"></div>
 
-<script type="module" src="/assets/layout-shell.js?v=20260518-admin-shell-v3"></script>
-<script type="module" src="/assets/pages/sentinel-admin.js?v=20260518-admin-split-v3"></script>
+<script type="module" src="/assets/layout-shell.js?v=20260519-admin-shell-v2"></script>
+<script type="module" src="/assets/pages/sentinel-admin.js?v=20260519-sentinel-admin-ops-v1"></script>
 </body>
 </html>
