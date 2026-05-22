@@ -2,6 +2,27 @@ const DEFAULT_CURRENCY = "USD"
 
 export const todayIso = new Date().toISOString().slice(0, 10)
 
+export const ADMIN_GATE_STORAGE_KEY = "mss_admin_gate_key"
+export const SENTINEL_ACCESS_ADMIN_KEY_STORAGE_KEY = "mss_sentinel_access_admin_key"
+
+const ADMIN_GATE_HEADER_NAME = "x-admin-key"
+const SENTINEL_ACCESS_ADMIN_HEADER_NAME = "x-sentinel-access-admin-key"
+
+const ADMIN_GATE_WINDOW_OVERRIDE_KEYS = [
+"__MSS_ADMIN_GATE_KEY__",
+"__MSS_ADMIN_KEY__",
+"__ADMIN_GATE_KEY__",
+]
+
+const SENTINEL_ACCESS_WINDOW_OVERRIDE_KEYS = [
+"__SENTINEL_ACCESS_ADMIN_KEY__",
+"__MSS_SENTINEL_ACCESS_ADMIN_KEY__",
+"__MSS_ADMIN_GATE_KEY__",
+"__MSS_ADMIN_KEY__",
+]
+
+const adminPromptInFlight = new Map()
+
 export function cleanText(value, max = 500) {
 return String(value ?? "").trim().slice(0, max)
 }
@@ -151,9 +172,7 @@ el.style.display = visible ? display : "none"
 }
 
 export function setDisabled(items = [], disabled = false) {
-const list = Array.isArray(items) ? items : []
-
-list.forEach((item) => {
+arrayify(items).forEach((item) => {
 if (item) item.disabled = Boolean(disabled)
 })
 }
@@ -193,11 +212,194 @@ return window.location.origin
 
 export const API_BASE = getApiBase()
 
-export async function apiFetch(path, options = {}) {
+function normalizeApiPath(path) {
+const raw = cleanText(path, 2000)
+if (!raw) return ""
+
+try {
+if (raw.startsWith("http://") || raw.startsWith("https://")) {
+return new URL(raw).pathname
+}
+} catch {}
+
+return raw.split("?")[0]
+}
+
+export function isComplianceAdminApiPath(path) {
+const normalized = normalizeApiPath(path)
+return normalized === "/api/compliance-admin" || normalized.startsWith("/api/compliance-admin/")
+}
+
+export function isSentinelAccessAdminApiPath(path) {
+const normalized = normalizeApiPath(path)
+return (
+normalized === "/api/sentinel-access-admin" ||
+normalized.startsWith("/api/sentinel-access-admin/")
+)
+}
+
+export function isAdminProtectedApiPath(path) {
+return isComplianceAdminApiPath(path) || isSentinelAccessAdminApiPath(path)
+}
+
+function readWindowOverride(windowOverrideKey = "") {
+const keys = Array.isArray(windowOverrideKey)
+? windowOverrideKey
+: [windowOverrideKey].filter(Boolean)
+
+for (const key of keys) {
+const value = cleanText(window[key] || "", 2000)
+if (value) return value
+}
+
+return ""
+}
+
+export function getStoredAdminKey(storageKey, windowOverrideKey = "") {
+const override = readWindowOverride(windowOverrideKey)
+if (override) return override
+
+try {
+return cleanText(localStorage.getItem(storageKey), 2000)
+} catch {
+return ""
+}
+}
+
+export function storeAdminKey(storageKey, value) {
+try {
+const clean = cleanText(value, 2000)
+
+if (!clean) {
+localStorage.removeItem(storageKey)
+return
+}
+
+localStorage.setItem(storageKey, clean)
+} catch {}
+}
+
+export function getStoredAdminGateKey() {
+return getStoredAdminKey(ADMIN_GATE_STORAGE_KEY, ADMIN_GATE_WINDOW_OVERRIDE_KEYS)
+}
+
+export function getStoredSentinelAccessAdminKey() {
+return getStoredAdminKey(
+SENTINEL_ACCESS_ADMIN_KEY_STORAGE_KEY,
+SENTINEL_ACCESS_WINDOW_OVERRIDE_KEYS
+)
+}
+
+export function getStoredAdminKeyForPath(path) {
+if (isSentinelAccessAdminApiPath(path)) {
+return getStoredAdminGateKey() || getStoredSentinelAccessAdminKey()
+}
+
+if (isComplianceAdminApiPath(path)) {
+return getStoredAdminGateKey()
+}
+
+return ""
+}
+
+export function clearStoredAdminKeyForPath(path) {
+if (isSentinelAccessAdminApiPath(path)) {
+storeAdminKey(SENTINEL_ACCESS_ADMIN_KEY_STORAGE_KEY, "")
+storeAdminKey(ADMIN_GATE_STORAGE_KEY, "")
+return
+}
+
+if (isComplianceAdminApiPath(path)) {
+storeAdminKey(ADMIN_GATE_STORAGE_KEY, "")
+}
+}
+
+function getAdminAuthContextForPath(path) {
+if (isSentinelAccessAdminApiPath(path)) {
+return {
+storageKey: SENTINEL_ACCESS_ADMIN_KEY_STORAGE_KEY,
+windowOverrideKey: SENTINEL_ACCESS_WINDOW_OVERRIDE_KEYS,
+promptLabel: "Enter Sentinel Access admin key",
+missingKeyMessage: "Sentinel Access admin key is required.",
+kind: "sentinel-access-admin",
+}
+}
+
+if (isComplianceAdminApiPath(path)) {
+return {
+storageKey: ADMIN_GATE_STORAGE_KEY,
+windowOverrideKey: ADMIN_GATE_WINDOW_OVERRIDE_KEYS,
+promptLabel: "Enter MSS admin gate key",
+missingKeyMessage: "MSS admin gate key is required.",
+kind: "admin-gate",
+}
+}
+
+return null
+}
+
+export function getAdminHeadersForPath(path, { overrideKey = "" } = {}) {
+if (!isAdminProtectedApiPath(path)) return {}
+
+const key = cleanText(overrideKey, 2000) || getStoredAdminKeyForPath(path)
+if (!key) return {}
+
+const headers = {
+[ADMIN_GATE_HEADER_NAME]: key,
+}
+
+if (isSentinelAccessAdminApiPath(path)) {
+headers[SENTINEL_ACCESS_ADMIN_HEADER_NAME] = key
+}
+
+return headers
+}
+
+async function requestAdminKeyForPath(path) {
+const context = getAdminAuthContextForPath(path)
+
+if (!context) return ""
+
+const promptKey = `${context.kind}:${context.storageKey}`
+
+if (adminPromptInFlight.has(promptKey)) {
+return adminPromptInFlight.get(promptKey)
+}
+
+const task = Promise.resolve().then(() => {
+const entered = window.prompt(context.promptLabel)
+const clean = cleanText(entered, 2000)
+
+if (clean) {
+storeAdminKey(context.storageKey, clean)
+
+if (context.kind === "admin-gate") {
+storeAdminKey(ADMIN_GATE_STORAGE_KEY, clean)
+}
+
+return clean
+}
+
+return ""
+})
+
+adminPromptInFlight.set(promptKey, task)
+
+return task.finally(() => {
+adminPromptInFlight.delete(promptKey)
+})
+}
+
+async function apiFetchOnce(path, options = {}, { adminKeyOverride = "" } = {}) {
+const adminHeaders = getAdminHeadersForPath(path, {
+overrideKey: adminKeyOverride,
+})
+
 const response = await fetch(`${API_BASE}${path}`, {
 credentials: "include",
 headers: {
 "Content-Type": "application/json",
+...adminHeaders,
 ...(options.headers || {}),
 },
 ...options,
@@ -223,6 +425,37 @@ throw error
 }
 
 return payload
+}
+
+export async function apiFetch(path, options = {}) {
+const {
+retryAdminAuth = true,
+...fetchOptions
+} = options || {}
+
+try {
+return await apiFetchOnce(path, fetchOptions)
+} catch (error) {
+if (!retryAdminAuth || error?.status !== 401 || !isAdminProtectedApiPath(path)) {
+throw error
+}
+
+clearStoredAdminKeyForPath(path)
+
+const retryKey = await requestAdminKeyForPath(path)
+const context = getAdminAuthContextForPath(path)
+
+if (!retryKey) {
+const missingError = new Error(context?.missingKeyMessage || "Admin key is required.")
+missingError.status = 401
+missingError.payload = error?.payload || null
+throw missingError
+}
+
+return apiFetchOnce(path, fetchOptions, {
+adminKeyOverride: retryKey,
+})
+}
 }
 
 export async function apiFetchFirst(paths, options = {}, { allowStatuses = [] } = {}) {
@@ -468,30 +701,6 @@ return count
 }
 }
 
-export function getStoredAdminKey(storageKey, windowOverrideKey = "") {
-const override = windowOverrideKey ? cleanText(window[windowOverrideKey] || "", 2000) : ""
-if (override) return override
-
-try {
-return cleanText(localStorage.getItem(storageKey), 2000)
-} catch {
-return ""
-}
-}
-
-export function storeAdminKey(storageKey, value) {
-try {
-const clean = cleanText(value, 2000)
-
-if (!clean) {
-localStorage.removeItem(storageKey)
-return
-}
-
-localStorage.setItem(storageKey, clean)
-} catch {}
-}
-
 export function createAdminKeyPrompt({
 storageKey,
 promptLabel = "Enter admin key",
@@ -524,7 +733,7 @@ export function createAdminKeyApiFetch({
 basePath,
 storageKey,
 windowOverrideKey = "",
-headerName = "x-admin-key",
+headerName = ADMIN_GATE_HEADER_NAME,
 promptLabel = "Enter admin key",
 missingKeyMessage = "Admin key is required.",
 } = {}) {
@@ -547,12 +756,17 @@ const headers = {
 
 if (storedKey) {
 headers[headerName] = storedKey
+
+if (basePath === "/api/sentinel-access-admin") {
+headers[SENTINEL_ACCESS_ADMIN_HEADER_NAME] = storedKey
+}
 }
 
 try {
 return await apiFetch(`${basePath}${path}`, {
 ...options,
 headers,
+retryAdminAuth: false,
 })
 } catch (error) {
 if (retryOnUnauthorized && error?.status === 401) {
@@ -569,7 +783,11 @@ return apiFetch(`${basePath}${path}`, {
 headers: {
 ...(options.headers || {}),
 [headerName]: retryKey,
+...(basePath === "/api/sentinel-access-admin"
+? { [SENTINEL_ACCESS_ADMIN_HEADER_NAME]: retryKey }
+: {}),
 },
+retryAdminAuth: false,
 })
 }
 

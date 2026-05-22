@@ -1,5 +1,4 @@
 import {
-apiFetch,
 arrayify,
 cleanText,
 createAdminKeyApiFetch,
@@ -7,11 +6,11 @@ formatDateTime,
 formatNumber,
 formatSignedCurrency,
 safeNumber,
+setBanner,
 setText,
 titleCase,
+todayIso,
 } from "./admin-core.js"
-
-const todayIso = new Date().toISOString().slice(0, 10)
 
 const state = {
 loadingCount: 0,
@@ -50,24 +49,26 @@ adminApiStatusValue: document.getElementById("adminApiStatusValue"),
 adminUpdatedAtValue: document.getElementById("adminUpdatedAtValue"),
 }
 
+const apiFetchComplianceAdmin = createAdminKeyApiFetch({
+basePath: "/api/compliance-admin",
+storageKey: "mss_admin_key",
+windowOverrideKey: "__MSS_ADMIN_KEY__",
+headerName: "x-admin-key",
+promptLabel: "Enter MSS admin key",
+missingKeyMessage: "MSS admin key is required.",
+})
+
 const apiFetchSentinelAccessAdmin = createAdminKeyApiFetch({
 basePath: "/api/sentinel-access-admin",
 storageKey: "mss_sentinel_access_admin_key",
 windowOverrideKey: "__SENTINEL_ACCESS_ADMIN_KEY__",
 headerName: "x-admin-key",
 promptLabel: "Enter Sentinel Access admin key",
+missingKeyMessage: "Sentinel Access admin key is required.",
 })
 
 function setAdminBanner(message = "", variant = "good") {
-if (!els.adminBanner) return
-
-els.adminBanner.textContent = message || ""
-els.adminBanner.className = "admin-banner banner"
-
-if (message) {
-els.adminBanner.classList.add("show")
-els.adminBanner.classList.add(variant)
-}
+setBanner(els.adminBanner, message, variant)
 }
 
 function setChip(el, label, variant = "warn") {
@@ -133,15 +134,21 @@ function getCaseStatus(item) {
 return cleanText(item?.status, 32).toLowerCase()
 }
 
+function normalizeMode(mode) {
+return cleanText(mode, 64).toLowerCase() || "paper"
+}
+
 function getSentinelMode(payload = state.sentinel || {}) {
 const settings = payload.settings || {}
 const summary = payload.summary || {}
 const engine = payload.engine || {}
 
-return (
-cleanText(settings.execution_mode, 64) ||
-cleanText(summary.execution_mode || summary.executionMode, 64) ||
-cleanText(engine.current_mode || engine.currentMode, 64) ||
+return normalizeMode(
+settings.execution_mode ||
+summary.execution_mode ||
+summary.executionMode ||
+engine.current_mode ||
+engine.currentMode ||
 "paper"
 )
 }
@@ -198,7 +205,7 @@ mode === "emergency_stop"
 }
 
 async function loadComplianceSnapshot() {
-const payload = await apiFetch("/api/compliance-admin/cases")
+const payload = await apiFetchComplianceAdmin("/cases")
 state.cases = arrayify(payload?.cases)
 return state.cases
 }
@@ -211,15 +218,15 @@ params.set("date", todayIso)
 params.set("mode", "paper")
 
 try {
-const payload = await apiFetch(`/api/compliance-admin/sentinel/status?${params.toString()}`)
+const payload = await apiFetchComplianceAdmin(`/sentinel/status?${params.toString()}`)
 state.sentinel = payload || null
 return state.sentinel
 } catch (error) {
 if (error?.status !== 404) throw error
 
 const [settingsPayload, summaryPayload] = await Promise.all([
-apiFetch("/api/compliance-admin/sentinel/settings"),
-apiFetch(`/api/compliance-admin/sentinel/summary?${params.toString()}`),
+apiFetchComplianceAdmin("/sentinel/settings"),
+apiFetchComplianceAdmin(`/sentinel/summary?${params.toString()}`),
 ])
 
 state.sentinel = {
@@ -325,19 +332,15 @@ setChip(els.sentinelHealthChip, "Paper", "good")
 function renderAccessSnapshot() {
 const summary = state.accessSummary || {}
 
-const fallbackActiveCodes = safeNumber(summary.active_codes ?? summary.activeCodes, 0)
-const fallbackTotalCodes = safeNumber(summary.total_codes ?? summary.totalCodes, 0)
-const fallbackRedemptions = safeNumber(
+const totalCodes = safeNumber(summary.total_codes ?? summary.totalCodes, 0)
+const activeCodes = safeNumber(summary.active_codes ?? summary.activeCodes, 0)
+const redemptions = safeNumber(
 summary.total_redemptions ??
 summary.totalRedemptions ??
 summary.redeemed_codes ??
 summary.redeemedCodes,
 0
 )
-
-const totalCodes = fallbackTotalCodes
-const activeCodes = fallbackActiveCodes
-const redemptions = fallbackRedemptions
 const liveEntitlements = state.accessEntitlements.filter(isLiveEntitlement).length
 
 setText(els.adminAccessTotalCodesValue, formatNumber(totalCodes))

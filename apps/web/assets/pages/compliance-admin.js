@@ -1,4 +1,21 @@
-const todayIso = new Date().toISOString().slice(0, 10)
+import {
+arrayify,
+cleanText,
+createAdminKeyApiFetch,
+createPill,
+formatDateTime,
+formatNumber,
+getRiskVariant,
+getStatusVariant,
+renderTableEmpty,
+safeNumber,
+setBanner,
+setText,
+setValue,
+shortenWallet,
+stringifyCompact,
+titleCase,
+} from "./admin-core.js"
 
 const state = {
 cases: [],
@@ -73,71 +90,14 @@ escalateCaseButton: document.getElementById("escalateCaseButton"),
 assignCaseButton: document.getElementById("assignCaseButton"),
 }
 
-function cleanText(value, max = 500) {
-return String(value ?? "").trim().slice(0, max)
-}
-
-function arrayify(value) {
-return Array.isArray(value) ? value : []
-}
-
-function safeNumber(value, fallback = 0) {
-const num = Number(value)
-return Number.isFinite(num) ? num : fallback
-}
-
-function shortenWallet(wallet) {
-const value = cleanText(wallet, 200)
-if (!value) return "—"
-if (value.length <= 14) return value
-return `${value.slice(0, 6)}…${value.slice(-6)}`
-}
-
-function titleCase(value) {
-return cleanText(value, 120)
-.replace(/_/g, " ")
-.replace(/-/g, " ")
-.split(" ")
-.filter(Boolean)
-.map((part) => part.charAt(0).toUpperCase() + part.slice(1))
-.join(" ")
-}
-
-function formatDateTime(value) {
-const date = new Date(value)
-if (!value || Number.isNaN(date.getTime())) return "—"
-return date.toLocaleString()
-}
-
-function formatNumber(value, fractionDigits = 0) {
-const num = Number(value)
-if (!Number.isFinite(num)) return "0"
-
-return new Intl.NumberFormat(undefined, {
-maximumFractionDigits: fractionDigits,
-minimumFractionDigits: fractionDigits,
-}).format(num)
-}
-
-function setText(el, value) {
-if (!el) return
-el.textContent = value == null || value === "" ? "—" : String(value)
-}
-
-function setValue(el, value) {
-if (!el) return
-el.value = value == null ? "" : String(value)
-}
-
-function stringifyCompact(value) {
-if (value == null) return "—"
-
-try {
-return JSON.stringify(value)
-} catch {
-return String(value)
-}
-}
+const apiFetchComplianceAdmin = createAdminKeyApiFetch({
+basePath: "/api/compliance-admin",
+storageKey: "mss_admin_key",
+windowOverrideKey: "__MSS_ADMIN_KEY__",
+headerName: "x-admin-key",
+promptLabel: "Enter MSS admin key",
+missingKeyMessage: "MSS admin key is required.",
+})
 
 function ensureComplianceAdminStyles() {
 if (document.getElementById("mssComplianceAdminJsStyles")) return
@@ -145,36 +105,6 @@ if (document.getElementById("mssComplianceAdminJsStyles")) return
 const style = document.createElement("style")
 style.id = "mssComplianceAdminJsStyles"
 style.textContent = `
-.admin-pill {
-display: inline-flex;
-align-items: center;
-gap: 8px;
-min-height: 30px;
-padding: 0 10px;
-border-radius: 999px;
-border: 1px solid rgba(115, 185, 255, 0.14);
-background: rgba(255, 255, 255, 0.04);
-font-size: 10px;
-font-weight: 900;
-letter-spacing: 0.1em;
-text-transform: uppercase;
-white-space: nowrap;
-}
-.admin-pill.good {
-color: #7bffb1;
-border-color: rgba(123, 255, 177, 0.24);
-}
-.admin-pill.warn {
-color: #ffcf66;
-border-color: rgba(255, 207, 102, 0.24);
-}
-.admin-pill.bad {
-color: #ff8787;
-border-color: rgba(255, 135, 135, 0.24);
-}
-.admin-pill.neutral {
-color: rgba(198, 211, 226, 0.72);
-}
 .admin-case-json {
 margin-top: 12px;
 padding: 12px;
@@ -192,87 +122,12 @@ max-height: 220px;
 document.head.appendChild(style)
 }
 
-function getApiBase() {
-const { protocol, hostname } = window.location
-const override = cleanText(window.__API_BASE__ || "", 1000)
-
-if (override) return override.replace(/\/$/, "")
-
-if (
-hostname === "127.0.0.1" ||
-hostname === "localhost" ||
-hostname === "[::1]"
-) {
-return `${protocol}//${hostname}:8787`
-}
-
-if (hostname.includes("-3000.app.github.dev")) {
-return `${protocol}//${hostname.replace("-3000.app.github.dev", "-8787.app.github.dev")}`
-}
-
-if (hostname.includes("-3001.app.github.dev")) {
-return `${protocol}//${hostname.replace("-3001.app.github.dev", "-8787.app.github.dev")}`
-}
-
-if (hostname.includes("-4173.app.github.dev")) {
-return `${protocol}//${hostname.replace("-4173.app.github.dev", "-8787.app.github.dev")}`
-}
-
-if (/:\d+$/.test(window.location.host)) {
-return `${protocol}//${hostname}:8787`
-}
-
-return `${window.location.origin}`
-}
-
-const API_BASE = getApiBase()
-
-async function apiFetch(path, options = {}) {
-const response = await fetch(`${API_BASE}${path}`, {
-credentials: "include",
-headers: {
-"Content-Type": "application/json",
-...(options.headers || {}),
-},
-...options,
-})
-
-let payload = null
-
-try {
-payload = await response.json()
-} catch {
-payload = null
-}
-
-if (!response.ok) {
-const error = new Error(
-payload?.error || payload?.message || `Request failed (${response.status})`
-)
-error.status = response.status
-error.payload = payload
-throw error
-}
-
-return payload
-}
-
 function setCaseBanner(message = "", variant = "warn") {
-if (!els.banner) return
-
-els.banner.textContent = message || ""
-els.banner.className = "admin-banner"
-
-if (message) {
-els.banner.classList.add("show")
-els.banner.classList.add(variant)
-}
+setBanner(els.banner, message, variant)
 }
 
 function clearCaseBanner() {
-if (!els.banner) return
-els.banner.className = "admin-banner"
-els.banner.textContent = ""
+setBanner(els.banner, "")
 }
 
 function isCasesLoading() {
@@ -280,8 +135,7 @@ return state.caseLoadingCount > 0
 }
 
 function refreshApiStatus() {
-if (!els.apiStatusChip) return
-els.apiStatusChip.textContent = isCasesLoading() ? "Loading" : "Ready"
+setText(els.apiStatusChip, isCasesLoading() ? "Loading" : "Ready")
 }
 
 function updateCaseControlDisabledState() {
@@ -310,53 +164,6 @@ function endCasesLoading() {
 state.caseLoadingCount = Math.max(0, state.caseLoadingCount - 1)
 refreshApiStatus()
 updateCaseControlDisabledState()
-}
-
-function getStatusVariant(status) {
-const normalized = cleanText(status, 32).toLowerCase()
-
-if (normalized === "approved") return "good"
-if (normalized === "rejected" || normalized === "restricted" || normalized === "frozen") {
-return "bad"
-}
-if (normalized === "escalated" || normalized === "pending_info") return "warn"
-
-return "neutral"
-}
-
-function getRiskVariant(riskLevel) {
-const normalized = cleanText(riskLevel, 32).toLowerCase()
-
-if (normalized === "low") return "good"
-if (normalized === "critical" || normalized === "high") return "bad"
-if (normalized === "medium") return "warn"
-
-return "neutral"
-}
-
-function createPill(text, variant = "neutral") {
-const span = document.createElement("span")
-span.className = `admin-pill ${variant}`
-span.textContent = cleanText(text, 120) || "—"
-return span
-}
-
-function renderTableEmpty(tbody, colspan, message) {
-if (!tbody) return
-
-tbody.innerHTML = ""
-
-const row = document.createElement("tr")
-const td = document.createElement("td")
-
-td.colSpan = colspan
-td.style.padding = "24px"
-td.style.color = "rgba(198, 211, 226, 0.66)"
-td.style.textAlign = "center"
-td.textContent = message
-
-row.appendChild(td)
-tbody.appendChild(row)
 }
 
 function getSelectedCase() {
@@ -448,9 +255,7 @@ highRiskLike ? `${formatNumber(highRiskLike)} high-risk case${highRiskLike === 1
 )
 setText(
 els.escalationNotificationValue,
-escalatedLike
-? `${formatNumber(escalatedLike)} escalated / frozen`
-: "No escalations"
+escalatedLike ? `${formatNumber(escalatedLike)} escalated / frozen` : "No escalations"
 )
 
 const filterParts = []
@@ -460,10 +265,7 @@ if (state.filters.caseType) filterParts.push(`type:${state.filters.caseType}`)
 if (state.filters.riskLevel) filterParts.push(`risk:${state.filters.riskLevel}`)
 if (state.filters.assignedTo) filterParts.push(`assigned:${state.filters.assignedTo}`)
 
-setText(
-els.heroFilterValue,
-filterParts.length ? filterParts.join(" • ") : "All cases"
-)
+setText(els.heroFilterValue, filterParts.length ? filterParts.join(" • ") : "All cases")
 
 const selected = getSelectedCase()
 
@@ -474,11 +276,7 @@ selected ? `#${selected.id} ${cleanText(selected.case_type, 40)}` : "None select
 
 setText(
 els.heroReviewStateValue,
-selected
-? cleanText(selected.status, 40) || "Selected"
-: state.cases.length
-? "Queue loaded"
-: "No cases loaded"
+selected ? cleanText(selected.status, 40) || "Selected" : state.cases.length ? "Queue loaded" : "No cases loaded"
 )
 }
 
@@ -489,11 +287,7 @@ if (!tbody) return
 tbody.innerHTML = ""
 
 if (!state.cases.length) {
-renderTableEmpty(
-tbody,
-7,
-"No compliance cases found for the current filter set."
-)
+renderTableEmpty(tbody, 7, "No compliance cases found for the current filter set.")
 return
 }
 
@@ -611,25 +405,13 @@ els.detailLaunchName,
 launchName ? `${launchName}${symbol ? ` (${symbol})` : ""}` : "—"
 )
 
-setText(
-els.detailLaunchStatus,
-cleanText(item.launch?.status || item.launch_status, 80) || "—"
-)
-setText(
-els.detailLaunchTemplate,
-cleanText(item.launch?.template || item.launch_template, 80) || "—"
-)
-setText(
-els.detailBuilderWallet,
-cleanText(item.launch?.builder_wallet || item.builder_wallet, 200) || "—"
-)
+setText(els.detailLaunchStatus, cleanText(item.launch?.status || item.launch_status, 80) || "—")
+setText(els.detailLaunchTemplate, cleanText(item.launch?.template || item.launch_template, 80) || "—")
+setText(els.detailBuilderWallet, cleanText(item.launch?.builder_wallet || item.builder_wallet, 200) || "—")
 
 setValue(els.assignedToInput, cleanText(item.assigned_to, 120))
 setValue(els.actionNotes, "")
-setValue(
-els.escalationRiskLevel,
-cleanText(item.risk_level, 32).toLowerCase() || "high"
-)
+setValue(els.escalationRiskLevel, cleanText(item.risk_level, 32).toLowerCase() || "high")
 }
 
 function buildCaseQueryString() {
@@ -648,16 +430,12 @@ beginCasesLoading()
 
 try {
 const queryString = buildCaseQueryString()
-const payload = await apiFetch(
-`/api/compliance-admin/cases${queryString ? `?${queryString}` : ""}`
-)
+const payload = await apiFetchComplianceAdmin(`/cases${queryString ? `?${queryString}` : ""}`)
 
 state.cases = arrayify(payload?.cases)
 
 if (state.selectedCaseId) {
-const stillExists = state.cases.some(
-(item) => Number(item.id) === Number(state.selectedCaseId)
-)
+const stillExists = state.cases.some((item) => Number(item.id) === Number(state.selectedCaseId))
 
 if (!stillExists) {
 state.selectedCaseId = null
@@ -694,7 +472,7 @@ if (!caseId) return
 if (manageLoading) beginCasesLoading()
 
 try {
-const payload = await apiFetch(`/api/compliance-admin/cases/${encodeURIComponent(caseId)}`)
+const payload = await apiFetchComplianceAdmin(`/cases/${encodeURIComponent(caseId)}`)
 const item = payload?.case || null
 
 if (!item) {
@@ -734,11 +512,14 @@ return cleanText(els.actionNotes?.value, 2000)
 }
 
 function getActorId() {
-return (
-cleanText(window.__MSS_ADMIN_ACTOR_ID__, 120) ||
-cleanText(localStorage.getItem("mss_admin_actor_id"), 120) ||
-"admin"
-)
+const override = cleanText(window.__MSS_ADMIN_ACTOR_ID__ || "", 120)
+if (override) return override
+
+try {
+return cleanText(localStorage.getItem("mss_admin_actor_id"), 120) || "admin"
+} catch {
+return "admin"
+}
 }
 
 async function postCaseAction(path, body = {}, successMessage = "Action completed.") {
@@ -752,13 +533,10 @@ const caseId = state.selectedCaseId
 beginCasesLoading()
 
 try {
-await apiFetch(
-`/api/compliance-admin/cases/${encodeURIComponent(caseId)}${path}`,
-{
+await apiFetchComplianceAdmin(`/cases/${encodeURIComponent(caseId)}${path}`, {
 method: "POST",
 body: JSON.stringify(body),
-}
-)
+})
 
 await loadCases()
 

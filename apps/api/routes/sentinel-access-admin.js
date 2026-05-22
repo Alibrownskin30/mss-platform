@@ -1,14 +1,17 @@
 import express from "express"
 import crypto from "node:crypto"
 import db from "../db/index.js"
-import { getSessionUserFromRequest } from "./auth.js"
 
 const router = express.Router()
 
 const CODE_TYPE_SET = new Set(["trial", "partner", "comp", "admin", "standard"])
-const ENTITLEMENT_STATUS_SET = new Set(["active", "expired", "revoked", "scheduled"])
+const ENTITLEMENT_STATUS_SET = new Set([
+"active",
+"expired",
+"revoked",
+"scheduled",
+])
 const REDEMPTION_STATUS_SET = new Set(["success", "failed", "revoked"])
-const ADMIN_ROLE_SET = new Set(["admin", "support"])
 
 const TABLE_INFO_SQL = {
 sentinel_access_codes: `PRAGMA table_info(sentinel_access_codes)`,
@@ -47,10 +50,6 @@ return fallback
 }
 }
 
-function nowIso() {
-return new Date().toISOString()
-}
-
 function normalizeCodeType(value, fallback = "trial") {
 const normalized = cleanText(value, 64).toLowerCase()
 return CODE_TYPE_SET.has(normalized) ? normalized : fallback
@@ -75,38 +74,49 @@ null
 )
 }
 
-function getExpectedAdminKey() {
-return (
-cleanText(process.env.SENTINEL_ACCESS_ADMIN_KEY, 1000) ||
-cleanText(process.env.MSS_ADMIN_API_KEY, 1000)
-)
-}
-
-function secureCompare(left, right) {
-const a = Buffer.from(String(left || ""))
-const b = Buffer.from(String(right || ""))
-if (a.length !== b.length) return false
-try {
-return crypto.timingSafeEqual(a, b)
-} catch {
-return false
-}
-}
-
 function buildCodeState(row = {}) {
-const isActive = Boolean(row?.is_active)
+const isActive = parseBool(row?.is_active, false)
 const redeemedCount = Number(row?.redeemed_count || 0)
 const maxRedemptions = Number(row?.max_redemptions || 0)
 const now = Date.now()
 
 const startsAtTs = row?.starts_at ? new Date(row.starts_at).getTime() : null
-const expiresAtTs = row?.expires_at ? new Date(row.expires_at).getTime() : null
+const expiresAtTs = row?.expires_at
+? new Date(row.expires_at).getTime()
+: null
 
 if (!isActive) return "inactive"
-if (startsAtTs && !Number.isNaN(startsAtTs) && startsAtTs > now) return "scheduled"
-if (expiresAtTs && !Number.isNaN(expiresAtTs) && expiresAtTs <= now) return "expired"
-if (maxRedemptions > 0 && redeemedCount >= maxRedemptions) return "exhausted"
+if (startsAtTs && !Number.isNaN(startsAtTs) && startsAtTs > now) {
+return "scheduled"
+}
+if (expiresAtTs && !Number.isNaN(expiresAtTs) && expiresAtTs <= now) {
+return "expired"
+}
+if (maxRedemptions > 0 && redeemedCount >= maxRedemptions) {
+return "exhausted"
+}
+
 return "active"
+}
+
+function isLiveEntitlement(row = {}) {
+const status = cleanText(row?.status, 64).toLowerCase()
+
+if (status !== "active") return false
+
+const now = Date.now()
+const startsAtTs = row?.starts_at ? new Date(row.starts_at).getTime() : null
+const endsAtTs = row?.ends_at ? new Date(row.ends_at).getTime() : null
+
+if (startsAtTs && !Number.isNaN(startsAtTs) && startsAtTs > now) {
+return false
+}
+
+if (endsAtTs && !Number.isNaN(endsAtTs) && endsAtTs <= now) {
+return false
+}
+
+return true
 }
 
 function serializeCode(row) {
@@ -125,15 +135,18 @@ remaining_redemptions: Math.max(
 0,
 Number(row.max_redemptions || 0) - Number(row.redeemed_count || 0)
 ),
-bound_user_id: row.bound_user_id == null ? null : Number(row.bound_user_id),
+bound_user_id:
+row.bound_user_id == null ? null : Number(row.bound_user_id),
 bound_user_email: cleanText(row.bound_user_email, 320) || null,
-is_active: Boolean(row.is_active),
+is_active: parseBool(row.is_active, false),
 starts_at: row.starts_at || null,
 expires_at: row.expires_at || null,
 notes: cleanText(row.notes, 2000) || null,
 metadata: parseJson(row.metadata_json, null),
 created_by_user_id:
-row.created_by_user_id == null ? null : Number(row.created_by_user_id),
+row.created_by_user_id == null
+? null
+: Number(row.created_by_user_id),
 created_at: row.created_at || null,
 updated_at: row.updated_at || null,
 state: buildCodeState(row),
@@ -143,7 +156,10 @@ state: buildCodeState(row),
 function serializeRedemption(row) {
 if (!row) return null
 
-const redemptionStatus = cleanText(row.redemption_status, 64).toLowerCase()
+const redemptionStatus = cleanText(
+row.redemption_status,
+64
+).toLowerCase()
 
 return {
 id: Number(row.id || 0),
@@ -151,8 +167,10 @@ code_id: Number(row.code_id || 0),
 code: cleanText(row.code, 128) || null,
 user_id: Number(row.user_id || 0),
 user_email: cleanText(row.user_email, 320) || null,
-entitlement_id: row.entitlement_id == null ? null : Number(row.entitlement_id),
-wallet_address_at_redeem: cleanText(row.wallet_address_at_redeem, 128) || null,
+entitlement_id:
+row.entitlement_id == null ? null : Number(row.entitlement_id),
+wallet_address_at_redeem:
+cleanText(row.wallet_address_at_redeem, 128) || null,
 redeemed_at: row.redeemed_at || null,
 redemption_status: REDEMPTION_STATUS_SET.has(redemptionStatus)
 ? redemptionStatus
@@ -166,18 +184,20 @@ function serializeEntitlement(row) {
 if (!row) return null
 
 const status = cleanText(row.status, 64).toLowerCase()
+
 return {
 id: Number(row.id || 0),
 user_id: Number(row.user_id || 0),
 user_email: cleanText(row.user_email, 320) || null,
 source_type: cleanText(row.source_type, 64) || null,
-source_code_id: row.source_code_id == null ? null : Number(row.source_code_id),
+source_code_id:
+row.source_code_id == null ? null : Number(row.source_code_id),
 plan_key: cleanText(row.plan_key, 120) || null,
 access_tier: cleanText(row.access_tier, 120) || null,
 status: ENTITLEMENT_STATUS_SET.has(status) ? status : "active",
 starts_at: row.starts_at || null,
 ends_at: row.ends_at || null,
-trial_flag: Boolean(row.trial_flag),
+trial_flag: parseBool(row.trial_flag, false),
 revoke_reason: cleanText(row.revoke_reason, 500) || null,
 created_at: row.created_at || null,
 updated_at: row.updated_at || null,
@@ -216,15 +236,18 @@ LIMIT 1
 `,
 [tableName]
 )
+
 return Boolean(row?.name)
 }
 
 async function getTableColumns(tableName) {
 const sql = TABLE_INFO_SQL[tableName]
+
 if (!sql) return new Set()
 
 try {
 const rows = await db.all(sql)
+
 return new Set((rows || []).map((row) => row?.name).filter(Boolean))
 } catch {
 return new Set()
@@ -233,13 +256,17 @@ return new Set()
 
 function randomCodeChunk(length = 4) {
 let out = ""
+
 while (out.length < length) {
-const buf = crypto.randomBytes(length)
-for (const byte of buf) {
+const buffer = crypto.randomBytes(length)
+
+for (const byte of buffer) {
 out += ACCESS_CODE_ALPHABET[byte % ACCESS_CODE_ALPHABET.length]
+
 if (out.length >= length) break
 }
 }
+
 return out
 }
 
@@ -253,15 +280,20 @@ LIMIT 1
 `,
 [normalizeAccessCodeInput(code)]
 )
+
 return Boolean(row?.id)
 }
 
 async function generateUniqueAccessCode(prefix = "MSS") {
 const cleanPrefix =
-cleanText(prefix, 24).replace(/[^A-Za-z0-9]/g, "").toUpperCase() || "MSS"
+cleanText(prefix, 24).replace(/[^A-Za-z0-9]/g, "").toUpperCase() ||
+"MSS"
 
 for (let attempt = 0; attempt < 20; attempt += 1) {
-const candidate = `${cleanPrefix}-${randomCodeChunk(4)}-${randomCodeChunk(4)}-${randomCodeChunk(4)}`
+const candidate = `${cleanPrefix}-${randomCodeChunk(4)}-${randomCodeChunk(
+4
+)}-${randomCodeChunk(4)}`
+
 if (!(await codeExists(candidate))) {
 return candidate
 }
@@ -272,6 +304,7 @@ throw new Error("Failed to generate a unique access code")
 
 async function resolveBoundUser({ boundUserId, boundEmail } = {}) {
 const id = parseIntSafe(boundUserId, null)
+
 if (id) {
 const row = await db.get(
 `
@@ -294,6 +327,7 @@ email: cleanText(row.email, 320).toLowerCase() || null,
 }
 
 const email = cleanText(boundEmail, 320).toLowerCase()
+
 if (email) {
 const row = await db.get(
 `
@@ -321,65 +355,37 @@ email: null,
 }
 }
 
-async function getSessionAdmin(req) {
-try {
-const auth = await getSessionUserFromRequest(req)
-const role = cleanText(auth?.user?.role, 64).toLowerCase()
-if (auth?.user?.id && ADMIN_ROLE_SET.has(role)) {
-return auth
-}
-} catch {}
-return null
-}
-
-function getAdminKeyFromRequest(req) {
-const headerKey =
-cleanText(req.headers["x-admin-key"], 1000) ||
-cleanText(req.headers["x-sentinel-admin-key"], 1000)
-
-if (headerKey) return headerKey
-
-const authHeader = cleanText(req.headers.authorization, 2000)
-if (authHeader.toLowerCase().startsWith("bearer ")) {
-return cleanText(authHeader.slice(7), 1000)
-}
-
-return ""
-}
-
-async function requireAdminAccess(req, res, next) {
-try {
-const sessionAdmin = await getSessionAdmin(req)
-if (sessionAdmin?.user?.id) {
-req.admin_user = sessionAdmin.user
-req.admin_auth = sessionAdmin
-return next()
-}
-
-const expectedKey = getExpectedAdminKey()
-const providedKey = getAdminKeyFromRequest(req)
-
-if (expectedKey && providedKey && secureCompare(providedKey, expectedKey)) {
-req.admin_user = null
-return next()
-}
-
-if (!expectedKey && String(process.env.NODE_ENV || "").toLowerCase() !== "production") {
-req.admin_user = null
+/*
+This router must remain mounted behind requireSentinelAccessAdminGate in
+server.js. The extra local guard below prevents accidental unprotected
+mounting from silently exposing tester-access controls.
+*/
+function requireMountedAdminGate(req, res, next) {
+if (req.adminGate?.ok) {
 return next()
 }
 
 return res.status(401).json({
 ok: false,
-error: "Unauthorized",
+error: "admin_session_required",
+message: "Authenticated Sentinel Access administration is required.",
+login_required: true,
+login_path: "/admin-login.html",
 })
-} catch (error) {
-console.error("Sentinel access admin auth failed", error)
-return res.status(500).json({
-ok: false,
-error: "Authorization failed",
-message: error?.message || String(error),
-})
+}
+
+function getActorId(req) {
+return cleanText(req.adminGate?.actor, 255) || "authenticated-admin"
+}
+
+function getAdminAuditContext(req) {
+return {
+auth_type: cleanText(req.adminGate?.authType, 64) || "unknown",
+scope: cleanText(req.adminGate?.scope, 64) || "sentinel_access",
+session_id: cleanText(req.adminGate?.sessionId, 120) || null,
+scopes: Array.isArray(req.adminGate?.scopes)
+? req.adminGate.scopes.map((scope) => cleanText(scope, 64)).filter(Boolean)
+: [],
 }
 }
 
@@ -418,10 +424,18 @@ OR UPPER(COALESCE(c.plan_key, '')) LIKE ?
 OR UPPER(COALESCE(c.plan_label, '')) LIKE ?
 OR UPPER(COALESCE(u.email, '')) LIKE ?
 )`)
-params.push(`%${search}%`, `%${search}%`, `%${search}%`, `%${search}%`)
+
+params.push(
+`%${search}%`,
+`%${search}%`,
+`%${search}%`,
+`%${search}%`
+)
 }
 
-const whereSql = sqlFilters.length ? `WHERE ${sqlFilters.join(" AND ")}` : ""
+const whereSql = sqlFilters.length
+? `WHERE ${sqlFilters.join(" AND ")}`
+: ""
 
 const rows = await db.all(
 `
@@ -441,7 +455,9 @@ LIMIT ?
 let items = (rows || []).map(serializeCode)
 
 if (stateFilter) {
-items = items.filter((item) => cleanText(item.state, 32).toLowerCase() === stateFilter)
+items = items.filter(
+(item) => cleanText(item.state, 32).toLowerCase() === stateFilter
+)
 }
 
 return items
@@ -465,7 +481,11 @@ LIMIT 1
 return serializeCode(row)
 }
 
-async function listRedemptions({ limit = 100, codeId = null, userId = null } = {}) {
+async function listRedemptions({
+limit = 100,
+codeId = null,
+userId = null,
+} = {}) {
 const filters = []
 const params = []
 
@@ -502,7 +522,12 @@ LIMIT ?
 return (rows || []).map(serializeRedemption)
 }
 
-async function listEntitlements({ limit = 100, codeId = null, userId = null, status = null } = {}) {
+async function listEntitlements({
+limit = 100,
+codeId = null,
+userId = null,
+status = null,
+} = {}) {
 const filters = []
 const params = []
 
@@ -517,6 +542,7 @@ params.push(userId)
 }
 
 const normalizedStatus = cleanText(status, 64).toLowerCase()
+
 if (normalizedStatus && ENTITLEMENT_STATUS_SET.has(normalizedStatus)) {
 filters.push(`e.status = ?`)
 params.push(normalizedStatus)
@@ -563,24 +589,28 @@ params.push(String(codeId))
 }
 
 const safeAction = cleanText(action, 120)
+
 if (safeAction) {
 filters.push(`action = ?`)
 params.push(safeAction)
 }
 
 const safeActorId = cleanText(actorId, 255)
+
 if (safeActorId) {
 filters.push(`actor_id = ?`)
 params.push(safeActorId)
 }
 
 const safeStatus = cleanText(status, 64)
+
 if (safeStatus) {
 filters.push(`status = ?`)
 params.push(safeStatus)
 }
 
 const safeTargetType = cleanText(targetType, 120)
+
 if (safeTargetType) {
 filters.push(`target_type = ?`)
 params.push(safeTargetType)
@@ -602,7 +632,7 @@ return (rows || []).map(serializeAudit)
 
 async function insertAdminAudit({
 action,
-actorId = "admin",
+actorId = "authenticated-admin",
 status = "ok",
 notes = null,
 targetType = null,
@@ -616,11 +646,12 @@ return
 }
 
 const columns = await getTableColumns("cassie_admin_audit_log")
+
 if (!columns.size) return
 
 const candidateValues = {
 actor_type: "admin",
-actor_id: cleanText(actorId, 255) || "admin",
+actor_id: cleanText(actorId, 255) || "authenticated-admin",
 action: cleanText(action, 120),
 status: cleanText(status, 64),
 target_type: cleanText(targetType, 120) || null,
@@ -639,6 +670,7 @@ const values = []
 
 for (const [column, value] of Object.entries(candidateValues)) {
 if (!columns.has(column)) continue
+
 insertColumns.push(column)
 placeholders.push("?")
 values.push(value)
@@ -663,16 +695,6 @@ values
 )
 }
 
-function getActorId(req) {
-return (
-cleanText(req.admin_user?.email, 255) ||
-cleanText(req.admin_user?.id, 255) ||
-cleanText(req.headers["x-admin-actor"], 255) ||
-cleanText(req.body?.actor_id, 255) ||
-"admin"
-)
-}
-
 function validateTimeWindow({ startsAt, expiresAt }) {
 if (!startsAt || !expiresAt) return
 
@@ -688,7 +710,7 @@ throw new Error("expires_at must be later than starts_at")
 }
 }
 
-router.use(requireAdminAccess)
+router.use(requireMountedAdminGate)
 
 router.get("/summary", async (req, res) => {
 try {
@@ -701,15 +723,26 @@ listEntitlements({ limit: 500 }),
 const summary = {
 total_codes: codes.length,
 active_codes: codes.filter((item) => item.state === "active").length,
-scheduled_codes: codes.filter((item) => item.state === "scheduled").length,
-exhausted_codes: codes.filter((item) => item.state === "exhausted").length,
+scheduled_codes: codes.filter((item) => item.state === "scheduled")
+.length,
+exhausted_codes: codes.filter((item) => item.state === "exhausted")
+.length,
 expired_codes: codes.filter((item) => item.state === "expired").length,
 inactive_codes: codes.filter((item) => item.state === "inactive").length,
 total_redemptions: redemptions.length,
-active_entitlements: entitlements.filter((item) => item.status === "active").length,
-revoked_entitlements: entitlements.filter((item) => item.status === "revoked").length,
-expired_entitlements: entitlements.filter((item) => item.status === "expired").length,
-scheduled_entitlements: entitlements.filter((item) => item.status === "scheduled").length,
+active_entitlements: entitlements.filter(
+(item) => item.status === "active"
+).length,
+live_entitlements: entitlements.filter(isLiveEntitlement).length,
+revoked_entitlements: entitlements.filter(
+(item) => item.status === "revoked"
+).length,
+expired_entitlements: entitlements.filter(
+(item) => item.status === "expired"
+).length,
+scheduled_entitlements: entitlements.filter(
+(item) => item.status === "scheduled"
+).length,
 }
 
 return res.json({
@@ -718,6 +751,7 @@ summary,
 })
 } catch (error) {
 console.error("GET /api/sentinel-access-admin/summary failed", error)
+
 return res.status(500).json({
 ok: false,
 error: "Failed to load Sentinel access summary",
@@ -728,7 +762,10 @@ message: error?.message || String(error),
 
 router.get("/codes", async (req, res) => {
 try {
-const limit = Math.max(1, Math.min(parseIntSafe(req.query.limit, 100) || 100, 500))
+const limit = Math.max(
+1,
+Math.min(parseIntSafe(req.query.limit, 100) || 100, 500)
+)
 
 const codes = await listCodes({
 limit,
@@ -748,6 +785,7 @@ codes,
 })
 } catch (error) {
 console.error("GET /api/sentinel-access-admin/codes failed", error)
+
 return res.status(500).json({
 ok: false,
 error: "Failed to load Sentinel access codes",
@@ -759,6 +797,7 @@ message: error?.message || String(error),
 router.get("/codes/:id", async (req, res) => {
 try {
 const id = parseIntSafe(req.params.id, null)
+
 if (!id) {
 return res.status(400).json({
 ok: false,
@@ -767,6 +806,7 @@ error: "Valid code id is required",
 }
 
 const code = await getCodeById(id)
+
 if (!code) {
 return res.status(404).json({
 ok: false,
@@ -789,6 +829,7 @@ audit,
 })
 } catch (error) {
 console.error("GET /api/sentinel-access-admin/codes/:id failed", error)
+
 return res.status(500).json({
 ok: false,
 error: "Failed to load Sentinel access code detail",
@@ -800,24 +841,39 @@ message: error?.message || String(error),
 router.post("/codes", async (req, res) => {
 try {
 const actorId = getActorId(req)
+const auditContext = getAdminAuditContext(req)
 const notes = cleanText(req.body?.notes, 2000) || null
 
-const quantity = Math.max(1, Math.min(parseIntSafe(req.body?.quantity, 1) || 1, 100))
+const quantity = Math.max(
+1,
+Math.min(parseIntSafe(req.body?.quantity, 1) || 1, 100)
+)
+
 const prefix = cleanText(req.body?.prefix, 24) || "MSS"
 const codeType = normalizeCodeType(req.body?.code_type, "trial")
-const planKey = cleanText(req.body?.plan_key, 120) || "sentinel_early_access"
-const planLabel = cleanText(req.body?.plan_label, 120) || "Sentinel Early Access"
-const durationDays = Math.max(0, parseIntSafe(req.body?.duration_days, 7) ?? 7)
-const maxRedemptions = Math.max(1, parseIntSafe(req.body?.max_redemptions, 1) ?? 1)
+const planKey =
+cleanText(req.body?.plan_key, 120) || "sentinel_early_access"
+const planLabel =
+cleanText(req.body?.plan_label, 120) || "Sentinel Early Access"
+const durationDays = Math.max(
+0,
+parseIntSafe(req.body?.duration_days, 7) ?? 7
+)
+const maxRedemptions = Math.max(
+1,
+parseIntSafe(req.body?.max_redemptions, 1) ?? 1
+)
 const isActive = parseBool(req.body?.is_active, true)
 const startsAt = cleanText(req.body?.starts_at, 64) || null
 const expiresAt = cleanText(req.body?.expires_at, 64) || null
+
 const metadata =
 req.body?.metadata_json != null
 ? parseJson(req.body.metadata_json, {})
 : req.body?.metadata != null
 ? req.body.metadata
 : {}
+
 const customCode = normalizeAccessCodeInput(req.body?.custom_code)
 
 validateTimeWindow({ startsAt, expiresAt })
@@ -842,6 +898,7 @@ error: "Access code already exists",
 }
 
 const columns = await getTableColumns("sentinel_access_codes")
+
 if (!columns.size) {
 throw new Error("Unable to inspect sentinel_access_codes schema")
 }
@@ -849,6 +906,7 @@ throw new Error("Unable to inspect sentinel_access_codes schema")
 const createdCodes = []
 
 await db.run("BEGIN IMMEDIATE")
+
 try {
 for (let index = 0; index < quantity; index += 1) {
 const code = customCode || (await generateUniqueAccessCode(prefix))
@@ -867,7 +925,10 @@ starts_at: startsAt,
 expires_at: expiresAt,
 notes,
 metadata_json: JSON.stringify(metadata ?? {}),
-created_by_user_id: parseIntSafe(req.body?.created_by_user_id, null),
+created_by_user_id: parseIntSafe(
+req.body?.created_by_user_id,
+null
+),
 }
 
 const insertColumns = []
@@ -876,6 +937,7 @@ const values = []
 
 for (const [column, value] of Object.entries(fieldMap)) {
 if (!columns.has(column)) continue
+
 insertColumns.push(column)
 placeholders.push("?")
 values.push(value)
@@ -904,6 +966,7 @@ values
 
 const insertedId = getInsertId(result)
 const inserted = await getCodeById(insertedId)
+
 if (inserted) {
 createdCodes.push(inserted)
 }
@@ -914,6 +977,7 @@ await db.run("COMMIT")
 try {
 await db.run("ROLLBACK")
 } catch {}
+
 throw error
 }
 
@@ -925,6 +989,7 @@ notes,
 targetType: "sentinel_access_code",
 targetId: createdCodes.length === 1 ? createdCodes[0]?.id : "batch",
 details: {
+...auditContext,
 quantity,
 code_type: codeType,
 plan_key: planKey,
@@ -942,6 +1007,7 @@ codes: createdCodes,
 })
 } catch (error) {
 console.error("POST /api/sentinel-access-admin/codes failed", error)
+
 return res.status(500).json({
 ok: false,
 error: "Failed to create Sentinel access code(s)",
@@ -953,6 +1019,7 @@ message: error?.message || String(error),
 router.patch("/codes/:id", async (req, res) => {
 try {
 const actorId = getActorId(req)
+const auditContext = getAdminAuditContext(req)
 const id = parseIntSafe(req.params.id, null)
 
 if (!id) {
@@ -963,6 +1030,7 @@ error: "Valid code id is required",
 }
 
 const before = await getCodeById(id)
+
 if (!before) {
 return res.status(404).json({
 ok: false,
@@ -976,6 +1044,7 @@ boundEmail: req.body?.bound_user_email || req.body?.bound_email,
 })
 
 const columns = await getTableColumns("sentinel_access_codes")
+
 if (!columns.size) {
 throw new Error("Unable to inspect sentinel_access_codes schema")
 }
@@ -984,7 +1053,10 @@ const patch = {}
 let auditNotes = cleanText(req.body?.notes, 2000) || before.notes || null
 
 if ("code_type" in (req.body || {})) {
-patch.code_type = normalizeCodeType(req.body?.code_type, before.code_type || "trial")
+patch.code_type = normalizeCodeType(
+req.body?.code_type,
+before.code_type || "trial"
+)
 }
 
 if ("plan_key" in (req.body || {})) {
@@ -997,34 +1069,41 @@ patch.plan_label = cleanText(req.body?.plan_label, 120) || null
 
 if ("duration_days" in (req.body || {})) {
 const value = parseIntSafe(req.body?.duration_days, null)
+
 if (value == null || value < 0) {
 return res.status(400).json({
 ok: false,
 error: "duration_days must be zero or greater",
 })
 }
+
 patch.duration_days = value
 }
 
 if ("max_redemptions" in (req.body || {})) {
 const value = parseIntSafe(req.body?.max_redemptions, null)
+
 if (value == null || value < 1) {
 return res.status(400).json({
 ok: false,
 error: "max_redemptions must be at least 1",
 })
 }
+
 if (value < Number(before.redeemed_count || 0)) {
 return res.status(400).json({
 ok: false,
 error: "max_redemptions cannot be lower than redeemed_count",
 })
 }
+
 patch.max_redemptions = value
 }
 
 if ("is_active" in (req.body || {})) {
-patch.is_active = parseBool(req.body?.is_active, before.is_active) ? 1 : 0
+patch.is_active = parseBool(req.body?.is_active, before.is_active)
+? 1
+: 0
 }
 
 if ("starts_at" in (req.body || {})) {
@@ -1040,11 +1119,15 @@ patch.notes = cleanText(req.body?.notes, 2000) || null
 auditNotes = patch.notes
 }
 
-if ("metadata" in (req.body || {}) || "metadata_json" in (req.body || {})) {
+if (
+"metadata" in (req.body || {}) ||
+"metadata_json" in (req.body || {})
+) {
 const metadata =
 req.body?.metadata_json != null
 ? parseJson(req.body.metadata_json, {})
 : parseJson(req.body.metadata, {})
+
 patch.metadata_json = JSON.stringify(metadata ?? {})
 }
 
@@ -1058,7 +1141,8 @@ patch.bound_user_id = boundUser.id
 
 validateTimeWindow({
 startsAt: "starts_at" in patch ? patch.starts_at : before.starts_at,
-expiresAt: "expires_at" in patch ? patch.expires_at : before.expires_at,
+expiresAt:
+"expires_at" in patch ? patch.expires_at : before.expires_at,
 })
 
 if (!Object.keys(patch).length) {
@@ -1073,6 +1157,7 @@ const values = []
 
 for (const [column, value] of Object.entries(patch)) {
 if (!columns.has(column)) continue
+
 assignments.push(`${column} = ?`)
 values.push(value)
 }
@@ -1106,6 +1191,7 @@ status: "ok",
 notes: auditNotes,
 targetType: "sentinel_access_code",
 targetId: id,
+details: auditContext,
 oldState: before,
 newState: after,
 })
@@ -1116,6 +1202,7 @@ code: after,
 })
 } catch (error) {
 console.error("PATCH /api/sentinel-access-admin/codes/:id failed", error)
+
 return res.status(500).json({
 ok: false,
 error: "Failed to update Sentinel access code",
@@ -1127,8 +1214,10 @@ message: error?.message || String(error),
 router.post("/codes/:id/bind-user", async (req, res) => {
 try {
 const actorId = getActorId(req)
+const auditContext = getAdminAuditContext(req)
 const id = parseIntSafe(req.params.id, null)
-const notes = cleanText(req.body?.notes, 2000) || "Access code bound to user"
+const notes =
+cleanText(req.body?.notes, 2000) || "Access code bound to user"
 
 if (!id) {
 return res.status(400).json({
@@ -1138,6 +1227,7 @@ error: "Valid code id is required",
 }
 
 const before = await getCodeById(id)
+
 if (!before) {
 return res.status(404).json({
 ok: false,
@@ -1180,6 +1270,7 @@ targetId: id,
 oldState: before,
 newState: after,
 details: {
+...auditContext,
 bound_user_id: boundUser.id,
 bound_user_email: boundUser.email,
 },
@@ -1190,7 +1281,11 @@ ok: true,
 code: after,
 })
 } catch (error) {
-console.error("POST /api/sentinel-access-admin/codes/:id/bind-user failed", error)
+console.error(
+"POST /api/sentinel-access-admin/codes/:id/bind-user failed",
+error
+)
+
 return res.status(500).json({
 ok: false,
 error: "Failed to bind Sentinel access code to user",
@@ -1202,8 +1297,10 @@ message: error?.message || String(error),
 router.post("/codes/:id/unbind-user", async (req, res) => {
 try {
 const actorId = getActorId(req)
+const auditContext = getAdminAuditContext(req)
 const id = parseIntSafe(req.params.id, null)
-const notes = cleanText(req.body?.notes, 2000) || "Access code unbound from user"
+const notes =
+cleanText(req.body?.notes, 2000) || "Access code unbound from user"
 
 if (!id) {
 return res.status(400).json({
@@ -1213,6 +1310,7 @@ error: "Valid code id is required",
 }
 
 const before = await getCodeById(id)
+
 if (!before) {
 return res.status(404).json({
 ok: false,
@@ -1240,6 +1338,7 @@ status: "ok",
 notes,
 targetType: "sentinel_access_code",
 targetId: id,
+details: auditContext,
 oldState: before,
 newState: after,
 })
@@ -1249,7 +1348,11 @@ ok: true,
 code: after,
 })
 } catch (error) {
-console.error("POST /api/sentinel-access-admin/codes/:id/unbind-user failed", error)
+console.error(
+"POST /api/sentinel-access-admin/codes/:id/unbind-user failed",
+error
+)
+
 return res.status(500).json({
 ok: false,
 error: "Failed to unbind Sentinel access code from user",
@@ -1261,6 +1364,7 @@ message: error?.message || String(error),
 router.post("/codes/:id/disable", async (req, res) => {
 try {
 const actorId = getActorId(req)
+const auditContext = getAdminAuditContext(req)
 const id = parseIntSafe(req.params.id, null)
 const notes = cleanText(req.body?.notes, 2000) || null
 
@@ -1272,6 +1376,7 @@ error: "Valid code id is required",
 }
 
 const before = await getCodeById(id)
+
 if (!before) {
 return res.status(404).json({
 ok: false,
@@ -1299,6 +1404,7 @@ status: "ok",
 notes,
 targetType: "sentinel_access_code",
 targetId: id,
+details: auditContext,
 oldState: before,
 newState: after,
 })
@@ -1308,7 +1414,11 @@ ok: true,
 code: after,
 })
 } catch (error) {
-console.error("POST /api/sentinel-access-admin/codes/:id/disable failed", error)
+console.error(
+"POST /api/sentinel-access-admin/codes/:id/disable failed",
+error
+)
+
 return res.status(500).json({
 ok: false,
 error: "Failed to disable Sentinel access code",
@@ -1320,6 +1430,7 @@ message: error?.message || String(error),
 router.post("/codes/:id/enable", async (req, res) => {
 try {
 const actorId = getActorId(req)
+const auditContext = getAdminAuditContext(req)
 const id = parseIntSafe(req.params.id, null)
 const notes = cleanText(req.body?.notes, 2000) || null
 
@@ -1331,6 +1442,7 @@ error: "Valid code id is required",
 }
 
 const before = await getCodeById(id)
+
 if (!before) {
 return res.status(404).json({
 ok: false,
@@ -1358,6 +1470,7 @@ status: "ok",
 notes,
 targetType: "sentinel_access_code",
 targetId: id,
+details: auditContext,
 oldState: before,
 newState: after,
 })
@@ -1367,7 +1480,11 @@ ok: true,
 code: after,
 })
 } catch (error) {
-console.error("POST /api/sentinel-access-admin/codes/:id/enable failed", error)
+console.error(
+"POST /api/sentinel-access-admin/codes/:id/enable failed",
+error
+)
+
 return res.status(500).json({
 ok: false,
 error: "Failed to enable Sentinel access code",
@@ -1379,8 +1496,10 @@ message: error?.message || String(error),
 router.post("/codes/:id/revoke", async (req, res) => {
 try {
 const actorId = getActorId(req)
+const auditContext = getAdminAuditContext(req)
 const id = parseIntSafe(req.params.id, null)
-const notes = cleanText(req.body?.notes, 2000) || "Access code revoked by admin"
+const notes =
+cleanText(req.body?.notes, 2000) || "Access code revoked by admin"
 
 if (!id) {
 return res.status(400).json({
@@ -1390,6 +1509,7 @@ error: "Valid code id is required",
 }
 
 const before = await getCodeById(id)
+
 if (!before) {
 return res.status(404).json({
 ok: false,
@@ -1397,9 +1517,13 @@ error: "Access code not found",
 })
 }
 
-const beforeEntitlements = await listEntitlements({ limit: 200, codeId: id })
+const beforeEntitlements = await listEntitlements({
+limit: 200,
+codeId: id,
+})
 
 await db.run("BEGIN IMMEDIATE")
+
 try {
 await db.run(
 `
@@ -1442,6 +1566,7 @@ await db.run("COMMIT")
 try {
 await db.run("ROLLBACK")
 } catch {}
+
 throw error
 }
 
@@ -1458,6 +1583,7 @@ status: "ok",
 notes,
 targetType: "sentinel_access_code",
 targetId: id,
+details: auditContext,
 oldState: {
 code: before,
 entitlements: beforeEntitlements,
@@ -1476,7 +1602,11 @@ entitlements,
 redemptions,
 })
 } catch (error) {
-console.error("POST /api/sentinel-access-admin/codes/:id/revoke failed", error)
+console.error(
+"POST /api/sentinel-access-admin/codes/:id/revoke failed",
+error
+)
+
 return res.status(500).json({
 ok: false,
 error: "Failed to revoke Sentinel access code",
@@ -1487,7 +1617,11 @@ message: error?.message || String(error),
 
 router.get("/redemptions", async (req, res) => {
 try {
-const limit = Math.max(1, Math.min(parseIntSafe(req.query.limit, 100) || 100, 500))
+const limit = Math.max(
+1,
+Math.min(parseIntSafe(req.query.limit, 100) || 100, 500)
+)
+
 const codeId = parseIntSafe(req.query.code_id, null)
 const userId = parseIntSafe(req.query.user_id, null)
 
@@ -1504,6 +1638,7 @@ redemptions,
 })
 } catch (error) {
 console.error("GET /api/sentinel-access-admin/redemptions failed", error)
+
 return res.status(500).json({
 ok: false,
 error: "Failed to load Sentinel code redemptions",
@@ -1514,7 +1649,11 @@ message: error?.message || String(error),
 
 router.get("/entitlements", async (req, res) => {
 try {
-const limit = Math.max(1, Math.min(parseIntSafe(req.query.limit, 100) || 100, 500))
+const limit = Math.max(
+1,
+Math.min(parseIntSafe(req.query.limit, 100) || 100, 500)
+)
+
 const codeId = parseIntSafe(req.query.code_id, null)
 const userId = parseIntSafe(req.query.user_id, null)
 const status = normalizeEntitlementStatus(req.query.status, "")
@@ -1533,6 +1672,7 @@ entitlements,
 })
 } catch (error) {
 console.error("GET /api/sentinel-access-admin/entitlements failed", error)
+
 return res.status(500).json({
 ok: false,
 error: "Failed to load Sentinel entitlements",
@@ -1543,7 +1683,11 @@ message: error?.message || String(error),
 
 router.get("/audit", async (req, res) => {
 try {
-const limit = Math.max(1, Math.min(parseIntSafe(req.query.limit, 100) || 100, 500))
+const limit = Math.max(
+1,
+Math.min(parseIntSafe(req.query.limit, 100) || 100, 500)
+)
+
 const codeId = parseIntSafe(req.query.code_id, null)
 
 const audit = await listAccessAudit({
@@ -1562,6 +1706,7 @@ audit,
 })
 } catch (error) {
 console.error("GET /api/sentinel-access-admin/audit failed", error)
+
 return res.status(500).json({
 ok: false,
 error: "Failed to load Sentinel access audit",
@@ -1573,6 +1718,7 @@ message: error?.message || String(error),
 router.post("/codes/:id/revoke-entitlements", async (req, res) => {
 try {
 const actorId = getActorId(req)
+const auditContext = getAdminAuditContext(req)
 const id = parseIntSafe(req.params.id, null)
 const notes = cleanText(req.body?.notes, 2000) || "Revoked by admin"
 
@@ -1584,6 +1730,7 @@ error: "Valid code id is required",
 }
 
 const code = await getCodeById(id)
+
 if (!code) {
 return res.status(404).json({
 ok: false,
@@ -1591,6 +1738,14 @@ error: "Access code not found",
 })
 }
 
+const beforeEntitlements = await listEntitlements({
+limit: 200,
+codeId: id,
+})
+
+await db.run("BEGIN IMMEDIATE")
+
+try {
 await db.run(
 `
 UPDATE sentinel_entitlements
@@ -1616,6 +1771,20 @@ AND redemption_status = 'success'
 [id]
 )
 
+await db.run("COMMIT")
+} catch (error) {
+try {
+await db.run("ROLLBACK")
+} catch {}
+
+throw error
+}
+
+const [entitlements, redemptions] = await Promise.all([
+listEntitlements({ limit: 100, codeId: id }),
+listRedemptions({ limit: 100, codeId: id }),
+])
+
 await insertAdminAudit({
 action: "sentinel_access_entitlements_revoked",
 actorId,
@@ -1623,13 +1792,17 @@ status: "ok",
 notes,
 targetType: "sentinel_access_code",
 targetId: id,
-newState: { source_code_id: id, revoked: true },
+details: auditContext,
+oldState: {
+source_code_id: id,
+entitlements: beforeEntitlements,
+},
+newState: {
+source_code_id: id,
+entitlements,
+redemptions,
+},
 })
-
-const [entitlements, redemptions] = await Promise.all([
-listEntitlements({ limit: 100, codeId: id }),
-listRedemptions({ limit: 100, codeId: id }),
-])
 
 return res.json({
 ok: true,
@@ -1638,7 +1811,11 @@ entitlements,
 redemptions,
 })
 } catch (error) {
-console.error("POST /api/sentinel-access-admin/codes/:id/revoke-entitlements failed", error)
+console.error(
+"POST /api/sentinel-access-admin/codes/:id/revoke-entitlements failed",
+error
+)
+
 return res.status(500).json({
 ok: false,
 error: "Failed to revoke entitlements for this access code",

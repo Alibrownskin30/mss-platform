@@ -189,6 +189,9 @@ refreshSentinelAdminAuditButton: document.getElementById("refreshSentinelAdminAu
 sentinelAdminAuditTableBody: document.getElementById("sentinelAdminAuditTableBody"),
 }
 
+const MSS_ADMIN_KEY_STORAGE_KEY = "mss_admin_key"
+let mssAdminKeyPromptInFlight = null
+
 function cleanText(value, max = 500) {
 return String(value ?? "").trim().slice(0, max)
 }
@@ -385,14 +388,97 @@ throw error
 return payload
 }
 
-async function apiFetchFirst(paths, options = {}, { allowStatuses = [] } = {}) {
+function getStoredMssAdminKey() {
+const override = cleanText(window.__MSS_ADMIN_KEY__ || "", 2000)
+if (override) return override
+
+try {
+return cleanText(localStorage.getItem(MSS_ADMIN_KEY_STORAGE_KEY), 2000)
+} catch {
+return ""
+}
+}
+
+function storeMssAdminKey(value) {
+try {
+const clean = cleanText(value, 2000)
+
+if (!clean) {
+localStorage.removeItem(MSS_ADMIN_KEY_STORAGE_KEY)
+return
+}
+
+localStorage.setItem(MSS_ADMIN_KEY_STORAGE_KEY, clean)
+} catch {}
+}
+
+function requestMssAdminKey() {
+if (mssAdminKeyPromptInFlight) {
+return mssAdminKeyPromptInFlight
+}
+
+mssAdminKeyPromptInFlight = Promise.resolve().then(() => {
+const entered = window.prompt("Enter MSS admin key")
+const clean = cleanText(entered, 2000)
+
+if (clean) {
+storeMssAdminKey(clean)
+return clean
+}
+
+return ""
+})
+
+return mssAdminKeyPromptInFlight.finally(() => {
+mssAdminKeyPromptInFlight = null
+})
+}
+
+async function apiFetchComplianceAdmin(path, options = {}, { retryOnUnauthorized = true } = {}) {
+const storedKey = getStoredMssAdminKey()
+const headers = {
+...(options.headers || {}),
+}
+
+if (storedKey) {
+headers["x-admin-key"] = storedKey
+}
+
+try {
+return await apiFetch(`/api/compliance-admin${path}`, {
+...options,
+headers,
+})
+} catch (error) {
+if (retryOnUnauthorized && error?.status === 401) {
+storeMssAdminKey("")
+const retryKey = await requestMssAdminKey()
+
+if (!retryKey) {
+throw new Error("MSS admin key is required.")
+}
+
+return apiFetch(`/api/compliance-admin${path}`, {
+...options,
+headers: {
+...(options.headers || {}),
+"x-admin-key": retryKey,
+},
+})
+}
+
+throw error
+}
+}
+
+async function apiFetchComplianceAdminFirst(paths, options = {}, { allowStatuses = [] } = {}) {
 let lastError = null
 
 for (let index = 0; index < paths.length; index += 1) {
 const path = paths[index]
 
 try {
-return await apiFetch(path, options)
+return await apiFetchComplianceAdmin(path, options)
 } catch (error) {
 lastError = error
 
@@ -1441,16 +1527,16 @@ try {
 const queryString = buildSentinelSummaryQueryString()
 
 try {
-const payload = await apiFetchFirst([
-`/api/compliance-admin/sentinel/status${queryString ? `?${queryString}` : ""}`,
+const payload = await apiFetchComplianceAdminFirst([
+`/sentinel/status${queryString ? `?${queryString}` : ""}`,
 ])
 
 renderSentinelStatus(payload)
 return payload
 } catch (primaryError) {
 const [settingsPayload, summaryPayload] = await Promise.all([
-apiFetch(`/api/compliance-admin/sentinel/settings`),
-apiFetch(`/api/compliance-admin/sentinel/summary${queryString ? `?${queryString}` : ""}`),
+apiFetchComplianceAdmin(`/sentinel/settings`),
+apiFetchComplianceAdmin(`/sentinel/summary${queryString ? `?${queryString}` : ""}`),
 ])
 
 const merged = {
@@ -1493,8 +1579,8 @@ try {
 const queryString = buildSentinelStatsQueryString()
 
 try {
-const payload = await apiFetch(
-`/api/compliance-admin/sentinel/stats/summary${queryString ? `?${queryString}` : ""}`
+const payload = await apiFetchComplianceAdmin(
+`/sentinel/stats/summary${queryString ? `?${queryString}` : ""}`
 )
 renderSentinelStats(payload?.stats || null)
 return payload?.stats || null
@@ -1513,8 +1599,8 @@ fallbackParams.set("mode", state.sentinel.filters.statsMode)
 
 const fallbackQueryString = fallbackParams.toString()
 
-const payload = await apiFetch(
-`/api/compliance-admin/sentinel/stats/daily${fallbackQueryString ? `?${fallbackQueryString}` : ""}`
+const payload = await apiFetchComplianceAdmin(
+`/sentinel/stats/daily${fallbackQueryString ? `?${fallbackQueryString}` : ""}`
 )
 
 renderSentinelStats(payload?.stats || null)
@@ -1569,8 +1655,8 @@ if (manageLoading) beginLoading()
 
 try {
 const queryString = buildSentinelPositionsQueryString()
-const payload = await apiFetch(
-`/api/compliance-admin/sentinel/positions${queryString ? `?${queryString}` : ""}`
+const payload = await apiFetchComplianceAdmin(
+`/sentinel/positions${queryString ? `?${queryString}` : ""}`
 )
 
 state.sentinel.positions = Array.isArray(payload?.positions) ? payload.positions : []
@@ -1631,8 +1717,8 @@ if (manageLoading) beginLoading()
 
 try {
 const queryString = buildSentinelAuditQueryString()
-const payload = await apiFetch(
-`/api/compliance-admin/sentinel/audit${queryString ? `?${queryString}` : ""}`
+const payload = await apiFetchComplianceAdmin(
+`/sentinel/audit${queryString ? `?${queryString}` : ""}`
 )
 
 state.sentinel.audit = Array.isArray(payload?.audit) ? payload.audit : []
@@ -1670,9 +1756,9 @@ if (manageLoading) beginLoading()
 try {
 const queryString = buildSentinelAdminAuditQueryString()
 
-const payload = await apiFetchFirst([
-`/api/compliance-admin/sentinel/admin-audit${queryString ? `?${queryString}` : ""}`,
-`/api/compliance-admin/sentinel/audit/admin${queryString ? `?${queryString}` : ""}`,
+const payload = await apiFetchComplianceAdminFirst([
+`/sentinel/admin-audit${queryString ? `?${queryString}` : ""}`,
+`/sentinel/audit/admin${queryString ? `?${queryString}` : ""}`,
 ])
 
 state.sentinel.adminAudit = Array.isArray(payload?.audit) ? payload.audit : []
@@ -1747,7 +1833,14 @@ return parseBool(inputEl.value, Boolean(fallback))
 }
 
 function getActorId() {
-return cleanText(window.__MSS_ADMIN_ACTOR_ID__ || "", 120) || "admin"
+const override = cleanText(window.__MSS_ADMIN_ACTOR_ID__ || "", 120)
+if (override) return override
+
+try {
+return cleanText(localStorage.getItem("mss_admin_actor_id"), 120) || "admin"
+} catch {
+return "admin"
+}
 }
 
 function buildSentinelSettingsPayload() {
@@ -2002,7 +2095,7 @@ beginLoading()
 try {
 const body = buildSentinelSettingsPayload()
 
-const payload = await apiFetch(`/api/compliance-admin/sentinel/settings`, {
+const payload = await apiFetchComplianceAdmin(`/sentinel/settings`, {
 method: "PATCH",
 body: JSON.stringify(body),
 })
@@ -2068,7 +2161,7 @@ beginLoading()
 try {
 const payload =
 requestedMode === "emergency_stop"
-? await apiFetch(`/api/compliance-admin/sentinel/emergency-stop`, {
+? await apiFetchComplianceAdmin(`/sentinel/emergency-stop`, {
 method: "POST",
 body: JSON.stringify({
 enabled: true,
@@ -2076,7 +2169,7 @@ reason,
 actor_id: getActorId(),
 }),
 })
-: await apiFetch(`/api/compliance-admin/sentinel/mode`, {
+: await apiFetchComplianceAdmin(`/sentinel/mode`, {
 method: "POST",
 body: JSON.stringify({
 execution_mode: requestedMode,

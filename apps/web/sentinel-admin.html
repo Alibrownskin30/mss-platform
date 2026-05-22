@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" class="mss-admin-auth-pending" data-admin-scope="admin">
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
@@ -8,12 +8,22 @@
 name="description"
 content="Internal Sentinel Watcher operations terminal for MSS Protocol settings, execution mode, engine health, positions, and audit control."
 />
+<meta name="robots" content="noindex, nofollow, noarchive" />
 
 <link rel="stylesheet" href="/assets/app.css?v=20260519-sentinel-admin-ops-v1" />
+
+<style>
+html.mss-admin-auth-pending body {
+visibility: hidden !important;
+pointer-events: none !important;
+}
+</style>
 </head>
 
 <body
 data-shell-auto="true"
+data-admin-shell="true"
+data-admin-scope="admin"
 data-page="sentinel-admin"
 data-active-page="sentinel-admin"
 data-shell-active="sentinel-admin"
@@ -992,6 +1002,7 @@ Refresh Admin Audit
 
 <div id="layoutShellFooter"></div>
 
+<script type="module" src="/assets/pages/admin-session-guard.js?v=20260522-admin-session-v1"></script>
 <script type="module" src="/assets/layout-shell.js?v=20260519-admin-shell-v2"></script>
 <script type="module" src="/assets/pages/sentinel-admin.js?v=20260519-sentinel-admin-ops-v1"></script>
 </body>
