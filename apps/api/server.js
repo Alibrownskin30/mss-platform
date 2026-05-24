@@ -23,6 +23,11 @@ import complianceAdminRoutes from "./routes/compliance-admin.js";
 import sentinelAccessAdminRoutes from "./routes/sentinel-access-admin.js";
 import adminAuthRoutes from "./routes/admin-auth.js";
 import authRoutes, { getSessionUserFromRequest } from "./routes/auth.js";
+import {
+clearAdminSessionCookie,
+getAdminGateRuntimeConfig,
+getAdminSessionFromRequest as getAdminControlSessionFromRequest,
+} from "./middleware/adminGate.js";
 import launcherDb, { dbPath as launcherDbPath } from "./db/index.js";
 import {
 getSolPriceSnapshot,
@@ -76,13 +81,16 @@ app.disable("x-powered-by");
 const NODE_ENV = process.env.NODE_ENV || "development";
 const APP_ENV = cleanEnv(process.env.APP_ENV || NODE_ENV, 80);
 const SOLANA_CLUSTER = cleanEnv(process.env.SOLANA_CLUSTER || "devnet", 80);
+
 const ENABLE_BACKGROUND_WORKERS =
 cleanEnv(process.env.ENABLE_BACKGROUND_WORKERS || "true", 20).toLowerCase() !==
 "false";
+
 const ENABLE_SENTINEL_WATCHER =
 ENABLE_BACKGROUND_WORKERS &&
 cleanEnv(process.env.ENABLE_SENTINEL_WATCHER || "true", 20).toLowerCase() !==
 "false";
+
 const ENABLE_SCANNER_DISCOVERY =
 ENABLE_BACKGROUND_WORKERS &&
 cleanEnv(process.env.ENABLE_SCANNER_DISCOVERY || "true", 20).toLowerCase() !==
@@ -92,10 +100,12 @@ const SENTINEL_TICK_INTERVAL_MS = Math.max(
 1000,
 Number(process.env.SENTINEL_TICK_INTERVAL_MS || 5000) || 5000
 );
+
 const SENTINEL_SNAPSHOT_LIMIT = Math.max(
 1,
 Math.min(500, Number(process.env.SENTINEL_SNAPSHOT_LIMIT || 100) || 100)
 );
+
 const SENTINEL_SNAPSHOT_MAX_AGE_MINUTES = Math.max(
 1,
 Math.min(
@@ -103,6 +113,7 @@ Math.min(
 Number(process.env.SENTINEL_SNAPSHOT_MAX_AGE_MINUTES || 30) || 30
 )
 );
+
 const SENTINEL_SNAPSHOT_MIN_LIQUIDITY_USD = Math.max(
 0,
 Number(process.env.SENTINEL_SNAPSHOT_MIN_LIQUIDITY_USD || 0) || 0
@@ -112,28 +123,34 @@ const SCANNER_DISCOVERY_POLL_INTERVAL_MS = Math.max(
 1000,
 Number(process.env.SCANNER_DISCOVERY_POLL_INTERVAL_MS || 8000) || 8000
 );
+
 const SCANNER_DISCOVERY_STARTUP_SLOT_LOOKBACK = Math.max(
 1,
 Number(process.env.SCANNER_DISCOVERY_STARTUP_SLOT_LOOKBACK || 250) || 250
 );
+
 const SCANNER_DISCOVERY_MAX_SLOTS_PER_TICK = Math.max(
 1,
 Number(process.env.SCANNER_DISCOVERY_MAX_SLOTS_PER_TICK || 120) || 120
 );
+
 const SCANNER_DISCOVERY_MAX_SCANS_PER_TICK = Math.max(
 1,
 Number(process.env.SCANNER_DISCOVERY_MAX_SCANS_PER_TICK || 40) || 40
 );
+
 const SCANNER_DISCOVERY_SCAN_CONCURRENCY = Math.max(
 1,
 Number(process.env.SCANNER_DISCOVERY_SCAN_CONCURRENCY || 3) || 3
 );
+
 const SCANNER_DISCOVERY_SEEN_TTL_MS = Math.max(
 60_000,
 Number(
 process.env.SCANNER_DISCOVERY_SEEN_TTL_MS || 6 * 60 * 60 * 1000
 ) || 6 * 60 * 60 * 1000
 );
+
 const SCANNER_DISCOVERY_CACHE_SKIP_WINDOW_MS = Math.max(
 60_000,
 Number(
@@ -171,6 +188,7 @@ const lower = String(rpcUrl || "").toLowerCase();
 
 if (lower.includes("devnet")) return "Solana Devnet (Live)";
 if (lower.includes("mainnet")) return "Solana Mainnet (Live)";
+
 return "Solana RPC (Live)";
 }
 
@@ -187,6 +205,7 @@ crossOriginResourcePolicy: { policy: "cross-origin" },
 
 // ---- Body parsing ----
 app.use(express.json({ limit: process.env.BODY_LIMIT || "1mb" }));
+
 app.use(
 express.urlencoded({
 extended: true,
@@ -226,6 +245,7 @@ return cb(null, true);
 }
 
 if (allowedOrigins.includes(origin)) return cb(null, true);
+
 return cb(new Error("Not allowed by CORS"));
 },
 credentials: true,
@@ -273,8 +293,103 @@ delayMs: () => Number(process.env.AUTH_SLOWDOWN_DELAY_MS || 500),
 validate: { delayMs: false },
 });
 
+// ---- Admin HTTP-only session protection ----
+function normalizeAdminScopes(scopes = []) {
+return Array.isArray(scopes)
+? scopes
+.map((scope) => cleanEnv(scope, 64).toLowerCase())
+.filter(Boolean)
+: [];
+}
+
+function requireSignedAdminSession(acceptedScopes = ["admin"]) {
+const allowedScopes = new Set(
+normalizeAdminScopes(acceptedScopes).concat("admin")
+);
+
+return (req, res, next) => {
+try {
+const runtime = getAdminGateRuntimeConfig();
+
+if (!runtime.enabled) {
+req.adminGate = {
+ok: true,
+actor: "admin-gate-disabled",
+authType: "gate_disabled",
+scope: "admin",
+scopes: ["admin"],
+sessionId: null,
+expiresAt: null,
+};
+
+return next();
+}
+
+const session = getAdminControlSessionFromRequest(req);
+
+if (!session) {
+clearAdminSessionCookie(res);
+
+return res.status(401).json({
+ok: false,
+error: "admin_session_required",
+message: "Admin login is required.",
+login_required: true,
+login_path: "/admin-login.html",
+});
+}
+
+const scopes = normalizeAdminScopes(session.scopes);
+const matchingScope = scopes.find((scope) => allowedScopes.has(scope));
+
+if (!matchingScope) {
+return res.status(403).json({
+ok: false,
+error: "admin_scope_required",
+message: "This admin session does not have permission for this operation.",
+});
+}
+
+req.adminGate = {
+ok: true,
+actor: cleanEnv(session.actor, 255) || "authenticated-admin",
+authType: "session",
+scope: matchingScope,
+scopes,
+sessionId:
+cleanEnv(session.sessionId || session.session_id || session.id, 120) ||
+null,
+expiresAt: session.expiresAt || session.expires_at || null,
+session,
+};
+
+return next();
+} catch (error) {
+console.error("Admin session middleware failed", error);
+
+return res.status(500).json({
+ok: false,
+error: "admin_session_check_failed",
+message: "Unable to verify admin session.",
+});
+}
+};
+}
+
+const complianceAdminSessionGate = requireSignedAdminSession([
+"admin",
+"compliance_admin",
+"sentinel_admin",
+]);
+
+const sentinelAccessAdminSessionGate = requireSignedAdminSession([
+"admin",
+"sentinel_access",
+]);
+
 // ---- Cassie (middleware + intel layer) ----
 const { cassie, cassieApi, cassieIntel } = createCassie();
+
 app.use(cassie);
 
 // ---- Route mounts ----
@@ -289,8 +404,18 @@ app.use("/api/token-market", tokenMarketRoutes);
 app.use("/api/token", tokenRoutes);
 app.use("/api/market", marketRoutes);
 app.use("/api/compliance", complianceRoutes);
-app.use("/api/compliance-admin", complianceAdminRoutes);
-app.use("/api/sentinel-access-admin", sentinelAccessAdminRoutes);
+
+app.use(
+"/api/compliance-admin",
+complianceAdminSessionGate,
+complianceAdminRoutes
+);
+
+app.use(
+"/api/sentinel-access-admin",
+sentinelAccessAdminSessionGate,
+sentinelAccessAdminRoutes
+);
 
 // Honeypots
 app.get("/api/_cassie/diag", (req, res) => res.status(404).end());
@@ -304,6 +429,7 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 function isRateLimitError(e) {
 const msg = String(e?.message || e || "").toLowerCase();
+
 return msg.includes("429") || msg.includes("too many requests");
 }
 
@@ -386,17 +512,48 @@ req.auth = accountAuth;
 req.user = accountAuth.user;
 req.active_wallet = accountAuth.active_wallet;
 req.active_entitlement = accountAuth.active_entitlement;
+req.alert_user_id = Number(accountAuth.alert_user_id || 0) || null;
+req.auth_source = "mss_session";
+
 return next();
 }
 
-return legacyAuthRequired(req, res, next);
+return legacyAuthRequired(req, res, (error) => {
+if (error) {
+return next(error);
+}
+
+req.alert_user_id = Number(req.user?.id || 0) || null;
+req.auth_source = "legacy_scanner";
+
+return next();
+});
 } catch (error) {
 console.error("Hybrid auth middleware failed", error);
+
 return res.status(500).json({
 error: "Authentication failed",
 message: error?.message || String(error),
 });
 }
+}
+
+function resolveAlertUserIdOrRespond(req, res) {
+const alertUserId = Number(req.alert_user_id || 0);
+
+if (Number.isInteger(alertUserId) && alertUserId > 0) {
+return alertUserId;
+}
+
+res.status(409).json({
+ok: false,
+error: "Scanner Alerts account link required",
+code: "legacy_scanner_link_required",
+message:
+"This MSS account does not yet have a verified Scanner Alerts identity linked for alert history and alert controls.",
+});
+
+return null;
 }
 
 const sentinelSnapshotProvider = createScannerCacheSnapshotProvider({
@@ -424,12 +581,15 @@ const lower = raw.toLowerCase();
 if (lower.includes("could not be unpacked")) {
 return "Address is not a valid SPL token mint";
 }
+
 if (lower.includes("failed to find account")) {
 return "Mint not found";
 }
+
 if (lower.includes("invalid param")) {
 return "Invalid token mint";
 }
+
 return raw || "Invalid token mint";
 }
 
@@ -447,6 +607,7 @@ return res
 }
 
 const friendly = mintErrorMessage(error);
+
 if (friendly !== String(error?.message || error || "")) {
 return res.status(400).json({ error: friendly });
 }
@@ -456,18 +617,23 @@ return res.status(500).json({ error: String(error?.message || error) });
 
 function fmtUsdCompact(n) {
 const v = Number(n);
+
 if (!Number.isFinite(v)) return "—";
+
 const abs = Math.abs(v);
+
 if (abs >= 1e12) return `$${(v / 1e12).toFixed(2)}T`;
 if (abs >= 1e9) return `$${(v / 1e9).toFixed(2)}B`;
 if (abs >= 1e6) return `$${(v / 1e6).toFixed(2)}M`;
 if (abs >= 1e3) return `$${(v / 1e3).toFixed(2)}K`;
 if (abs >= 1) return `$${v.toFixed(6)}`;
+
 return `$${v.toFixed(8)}`;
 }
 
 function safeNum(v, fallback = 0) {
 const n = Number(v);
+
 return Number.isFinite(n) ? n : fallback;
 }
 
@@ -485,7 +651,9 @@ return String(s || "")
 
 function toPct(n, dp = 1) {
 const v = Number(n);
+
 if (!Number.isFinite(v)) return 0;
+
 return Number(v.toFixed(dp));
 }
 
@@ -494,6 +662,7 @@ const risk = safeNum(latestRisk, 0);
 const momentum = trend?.trend?.momentum || "Stable";
 
 let score = 100 - risk;
+
 if (momentum === "Escalating") score -= 15;
 else if (momentum === "Rising") score -= 8;
 else if (momentum === "Cooling") score += 6;
@@ -503,6 +672,7 @@ score = clamp(Math.round(score), 0, 100);
 
 let label = "Weak";
 let state = "bad";
+
 if (score >= 75) {
 label = "Strong";
 state = "good";
@@ -544,6 +714,7 @@ score: clamp(
 const primaryMembers = Array.isArray(primaryCluster?.members)
 ? primaryCluster.members
 : [];
+
 const primaryWallet =
 primaryCluster?.payer ||
 developerNetwork?.groups?.[0]?.payer ||
@@ -551,8 +722,10 @@ primaryMembers[0] ||
 null;
 
 let memberSupplyPct = 0;
+
 if (primaryMembers.length && holders.length) {
 const memberSet = new Set(primaryMembers);
+
 memberSupplyPct = holders
 .filter((h) => h?.owner && memberSet.has(h.owner))
 .reduce((sum, h) => sum + safeNum(h?.pctSupply, 0), 0);
@@ -618,7 +791,9 @@ riskScore >= 75
 : riskScore >= 45
 ? "Moderate Control Risk"
 : "Low Control Risk";
-const riskState = riskScore >= 75 ? "bad" : riskScore >= 45 ? "warn" : "good";
+
+const riskState =
+riskScore >= 75 ? "bad" : riskScore >= 45 ? "warn" : "good";
 
 return {
 primaryWallet,
@@ -934,22 +1109,27 @@ const linkedWallets = safeNum(securityModel?.hiddenControl?.linkedWallets, 0);
 const clusterCount = safeNum(activity?.clusterCount, 0);
 const hasMintAuthority = !!token?.mintAuthority;
 const hasFreezeAuthority = !!token?.freezeAuthority;
+
 const momentum =
 securityModel?.trend?.momentum || trend?.trend?.momentum || "Stable";
+
 const devConfidence = safeNum(
 securityModel?.developerNetwork?.confidence ||
 securityModel?.developerActivity?.confidence,
 0
 );
+
 const devLikelyControlPct = safeNum(
 securityModel?.developerNetwork?.likelyControlPct ||
 securityModel?.developerActivity?.likelyControlPct,
 0
 );
+
 const walletNetConfidence = safeNum(
 securityModel?.walletNetwork?.confidence,
 0
 );
+
 const walletNetControlPct = safeNum(
 securityModel?.walletNetwork?.controlEstimatePct,
 0
@@ -1130,6 +1310,7 @@ momentum === "Escalating"
 ];
 
 const memoryHits = [];
+
 if (hasMintAuthority || hasFreezeAuthority) {
 memoryHits.push({
 tag: "Authority-Controlled Launch Pattern",
@@ -1251,6 +1432,7 @@ walletNetConfidence >= 75
 ];
 
 let cassieScore = 0;
+
 cassieScore += riskScore * 0.25;
 cassieScore += hiddenControlScore * 0.16;
 cassieScore += safeNum(activity?.score, 0) * 0.12;
@@ -1292,21 +1474,27 @@ memoryHits[0]?.tag ||
 : "No dominant hostile pattern");
 
 const summaryParts = [];
+
 if (hasMintAuthority || hasFreezeAuthority) {
 summaryParts.push("authority exposure remains live");
 }
+
 if (top10 >= 55) summaryParts.push("holder concentration is elevated");
 if (hiddenControlScore >= 40) summaryParts.push("linked-wallet behavior is visible");
 if (freshWalletPct >= 20) summaryParts.push("fresh-wallet participation is elevated");
+
 if (liqFdvPct > 0 && liqFdvPct < 3) {
 summaryParts.push("liquidity appears thin versus valuation");
 }
+
 if (devConfidence >= 45) {
 summaryParts.push("developer-network confidence is elevated");
 }
+
 if (walletNetConfidence >= 45) {
 summaryParts.push("wallet control-map confidence is elevated");
 }
+
 if (momentum === "Escalating" || momentum === "Rising") {
 summaryParts.push(`risk trend is ${momentum.toLowerCase()}`);
 }
@@ -1350,10 +1538,12 @@ cassieApi.status(req, res)
 app.get("/api/cassie/memory", hybridAuthRequired, (req, res) => {
 try {
 const limit = clamp(Number(req.query.limit || 50), 1, 200);
+
 const out =
 typeof cassieIntel?.memorySnapshot === "function"
 ? cassieIntel.memorySnapshot(limit)
 : [];
+
 return res.json({ ok: true, items: out });
 } catch (e) {
 return res.status(500).json({ error: String(e?.message || e) });
@@ -1366,6 +1556,7 @@ const out =
 typeof cassieIntel?.memoryByMint === "function"
 ? cassieIntel.memoryByMint(req.params.mint)
 : null;
+
 return res.json({ ok: true, item: out || null });
 } catch (e) {
 return res.status(500).json({ error: String(e?.message || e) });
@@ -1381,6 +1572,7 @@ const out =
 typeof cassieIntel?.memoryBySignature === "function"
 ? cassieIntel.memoryBySignature(req.params.signature)
 : null;
+
 return res.json({ ok: true, item: out || null });
 } catch (e) {
 return res.status(500).json({ error: String(e?.message || e) });
@@ -1405,11 +1597,13 @@ const MINT_PROFILE_TTL_MS = 120_000;
 // ---- Shared data loaders ----
 async function fetchMintProfile(mint, mintStr) {
 const cached = mintProfileCache.get(mintStr);
+
 if (cached && Date.now() - cached.ts < MINT_PROFILE_TTL_MS) {
 return cached.data;
 }
 
 const parsedInfo = await rpcRetry(() => connection.getParsedAccountInfo(mint));
+
 if (!parsedInfo?.value) {
 throw new InvalidMintError("Mint not found", 404);
 }
@@ -1437,15 +1631,18 @@ isToken2022: ownerProgram === TOKEN_2022_PROGRAM_ID.toBase58(),
 };
 
 mintProfileCache.set(mintStr, { ts: Date.now(), data: out });
+
 return out;
 }
 
 const rawInfo = await rpcRetry(() => connection.getAccountInfo(mint));
+
 if (!rawInfo) {
 throw new InvalidMintError("Mint not found", 404);
 }
 
 const rawOwnerProgram = rawInfo.owner?.toBase58?.() || ownerProgram || null;
+
 if (rawOwnerProgram && !TOKEN_PROGRAM_IDS.has(rawOwnerProgram)) {
 throw new InvalidMintError("Address is not a supported SPL token mint", 400);
 }
@@ -1468,6 +1665,7 @@ isToken2022: rawOwnerProgram === TOKEN_2022_PROGRAM_ID.toBase58(),
 };
 
 mintProfileCache.set(mintStr, { ts: Date.now(), data: out });
+
 return out;
 }
 
@@ -1475,9 +1673,11 @@ async function fetchTokenData(mint, mintStr = mint.toBase58()) {
 const profile = await fetchMintProfile(mint, mintStr);
 
 let metadata = null;
+
 try {
 const metaPDA = Metadata.getPDA(mint);
 const metaAcc = await rpcRetry(() => Metadata.load(connection, metaPDA));
+
 metadata = metaAcc?.data?.data || null;
 } catch {
 metadata = null;
@@ -1485,12 +1685,14 @@ metadata = null;
 
 let supply = profile.supply;
 let decimals = profile.decimals;
+
 const mintAuthority = profile.mintAuthority;
 const freezeAuthority = profile.freezeAuthority;
 
 if (supply == null || decimals == null) {
 try {
 const supplyResp = await rpcRetry(() => connection.getTokenSupply(mint));
+
 supply = supplyResp?.value?.amount ?? null;
 decimals = supplyResp?.value?.decimals ?? null;
 } catch {}
@@ -1516,7 +1718,10 @@ source: "onchain",
 
 async function fetchMarketData(mintStr) {
 const cached = marketCache.get(mintStr);
-if (cached && Date.now() - cached.ts < MARKET_TTL_MS) return cached.data;
+
+if (cached && Date.now() - cached.ts < MARKET_TTL_MS) {
+return cached.data;
+}
 
 const url = `https://api.dexscreener.com/latest/dex/tokens/${mintStr}`;
 const r = await fetchWithTimeout(url, { timeoutMs: 10_000 });
@@ -1524,11 +1729,14 @@ const j = await r.json();
 
 if (!j?.pairs?.length) {
 const out = { found: false };
+
 marketCache.set(mintStr, { ts: Date.now(), data: out });
+
 return out;
 }
 
 const p = j.pairs[0];
+
 const out = {
 found: true,
 dex: p.dexId,
@@ -1551,12 +1759,16 @@ m30: p.priceChange?.m30 ?? p.priceChange?.d30 ?? null,
 };
 
 marketCache.set(mintStr, { ts: Date.now(), data: out });
+
 return out;
 }
 
 async function fetchHoldersData(mint, mintStr) {
 const cached = holdersCache.get(mintStr);
-if (cached && Date.now() - cached.ts < HOLDERS_TTL_MS) return cached.data;
+
+if (cached && Date.now() - cached.ts < HOLDERS_TTL_MS) {
+return cached.data;
+}
 
 if (holdersInFlight.has(mintStr)) {
 return holdersInFlight.get(mintStr);
@@ -1582,6 +1794,7 @@ const decimals = supplyResp?.value?.decimals ?? null;
 
 const top = (largest?.value || []).slice(0, 20);
 const tokenAccPubkeys = top.map((a) => new PublicKey(a.address));
+
 const accInfos = await rpcRetry(() =>
 connection.getMultipleAccountsInfo(tokenAccPubkeys)
 );
@@ -1589,7 +1802,9 @@ connection.getMultipleAccountsInfo(tokenAccPubkeys)
 const owners = accInfos.map((info) => {
 try {
 if (!info?.data || info.data.length !== AccountLayout.span) return null;
+
 const decoded = AccountLayout.decode(info.data);
+
 return new PublicKey(decoded.owner).toBase58();
 } catch {
 return null;
@@ -1598,8 +1813,11 @@ return null;
 
 const holders = top.map((a, i) => {
 const ui = a.uiAmount ?? null;
+
 const pct =
-totalUi && ui != null && totalUi > 0 ? (ui / totalUi) * 100 : null;
+totalUi && ui != null && totalUi > 0
+? (ui / totalUi) * 100
+: null;
 
 return {
 rank: i + 1,
@@ -1620,6 +1838,7 @@ holders,
 };
 
 holdersCache.set(mintStr, { ts: Date.now(), data: out });
+
 return out;
 })();
 
@@ -1627,31 +1846,50 @@ holdersInFlight.set(mintStr, task);
 
 try {
 const out = await task;
+
 holdersInFlight.delete(mintStr);
+
 return out;
 } catch (e) {
 holdersInFlight.delete(mintStr);
+
 throw e;
 }
 }
 
 async function fetchClusterData(mint, mintStr) {
 const cached = clusterCache.get(mintStr);
-if (cached && Date.now() - cached.ts < CLUSTER_TTL_MS) return cached.data;
+
+if (cached && Date.now() - cached.ts < CLUSTER_TTL_MS) {
+return cached.data;
+}
 
 let holdersData = holdersCache.get(mintStr)?.data;
+
 if (!holdersData) {
 holdersData = await fetchHoldersData(mint, mintStr);
 }
 
-const owners = (holdersData?.holders || []).map((h) => h.owner).filter(Boolean);
-const intel = await getClusterIntel({ connection, rpcRetry, owners });
+const owners = (holdersData?.holders || [])
+.map((h) => h.owner)
+.filter(Boolean);
+
+const intel = await getClusterIntel({
+connection,
+rpcRetry,
+owners,
+});
+
 clusterCache.set(mintStr, { ts: Date.now(), data: intel });
+
 return intel;
 }
 
 function buildConcentration(holdersJson) {
-const holders = Array.isArray(holdersJson?.holders) ? holdersJson.holders : [];
+const holders = Array.isArray(holdersJson?.holders)
+? holdersJson.holders
+: [];
+
 const pct = holders.map((h) => Number(h.pctSupply || 0));
 const sumTopN = (n) => pct.slice(0, n).reduce((a, b) => a + b, 0);
 
@@ -1666,6 +1904,7 @@ top20: sumTopN(20),
 function checkScannerDbHealth() {
 try {
 db.prepare("SELECT 1 AS ok").get();
+
 return { ok: true };
 } catch (error) {
 return {
@@ -1678,6 +1917,7 @@ error: String(error?.message || error),
 async function checkLauncherDbHealth() {
 try {
 await launcherDb.get("SELECT 1 AS ok");
+
 return {
 ok: true,
 path: launcherDbPath || null,
@@ -1730,6 +1970,7 @@ error: String(error?.message || error),
 
 async function buildHealthPayload(req) {
 const deep = String(req.query.deep || "").toLowerCase() === "1";
+
 const [launcherDbHealth, rpcHealth] = await Promise.all([
 checkLauncherDbHealth(),
 checkRpcHealth({ deep }),
@@ -1738,7 +1979,8 @@ checkRpcHealth({ deep }),
 const scannerDbHealth = checkScannerDbHealth();
 const solPrice = getSolPriceSnapshot();
 const sentinelStatus = getSentinelEngineStatus();
-const scannerDiscoveryStatus = scannerDiscoveryService?.getStatus?.() || null;
+const scannerDiscoveryStatus =
+scannerDiscoveryService?.getStatus?.() || null;
 
 const ok =
 Boolean(scannerDbHealth.ok) &&
@@ -1808,21 +2050,25 @@ logger: console,
 // ---- Health ----
 app.get("/health", async (req, res) => {
 const payload = await buildHealthPayload(req);
+
 res.status(payload.ok ? 200 : 503).json(payload);
 });
 
 app.get("/healthz", async (req, res) => {
 const payload = await buildHealthPayload(req);
+
 res.status(payload.ok ? 200 : 503).json(payload);
 });
 
 app.get("/api/health", async (req, res) => {
 const payload = await buildHealthPayload(req);
+
 res.status(payload.ok ? 200 : 503).json(payload);
 });
 
 app.get("/api/healthz", async (req, res) => {
 const payload = await buildHealthPayload(req);
+
 res.status(payload.ok ? 200 : 503).json(payload);
 });
 
@@ -1844,10 +2090,16 @@ app.post("/api/login", authLimiter, authSlow, login);
 app.get("/api/sol/token/:mint", async (req, res) => {
 try {
 const mint = assertMint(req.params.mint);
-if (!mint) return res.status(400).json({ error: "Invalid mint" });
+
+if (!mint) {
+return res.status(400).json({ error: "Invalid mint" });
+}
 
 const tokenJson = await fetchTokenData(mint, req.params.mint);
-if (!tokenJson) return res.status(404).json({ error: "Mint not found" });
+
+if (!tokenJson) {
+return res.status(404).json({ error: "Mint not found" });
+}
 
 return res.json(tokenJson);
 } catch (e) {
@@ -1860,9 +2112,13 @@ app.get("/api/sol/market/:mint", async (req, res) => {
 try {
 const mintStr = req.params.mint;
 const mint = assertMint(mintStr);
-if (!mint) return res.status(400).json({ error: "Invalid mint" });
+
+if (!mint) {
+return res.status(400).json({ error: "Invalid mint" });
+}
 
 const out = await fetchMarketData(mintStr);
+
 return res.json(out);
 } catch (e) {
 return res.status(500).json({ error: String(e?.message || e) });
@@ -1875,9 +2131,13 @@ const mintStr = req.params.mint;
 
 try {
 const mint = assertMint(mintStr);
-if (!mint) return res.status(400).json({ error: "Invalid mint" });
+
+if (!mint) {
+return res.status(400).json({ error: "Invalid mint" });
+}
 
 const data = await fetchHoldersData(mint, mintStr);
+
 return res.json(data);
 } catch (e) {
 return respondMintRouteError(res, e);
@@ -1890,10 +2150,15 @@ const mintStr = req.params.mint;
 
 try {
 const mint = assertMint(mintStr);
-if (!mint) return res.status(400).json({ error: "Invalid mint" });
+
+if (!mint) {
+return res.status(400).json({ error: "Invalid mint" });
+}
 
 await fetchMintProfile(mint, mintStr);
+
 const intel = await fetchClusterData(mint, mintStr);
+
 return res.json(intel);
 } catch (e) {
 return respondMintRouteError(res, e);
@@ -1906,9 +2171,13 @@ const mintStr = req.params.mint;
 
 try {
 const mint = assertMint(mintStr);
-if (!mint) return res.status(400).json({ error: "Invalid mint" });
+
+if (!mint) {
+return res.status(400).json({ error: "Invalid mint" });
+}
 
 const out = await scanSecurityForMint({ mint, mintStr });
+
 return res.json(out);
 } catch (e) {
 return respondMintRouteError(res, e);
@@ -1921,7 +2190,10 @@ const mintStr = req.params.mint;
 
 try {
 const mint = assertMint(mintStr);
-if (!mint) return res.status(400).json({ error: "Invalid mint" });
+
+if (!mint) {
+return res.status(400).json({ error: "Invalid mint" });
+}
 
 const [tokenJson, marketJson, holdersJson, clusterJson] = await Promise.all([
 fetchTokenData(mint, mintStr),
@@ -1977,6 +2249,7 @@ securityModel,
 
 const name =
 tokenJson?.metadata?.name || marketJson?.baseName || "Unknown Token";
+
 const symbol =
 tokenJson?.metadata?.symbol || marketJson?.baseSymbol || "TOKEN";
 
@@ -2024,11 +2297,20 @@ return res.status(500).json({ error: String(e?.message || e) });
 app.post("/api/sol/risk-record", (req, res) => {
 try {
 const { mint, risk, whale, top10, liqUsd, fdvUsd } = req.body || {};
+
 if (!mint || risk == null) {
 return res.status(400).json({ error: "Missing mint/risk" });
 }
 
-insertRiskPoint({ mint, risk, whale, top10, liqUsd, fdvUsd });
+insertRiskPoint({
+mint,
+risk,
+whale,
+top10,
+liqUsd,
+fdvUsd,
+});
+
 return res.json({ ok: true });
 } catch (e) {
 return res.status(500).json({ error: String(e?.message || e) });
@@ -2039,6 +2321,7 @@ return res.status(500).json({ error: String(e?.message || e) });
 app.get("/api/sol/risk-trend/:mint", (req, res) => {
 try {
 const mint = req.params.mint;
+
 return res.json(getRiskTrend(mint));
 } catch (e) {
 return res.status(500).json({ error: String(e?.message || e) });
@@ -2047,6 +2330,10 @@ return res.status(500).json({ error: String(e?.message || e) });
 
 // ---------- Alerts ----------
 app.get("/api/alerts", hybridAuthRequired, (req, res) => {
+const alertUserId = resolveAlertUserIdOrRespond(req, res);
+
+if (!alertUserId) return;
+
 const rows = db
 .prepare(`
 SELECT id, mint, type, direction, threshold, is_enabled, created_at, last_triggered_at
@@ -2054,13 +2341,18 @@ FROM alerts
 WHERE user_id = ?
 ORDER BY id DESC
 `)
-.all(req.user.id);
+.all(alertUserId);
 
-res.json({ ok: true, alerts: rows });
+return res.json({ ok: true, alerts: rows });
 });
 
 app.post("/api/alerts", hybridAuthRequired, (req, res) => {
+const alertUserId = resolveAlertUserIdOrRespond(req, res);
+
+if (!alertUserId) return;
+
 const { mint, type, direction, threshold } = req.body || {};
+
 if (!mint || !type || !direction || threshold == null) {
 return res.status(400).json({ error: "Missing fields" });
 }
@@ -2087,6 +2379,7 @@ const allowedDirections = new Set(["above", "below"]);
 if (!allowedTypes.has(type)) {
 return res.status(400).json({ error: "Invalid type" });
 }
+
 if (!allowedDirections.has(direction)) {
 return res.status(400).json({ error: "Invalid direction" });
 }
@@ -2096,27 +2389,56 @@ const info = db
 INSERT INTO alerts (user_id, mint, type, direction, threshold)
 VALUES (?, ?, ?, ?, ?)
 `)
-.run(req.user.id, mint, type, direction, Number(threshold));
+.run(alertUserId, mint, type, direction, Number(threshold));
 
-return res.json({ ok: true, id: info.lastInsertRowid });
+return res.json({
+ok: true,
+id: info.lastInsertRowid,
+});
 });
 
 app.post("/api/alerts/:id/toggle", hybridAuthRequired, (req, res) => {
-const id = Number(req.params.id);
-const row = db
-.prepare(`SELECT * FROM alerts WHERE id = ? AND user_id = ?`)
-.get(id, req.user.id);
+const alertUserId = resolveAlertUserIdOrRespond(req, res);
 
-if (!row) return res.status(404).json({ error: "Not found" });
+if (!alertUserId) return;
+
+const id = Number(req.params.id);
+
+const row = db
+.prepare(`
+SELECT *
+FROM alerts
+WHERE id = ?
+AND user_id = ?
+`)
+.get(id, alertUserId);
+
+if (!row) {
+return res.status(404).json({ error: "Not found" });
+}
 
 const next = row.is_enabled ? 0 : 1;
-db.prepare(`UPDATE alerts SET is_enabled = ? WHERE id = ?`).run(next, id);
-res.json({ ok: true, is_enabled: next });
+
+db.prepare(`
+UPDATE alerts
+SET is_enabled = ?
+WHERE id = ?
+AND user_id = ?
+`).run(next, id, alertUserId);
+
+return res.json({
+ok: true,
+is_enabled: next,
+});
 });
 
 // ---------- Alert Events ----------
 app.get("/api/alert-events", hybridAuthRequired, (req, res) => {
 try {
+const alertUserId = resolveAlertUserIdOrRespond(req, res);
+
+if (!alertUserId) return;
+
 const limit = clamp(Number(req.query.limit || 50), 1, 200);
 
 const rows = db
@@ -2136,7 +2458,7 @@ WHERE a.user_id = ?
 ORDER BY datetime(ev.created_at) DESC
 LIMIT ?
 `)
-.all(req.user.id, limit);
+.all(alertUserId, limit);
 
 return res.json({ ok: true, events: rows });
 } catch (e) {
@@ -2146,14 +2468,27 @@ return res.status(500).json({ error: String(e?.message || e) });
 
 app.get("/api/alerts/:id/events", hybridAuthRequired, (req, res) => {
 try {
-const id = Number(req.params.id);
-const row = db
-.prepare(`SELECT * FROM alerts WHERE id = ? AND user_id = ?`)
-.get(id, req.user.id);
+const alertUserId = resolveAlertUserIdOrRespond(req, res);
 
-if (!row) return res.status(404).json({ error: "Not found" });
+if (!alertUserId) return;
+
+const id = Number(req.params.id);
+
+const row = db
+.prepare(`
+SELECT *
+FROM alerts
+WHERE id = ?
+AND user_id = ?
+`)
+.get(id, alertUserId);
+
+if (!row) {
+return res.status(404).json({ error: "Not found" });
+}
 
 const events = getAlertEvents(id, 100);
+
 return res.json({ ok: true, events });
 } catch (e) {
 return res.status(500).json({ error: String(e?.message || e) });
@@ -2182,13 +2517,17 @@ console.log(`✅ MSS API running on http://0.0.0.0:${PORT}`);
 console.log(`🌐 Environment: ${APP_ENV}`);
 console.log(`⛓️ Cluster: ${SOLANA_CLUSTER}`);
 console.log(`🔒 RPC hidden (${RPC_LABEL})`);
+
 console.log(
 `🔁 RPC fallback configured: ${RPC_FALLBACK ? "yes" : "no"}`
 );
+
 console.log(`🛡️ Cassie: enabled (defensive middleware + intel layer)`);
+
 console.log(
 `🧠 Background workers: ${ENABLE_BACKGROUND_WORKERS ? "enabled" : "disabled"}`
 );
+
 console.log(
 `🛰️ Sentinel Watcher: ${
 ENABLE_SENTINEL_WATCHER
@@ -2196,11 +2535,13 @@ ENABLE_SENTINEL_WATCHER
 : "disabled"
 }`
 );
+
 if (ENABLE_SENTINEL_WATCHER) {
 console.log(
 `🛰️ Sentinel snapshots: limit=${SENTINEL_SNAPSHOT_LIMIT} maxAge=${SENTINEL_SNAPSHOT_MAX_AGE_MINUTES}m minLiquidity=$${SENTINEL_SNAPSHOT_MIN_LIQUIDITY_USD}`
 );
 }
+
 console.log(
 `🔎 Scanner Discovery: ${
 ENABLE_SCANNER_DISCOVERY
@@ -2208,6 +2549,7 @@ ENABLE_SCANNER_DISCOVERY
 : "disabled"
 }`
 );
+
 if (ENABLE_SCANNER_DISCOVERY) {
 console.log(
 `🔎 Discovery config: lookback=${SCANNER_DISCOVERY_STARTUP_SLOT_LOOKBACK} maxSlots=${SCANNER_DISCOVERY_MAX_SLOTS_PER_TICK} maxScans=${SCANNER_DISCOVERY_MAX_SCANS_PER_TICK} concurrency=${SCANNER_DISCOVERY_SCAN_CONCURRENCY} seenTtlMs=${SCANNER_DISCOVERY_SEEN_TTL_MS} cacheSkipWindowMs=${SCANNER_DISCOVERY_CACHE_SKIP_WINDOW_MS}`
