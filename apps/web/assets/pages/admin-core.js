@@ -261,6 +261,20 @@ return `${protocol}//${hostname.replace(
 )}`
 }
 
+if (
+hostname === "devnet.mssprotocol.com" ||
+hostname === "www.devnet.mssprotocol.com"
+) {
+return "https://api.devnet.mssprotocol.com"
+}
+
+if (
+hostname === "mssprotocol.com" ||
+hostname === "www.mssprotocol.com"
+) {
+return "https://api.mssprotocol.com"
+}
+
 if (/:\d+$/.test(window.location.host)) {
 return `${protocol}//${hostname}:8787`
 }
@@ -502,10 +516,6 @@ const safeHeaders = sanitizeBrowserHeaders(path, fetchOptions.headers)
 
 const response = await fetch(`${API_BASE}${path}`, {
 credentials: "include",
-headers: {
-"Content-Type": "application/json",
-...safeHeaders,
-},
 ...fetchOptions,
 headers: {
 "Content-Type": "application/json",
