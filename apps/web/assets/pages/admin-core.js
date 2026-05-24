@@ -224,6 +224,13 @@ item.disabled = Boolean(disabled)
 })
 }
 
+/*
+Frontend and API are separate services on deployed environments:
+- devnet.mssprotocol.com -> api.devnet.mssprotocol.com
+- mssprotocol.com / www -> api.mssprotocol.com
+
+Local and Codespaces environments continue to use the local API port.
+*/
 export function getApiBase() {
 const { protocol, hostname } = window.location
 const override = cleanText(window.__API_BASE__ || "", 1000)
@@ -430,8 +437,6 @@ LEGACY_ADMIN_STORAGE_KEYS.forEach((storageKey) => {
 localStorage.removeItem(storageKey)
 })
 } catch {}
-
-LEGACY_BROWSER_ADMIN_HEADERS.forEach(() => {})
 }
 
 /*
