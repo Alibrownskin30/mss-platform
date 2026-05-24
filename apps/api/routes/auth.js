@@ -1,10 +1,12 @@
 import express from "express"
-import db from "../db/index.js"
+import bcrypt from "bcryptjs"
 import crypto from "node:crypto"
 import { promisify } from "node:util"
 import bs58 from "bs58"
 import nacl from "tweetnacl"
 import { PublicKey } from "@solana/web3.js"
+import db from "../db/index.js"
+import { db as scannerDb } from "../db.js"
 
 const router = express.Router()
 
@@ -13,6 +15,10 @@ const scryptAsync = promisify(crypto.scrypt)
 const AUTH_COOKIE_NAME = "mss_auth"
 const AUTH_SESSION_TTL_SEC = 60 * 60 * 24 * 14
 const WALLET_CHALLENGE_TTL_SEC = 60 * 10
+
+const LEGACY_LINK_METHOD_MIGRATED_LOGIN = "verified_legacy_login_migration"
+const LEGACY_LINK_METHOD_EXISTING_ACCOUNT = "verified_existing_account_password"
+const LEGACY_LINK_METHOD_MANUAL_CLAIM = "verified_manual_legacy_claim"
 
 const AUTH_SECRET =
 cleanText(
@@ -32,7 +38,14 @@ cleanText(process.env.MSS_AUTH_COOKIE_SAMESITE || "Lax", 20) || "Lax"
 
 const USER_STATUS_SET = new Set(["active", "disabled", "suspended"])
 const USER_ROLE_SET = new Set(["user", "admin", "support"])
-const ENTITLEMENT_STATUS_SET = new Set(["active", "expired", "revoked", "scheduled"])
+const ENTITLEMENT_STATUS_SET = new Set([
+"active",
+"expired",
+"revoked",
+"scheduled",
+])
+
+let legacyUsersTableWarningLogged = false
 
 function cleanText(value, max = 500) {
 return String(value ?? "").trim().slice(0, max)
@@ -45,18 +58,29 @@ if (value === 0 || value === "0" || value === "false") return false
 return fallback
 }
 
+function parsePositiveInt(value, fallback = null) {
+const parsed = Number.parseInt(value, 10)
+return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback
+}
+
 function nowIso() {
 return new Date().toISOString()
 }
 
 function addSecondsToIso(baseIso, seconds = 0) {
 const ts = new Date(baseIso || Date.now()).getTime()
-return new Date(ts + Math.max(0, Number(seconds) || 0) * 1000).toISOString()
+
+return new Date(
+ts + Math.max(0, Number(seconds) || 0) * 1000
+).toISOString()
 }
 
 function addDaysToIso(baseIso, days = 0) {
 const ts = new Date(baseIso || Date.now()).getTime()
-return new Date(ts + Math.max(0, Number(days) || 0) * 24 * 60 * 60 * 1000).toISOString()
+
+return new Date(
+ts + Math.max(0, Number(days) || 0) * 24 * 60 * 60 * 1000
+).toISOString()
 }
 
 function normalizeEmail(email) {
@@ -65,9 +89,11 @@ return cleanText(email, 320).toLowerCase()
 
 function normalizeDisplayName(value, email = "") {
 const cleaned = cleanText(value, 120)
+
 if (cleaned) return cleaned
 
 const safeEmail = normalizeEmail(email)
+
 if (!safeEmail.includes("@")) return ""
 
 return cleanText(safeEmail.split("@")[0], 120)
@@ -75,11 +101,13 @@ return cleanText(safeEmail.split("@")[0], 120)
 
 function isValidEmail(email) {
 const value = normalizeEmail(email)
+
 return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value)
 }
 
 function isValidPassword(password) {
 const value = String(password ?? "")
+
 return value.length >= 8 && value.length <= 200
 }
 
@@ -95,6 +123,25 @@ function normalizeWalletLabel(value) {
 return cleanText(value, 80)
 }
 
+function createAuthError(message, statusCode = 400, code = "") {
+const error = new Error(message)
+
+error.statusCode = statusCode
+error.code = cleanText(code, 120) || null
+
+return error
+}
+
+function sendAuthError(res, error, fallbackError, fallbackStatus = 500) {
+const statusCode = Number(error?.statusCode || fallbackStatus)
+
+return res.status(statusCode).json({
+ok: false,
+error: error?.message || fallbackError,
+code: error?.code || null,
+})
+}
+
 function toBase64Url(input) {
 return Buffer.from(input)
 .toString("base64")
@@ -107,7 +154,10 @@ function fromBase64Url(input) {
 const safe = String(input ?? "")
 .replace(/-/g, "+")
 .replace(/_/g, "/")
-const pad = safe.length % 4 === 0 ? "" : "=".repeat(4 - (safe.length % 4))
+
+const pad =
+safe.length % 4 === 0 ? "" : "=".repeat(4 - (safe.length % 4))
+
 return Buffer.from(`${safe}${pad}`, "base64")
 }
 
@@ -120,17 +170,21 @@ crypto.createHmac("sha256", AUTH_SECRET).update(String(value)).digest()
 function createSignedToken(payload = {}) {
 const body = toBase64Url(JSON.stringify(payload))
 const signature = signValue(body)
+
 return `${body}.${signature}`
 }
 
 function verifySignedToken(token, expectedKind = "") {
 const raw = cleanText(token, 10000)
+
 if (!raw || !raw.includes(".")) return null
 
 const parts = raw.split(".")
+
 if (parts.length !== 2) return null
 
 const [body, signature] = parts
+
 if (!body || !signature) return null
 
 const expectedSignature = signValue(body)
@@ -141,6 +195,7 @@ if (left.length !== right.length) return null
 if (!crypto.timingSafeEqual(left, right)) return null
 
 let payload = null
+
 try {
 payload = JSON.parse(fromBase64Url(body).toString("utf8"))
 } catch {
@@ -151,7 +206,10 @@ if (!payload || typeof payload !== "object") return null
 if (expectedKind && cleanText(payload.kind, 64) !== expectedKind) return null
 
 const exp = Number(payload.exp || 0)
-if (!Number.isFinite(exp) || exp <= Math.floor(Date.now() / 1000)) return null
+
+if (!Number.isFinite(exp) || exp <= Math.floor(Date.now() / 1000)) {
+return null
+}
 
 return payload
 }
@@ -161,12 +219,15 @@ const out = {}
 
 for (const chunk of String(header || "").split(";")) {
 const index = chunk.indexOf("=")
+
 if (index === -1) continue
 
 const key = chunk.slice(0, index).trim()
 const value = chunk.slice(index + 1).trim()
 
-if (key) out[key] = decodeURIComponent(value)
+if (key) {
+out[key] = decodeURIComponent(value)
+}
 }
 
 return out
@@ -175,9 +236,11 @@ return out
 function getAuthTokenFromRequest(req) {
 const cookies = parseCookieHeader(req?.headers?.cookie || "")
 const cookieToken = cleanText(cookies[AUTH_COOKIE_NAME], 12000)
+
 if (cookieToken) return cookieToken
 
 const authHeader = cleanText(req?.headers?.authorization, 12000)
+
 if (authHeader.toLowerCase().startsWith("bearer ")) {
 return cleanText(authHeader.slice(7), 12000)
 }
@@ -202,7 +265,8 @@ res.setHeader("Set-Cookie", [current, cookieValue])
 }
 
 function buildCookieParts({ token = "", maxAge = 0 } = {}) {
-const secure = String(process.env.NODE_ENV || "").toLowerCase() === "production"
+const secure =
+String(process.env.NODE_ENV || "").toLowerCase() === "production"
 
 return [
 `${AUTH_COOKIE_NAME}=${encodeURIComponent(token)}`,
@@ -216,30 +280,481 @@ secure ? "Secure" : "",
 }
 
 function setAuthCookie(res, token) {
-appendSetCookie(res, buildCookieParts({ token, maxAge: AUTH_SESSION_TTL_SEC }).join("; "))
+appendSetCookie(
+res,
+buildCookieParts({
+token,
+maxAge: AUTH_SESSION_TTL_SEC,
+}).join("; ")
+)
 }
 
 function clearAuthCookie(res) {
-appendSetCookie(res, buildCookieParts({ token: "", maxAge: 0 }).join("; "))
+appendSetCookie(
+res,
+buildCookieParts({
+token: "",
+maxAge: 0,
+}).join("; ")
+)
 }
 
 async function hashPassword(password) {
 const salt = crypto.randomBytes(16)
 const derived = await scryptAsync(String(password), salt, 64)
+
 return `scrypt$${toBase64Url(salt)}$${toBase64Url(derived)}`
 }
 
 async function verifyPassword(password, passwordHash) {
 const raw = cleanText(passwordHash, 1000)
 const parts = raw.split("$")
-if (parts.length !== 3 || parts[0] !== "scrypt") return false
+
+if (parts.length !== 3 || parts[0] !== "scrypt") {
+return false
+}
 
 const salt = fromBase64Url(parts[1])
 const expected = fromBase64Url(parts[2])
 const derived = await scryptAsync(String(password), salt, expected.length)
 
 if (derived.length !== expected.length) return false
+
 return crypto.timingSafeEqual(Buffer.from(derived), Buffer.from(expected))
+}
+
+function isMissingLegacyUsersTableError(error) {
+const message = String(error?.message || error || "").toLowerCase()
+
+return (
+message.includes("no such table") &&
+message.includes("users")
+)
+}
+
+function getLegacyScannerUserByEmail(email) {
+const safeEmail = normalizeEmail(email)
+
+if (!safeEmail) return null
+
+try {
+return (
+scannerDb
+.prepare(
+`
+SELECT id, email, password_hash
+FROM users
+WHERE email = ?
+LIMIT 1
+`
+)
+.get(safeEmail) || null
+)
+} catch (error) {
+if (isMissingLegacyUsersTableError(error)) {
+if (!legacyUsersTableWarningLogged) {
+legacyUsersTableWarningLogged = true
+console.warn(
+"Legacy Scanner Alerts users table was not found. Legacy account bridging is unavailable in this environment."
+)
+}
+
+return null
+}
+
+console.error("Failed to query legacy Scanner Alerts account", error)
+
+throw createAuthError(
+"Unable to verify existing Scanner Alerts account state.",
+500,
+"legacy_scanner_lookup_failed"
+)
+}
+}
+
+async function verifyLegacyScannerPassword(password, legacyUser) {
+if (!legacyUser?.password_hash) return false
+
+try {
+return await bcrypt.compare(
+String(password ?? ""),
+String(legacyUser.password_hash)
+)
+} catch {
+return false
+}
+}
+
+async function getUserRowById(userId) {
+const id = parsePositiveInt(userId, null)
+
+if (!id) return null
+
+return db.get(
+`
+SELECT *
+FROM mss_users
+WHERE id = ?
+LIMIT 1
+`,
+[id]
+)
+}
+
+async function getUserRowByEmail(email) {
+const safeEmail = normalizeEmail(email)
+
+if (!safeEmail) return null
+
+return db.get(
+`
+SELECT *
+FROM mss_users
+WHERE email = ?
+LIMIT 1
+`,
+[safeEmail]
+)
+}
+
+async function getUserRowByLegacyScannerId(legacyScannerUserId) {
+const legacyId = parsePositiveInt(legacyScannerUserId, null)
+
+if (!legacyId) return null
+
+return db.get(
+`
+SELECT *
+FROM mss_users
+WHERE legacy_scanner_user_id = ?
+LIMIT 1
+`,
+[legacyId]
+)
+}
+
+function getLegacyScannerUserIdFromRow(row) {
+return parsePositiveInt(row?.legacy_scanner_user_id, null)
+}
+
+async function linkLegacyScannerUserToMssUser({
+mssUserId,
+legacyUser,
+linkMethod,
+} = {}) {
+const safeMssUserId = parsePositiveInt(mssUserId, null)
+const legacyScannerUserId = parsePositiveInt(legacyUser?.id, null)
+const safeLinkMethod =
+cleanText(linkMethod, 120) || LEGACY_LINK_METHOD_MANUAL_CLAIM
+
+if (!safeMssUserId || !legacyScannerUserId) {
+throw createAuthError(
+"Unable to link existing Scanner Alerts account.",
+400,
+"legacy_scanner_link_invalid"
+)
+}
+
+await db.run("BEGIN IMMEDIATE")
+
+try {
+const existingMssUser = await getUserRowById(safeMssUserId)
+
+if (!existingMssUser) {
+throw createAuthError(
+"Sentinel account was not found.",
+404,
+"sentinel_account_not_found"
+)
+}
+
+const existingLegacyId = getLegacyScannerUserIdFromRow(existingMssUser)
+
+if (
+existingLegacyId &&
+existingLegacyId !== legacyScannerUserId
+) {
+throw createAuthError(
+"This Sentinel account is already linked to another Scanner Alerts account.",
+409,
+"sentinel_account_already_bridged"
+)
+}
+
+const existingOwner = await getUserRowByLegacyScannerId(
+legacyScannerUserId
+)
+
+if (
+existingOwner &&
+Number(existingOwner.id) !== safeMssUserId
+) {
+throw createAuthError(
+"This existing Scanner Alerts account is already linked to another Sentinel account.",
+409,
+"legacy_scanner_account_already_linked"
+)
+}
+
+await db.run(
+`
+UPDATE mss_users
+SET
+legacy_scanner_user_id = ?,
+legacy_scanner_linked_at = COALESCE(legacy_scanner_linked_at, CURRENT_TIMESTAMP),
+legacy_scanner_link_method = ?,
+updated_at = CURRENT_TIMESTAMP
+WHERE id = ?
+`,
+[legacyScannerUserId, safeLinkMethod, safeMssUserId]
+)
+
+await db.run("COMMIT")
+
+return true
+} catch (error) {
+try {
+await db.run("ROLLBACK")
+} catch {}
+
+throw error
+}
+}
+
+async function createMssUserFromLegacyScannerAccount({
+legacyUser,
+password,
+displayName = "",
+} = {}) {
+const legacyScannerUserId = parsePositiveInt(legacyUser?.id, null)
+const email = normalizeEmail(legacyUser?.email)
+
+if (!legacyScannerUserId || !email) {
+throw createAuthError(
+"Existing Scanner Alerts account could not be migrated.",
+400,
+"legacy_scanner_account_invalid"
+)
+}
+
+const passwordHash = await hashPassword(password)
+const loginAt = nowIso()
+let userId = null
+
+await db.run("BEGIN IMMEDIATE")
+
+try {
+const existingByEmail = await getUserRowByEmail(email)
+
+if (existingByEmail) {
+throw createAuthError(
+"An MSS Sentinel account already exists for this email. Sign in using that account.",
+409,
+"sentinel_account_already_exists"
+)
+}
+
+const existingLegacyOwner = await getUserRowByLegacyScannerId(
+legacyScannerUserId
+)
+
+if (existingLegacyOwner) {
+throw createAuthError(
+"This existing Scanner Alerts account is already linked to another Sentinel account.",
+409,
+"legacy_scanner_account_already_linked"
+)
+}
+
+const insertResult = await db.run(
+`
+INSERT INTO mss_users (
+email,
+password_hash,
+display_name,
+status,
+role,
+email_verified,
+last_login_at,
+legacy_scanner_user_id,
+legacy_scanner_linked_at,
+legacy_scanner_link_method,
+created_at,
+updated_at
+) VALUES (?, ?, ?, 'active', 'user', 0, ?, ?, CURRENT_TIMESTAMP, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+`,
+[
+email,
+passwordHash,
+normalizeDisplayName(displayName, email) || null,
+loginAt,
+legacyScannerUserId,
+LEGACY_LINK_METHOD_MIGRATED_LOGIN,
+]
+)
+
+userId =
+Number(insertResult?.lastID || 0) ||
+Number(insertResult?.lastId || 0) ||
+Number(insertResult?.insertId || 0) ||
+null
+
+if (!userId) {
+throw new Error("Migrated Sentinel account id was not returned.")
+}
+
+await db.run("COMMIT")
+} catch (error) {
+try {
+await db.run("ROLLBACK")
+} catch {}
+
+throw error
+}
+
+return {
+userId,
+loginAt,
+}
+}
+
+async function getLegacyBridgeStateForUser(userOrRow) {
+const userId = parsePositiveInt(userOrRow?.id, null)
+
+if (!userId) {
+return {
+legacy_scanner_account_found: false,
+legacy_scanner_linked: false,
+legacy_scanner_link_required: false,
+alert_history_available: false,
+link_method: null,
+linked_at: null,
+}
+}
+
+const userRow =
+getLegacyScannerUserIdFromRow(userOrRow)
+? userOrRow
+: await getUserRowById(userId)
+
+if (!userRow) {
+return {
+legacy_scanner_account_found: false,
+legacy_scanner_linked: false,
+legacy_scanner_link_required: false,
+alert_history_available: false,
+link_method: null,
+linked_at: null,
+}
+}
+
+const linkedLegacyId = getLegacyScannerUserIdFromRow(userRow)
+
+if (linkedLegacyId) {
+return {
+legacy_scanner_account_found: true,
+legacy_scanner_linked: true,
+legacy_scanner_link_required: false,
+alert_history_available: true,
+link_method: cleanText(userRow.legacy_scanner_link_method, 120) || null,
+linked_at: userRow.legacy_scanner_linked_at || null,
+}
+}
+
+const legacyUser = getLegacyScannerUserByEmail(userRow.email)
+const legacyExists = Boolean(legacyUser?.id)
+
+return {
+legacy_scanner_account_found: legacyExists,
+legacy_scanner_linked: false,
+legacy_scanner_link_required: legacyExists,
+alert_history_available: false,
+link_method: null,
+linked_at: null,
+}
+}
+
+async function attemptAutomaticLegacyBridge({
+userRow,
+password,
+} = {}) {
+if (!userRow?.id) {
+return {
+legacy_scanner_account_found: false,
+legacy_scanner_linked: false,
+legacy_scanner_link_required: false,
+newly_linked: false,
+alert_history_available: false,
+}
+}
+
+const linkedLegacyId = getLegacyScannerUserIdFromRow(userRow)
+
+if (linkedLegacyId) {
+return {
+legacy_scanner_account_found: true,
+legacy_scanner_linked: true,
+legacy_scanner_link_required: false,
+newly_linked: false,
+alert_history_available: true,
+}
+}
+
+const legacyUser = getLegacyScannerUserByEmail(userRow.email)
+
+if (!legacyUser) {
+return {
+legacy_scanner_account_found: false,
+legacy_scanner_linked: false,
+legacy_scanner_link_required: false,
+newly_linked: false,
+alert_history_available: false,
+}
+}
+
+const verified = await verifyLegacyScannerPassword(password, legacyUser)
+
+if (!verified) {
+return {
+legacy_scanner_account_found: true,
+legacy_scanner_linked: false,
+legacy_scanner_link_required: true,
+newly_linked: false,
+alert_history_available: false,
+requires_legacy_password_verification: true,
+}
+}
+
+try {
+await linkLegacyScannerUserToMssUser({
+mssUserId: userRow.id,
+legacyUser,
+linkMethod: LEGACY_LINK_METHOD_EXISTING_ACCOUNT,
+})
+
+return {
+legacy_scanner_account_found: true,
+legacy_scanner_linked: true,
+legacy_scanner_link_required: false,
+newly_linked: true,
+alert_history_available: true,
+}
+} catch (error) {
+if (
+error?.code === "legacy_scanner_account_already_linked"
+) {
+return {
+legacy_scanner_account_found: true,
+legacy_scanner_linked: false,
+legacy_scanner_link_required: true,
+newly_linked: false,
+alert_history_available: false,
+conflict: true,
+}
+}
+
+throw error
+}
 }
 
 function buildSessionToken(user) {
@@ -297,7 +812,10 @@ function parseWalletLinkMessage(message) {
 const raw = String(message ?? "")
 const lines = raw.split("\n").map((line) => line.trim())
 
-if (!lines.length || cleanText(lines[0], 200) !== "MSS Protocol Sentinel Wallet Link") {
+if (
+!lines.length ||
+cleanText(lines[0], 200) !== "MSS Protocol Sentinel Wallet Link"
+) {
 return null
 }
 
@@ -305,12 +823,15 @@ const map = {}
 
 for (const line of lines) {
 const index = line.indexOf(":")
+
 if (index === -1) continue
 
 const key = cleanText(line.slice(0, index), 64).toLowerCase()
 const value = cleanText(line.slice(index + 1), 1000)
 
-if (key) map[key] = value
+if (key) {
+map[key] = value
+}
 }
 
 const account = normalizeEmail(map.account || "")
@@ -320,7 +841,14 @@ const nonce = cleanText(map.nonce, 128)
 const issuedAt = cleanText(map["issued at"], 64)
 const expiresAt = cleanText(map["expires at"], 64)
 
-if (!account || !walletAddress || purpose !== "link_wallet" || !nonce || !issuedAt || !expiresAt) {
+if (
+!account ||
+!walletAddress ||
+purpose !== "link_wallet" ||
+!nonce ||
+!issuedAt ||
+!expiresAt
+) {
 return null
 }
 
@@ -337,6 +865,7 @@ expires_at: expiresAt,
 function validateSolanaWalletAddress(walletAddress) {
 try {
 const key = new PublicKey(walletAddress)
+
 return key.toBase58()
 } catch {
 return null
@@ -362,7 +891,10 @@ if (normalizedEncoding === "hex") {
 return new Uint8Array(Buffer.from(raw, "hex"))
 }
 
-if (normalizedEncoding === "bs58" || normalizedEncoding === "base58") {
+if (
+normalizedEncoding === "bs58" ||
+normalizedEncoding === "base58"
+) {
 return new Uint8Array(bs58.decode(raw))
 }
 
@@ -393,13 +925,23 @@ signatureEncoding = "",
 try {
 const publicKey = new PublicKey(walletAddress).toBytes()
 const messageBytes = Buffer.from(String(message), "utf8")
-const signatureBytes = decodeSignatureBytes(signature, signatureEncoding)
+const signatureBytes = decodeSignatureBytes(
+signature,
+signatureEncoding
+)
 
-if (!signatureBytes || signatureBytes.length !== nacl.sign.signatureLength) {
+if (
+!signatureBytes ||
+signatureBytes.length !== nacl.sign.signatureLength
+) {
 return false
 }
 
-return nacl.sign.detached.verify(messageBytes, signatureBytes, publicKey)
+return nacl.sign.detached.verify(
+messageBytes,
+signatureBytes,
+publicKey
+)
 } catch {
 return false
 }
@@ -426,14 +968,35 @@ return "sentinel_standard"
 
 function isEntitlementActiveNow(row) {
 if (!row) return false
-if (cleanText(row.status, 32).toLowerCase() !== "active") return false
+
+if (cleanText(row.status, 32).toLowerCase() !== "active") {
+return false
+}
 
 const now = Date.now()
-const startsAt = row.starts_at ? new Date(row.starts_at).getTime() : null
-const endsAt = row.ends_at ? new Date(row.ends_at).getTime() : null
+const startsAt = row.starts_at
+? new Date(row.starts_at).getTime()
+: null
 
-if (startsAt && !Number.isNaN(startsAt) && startsAt > now) return false
-if (endsAt && !Number.isNaN(endsAt) && endsAt <= now) return false
+const endsAt = row.ends_at
+? new Date(row.ends_at).getTime()
+: null
+
+if (
+startsAt &&
+!Number.isNaN(startsAt) &&
+startsAt > now
+) {
+return false
+}
+
+if (
+endsAt &&
+!Number.isNaN(endsAt) &&
+endsAt <= now
+) {
+return false
+}
 
 return true
 }
@@ -443,6 +1006,9 @@ if (!row) return null
 
 const status = cleanText(row.status, 32).toLowerCase()
 const role = cleanText(row.role, 32).toLowerCase()
+const legacyScannerLinked = Boolean(
+getLegacyScannerUserIdFromRow(row)
+)
 
 return {
 id: Number(row.id || 0),
@@ -455,6 +1021,14 @@ email_verified_at: row.email_verified_at || null,
 last_login_at: row.last_login_at || null,
 created_at: row.created_at || null,
 updated_at: row.updated_at || null,
+
+legacy_scanner_linked: legacyScannerLinked,
+legacy_scanner_linked_at: legacyScannerLinked
+? row.legacy_scanner_linked_at || null
+: null,
+legacy_scanner_link_method: legacyScannerLinked
+? cleanText(row.legacy_scanner_link_method, 120) || null
+: null,
 }
 }
 
@@ -477,7 +1051,10 @@ function serializeEntitlement(row) {
 if (!row) return null
 
 const status = cleanText(row.status, 32).toLowerCase()
-const normalizedStatus = ENTITLEMENT_STATUS_SET.has(status) ? status : "active"
+const normalizedStatus = ENTITLEMENT_STATUS_SET.has(status)
+? status
+: "active"
+
 const startsAt = row.starts_at || null
 const endsAt = row.ends_at || null
 const planKey = cleanText(row.plan_key, 120) || "sentinel_trial"
@@ -486,9 +1063,15 @@ return {
 id: Number(row.id || 0),
 user_id: Number(row.user_id || 0),
 source_type: cleanText(row.source_type, 32) || "code",
-source_code_id: row.source_code_id == null ? null : Number(row.source_code_id),
+source_code_id:
+row.source_code_id == null
+? null
+: Number(row.source_code_id),
+
 plan_key: planKey,
-access_tier: cleanText(row.access_tier, 64) || "sentinel_standard",
+access_tier:
+cleanText(row.access_tier, 64) || "sentinel_standard",
+
 status: normalizedStatus,
 starts_at: startsAt,
 ends_at: endsAt,
@@ -499,7 +1082,10 @@ updated_at: row.updated_at || null,
 
 product: "sentinel_access",
 plan: planKey,
-is_active: normalizedStatus === "active" && isEntitlementActiveNow(row),
+is_active:
+normalizedStatus === "active" &&
+isEntitlementActiveNow(row),
+
 expires_at: endsAt,
 }
 }
@@ -519,6 +1105,7 @@ AND datetime(ends_at) <= datetime(CURRENT_TIMESTAMP)
 `,
 [userId]
 )
+
 return
 }
 
@@ -536,52 +1123,15 @@ AND datetime(ends_at) <= datetime(CURRENT_TIMESTAMP)
 }
 
 async function getUserById(userId) {
-const id = Number(userId || 0)
-if (!id) return null
-
-const row = await db.get(
-`
-SELECT *
-FROM mss_users
-WHERE id = ?
-LIMIT 1
-`,
-[id]
-)
+const row = await getUserRowById(userId)
 
 return serializeUser(row)
 }
 
 async function getUserByEmail(email) {
-const safeEmail = normalizeEmail(email)
-if (!safeEmail) return null
-
-const row = await db.get(
-`
-SELECT *
-FROM mss_users
-WHERE email = ?
-LIMIT 1
-`,
-[safeEmail]
-)
+const row = await getUserRowByEmail(email)
 
 return serializeUser(row)
-}
-
-async function getUserRowByEmail(email) {
-const safeEmail = normalizeEmail(email)
-if (!safeEmail) return null
-
-return db.get(
-`
-SELECT *
-FROM mss_users
-WHERE email = ?
-LIMIT 1
-`,
-[safeEmail]
-)
 }
 
 async function getActiveWalletForUser(userId) {
@@ -636,7 +1186,9 @@ LIMIT ?
 [userId, safeLimit]
 )
 
-return (rows || []).map(serializeEntitlement).filter(Boolean)
+return (rows || [])
+.map(serializeEntitlement)
+.filter(Boolean)
 }
 
 async function getActiveEntitlementForUser(userId) {
@@ -654,26 +1206,45 @@ LIMIT 10
 [userId]
 )
 
-const entitlements = (rows || []).map(serializeEntitlement).filter(Boolean)
+const entitlements = (rows || [])
+.map(serializeEntitlement)
+.filter(Boolean)
+
 return entitlements.find((item) => item.is_active) || null
 }
 
 async function getSessionUserFromRequest(req) {
 const token = getAuthTokenFromRequest(req)
 const session = verifySignedToken(token, "mss_session")
+
 if (!session) return null
 
-const user = await getUserById(session.user_id)
-if (!user) return null
+const userRow = await getUserRowById(session.user_id)
+const user = serializeUser(userRow)
+
+if (!user || !userRow) return null
 if (user.status !== "active") return null
-if (normalizeEmail(user.email) !== normalizeEmail(session.email)) return null
+
+if (
+normalizeEmail(user.email) !== normalizeEmail(session.email)
+) {
+return null
+}
 
 const tokenLoginAt = cleanText(session.login_at, 64)
 const userLoginAt = cleanText(user.last_login_at, 64)
-if (!tokenLoginAt || !userLoginAt || tokenLoginAt !== userLoginAt) return null
+
+if (
+!tokenLoginAt ||
+!userLoginAt ||
+tokenLoginAt !== userLoginAt
+) {
+return null
+}
 
 const activeWallet = await getActiveWalletForUser(user.id)
 const activeEntitlement = await getActiveEntitlementForUser(user.id)
+const alertUserId = getLegacyScannerUserIdFromRow(userRow)
 
 return {
 user,
@@ -681,7 +1252,17 @@ active_wallet: activeWallet,
 active_entitlement: activeEntitlement,
 has_sentinel_access: Boolean(activeEntitlement),
 has_linked_wallet: Boolean(activeWallet),
-can_continue_to_sentinel: Boolean(activeEntitlement && activeWallet),
+can_continue_to_sentinel: Boolean(
+activeEntitlement && activeWallet
+),
+
+/*
+Internal compatibility value for server.js.
+This must be used for legacy alerts queries rather than req.user.id.
+Do not rely on the new mss_users.id against Scanner Alerts tables.
+*/
+alert_user_id: alertUserId,
+legacy_scanner_linked: Boolean(alertUserId),
 }
 }
 
@@ -691,6 +1272,7 @@ const auth = await getSessionUserFromRequest(req)
 
 if (!auth?.user) {
 clearAuthCookie(res)
+
 return res.status(401).json({
 ok: false,
 error: "Authentication required",
@@ -701,10 +1283,12 @@ req.auth = auth
 req.user = auth.user
 req.active_wallet = auth.active_wallet
 req.active_entitlement = auth.active_entitlement
+req.alert_user_id = auth.alert_user_id
 
 return next()
 } catch (error) {
 console.error("Auth middleware failed", error)
+
 return res.status(500).json({
 ok: false,
 error: "Authentication failed",
@@ -719,6 +1303,7 @@ const auth = await getSessionUserFromRequest(req)
 
 if (!auth?.user) {
 clearAuthCookie(res)
+
 return res.status(401).json({
 ok: false,
 error: "Authentication required",
@@ -743,10 +1328,12 @@ req.auth = auth
 req.user = auth.user
 req.active_wallet = auth.active_wallet
 req.active_entitlement = auth.active_entitlement
+req.alert_user_id = auth.alert_user_id
 
 return next()
 } catch (error) {
 console.error("Sentinel access middleware failed", error)
+
 return res.status(500).json({
 ok: false,
 error: "Sentinel access validation failed",
@@ -756,16 +1343,26 @@ message: error?.message || String(error),
 }
 
 async function buildAuthResponse(userId) {
-const user = await getUserById(userId)
-if (!user) return buildUnauthenticatedResponse()
+const userRow = await getUserRowById(userId)
+const user = serializeUser(userRow)
+
+if (!user || !userRow) {
+return buildUnauthenticatedResponse()
+}
 
 const activeWallet = await getActiveWalletForUser(userId)
 const wallets = await listWalletsForUser(userId, 20)
 const entitlements = await listEntitlementsForUser(userId, 20)
-const activeEntitlement = entitlements.find((item) => item.is_active) || null
+const activeEntitlement =
+entitlements.find((item) => item.is_active) || null
+
 const hasSentinelAccess = Boolean(activeEntitlement)
 const hasLinkedWallet = Boolean(activeWallet)
-const canContinue = Boolean(hasSentinelAccess && hasLinkedWallet)
+const canContinue = Boolean(
+hasSentinelAccess && hasLinkedWallet
+)
+
+const legacyBridge = await getLegacyBridgeStateForUser(userRow)
 
 return {
 user,
@@ -781,6 +1378,16 @@ entitlements,
 has_sentinel_access: hasSentinelAccess,
 has_linked_wallet: hasLinkedWallet,
 can_continue_to_sentinel: canContinue,
+
+legacy_bridge: legacyBridge,
+legacy_scanner_account_found:
+Boolean(legacyBridge.legacy_scanner_account_found),
+legacy_scanner_linked:
+Boolean(legacyBridge.legacy_scanner_linked),
+legacy_scanner_link_required:
+Boolean(legacyBridge.legacy_scanner_link_required),
+alert_history_available:
+Boolean(legacyBridge.alert_history_available),
 
 access: {
 has_sentinel_access: hasSentinelAccess,
@@ -808,6 +1415,21 @@ entitlements: [],
 has_sentinel_access: false,
 has_linked_wallet: false,
 can_continue_to_sentinel: false,
+
+legacy_bridge: {
+legacy_scanner_account_found: false,
+legacy_scanner_linked: false,
+legacy_scanner_link_required: false,
+alert_history_available: false,
+link_method: null,
+linked_at: null,
+},
+
+legacy_scanner_account_found: false,
+legacy_scanner_linked: false,
+legacy_scanner_link_required: false,
+alert_history_available: false,
+
 access: {
 has_sentinel_access: false,
 has_linked_wallet: false,
@@ -817,6 +1439,52 @@ entitlements: [],
 continue_url: "/sentinel.html",
 },
 }
+}
+
+async function createAuthenticatedResponse(
+res,
+userId,
+{
+statusCode = 200,
+legacyMigration = false,
+legacyBridge = null,
+} = {}
+) {
+const loginAt = nowIso()
+
+await db.run(
+`
+UPDATE mss_users
+SET
+last_login_at = ?,
+updated_at = CURRENT_TIMESTAMP
+WHERE id = ?
+`,
+[loginAt, userId]
+)
+
+const freshUser = await getUserById(userId)
+
+if (!freshUser) {
+throw new Error("Authenticated account could not be loaded.")
+}
+
+const sessionToken = buildSessionToken({
+...freshUser,
+last_login_at: loginAt,
+})
+
+setAuthCookie(res, sessionToken)
+
+const payload = await buildAuthResponse(userId)
+
+return res.status(statusCode).json({
+ok: true,
+authenticated: true,
+legacy_account_migrated: Boolean(legacyMigration),
+legacy_bridge_login_result: legacyBridge || null,
+...payload,
+})
 }
 
 async function redeemAccessCodeForUser(userId, codeInput) {
@@ -854,14 +1522,28 @@ throw new Error("Access code is not assigned to this account.")
 }
 
 const now = Date.now()
-const startsAtTs = codeRow.starts_at ? new Date(codeRow.starts_at).getTime() : null
-const expiresAtTs = codeRow.expires_at ? new Date(codeRow.expires_at).getTime() : null
 
-if (startsAtTs && !Number.isNaN(startsAtTs) && startsAtTs > now) {
+const startsAtTs = codeRow.starts_at
+? new Date(codeRow.starts_at).getTime()
+: null
+
+const expiresAtTs = codeRow.expires_at
+? new Date(codeRow.expires_at).getTime()
+: null
+
+if (
+startsAtTs &&
+!Number.isNaN(startsAtTs) &&
+startsAtTs > now
+) {
 throw new Error("Access code is not active yet.")
 }
 
-if (expiresAtTs && !Number.isNaN(expiresAtTs) && expiresAtTs <= now) {
+if (
+expiresAtTs &&
+!Number.isNaN(expiresAtTs) &&
+expiresAtTs <= now
+) {
 throw new Error("Access code has expired.")
 }
 
@@ -878,13 +1560,18 @@ LIMIT 1
 )
 
 if (priorRedemption) {
-throw new Error("This access code has already been redeemed on this account.")
+throw new Error(
+"This access code has already been redeemed on this account."
+)
 }
 
 const maxRedemptions = Number(codeRow.max_redemptions || 0)
 const redeemedCount = Number(codeRow.redeemed_count || 0)
 
-if (maxRedemptions > 0 && redeemedCount >= maxRedemptions) {
+if (
+maxRedemptions > 0 &&
+redeemedCount >= maxRedemptions
+) {
 throw new Error("Access code redemption limit has been reached.")
 }
 
@@ -900,29 +1587,51 @@ LIMIT 1
 [userId]
 )
 
-const activeEntitlement = serializeEntitlement(activeEntitlementRow)
+const activeEntitlement = serializeEntitlement(
+activeEntitlementRow
+)
 
-if (activeEntitlement?.ends_at == null && activeEntitlement?.is_active) {
+if (
+activeEntitlement?.ends_at == null &&
+activeEntitlement?.is_active
+) {
 throw new Error("This account already has permanent Sentinel access.")
 }
 
-const durationDays = Math.max(0, Number(codeRow.duration_days || 0))
+const durationDays = Math.max(
+0,
+Number(codeRow.duration_days || 0)
+)
+
 const derivedTier = resolveAccessTierFromCode(codeRow)
-const trialFlag = cleanText(codeRow.code_type, 64).toLowerCase() === "trial" ? 1 : 0
-const planKey = cleanText(codeRow.plan_key, 120) || "sentinel_trial"
+
+const trialFlag =
+cleanText(codeRow.code_type, 64).toLowerCase() === "trial"
+? 1
+: 0
+
+const planKey =
+cleanText(codeRow.plan_key, 120) || "sentinel_trial"
 
 let entitlementId = null
 
 await db.run("BEGIN IMMEDIATE")
 
 try {
-if (activeEntitlement?.id && activeEntitlement.is_active) {
+if (
+activeEntitlement?.id &&
+activeEntitlement.is_active
+) {
 const extensionBase =
-activeEntitlement.ends_at && new Date(activeEntitlement.ends_at).getTime() > Date.now()
+activeEntitlement.ends_at &&
+new Date(activeEntitlement.ends_at).getTime() > Date.now()
 ? activeEntitlement.ends_at
 : nowIso()
 
-const nextEndsAt = durationDays > 0 ? addDaysToIso(extensionBase, durationDays) : null
+const nextEndsAt =
+durationDays > 0
+? addDaysToIso(extensionBase, durationDays)
+: null
 
 await db.run(
 `
@@ -955,7 +1664,11 @@ activeEntitlement.id,
 entitlementId = activeEntitlement.id
 } else {
 const startsAt = nowIso()
-const endsAt = durationDays > 0 ? addDaysToIso(startsAt, durationDays) : null
+
+const endsAt =
+durationDays > 0
+? addDaysToIso(startsAt, durationDays)
+: null
 
 const insertResult = await db.run(
 `
@@ -1032,6 +1745,7 @@ await db.run("COMMIT")
 try {
 await db.run("ROLLBACK")
 } catch {}
+
 throw error
 }
 
@@ -1040,7 +1754,9 @@ return getActiveEntitlementForUser(userId)
 
 async function handleWalletChallenge(req, res) {
 try {
-const normalizedWallet = validateSolanaWalletAddress(req.body?.wallet_address)
+const normalizedWallet = validateSolanaWalletAddress(
+req.body?.wallet_address
+)
 
 if (!normalizedWallet) {
 return res.status(400).json({
@@ -1050,7 +1766,11 @@ error: "Valid Solana wallet address is required",
 }
 
 const issuedAt = nowIso()
-const expiresAt = addSecondsToIso(issuedAt, WALLET_CHALLENGE_TTL_SEC)
+const expiresAt = addSecondsToIso(
+issuedAt,
+WALLET_CHALLENGE_TTL_SEC
+)
+
 const nonce = crypto.randomBytes(16).toString("hex")
 
 const challengeToken = buildWalletChallengeToken({
@@ -1080,6 +1800,7 @@ expires_at: expiresAt,
 })
 } catch (error) {
 console.error("POST /api/auth/wallet/challenge failed", error)
+
 return res.status(500).json({
 ok: false,
 error: "Failed to create wallet challenge",
@@ -1093,11 +1814,23 @@ try {
 const walletAddress = validateSolanaWalletAddress(
 req.body?.wallet_address || req.body?.public_key
 )
-const challengeToken = cleanText(req.body?.challenge_token, 12000)
+
+const challengeToken = cleanText(
+req.body?.challenge_token,
+12000
+)
+
 const signature = cleanText(req.body?.signature, 12000)
-const signatureEncoding = cleanText(req.body?.signature_encoding, 32)
+const signatureEncoding = cleanText(
+req.body?.signature_encoding,
+32
+)
+
 const message = String(req.body?.message ?? "")
-const walletLabel = normalizeWalletLabel(req.body?.wallet_label || req.body?.walletLabel)
+
+const walletLabel = normalizeWalletLabel(
+req.body?.wallet_label || req.body?.walletLabel
+)
 
 if (!walletAddress || !signature || !message) {
 return res.status(400).json({
@@ -1111,7 +1844,10 @@ let issuedAt = ""
 let expiresAt = ""
 
 if (challengeToken) {
-const challenge = verifySignedToken(challengeToken, "wallet_link_challenge")
+const challenge = verifySignedToken(
+challengeToken,
+"wallet_link_challenge"
+)
 
 if (!challenge) {
 return res.status(400).json({
@@ -1120,14 +1856,19 @@ error: "Wallet challenge is invalid or expired",
 })
 }
 
-if (Number(challenge.user_id || 0) !== Number(req.user.id)) {
+if (
+Number(challenge.user_id || 0) !== Number(req.user.id)
+) {
 return res.status(403).json({
 ok: false,
 error: "Wallet challenge does not belong to this account",
 })
 }
 
-if (validateSolanaWalletAddress(challenge.wallet_address) !== walletAddress) {
+if (
+validateSolanaWalletAddress(challenge.wallet_address) !==
+walletAddress
+) {
 return res.status(400).json({
 ok: false,
 error: "Wallet challenge does not match the provided wallet",
@@ -1135,9 +1876,11 @@ error: "Wallet challenge does not match the provided wallet",
 }
 
 nonce = cleanText(challenge.nonce, 128)
+
 issuedAt =
 cleanText(challenge.issued_at, 64) ||
 new Date(Number(challenge.iat || 0) * 1000).toISOString()
+
 expiresAt =
 cleanText(challenge.expires_at, 64) ||
 new Date(Number(challenge.exp || 0) * 1000).toISOString()
@@ -1151,22 +1894,35 @@ error: "Signed wallet message is invalid",
 })
 }
 
-if (normalizeEmail(parsedMessage.account) !== normalizeEmail(req.user.email)) {
+if (
+normalizeEmail(parsedMessage.account) !==
+normalizeEmail(req.user.email)
+) {
 return res.status(403).json({
 ok: false,
 error: "Signed wallet message does not belong to this account",
 })
 }
 
-if (validateSolanaWalletAddress(parsedMessage.wallet_address) !== walletAddress) {
+if (
+validateSolanaWalletAddress(parsedMessage.wallet_address) !==
+walletAddress
+) {
 return res.status(400).json({
 ok: false,
 error: "Signed wallet message does not match the provided wallet",
 })
 }
 
-const expiresTs = new Date(parsedMessage.expires_at).getTime()
-if (!Number.isFinite(expiresTs) || Number.isNaN(expiresTs) || expiresTs <= Date.now()) {
+const expiresTs = new Date(
+parsedMessage.expires_at
+).getTime()
+
+if (
+!Number.isFinite(expiresTs) ||
+Number.isNaN(expiresTs) ||
+expiresTs <= Date.now()
+) {
 return res.status(400).json({
 ok: false,
 error: "Wallet challenge has expired",
@@ -1296,7 +2052,13 @@ created_at,
 updated_at
 ) VALUES (?, ?, ?, 'solana', 1, 1, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
 `,
-[req.user.id, walletAddress, walletLabel || null, signature, message]
+[
+req.user.id,
+walletAddress,
+walletLabel || null,
+signature,
+message,
+]
 )
 }
 
@@ -1305,6 +2067,7 @@ await db.run("COMMIT")
 try {
 await db.run("ROLLBACK")
 } catch {}
+
 throw error
 }
 
@@ -1317,6 +2080,7 @@ linked: true,
 })
 } catch (error) {
 console.error("POST /api/auth/wallet/link failed", error)
+
 return res.status(500).json({
 ok: false,
 error: "Failed to link wallet",
@@ -1331,6 +2095,7 @@ const auth = await getSessionUserFromRequest(req)
 
 if (!auth?.user) {
 clearAuthCookie(res)
+
 return res.json(buildUnauthenticatedResponse())
 }
 
@@ -1343,6 +2108,7 @@ authenticated: true,
 })
 } catch (error) {
 console.error("GET /api/auth/me failed", error)
+
 return res.status(500).json({
 ok: false,
 error: "Failed to load account state",
@@ -1357,6 +2123,7 @@ const auth = await getSessionUserFromRequest(req)
 
 if (!auth?.user) {
 clearAuthCookie(res)
+
 return res.json({
 ok: true,
 authenticated: false,
@@ -1368,6 +2135,14 @@ active_entitlement: null,
 entitlements: [],
 wallet: null,
 active_wallet: null,
+legacy_bridge: {
+legacy_scanner_account_found: false,
+legacy_scanner_linked: false,
+legacy_scanner_link_required: false,
+alert_history_available: false,
+link_method: null,
+linked_at: null,
+},
 })
 }
 
@@ -1380,6 +2155,7 @@ authenticated: true,
 })
 } catch (error) {
 console.error("GET /api/auth/access/status failed", error)
+
 return res.status(500).json({
 ok: false,
 error: "Failed to load access status",
@@ -1399,6 +2175,7 @@ authenticated: true,
 })
 } catch (error) {
 console.error("GET /api/auth/sentinel-access failed", error)
+
 return res.status(500).json({
 ok: false,
 error: "Failed to load Sentinel access",
@@ -1418,6 +2195,7 @@ authenticated: true,
 })
 } catch (error) {
 console.error("GET /api/auth/sentinel-gate failed", error)
+
 return res.status(500).json({
 ok: false,
 error: "Failed to load Sentinel gate",
@@ -1426,10 +2204,125 @@ message: error?.message || String(error),
 }
 })
 
+router.get("/legacy-bridge/status", requireAuth, async (req, res) => {
+try {
+const userRow = await getUserRowById(req.user.id)
+const legacyBridge = await getLegacyBridgeStateForUser(userRow)
+
+return res.json({
+ok: true,
+legacy_bridge: legacyBridge,
+legacy_scanner_account_found:
+Boolean(legacyBridge.legacy_scanner_account_found),
+legacy_scanner_linked:
+Boolean(legacyBridge.legacy_scanner_linked),
+legacy_scanner_link_required:
+Boolean(legacyBridge.legacy_scanner_link_required),
+alert_history_available:
+Boolean(legacyBridge.alert_history_available),
+})
+} catch (error) {
+console.error("GET /api/auth/legacy-bridge/status failed", error)
+
+return res.status(500).json({
+ok: false,
+error: "Failed to load Scanner Alerts account link status",
+message: error?.message || String(error),
+})
+}
+})
+
+router.post("/legacy-bridge/link", requireAuth, async (req, res) => {
+try {
+const legacyPassword = String(
+req.body?.legacy_password ||
+req.body?.legacyPassword ||
+req.body?.password ||
+""
+)
+
+if (!legacyPassword) {
+return res.status(400).json({
+ok: false,
+error: "Existing Scanner Alerts account password is required",
+})
+}
+
+const userRow = await getUserRowById(req.user.id)
+
+if (!userRow) {
+return res.status(404).json({
+ok: false,
+error: "Sentinel account not found",
+})
+}
+
+const alreadyLinkedId =
+getLegacyScannerUserIdFromRow(userRow)
+
+if (alreadyLinkedId) {
+const payload = await buildAuthResponse(req.user.id)
+
+return res.json({
+ok: true,
+linked: true,
+already_linked: true,
+...payload,
+})
+}
+
+const legacyUser = getLegacyScannerUserByEmail(userRow.email)
+
+if (!legacyUser) {
+return res.status(404).json({
+ok: false,
+error: "No existing Scanner Alerts account was found for this email",
+})
+}
+
+const verified = await verifyLegacyScannerPassword(
+legacyPassword,
+legacyUser
+)
+
+if (!verified) {
+return res.status(401).json({
+ok: false,
+error: "Existing Scanner Alerts password is invalid",
+})
+}
+
+await linkLegacyScannerUserToMssUser({
+mssUserId: req.user.id,
+legacyUser,
+linkMethod: LEGACY_LINK_METHOD_MANUAL_CLAIM,
+})
+
+const payload = await buildAuthResponse(req.user.id)
+
+return res.json({
+ok: true,
+linked: true,
+legacy_bridge_completed: true,
+...payload,
+})
+} catch (error) {
+console.error("POST /api/auth/legacy-bridge/link failed", error)
+
+return sendAuthError(
+res,
+error,
+"Failed to link existing Scanner Alerts account",
+500
+)
+}
+})
+
 router.post("/register", async (req, res) => {
 try {
 const email = normalizeEmail(req.body?.email)
 const password = String(req.body?.password ?? "")
+
 const displayName = normalizeDisplayName(
 req.body?.display_name || req.body?.displayName,
 email
@@ -1450,10 +2343,24 @@ error: "Password must be at least 8 characters",
 }
 
 const existing = await getUserByEmail(email)
+
 if (existing) {
 return res.status(409).json({
 ok: false,
 error: "An account with that email already exists",
+code: "sentinel_account_already_exists",
+})
+}
+
+const existingLegacyUser = getLegacyScannerUserByEmail(email)
+
+if (existingLegacyUser?.id) {
+return res.status(409).json({
+ok: false,
+error:
+"This email already has an MSS Scanner Alerts account. Sign in instead so your existing alert account can be securely connected to Sentinel.",
+code: "legacy_scanner_account_requires_signin",
+existing_scanner_account: true,
 })
 }
 
@@ -1483,6 +2390,11 @@ Number(insertResult?.lastId || 0) ||
 Number(insertResult?.insertId || 0)
 
 const user = await getUserById(userId)
+
+if (!user) {
+throw new Error("Registered account could not be loaded.")
+}
+
 const sessionToken = buildSessionToken({
 ...user,
 last_login_at: loginAt,
@@ -1495,15 +2407,18 @@ const payload = await buildAuthResponse(userId)
 return res.status(201).json({
 ok: true,
 authenticated: true,
+legacy_account_migrated: false,
 ...payload,
 })
 } catch (error) {
 console.error("POST /api/auth/register failed", error)
-return res.status(500).json({
-ok: false,
-error: "Failed to register account",
-message: error?.message || String(error),
-})
+
+return sendAuthError(
+res,
+error,
+"Failed to register account",
+500
+)
 }
 })
 
@@ -1519,15 +2434,58 @@ error: "Email and password are required",
 })
 }
 
-const userRow = await getUserRowByEmail(email)
+let userRow = await getUserRowByEmail(email)
+
 if (!userRow) {
+const legacyUser = getLegacyScannerUserByEmail(email)
+
+if (!legacyUser) {
 return res.status(401).json({
 ok: false,
 error: "Invalid email or password",
 })
 }
 
-const isValid = await verifyPassword(password, userRow.password_hash)
+const validLegacyPassword = await verifyLegacyScannerPassword(
+password,
+legacyUser
+)
+
+if (!validLegacyPassword) {
+return res.status(401).json({
+ok: false,
+error: "Invalid email or password",
+})
+}
+
+const migrated = await createMssUserFromLegacyScannerAccount({
+legacyUser,
+password,
+displayName: normalizeDisplayName("", email),
+})
+
+return createAuthenticatedResponse(
+res,
+migrated.userId,
+{
+legacyMigration: true,
+legacyBridge: {
+legacy_scanner_account_found: true,
+legacy_scanner_linked: true,
+legacy_scanner_link_required: false,
+newly_linked: true,
+alert_history_available: true,
+migration_source: "scanner_alerts",
+},
+}
+)
+}
+
+const isValid = await verifyPassword(
+password,
+userRow.password_hash
+)
+
 if (!isValid) {
 return res.status(401).json({
 ok: false,
@@ -1536,6 +2494,7 @@ error: "Invalid email or password",
 }
 
 const safeUser = serializeUser(userRow)
+
 if (safeUser.status !== "active") {
 return res.status(403).json({
 ok: false,
@@ -1543,41 +2502,40 @@ error: "Account is not active",
 })
 }
 
-const loginAt = nowIso()
+const automaticBridgeResult = await attemptAutomaticLegacyBridge({
+userRow,
+password,
+})
 
-await db.run(
-`
-UPDATE mss_users
-SET
-last_login_at = ?,
-updated_at = CURRENT_TIMESTAMP
-WHERE id = ?
-`,
-[loginAt, safeUser.id]
+userRow = await getUserRowById(safeUser.id)
+
+return createAuthenticatedResponse(
+res,
+safeUser.id,
+{
+legacyMigration: false,
+legacyBridge: {
+...automaticBridgeResult,
+link_method:
+getLegacyScannerUserIdFromRow(userRow)
+? cleanText(userRow.legacy_scanner_link_method, 120) || null
+: null,
+linked_at:
+getLegacyScannerUserIdFromRow(userRow)
+? userRow.legacy_scanner_linked_at || null
+: null,
+},
+}
 )
-
-const freshUser = await getUserById(safeUser.id)
-const sessionToken = buildSessionToken({
-...freshUser,
-last_login_at: loginAt,
-})
-
-setAuthCookie(res, sessionToken)
-
-const payload = await buildAuthResponse(freshUser.id)
-
-return res.json({
-ok: true,
-authenticated: true,
-...payload,
-})
 } catch (error) {
 console.error("POST /api/auth/login failed", error)
-return res.status(500).json({
-ok: false,
-error: "Failed to sign in",
-message: error?.message || String(error),
-})
+
+return sendAuthError(
+res,
+error,
+"Failed to sign in",
+500
+)
 }
 })
 
@@ -1608,6 +2566,7 @@ authenticated: false,
 })
 } catch (error) {
 console.error("POST /api/auth/logout failed", error)
+
 clearAuthCookie(res)
 
 return res.json({
@@ -1620,7 +2579,9 @@ authenticated: false,
 router.get("/wallets", requireAuth, async (req, res) => {
 try {
 const wallets = await listWalletsForUser(req.user.id, 20)
-const activeWallet = wallets.find((item) => item.is_active) || null
+
+const activeWallet =
+wallets.find((item) => item.is_active) || null
 
 return res.json({
 ok: true,
@@ -1631,6 +2592,7 @@ active_wallet: activeWallet,
 })
 } catch (error) {
 console.error("GET /api/auth/wallets failed", error)
+
 return res.status(500).json({
 ok: false,
 error: "Failed to load linked wallets",
@@ -1639,18 +2601,51 @@ message: error?.message || String(error),
 }
 })
 
-router.post("/wallet/challenge", requireAuth, handleWalletChallenge)
-router.post("/wallet/link/init", requireAuth, handleWalletChallenge)
-router.post("/wallet/challenge/start", requireAuth, handleWalletChallenge)
+router.post(
+"/wallet/challenge",
+requireAuth,
+handleWalletChallenge
+)
 
-router.post("/wallet/link", requireAuth, handleWalletLink)
-router.post("/wallet/verify", requireAuth, handleWalletLink)
-router.post("/wallet/link/confirm", requireAuth, handleWalletLink)
+router.post(
+"/wallet/link/init",
+requireAuth,
+handleWalletChallenge
+)
+
+router.post(
+"/wallet/challenge/start",
+requireAuth,
+handleWalletChallenge
+)
+
+router.post(
+"/wallet/link",
+requireAuth,
+handleWalletLink
+)
+
+router.post(
+"/wallet/verify",
+requireAuth,
+handleWalletLink
+)
+
+router.post(
+"/wallet/link/confirm",
+requireAuth,
+handleWalletLink
+)
 
 router.post("/wallet/disconnect", requireAuth, async (req, res) => {
 try {
-const requestedWallet = normalizeWalletAddress(req.body?.wallet_address)
-const targetWallet = requestedWallet || cleanText(req.active_wallet?.wallet_address, 128)
+const requestedWallet = normalizeWalletAddress(
+req.body?.wallet_address
+)
+
+const targetWallet =
+requestedWallet ||
+cleanText(req.active_wallet?.wallet_address, 128)
 
 if (!targetWallet) {
 return res.json({
@@ -1703,6 +2698,7 @@ disconnected: true,
 })
 } catch (error) {
 console.error("POST /api/auth/wallet/disconnect failed", error)
+
 return res.status(500).json({
 ok: false,
 error: "Failed to disconnect wallet",
@@ -1713,7 +2709,9 @@ message: error?.message || String(error),
 
 router.post("/access/redeem", requireAuth, async (req, res) => {
 try {
-const code = normalizeAccessCodeInput(req.body?.code || req.body?.access_code)
+const code = normalizeAccessCodeInput(
+req.body?.code || req.body?.access_code
+)
 
 if (!code) {
 return res.status(400).json({
@@ -1722,7 +2720,11 @@ error: "Access code is required",
 })
 }
 
-const entitlement = await redeemAccessCodeForUser(req.user.id, code)
+const entitlement = await redeemAccessCodeForUser(
+req.user.id,
+code
+)
+
 const payload = await buildAuthResponse(req.user.id)
 
 return res.json({
@@ -1734,6 +2736,7 @@ active_entitlement: entitlement,
 })
 } catch (error) {
 console.error("POST /api/auth/access/redeem failed", error)
+
 return res.status(400).json({
 ok: false,
 error: error?.message || "Failed to redeem access code",
@@ -1743,6 +2746,7 @@ error: error?.message || "Failed to redeem access code",
 
 router.post("/redeem", requireAuth, async (req, res) => {
 req.url = "/access/redeem"
+
 return router.handle(req, res)
 })
 
