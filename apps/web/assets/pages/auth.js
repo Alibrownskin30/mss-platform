@@ -18,13 +18,27 @@ codeLoadingCount: 0,
 function byId(...ids) {
 for (const id of ids) {
 const el = document.getElementById(id)
-if (el) return el
+
+if (el) {
+return el
 }
+}
+
 return null
 }
 
 const els = {
 banner: byId("authBanner", "pageBanner", "banner"),
+
+signedInAccountStrip: byId("signedInAccountStrip"),
+signedInAccountValue: byId("signedInAccountValue"),
+accountDetailsPanel: byId("accountDetailsPanel"),
+
+guestPanel: byId("guestPanel"),
+redeemPanel: byId("redeemPanel"),
+walletPanel: byId("walletPanel"),
+readyPanel: byId("readyPanel"),
+readyWalletPill: byId("readyWalletPill"),
 
 heroAccountStateValue: byId("heroAccountStateValue"),
 heroWalletStateValue: byId("heroWalletStateValue"),
@@ -95,29 +109,44 @@ return Array.isArray(value) ? value : []
 
 function formatDateTime(value) {
 const date = new Date(value)
-if (!value || Number.isNaN(date.getTime())) return "—"
+
+if (!value || Number.isNaN(date.getTime())) {
+return "—"
+}
+
 return date.toLocaleString()
 }
 
 function setText(el, value) {
 if (!el) return
+
 el.textContent = value == null || value === "" ? "—" : String(value)
 }
 
 function setValue(el, value) {
 if (!el) return
+
 el.value = value == null ? "" : String(value)
 }
 
 function setDisabled(el, disabled) {
 if (!el) return
+
 el.disabled = Boolean(disabled)
+}
+
+function setVisible(el, visible) {
+if (!el) return
+
+el.hidden = !Boolean(visible)
 }
 
 function shortWallet(address) {
 const value = cleanText(address, 200)
+
 if (!value) return "—"
 if (value.length <= 14) return value
+
 return `${value.slice(0, 6)}…${value.slice(-6)}`
 }
 
@@ -145,7 +174,10 @@ raw: null,
 function getApiBase() {
 const { protocol, hostname } = window.location
 const override = cleanText(window.__API_BASE__ || "", 1000)
-if (override) return override.replace(/\/$/, "")
+
+if (override) {
+return override.replace(/\/$/, "")
+}
 
 if (
 hostname === "127.0.0.1" ||
@@ -156,15 +188,24 @@ return `${protocol}//${hostname}:8787`
 }
 
 if (hostname.includes("-3000.app.github.dev")) {
-return `${protocol}//${hostname.replace("-3000.app.github.dev", "-8787.app.github.dev")}`
+return `${protocol}//${hostname.replace(
+"-3000.app.github.dev",
+"-8787.app.github.dev"
+)}`
 }
 
 if (hostname.includes("-3001.app.github.dev")) {
-return `${protocol}//${hostname.replace("-3001.app.github.dev", "-8787.app.github.dev")}`
+return `${protocol}//${hostname.replace(
+"-3001.app.github.dev",
+"-8787.app.github.dev"
+)}`
 }
 
 if (hostname.includes("-4173.app.github.dev")) {
-return `${protocol}//${hostname.replace("-4173.app.github.dev", "-8787.app.github.dev")}`
+return `${protocol}//${hostname.replace(
+"-4173.app.github.dev",
+"-8787.app.github.dev"
+)}`
 }
 
 if (
@@ -185,7 +226,7 @@ if (/:\d+$/.test(window.location.host)) {
 return `${protocol}//${hostname}:8787`
 }
 
-return `${window.location.origin}`
+return window.location.origin
 }
 
 const API_BASE = getApiBase()
@@ -193,14 +234,15 @@ const API_BASE = getApiBase()
 async function rawApiFetch(path, options = {}) {
 const response = await fetch(`${API_BASE}${path}`, {
 credentials: "include",
+...options,
 headers: {
 "Content-Type": "application/json",
 ...(options.headers || {}),
 },
-...options,
 })
 
 let payload = null
+
 try {
 payload = await response.json()
 } catch {
@@ -209,10 +251,14 @@ payload = null
 
 if (!response.ok) {
 const error = new Error(
-payload?.error || payload?.message || `Request failed (${response.status})`
+payload?.message ||
+payload?.error ||
+`Request failed (${response.status})`
 )
+
 error.status = response.status
 error.payload = payload
+
 throw error
 }
 
@@ -239,7 +285,11 @@ payload: error.payload || null,
 }
 
 const isLast = index === paths.length - 1
-if (error?.status === 404 && !isLast) continue
+
+if (error?.status === 404 && !isLast) {
+continue
+}
+
 throw error
 }
 }
@@ -287,8 +337,10 @@ state.codeLoadingCount > 0
 
 function setBanner(message = "", variant = "warn") {
 if (!els.banner) return
+
 els.banner.textContent = message || ""
 els.banner.className = "banner"
+
 if (message) {
 els.banner.classList.add("show")
 els.banner.classList.add(variant)
@@ -297,12 +349,15 @@ els.banner.classList.add(variant)
 
 function clearBanner() {
 if (!els.banner) return
+
 els.banner.className = "banner"
 els.banner.textContent = ""
 }
 
 function normalizeWallet(wallet) {
-if (!wallet || typeof wallet !== "object") return null
+if (!wallet || typeof wallet !== "object") {
+return null
+}
 
 const walletAddress =
 cleanText(
@@ -315,7 +370,9 @@ wallet.wallet ||
 200
 ) || null
 
-if (!walletAddress) return null
+if (!walletAddress) {
+return null
+}
 
 return {
 id: wallet.id ?? null,
@@ -332,18 +389,37 @@ disconnected_at: wallet.disconnected_at || null,
 }
 
 function normalizeEntitlement(item) {
-if (!item || typeof item !== "object") return null
+if (!item || typeof item !== "object") {
+return null
+}
 
-const startsAt = item.starts_at || item.active_from || item.activated_at || null
-const endsAt = item.ends_at || item.expires_at || item.expires_on || null
-const status = cleanText(item.status || "", 64).toLowerCase() || "inactive"
+const startsAt =
+item.starts_at ||
+item.active_from ||
+item.activated_at ||
+null
+
+const endsAt =
+item.ends_at ||
+item.expires_at ||
+item.expires_on ||
+null
+
+const status =
+cleanText(item.status || "", 64).toLowerCase() ||
+"inactive"
 
 const now = Date.now()
 const startsTs = startsAt ? new Date(startsAt).getTime() : null
 const endsTs = endsAt ? new Date(endsAt).getTime() : null
 
-const startsOkay = startsTs == null || (!Number.isNaN(startsTs) && startsTs <= now)
-const endsOkay = endsTs == null || (!Number.isNaN(endsTs) && endsTs > now)
+const startsOkay =
+startsTs == null ||
+(!Number.isNaN(startsTs) && startsTs <= now)
+
+const endsOkay =
+endsTs == null ||
+(!Number.isNaN(endsTs) && endsTs > now)
 
 const isActive =
 Boolean(item.is_active) ||
@@ -384,7 +460,11 @@ const walletSeen = new Set()
 
 wallets.forEach((wallet) => {
 const key = wallet.wallet_address
-if (walletSeen.has(key)) return
+
+if (walletSeen.has(key)) {
+return
+}
+
 walletSeen.add(key)
 dedupedWallets.push(wallet)
 })
@@ -402,17 +482,27 @@ const entitlementSeen = new Set()
 const entitlements = []
 
 entitlementCandidates.forEach((entitlement) => {
-const key = entitlement.id != null
+const key =
+entitlement.id != null
 ? `id:${entitlement.id}`
 : `${entitlement.product}:${entitlement.plan}:${entitlement.ends_at || "none"}`
-if (entitlementSeen.has(key)) return
+
+if (entitlementSeen.has(key)) {
+return
+}
+
 entitlementSeen.add(key)
 entitlements.push(entitlement)
 })
 
 const activeEntitlement =
 entitlements.find((item) => item.is_active) ||
-normalizeEntitlement(payload?.active_entitlement || payload?.entitlement || null)
+normalizeEntitlement(
+payload?.active_entitlement ||
+payload?.entitlement ||
+payload?.access?.entitlement ||
+null
+)
 
 const authenticated =
 Boolean(payload?.authenticated) ||
@@ -432,11 +522,20 @@ user: user
 ? {
 id: user.id ?? null,
 display_name:
-cleanText(user.display_name || user.displayName || user.name || "", 120) ||
-null,
+cleanText(
+user.display_name ||
+user.displayName ||
+user.name ||
+"",
+120
+) || null,
 email: cleanText(user.email || "", 200) || null,
-status: cleanText(user.status || "active", 64).toLowerCase() || "active",
-role: cleanText(user.role || "user", 64).toLowerCase() || "user",
+status:
+cleanText(user.status || "active", 64).toLowerCase() ||
+"active",
+role:
+cleanText(user.role || "user", 64).toLowerCase() ||
+"user",
 created_at: user.created_at || user.createdAt || null,
 updated_at: user.updated_at || user.updatedAt || null,
 }
@@ -449,8 +548,9 @@ raw: payload || null,
 }
 }
 
-function getActiveWallet(session) {
+function getActiveWallet(session = state.session) {
 const wallets = arrayify(session?.wallets)
+
 return (
 wallets.find((wallet) => wallet.is_active && wallet.is_primary) ||
 wallets.find((wallet) => wallet.is_active) ||
@@ -460,11 +560,82 @@ null
 )
 }
 
+function getSessionIdentity(session = state.session) {
+if (!session?.authenticated) {
+return "None"
+}
+
+return (
+cleanText(session?.user?.display_name || "", 120) ||
+cleanText(session?.user?.email || "", 200) ||
+(session?.user?.id != null ? `Account #${session.user.id}` : "Signed in account")
+)
+}
+
+function getGatewayStage(session = state.session) {
+const authenticated = Boolean(session?.authenticated)
+const hasAccess = Boolean(session?.hasSentinelAccess)
+const activeWallet = getActiveWallet(session)
+
+if (!authenticated) {
+return {
+key: "guest",
+label: "Sign in or create account",
+}
+}
+
+if (!hasAccess) {
+return {
+key: "redeem",
+label: "Redeem access code",
+}
+}
+
+if (!activeWallet) {
+return {
+key: "wallet",
+label: "Connect wallet",
+}
+}
+
+return {
+key: "ready",
+label: "Enter Sentinel Watcher",
+}
+}
+
 function canContinueToSentinel() {
-const authenticated = Boolean(state.session?.authenticated)
-const activeWallet = getActiveWallet(state.session)
-const hasAccess = Boolean(state.session?.hasSentinelAccess)
-return authenticated && hasAccess && Boolean(activeWallet)
+const stage = getGatewayStage()
+
+return stage.key === "ready"
+}
+
+function updateGatewayVisibility() {
+const session = state.session
+const authenticated = Boolean(session?.authenticated)
+const activeWallet = getActiveWallet(session)
+const stage = getGatewayStage(session)
+
+setVisible(els.guestPanel, stage.key === "guest")
+setVisible(els.redeemPanel, stage.key === "redeem")
+setVisible(els.walletPanel, stage.key === "wallet")
+setVisible(els.readyPanel, stage.key === "ready")
+
+setVisible(els.signedInAccountStrip, authenticated)
+setVisible(els.accountDetailsPanel, authenticated)
+
+if (!authenticated && els.accountDetailsPanel) {
+els.accountDetailsPanel.open = false
+}
+
+setText(els.heroNextStepValue, stage.label)
+setText(els.signedInAccountValue, getSessionIdentity(session))
+
+if (els.readyWalletPill) {
+els.readyWalletPill.textContent = activeWallet
+? `Wallet · ${shortWallet(activeWallet.wallet_address)}`
+: "Wallet Linked"
+}
 }
 
 function updateControlState() {
@@ -472,19 +643,13 @@ const busy = isBusy()
 const authenticated = Boolean(state.session?.authenticated)
 const activeWallet = getActiveWallet(state.session)
 const hasAccess = Boolean(state.session?.hasSentinelAccess)
+const stage = getGatewayStage()
 
 setDisabled(els.showSignInButton, busy || authenticated)
 setDisabled(els.showRegisterButton, busy || authenticated)
 
 setDisabled(els.signInSubmitButton, busy || authenticated)
 setDisabled(els.registerSubmitButton, busy || authenticated)
-setDisabled(els.refreshSessionButton, busy)
-setDisabled(els.signOutButton, busy || !authenticated)
-setDisabled(els.redeemAccessCodeButton, busy || !authenticated)
-setDisabled(els.connectWalletButton, busy || !authenticated)
-setDisabled(els.replaceWalletButton, busy || !authenticated)
-setDisabled(els.disconnectWalletButton, busy || !authenticated || !activeWallet)
-setDisabled(els.continueToSentinelButton, busy || !canContinueToSentinel())
 
 setDisabled(els.signInEmailInput, busy || authenticated)
 setDisabled(els.signInPasswordInput, busy || authenticated)
@@ -494,10 +659,37 @@ setDisabled(els.registerEmailInput, busy || authenticated)
 setDisabled(els.registerPasswordInput, busy || authenticated)
 setDisabled(els.registerConfirmPasswordInput, busy || authenticated)
 
-setDisabled(els.accessCodeInput, busy || !authenticated)
+setDisabled(
+els.redeemAccessCodeButton,
+busy || !authenticated || hasAccess || stage.key !== "redeem"
+)
+
+setDisabled(
+els.accessCodeInput,
+busy || !authenticated || hasAccess || stage.key !== "redeem"
+)
+
+setDisabled(
+els.connectWalletButton,
+busy || !authenticated || !hasAccess || Boolean(activeWallet)
+)
+
+setDisabled(els.replaceWalletButton, busy || !authenticated)
+setDisabled(
+els.disconnectWalletButton,
+busy || !authenticated || !activeWallet
+)
+
+setDisabled(els.refreshSessionButton, busy || !authenticated)
+setDisabled(els.signOutButton, busy || !authenticated)
+setDisabled(els.continueToSentinelButton, busy || !canContinueToSentinel())
 
 if (els.authStatusChip) {
-els.authStatusChip.textContent = busy ? "Loading" : authenticated ? "Signed In" : "Guest"
+els.authStatusChip.textContent = busy
+? "Loading"
+: authenticated
+? "Signed In"
+: "Guest"
 }
 
 if (els.accessStatusChip) {
@@ -515,13 +707,17 @@ function renderWallets(session) {
 if (!els.linkedWalletsList) return
 
 const wallets = arrayify(session?.wallets)
+
 els.linkedWalletsList.innerHTML = ""
 
 if (!wallets.length) {
 const empty = document.createElement("div")
+
 empty.className = "list-empty"
 empty.textContent = "No linked wallets yet."
+
 els.linkedWalletsList.appendChild(empty)
+
 return
 }
 
@@ -534,7 +730,7 @@ head.className = "list-item-head"
 
 const title = document.createElement("div")
 title.className = "summary-value mono"
-title.textContent = wallet.wallet_address
+title.textContent = shortWallet(wallet.wallet_address)
 
 const pill = document.createElement("span")
 pill.className = `pill ${wallet.is_active ? "good" : "neutral"}`
@@ -569,13 +765,17 @@ function renderEntitlements(session) {
 if (!els.entitlementsList) return
 
 const entitlements = arrayify(session?.entitlements)
+
 els.entitlementsList.innerHTML = ""
 
 if (!entitlements.length) {
 const empty = document.createElement("div")
+
 empty.className = "list-empty"
 empty.textContent = "No entitlements on this account yet."
+
 els.entitlementsList.appendChild(empty)
+
 return
 }
 
@@ -610,8 +810,10 @@ row.appendChild(copy)
 
 if (entitlement.revoke_reason) {
 const revoke = document.createElement("div")
+
 revoke.className = "summary-copy"
 revoke.textContent = `Reason: ${entitlement.revoke_reason}`
+
 row.appendChild(revoke)
 }
 
@@ -625,32 +827,20 @@ const authenticated = Boolean(session?.authenticated)
 const activeWallet = getActiveWallet(session)
 const activeEntitlement = session?.activeEntitlement
 const hasAccess = Boolean(session?.hasSentinelAccess)
-
-const identityText = authenticated
-? cleanText(session?.user?.display_name || "", 120) ||
-cleanText(session?.user?.email || "", 200) ||
-`Account #${session?.user?.id ?? ""}`
-: "None"
+const identityText = getSessionIdentity(session)
 
 const heroAccount = authenticated ? identityText : "Not signed in"
-const heroWallet = activeWallet ? shortWallet(activeWallet.wallet_address) : "Not connected"
+const heroWallet = activeWallet
+? shortWallet(activeWallet.wallet_address)
+: "Not connected"
+
 const heroAccess = hasAccess
 ? titleCase(activeEntitlement?.product || "sentinel access")
 : "No entitlement"
 
-let heroNextStep = "Create account or sign in"
-if (authenticated && !hasAccess) {
-heroNextStep = "Redeem access code"
-} else if (authenticated && hasAccess && !activeWallet) {
-heroNextStep = "Connect wallet"
-} else if (authenticated && hasAccess && activeWallet) {
-heroNextStep = "Continue to Sentinel"
-}
-
 setText(els.heroAccountStateValue, heroAccount)
 setText(els.heroWalletStateValue, heroWallet)
 setText(els.heroAccessStateValue, heroAccess)
-setText(els.heroNextStepValue, heroNextStep)
 
 setText(els.sessionAccountValue, authenticated ? "Signed in" : "Guest")
 setText(els.sessionWalletValue, activeWallet ? "Linked" : "Not connected")
@@ -658,6 +848,7 @@ setText(els.sessionAccessValue, hasAccess ? "Active" : "No entitlement")
 setText(els.sessionExpiryValue, formatDateTime(activeEntitlement?.ends_at))
 setText(els.sessionIdentityValue, identityText)
 setText(els.linkedWalletAddressValue, activeWallet?.wallet_address || "—")
+
 setText(
 els.sessionPlanValue,
 hasAccess
@@ -672,13 +863,21 @@ setText(els.walletUpdatedAtValue, formatDateTime(activeWallet?.linked_at))
 
 renderWallets(session)
 renderEntitlements(session)
+updateGatewayVisibility()
 updateControlState()
 }
 
 async function loadSession({ quiet = false } = {}) {
 beginAuthLoading()
+
 try {
-const result = await apiFetchFirst(["/api/auth/me"], {}, { allowStatuses: [401, 404] })
+const result = await apiFetchFirst(
+["/api/auth/me"],
+{},
+{
+allowStatuses: [401, 404],
+}
+)
 
 if (
 result?.ok === false &&
@@ -686,18 +885,27 @@ result?.ok === false &&
 ) {
 resetSession()
 renderSession()
-if (!quiet) clearBanner()
+
+if (!quiet) {
+clearBanner()
+}
+
 return state.session
 }
 
 state.session = deriveSession(result)
 renderSession()
-if (!quiet) clearBanner()
+
+if (!quiet) {
+clearBanner()
+}
+
 return state.session
 } catch (error) {
 if (!quiet) {
 setBanner(error?.message || "Failed to load account session.", "bad")
 }
+
 throw error
 } finally {
 endAuthLoading()
@@ -709,12 +917,18 @@ const isSignIn = mode === "signin"
 
 if (els.showSignInButton) {
 els.showSignInButton.classList.toggle("active", isSignIn)
-els.showSignInButton.setAttribute("aria-selected", isSignIn ? "true" : "false")
+els.showSignInButton.setAttribute(
+"aria-selected",
+isSignIn ? "true" : "false"
+)
 }
 
 if (els.showRegisterButton) {
 els.showRegisterButton.classList.toggle("active", !isSignIn)
-els.showRegisterButton.setAttribute("aria-selected", !isSignIn ? "true" : "false")
+els.showRegisterButton.setAttribute(
+"aria-selected",
+!isSignIn ? "true" : "false"
+)
 }
 
 if (els.signInForm) {
@@ -733,6 +947,7 @@ const providers = []
 const pushProvider = (provider) => {
 if (!provider || typeof provider !== "object") return
 if (seen.has(provider)) return
+
 seen.add(provider)
 providers.push(provider)
 }
@@ -747,12 +962,18 @@ pushProvider(window.solana)
 
 return (
 providers.find(
-(provider) => provider?.isPhantom && typeof provider.signMessage === "function"
+(provider) =>
+provider?.isPhantom &&
+typeof provider.signMessage === "function"
 ) ||
 providers.find(
-(provider) => provider?.isSolflare && typeof provider.signMessage === "function"
+(provider) =>
+provider?.isSolflare &&
+typeof provider.signMessage === "function"
 ) ||
-providers.find((provider) => typeof provider?.signMessage === "function") ||
+providers.find(
+(provider) => typeof provider?.signMessage === "function"
+) ||
 null
 )
 }
@@ -761,7 +982,11 @@ function getWalletProviderLabel(provider) {
 if (!provider) return "Wallet"
 if (provider.isPhantom) return "Phantom"
 if (provider.isSolflare) return "Solflare"
-return cleanText(provider.name || provider.walletName || "Wallet", 80) || "Wallet"
+
+return (
+cleanText(provider.name || provider.walletName || "Wallet", 80) ||
+"Wallet"
+)
 }
 
 function getWalletAddressFromConnectResult(result, provider) {
@@ -787,33 +1012,56 @@ return provider.signMessage(messageBytes)
 
 function extractSignatureBytes(signatureResult) {
 if (!signatureResult) return null
-if (signatureResult instanceof Uint8Array) return signatureResult
-if (signatureResult.signature instanceof Uint8Array) return signatureResult.signature
-if (signatureResult instanceof ArrayBuffer) return new Uint8Array(signatureResult)
+
+if (signatureResult instanceof Uint8Array) {
+return signatureResult
+}
+
+if (signatureResult.signature instanceof Uint8Array) {
+return signatureResult.signature
+}
+
+if (signatureResult instanceof ArrayBuffer) {
+return new Uint8Array(signatureResult)
+}
+
 if (signatureResult.signature instanceof ArrayBuffer) {
 return new Uint8Array(signatureResult.signature)
 }
+
 return null
 }
 
-const BASE58_ALPHABET = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz"
+const BASE58_ALPHABET =
+"123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz"
 
 function encodeBase58(bytesLike) {
 const bytes =
-bytesLike instanceof Uint8Array ? bytesLike : new Uint8Array(bytesLike || [])
-if (!bytes.length) return ""
+bytesLike instanceof Uint8Array
+? bytesLike
+: new Uint8Array(bytesLike || [])
+
+if (!bytes.length) {
+return ""
+}
 
 let zeros = 0
-while (zeros < bytes.length && bytes[zeros] === 0) zeros += 1
+
+while (zeros < bytes.length && bytes[zeros] === 0) {
+zeros += 1
+}
 
 let value = 0n
+
 for (const byte of bytes) {
 value = (value << 8n) + BigInt(byte)
 }
 
 let encoded = ""
+
 while (value > 0n) {
 const mod = Number(value % 58n)
+
 encoded = BASE58_ALPHABET[mod] + encoded
 value /= 58n
 }
@@ -823,34 +1071,62 @@ return "1".repeat(zeros) + encoded
 
 async function connectOrReplaceWallet(mode = "connect") {
 if (!state.session?.authenticated) {
-setBanner("Sign in first, then link a wallet to your MSS Protocol account.", "warn")
+setBanner(
+"Sign in first, then connect a wallet to your MSS Protocol account.",
+"warn"
+)
+
+return
+}
+
+if (!state.session?.hasSentinelAccess && mode === "connect") {
+setBanner(
+"Activate Sentinel access before connecting your wallet.",
+"warn"
+)
+
 return
 }
 
 const provider = getWalletProvider()
+
 if (!provider) {
-setBanner("No Solana wallet detected. Install Phantom or Solflare first.", "warn")
+setBanner(
+"No Solana wallet detected. Install Phantom or Solflare first.",
+"warn"
+)
+
 return
 }
 
 beginWalletLoading()
+
 try {
 const connectionResult = await provider.connect()
-const walletAddress = getWalletAddressFromConnectResult(connectionResult, provider)
+const walletAddress = getWalletAddressFromConnectResult(
+connectionResult,
+provider
+)
 
 if (!walletAddress) {
 throw new Error("Unable to detect connected wallet address.")
 }
 
-const challengePayload = await apiFetchFirst(["/api/auth/wallet/challenge"], {
+const challengePayload = await apiFetchFirst(
+["/api/auth/wallet/challenge"],
+{
 method: "POST",
 body: JSON.stringify({
 wallet_address: walletAddress,
 }),
-})
+}
+)
 
 const message = cleanText(challengePayload?.message || "", 5000)
-const challengeToken = cleanText(challengePayload?.challenge_token || "", 12000)
+const challengeToken = cleanText(
+challengePayload?.challenge_token || "",
+12000
+)
 
 if (!message || !challengeToken) {
 throw new Error("Wallet challenge response was incomplete.")
@@ -865,11 +1141,14 @@ throw new Error("Wallet signature could not be captured.")
 }
 
 const signatureBase58 = encodeBase58(signatureBytes)
+
 if (!signatureBase58) {
 throw new Error("Wallet signature encoding failed.")
 }
 
-const linkPayload = await apiFetchFirst(["/api/auth/wallet/link"], {
+const linkPayload = await apiFetchFirst(
+["/api/auth/wallet/link"],
+{
 method: "POST",
 body: JSON.stringify({
 wallet_address: walletAddress,
@@ -878,15 +1157,19 @@ message,
 signature: signatureBase58,
 wallet_label: getWalletProviderLabel(provider),
 }),
-})
+}
+)
 
 if (linkPayload?.ok === false) {
 throw new Error(linkPayload?.error || "Wallet linking failed.")
 }
 
 await loadSession({ quiet: true })
+
 setBanner(
-mode === "replace" ? "Wallet replaced successfully." : "Wallet linked successfully.",
+mode === "replace"
+? "Wallet replaced successfully."
+: "Wallet linked. Sentinel Watcher is ready.",
 "good"
 )
 } catch (error) {
@@ -903,6 +1186,7 @@ return
 }
 
 const activeWallet = getActiveWallet(state.session)
+
 if (!activeWallet) {
 setBanner("No active wallet is linked to this account.", "warn")
 return
@@ -911,23 +1195,34 @@ return
 const confirmed = window.confirm(
 `Disconnect wallet ${shortWallet(activeWallet.wallet_address)} from this MSS Protocol account?`
 )
-if (!confirmed) return
+
+if (!confirmed) {
+return
+}
 
 beginWalletLoading()
+
 try {
-const payload = await apiFetchFirst(["/api/auth/wallet/disconnect"], {
+const payload = await apiFetchFirst(
+["/api/auth/wallet/disconnect"],
+{
 method: "POST",
 body: JSON.stringify({
 wallet_address: activeWallet.wallet_address,
 }),
-})
+}
+)
 
 if (payload?.ok === false) {
 throw new Error(payload?.error || "Wallet disconnect failed.")
 }
 
 await loadSession({ quiet: true })
-setBanner("Wallet disconnected.", "good")
+
+setBanner(
+"Wallet disconnected. Connect a wallet to enter Sentinel Watcher.",
+"good"
+)
 } catch (error) {
 setBanner(error?.message || "Failed to disconnect wallet.", "bad")
 } finally {
@@ -935,16 +1230,49 @@ endWalletLoading()
 }
 }
 
+function getProgressMessage() {
+const stage = getGatewayStage()
+
+if (stage.key === "redeem") {
+return "Signed in. Enter your Sentinel access code to continue."
+}
+
+if (stage.key === "wallet") {
+return "Access is active. Connect your Solana wallet to continue."
+}
+
+if (stage.key === "ready") {
+return "Access verified. Sentinel Watcher is ready."
+}
+
+return "Sign in to continue."
+}
+
 async function handleRegister(event) {
 event?.preventDefault?.()
 
-const displayName = cleanText(els.registerDisplayNameInput?.value, 120)
-const email = cleanText(els.registerEmailInput?.value, 200).toLowerCase()
+const displayName = cleanText(
+els.registerDisplayNameInput?.value,
+120
+)
+
+const email = cleanText(
+els.registerEmailInput?.value,
+200
+).toLowerCase()
+
 const password = String(els.registerPasswordInput?.value ?? "")
-const confirmPassword = String(els.registerConfirmPasswordInput?.value ?? "")
+const confirmPassword = String(
+els.registerConfirmPasswordInput?.value ??
+""
+)
 
 if (!email || !password) {
-setBanner("Enter your email and password to create an MSS Protocol account.", "warn")
+setBanner(
+"Enter your email and password to create an MSS Protocol account.",
+"warn"
+)
+
 return
 }
 
@@ -959,15 +1287,19 @@ return
 }
 
 beginAuthLoading()
+
 try {
-const payload = await apiFetchFirst(["/api/auth/register"], {
+const payload = await apiFetchFirst(
+["/api/auth/register"],
+{
 method: "POST",
 body: JSON.stringify({
 email,
 password,
 display_name: displayName || null,
 }),
-})
+}
+)
 
 if (payload?.ok === false) {
 throw new Error(payload?.error || "Registration failed.")
@@ -977,8 +1309,9 @@ setValue(els.registerPasswordInput, "")
 setValue(els.registerConfirmPasswordInput, "")
 
 await loadSession({ quiet: true })
+
 setBanner(
-"Account created. Redeem your access code and link a wallet to continue.",
+"Account created. Enter your Sentinel access code to continue.",
 "good"
 )
 } catch (error) {
@@ -991,7 +1324,11 @@ endAuthLoading()
 async function handleSignIn(event) {
 event?.preventDefault?.()
 
-const email = cleanText(els.signInEmailInput?.value, 200).toLowerCase()
+const email = cleanText(
+els.signInEmailInput?.value,
+200
+).toLowerCase()
+
 const password = String(els.signInPasswordInput?.value ?? "")
 
 if (!email || !password) {
@@ -1000,22 +1337,28 @@ return
 }
 
 beginAuthLoading()
+
 try {
-const payload = await apiFetchFirst(["/api/auth/login"], {
+const payload = await apiFetchFirst(
+["/api/auth/login"],
+{
 method: "POST",
 body: JSON.stringify({
 email,
 password,
 }),
-})
+}
+)
 
 if (payload?.ok === false) {
 throw new Error(payload?.error || "Sign in failed.")
 }
 
 setValue(els.signInPasswordInput, "")
+
 await loadSession({ quiet: true })
-setBanner("Signed in. Redeem your code or link a wallet to continue.", "good")
+
+setBanner(getProgressMessage(), "good")
 } catch (error) {
 setBanner(error?.message || "Failed to sign in.", "bad")
 } finally {
@@ -1025,12 +1368,23 @@ endAuthLoading()
 
 async function handleSignOut() {
 beginAuthLoading()
+
 try {
-await apiFetchFirst(["/api/auth/logout"], { method: "POST" }, { allowStatuses: [404] })
+await apiFetchFirst(
+["/api/auth/logout"],
+{
+method: "POST",
+body: JSON.stringify({}),
+},
+{
+allowStatuses: [404],
+}
+)
 
 resetSession()
 renderSession()
 activateAuthTab("signin")
+
 setBanner("Signed out.", "good")
 } catch (error) {
 setBanner(error?.message || "Failed to sign out.", "bad")
@@ -1040,39 +1394,68 @@ endAuthLoading()
 }
 
 function normalizeAccessCodeForSubmit(value) {
-return cleanText(value, 128).replace(/\s+/g, "").toUpperCase()
+return cleanText(value, 128)
+.replace(/\s+/g, "")
+.toUpperCase()
 }
 
 async function handleRedeemAccessCode(event) {
 event?.preventDefault?.()
 
 if (!state.session?.authenticated) {
-setBanner("Create an account or sign in before redeeming an access code.", "warn")
+setBanner(
+"Create an account or sign in before redeeming an access code.",
+"warn"
+)
+
 return
 }
 
-const code = normalizeAccessCodeForSubmit(els.accessCodeInput?.value)
+const code = normalizeAccessCodeForSubmit(
+els.accessCodeInput?.value
+)
+
 if (!code) {
-setBanner("Enter a valid access code.", "warn")
+setBanner("Enter a valid Sentinel access code.", "warn")
 return
 }
 
 beginCodeLoading()
+
 try {
-const payload = await apiFetchFirst(["/api/auth/access/redeem"], {
+const payload = await apiFetchFirst(
+["/api/auth/access/redeem"],
+{
 method: "POST",
 body: JSON.stringify({ code }),
-})
+}
+)
 
 if (payload?.ok === false) {
-throw new Error(payload?.error || "Access code redemption failed.")
+throw new Error(
+payload?.error ||
+"Access code redemption failed."
+)
 }
 
 setValue(els.accessCodeInput, "")
+
 await loadSession({ quiet: true })
-setBanner("Access code redeemed. Sentinel access is now active.", "good")
+
+const activeWallet = getActiveWallet(state.session)
+
+setBanner(
+activeWallet
+? "Access activated. Sentinel Watcher is ready."
+: "Access activated. Connect your Solana wallet to continue.",
+"good"
+)
 } catch (error) {
-setBanner(error?.message || "Failed to redeem access code.", "bad")
+setBanner(
+error?.message ||
+"Failed to redeem access code.",
+"bad"
+)
 } finally {
 endCodeLoading()
 }
@@ -1085,12 +1468,20 @@ return
 }
 
 if (!state.session?.hasSentinelAccess) {
-setBanner("Redeem an active Sentinel access code before continuing.", "warn")
+setBanner(
+"Redeem an active Sentinel access code before continuing.",
+"warn"
+)
+
 return
 }
 
 if (!getActiveWallet(state.session)) {
-setBanner("Link a wallet before continuing into Sentinel.", "warn")
+setBanner(
+"Connect a wallet before entering Sentinel Watcher.",
+"warn"
+)
+
 return
 }
 
@@ -1106,16 +1497,25 @@ window.location.href = target
 }
 
 function bindEvents() {
-els.showSignInButton?.addEventListener("click", () => activateAuthTab("signin"))
-els.showRegisterButton?.addEventListener("click", () => activateAuthTab("register"))
+els.showSignInButton?.addEventListener("click", () => {
+activateAuthTab("signin")
+})
+
+els.showRegisterButton?.addEventListener("click", () => {
+activateAuthTab("register")
+})
 
 els.signInForm?.addEventListener("submit", handleSignIn)
 els.registerForm?.addEventListener("submit", handleRegister)
-els.redeemAccessCodeForm?.addEventListener("submit", handleRedeemAccessCode)
+els.redeemAccessCodeForm?.addEventListener(
+"submit",
+handleRedeemAccessCode
+)
 
 els.refreshSessionButton?.addEventListener("click", async () => {
 try {
 await loadSession()
+setBanner("Account status refreshed.", "good")
 } catch {}
 })
 
@@ -1143,17 +1543,27 @@ continueToSentinel()
 async function init() {
 activateAuthTab("signin")
 bindEvents()
-updateControlState()
+resetSession()
+renderSession()
 
 try {
 await loadSession({ quiet: true })
 } catch {
 resetSession()
 renderSession()
+setBanner(
+"Unable to confirm account session. Sign in to continue.",
+"warn"
+)
 }
 }
 
 init().catch((error) => {
-console.error("Failed to initialize auth page", error)
-setBanner(error?.message || "Failed to initialize auth page.", "bad")
+console.error("Failed to initialize Sentinel access gateway", error)
+
+setBanner(
+error?.message ||
+"Failed to initialize Sentinel access gateway.",
+"bad"
+)
 })

@@ -3,65 +3,65 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>MSS Protocol — Sentinel Access</title>
+
+<title>MSS Protocol — Sentinel Watcher Access</title>
+
 <meta
 name="description"
-content="Create or sign into your MSS Protocol account, connect or replace your wallet, redeem Sentinel access codes, and continue into the Sentinel dashboard."
+content="Sign in to MSS Protocol, redeem Sentinel Watcher access, link your wallet, and enter the protected Sentinel intelligence surface."
 />
 
-<link rel="stylesheet" href="/assets/app.css?v=20260514-shell-v3" />
+<link rel="stylesheet" href="/assets/app.css?v=20260524-sentinel-gateway-v1" />
 
 <style>
-.auth-page-main {
---auth-max: 1380px;
---auth-bg: rgba(5, 9, 20, 0.86);
---auth-bg-2: rgba(8, 14, 27, 0.92);
---auth-border: rgba(115, 185, 255, 0.14);
---auth-border-strong: rgba(115, 185, 255, 0.24);
---auth-text: #eef6ff;
---auth-muted: rgba(198, 211, 226, 0.66);
---auth-muted-2: rgba(198, 211, 226, 0.48);
---auth-accent: #4fc3ff;
---auth-accent-2: #8fe3ff;
---auth-gold: #ebd7ab;
---auth-good: #7bffb1;
---auth-warn: #ffcf66;
---auth-bad: #ff8787;
---auth-shadow: 0 28px 70px rgba(0, 0, 0, 0.38);
---auth-radius: 22px;
+.access-main {
+--access-max: 1120px;
+--access-panel: rgba(7, 12, 24, 0.94);
+--access-panel-strong: rgba(8, 15, 29, 0.98);
+--access-border: rgba(115, 185, 255, 0.14);
+--access-border-strong: rgba(79, 195, 255, 0.3);
+--access-text: #eef6ff;
+--access-muted: rgba(198, 211, 226, 0.67);
+--access-muted-soft: rgba(198, 211, 226, 0.49);
+--access-accent: #4fc3ff;
+--access-accent-soft: #95e5ff;
+--access-good: #7bffb1;
+--access-warn: #ffcf66;
+--access-bad: #ff8787;
+--access-radius: 26px;
+--access-shadow: 0 28px 76px rgba(0, 0, 0, 0.4);
 
-width: min(var(--auth-max), calc(100% - 32px));
+width: min(var(--access-max), calc(100% - 32px));
 margin: 0 auto;
-padding: 34px 0 56px;
-color: var(--auth-text);
+padding: clamp(42px, 7vh, 74px) 0 72px;
+color: var(--access-text);
 }
 
-.auth-page-main * {
+.access-main *,
+.access-main *::before,
+.access-main *::after {
 box-sizing: border-box;
 }
 
-.auth-hero {
-display: grid;
-grid-template-columns: minmax(0, 1.15fr) minmax(340px, 0.85fr);
-gap: 18px;
-margin-bottom: 18px;
+[hidden] {
+display: none !important;
 }
 
-.auth-panel,
-.auth-card {
+.access-shell {
 position: relative;
 overflow: hidden;
-border: 1px solid var(--auth-border);
-border-radius: var(--auth-radius);
+width: min(760px, 100%);
+margin: 0 auto;
+border-radius: 30px;
+border: 1px solid var(--access-border);
 background:
-radial-gradient(780px 220px at 0% 0%, rgba(79, 195, 255, 0.11), transparent 44%),
-radial-gradient(520px 180px at 100% 0%, rgba(235, 215, 171, 0.045), transparent 42%),
-linear-gradient(180deg, rgba(8, 14, 27, 0.94), rgba(4, 8, 17, 0.96));
-box-shadow: var(--auth-shadow);
+radial-gradient(640px 280px at 50% 0%, rgba(79, 195, 255, 0.13), transparent 53%),
+radial-gradient(460px 230px at 100% 0%, rgba(235, 215, 171, 0.045), transparent 48%),
+linear-gradient(180deg, rgba(8, 14, 27, 0.97), rgba(3, 7, 15, 0.98));
+box-shadow: var(--access-shadow);
 }
 
-.auth-panel::before,
-.auth-card::before {
+.access-shell::before {
 content: "";
 position: absolute;
 inset: 0 0 auto 0;
@@ -69,185 +69,89 @@ height: 1px;
 background: linear-gradient(
 90deg,
 transparent,
-rgba(79, 195, 255, 0.38),
-rgba(235, 215, 171, 0.16),
+rgba(79, 195, 255, 0.46),
+rgba(235, 215, 171, 0.18),
 transparent
 );
 pointer-events: none;
 }
 
-.auth-panel,
-.auth-card {
-padding: 24px;
+.access-intro {
+padding: clamp(26px, 5vw, 42px) clamp(20px, 5vw, 44px) 22px;
+text-align: center;
 }
 
-.auth-eyebrow {
+.access-eyebrow {
 display: inline-flex;
 align-items: center;
-gap: 8px;
-min-height: 30px;
-padding: 0 12px;
+gap: 9px;
+min-height: 32px;
+padding: 0 13px;
 border-radius: 999px;
-border: 1px solid rgba(115, 185, 255, 0.18);
-background: rgba(79, 195, 255, 0.06);
-color: var(--auth-accent-2);
-font-size: 11px;
+border: 1px solid rgba(115, 185, 255, 0.19);
+background: rgba(79, 195, 255, 0.07);
+color: var(--access-accent-soft);
+font-size: 10px;
 font-weight: 900;
-letter-spacing: 0.12em;
+letter-spacing: 0.15em;
 text-transform: uppercase;
 }
 
-.auth-title {
-margin: 18px 0 12px;
-max-width: 940px;
-font-size: clamp(32px, 4.8vw, 56px);
-line-height: 0.98;
-letter-spacing: -0.045em;
+.access-eyebrow::before {
+content: "";
+display: inline-block;
+width: 7px;
+height: 7px;
+border-radius: 999px;
+background: linear-gradient(135deg, var(--access-accent-soft), var(--access-accent));
+box-shadow: 0 0 14px rgba(79, 195, 255, 0.55);
 }
 
-.auth-copy,
-.auth-section-copy,
-.auth-helper,
-.auth-note,
-.summary-copy,
-.list-empty {
-color: var(--auth-muted);
-line-height: 1.65;
+.access-title {
+margin: 19px auto 12px;
+max-width: 590px;
+font-size: clamp(34px, 6vw, 52px);
+line-height: 0.99;
+letter-spacing: -0.055em;
+color: var(--access-text);
 }
 
-.auth-copy {
-margin: 0;
-max-width: 760px;
+.access-copy {
+margin: 0 auto;
+max-width: 560px;
+color: var(--access-muted);
 font-size: 15px;
+line-height: 1.68;
 }
 
-.auth-chip-row,
-.auth-button-row,
-.auth-session-actions {
-display: flex;
-flex-wrap: wrap;
-gap: 10px;
-}
-
-.auth-chip-row {
-margin-top: 20px;
-}
-
-.auth-chip {
+.access-stage {
 display: inline-flex;
 align-items: center;
+justify-content: center;
 gap: 8px;
+margin-top: 22px;
+padding: 0 14px;
 min-height: 38px;
-padding: 0 12px;
 border-radius: 999px;
-border: 1px solid var(--auth-border);
+border: 1px solid rgba(115, 185, 255, 0.12);
 background: rgba(255, 255, 255, 0.035);
-color: var(--auth-muted);
+color: var(--access-muted);
 font-size: 12px;
 }
 
-.auth-chip strong {
-color: var(--auth-text);
-}
-
-.auth-hero-points,
-.auth-summary-grid,
-.auth-status-grid,
-.auth-step-grid,
-.auth-session-panel,
-.list-box {
-display: grid;
-gap: 10px;
-}
-
-.auth-hero-points {
-grid-template-columns: repeat(4, minmax(0, 1fr));
-margin-top: 22px;
-}
-
-.auth-summary-grid,
-.auth-status-grid,
-.auth-step-grid,
-.auth-session-panel,
-.list-box {
-margin-top: 18px;
-}
-
-.auth-status-grid {
-grid-template-columns: repeat(2, minmax(0, 1fr));
-}
-
-.auth-point,
-.auth-summary-item,
-.auth-status-card,
-.auth-step-card,
-.auth-session-box,
-.list-item {
-border: 1px solid rgba(115, 185, 255, 0.09);
-border-radius: 16px;
-background: rgba(255, 255, 255, 0.035);
-padding: 14px;
-}
-
-.auth-point {
-min-height: 92px;
-}
-
-.auth-label {
-color: var(--auth-muted-2);
-font-size: 10px;
-text-transform: uppercase;
-letter-spacing: 0.12em;
-font-weight: 900;
-}
-
-.auth-value,
-.summary-value {
-margin-top: 8px;
-color: var(--auth-text);
-font-size: 15px;
+.access-stage strong {
+color: var(--access-text);
 font-weight: 850;
-line-height: 1.35;
-word-break: break-word;
-}
-
-.auth-note,
-.summary-copy,
-.auth-helper {
-margin-top: 8px;
-font-size: 13px;
-}
-
-.auth-section-title {
-margin: 0 0 6px;
-font-size: 18px;
-letter-spacing: -0.025em;
-}
-
-.auth-section-copy {
-margin: 0;
-font-size: 14px;
-}
-
-.auth-main-grid {
-display: grid;
-grid-template-columns: minmax(0, 1.02fr) minmax(0, 0.98fr);
-gap: 18px;
-}
-
-.auth-stack {
-display: grid;
-gap: 18px;
 }
 
 .banner {
 display: none;
-margin-bottom: 18px;
-padding: 14px 16px;
-border-radius: 16px;
+margin: 0 clamp(20px, 5vw, 44px) 18px;
+padding: 13px 15px;
+border-radius: 15px;
 border: 1px solid rgba(115, 185, 255, 0.14);
 background: rgba(255, 255, 255, 0.04);
-font-size: 14px;
+font-size: 13px;
 line-height: 1.55;
 }
 
@@ -256,39 +160,162 @@ display: block;
 }
 
 .banner.good {
-color: var(--auth-good);
-border-color: rgba(123, 255, 177, 0.22);
+color: var(--access-good);
+border-color: rgba(123, 255, 177, 0.2);
+background: rgba(123, 255, 177, 0.045);
 }
 
 .banner.warn {
-color: var(--auth-warn);
-border-color: rgba(255, 207, 102, 0.22);
+color: var(--access-warn);
+border-color: rgba(255, 207, 102, 0.21);
+background: rgba(255, 207, 102, 0.045);
 }
 
 .banner.bad {
-color: var(--auth-bad);
-border-color: rgba(255, 135, 135, 0.22);
+color: var(--access-bad);
+border-color: rgba(255, 135, 135, 0.21);
+background: rgba(255, 135, 135, 0.045);
+}
+
+.account-strip {
+display: flex;
+align-items: center;
+justify-content: space-between;
+gap: 14px;
+margin: 0 clamp(20px, 5vw, 44px) 18px;
+padding: 12px 14px;
+border-radius: 16px;
+border: 1px solid rgba(115, 185, 255, 0.11);
+background: rgba(255, 255, 255, 0.03);
+}
+
+.account-strip-main {
+min-width: 0;
+display: flex;
+align-items: center;
+gap: 10px;
+}
+
+.account-dot {
+width: 8px;
+height: 8px;
+border-radius: 999px;
+background: var(--access-good);
+box-shadow: 0 0 13px rgba(123, 255, 177, 0.5);
+flex: 0 0 auto;
+}
+
+.account-strip-copy {
+min-width: 0;
+}
+
+.account-strip-label {
+display: block;
+color: var(--access-muted-soft);
+font-size: 9px;
+font-weight: 900;
+letter-spacing: 0.12em;
+text-transform: uppercase;
+}
+
+.account-strip-value {
+display: block;
+margin-top: 4px;
+max-width: 320px;
+overflow: hidden;
+text-overflow: ellipsis;
+white-space: nowrap;
+color: var(--access-text);
+font-size: 13px;
+font-weight: 760;
+}
+
+.account-strip-action {
+appearance: none;
+flex: 0 0 auto;
+min-height: 38px;
+padding: 0 13px;
+border-radius: 12px;
+border: 1px solid var(--access-border);
+background: rgba(255, 255, 255, 0.04);
+color: var(--access-text);
+font-size: 11px;
+font-weight: 850;
+letter-spacing: 0.08em;
+text-transform: uppercase;
+cursor: pointer;
+transition:
+transform 0.16s ease,
+border-color 0.16s ease,
+background 0.16s ease;
+}
+
+.account-strip-action:hover:not(:disabled) {
+transform: translateY(-1px);
+border-color: rgba(79, 195, 255, 0.25);
+background: rgba(79, 195, 255, 0.075);
+}
+
+.gateway-panel {
+margin: 0 clamp(20px, 5vw, 44px) clamp(20px, 5vw, 40px);
+padding: clamp(20px, 4vw, 28px);
+border-radius: 21px;
+border: 1px solid rgba(115, 185, 255, 0.12);
+background:
+radial-gradient(460px 190px at 0% 0%, rgba(79, 195, 255, 0.07), transparent 48%),
+rgba(255, 255, 255, 0.025);
+}
+
+.gateway-head {
+margin-bottom: 18px;
+}
+
+.gateway-step {
+display: inline-flex;
+align-items: center;
+gap: 8px;
+color: var(--access-accent-soft);
+font-size: 10px;
+font-weight: 900;
+letter-spacing: 0.13em;
+text-transform: uppercase;
+}
+
+.gateway-title {
+margin: 10px 0 7px;
+font-size: clamp(22px, 4vw, 28px);
+letter-spacing: -0.035em;
+line-height: 1.1;
+}
+
+.gateway-copy {
+margin: 0;
+color: var(--access-muted);
+font-size: 14px;
+line-height: 1.62;
 }
 
 .segmented {
 display: grid;
 grid-template-columns: repeat(2, minmax(0, 1fr));
-gap: 8px;
+gap: 7px;
 width: 100%;
-padding: 7px;
-margin-top: 18px;
-border-radius: 16px;
+padding: 6px;
+margin-bottom: 18px;
+border-radius: 15px;
 border: 1px solid rgba(115, 185, 255, 0.1);
-background: rgba(255, 255, 255, 0.035);
+background: rgba(255, 255, 255, 0.032);
 }
 
 .segment-button {
-min-height: 42px;
-border-radius: 12px;
+appearance: none;
+min-height: 43px;
+border-radius: 11px;
 border: 1px solid transparent;
 background: transparent;
-color: var(--auth-muted);
-font-weight: 900;
+color: var(--access-muted);
+font-weight: 850;
+font-size: 13px;
 cursor: pointer;
 transition:
 transform 0.16s ease,
@@ -297,34 +324,34 @@ color 0.16s ease,
 border-color 0.16s ease;
 }
 
-.segment-button:hover {
+.segment-button:hover:not(:disabled) {
 transform: translateY(-1px);
 }
 
 .segment-button.active {
-color: #04111d;
-background: linear-gradient(135deg, var(--auth-accent-2), var(--auth-accent));
+color: #03111e;
+background: linear-gradient(135deg, var(--access-accent-soft), var(--access-accent));
+box-shadow: 0 10px 24px rgba(79, 195, 255, 0.12);
 }
 
 .segment-button:not(.active) {
-border-color: rgba(115, 185, 255, 0.08);
-background: rgba(255, 255, 255, 0.025);
+border-color: rgba(115, 185, 255, 0.075);
+background: rgba(255, 255, 255, 0.022);
 }
 
 .auth-form {
 display: none;
 gap: 14px;
-margin-top: 18px;
 }
 
-.auth-form.active {
+.auth-form.active,
+.auth-form.gateway-active {
 display: grid;
 }
 
 .form-grid {
 display: grid;
-grid-template-columns: repeat(2, minmax(0, 1fr));
-gap: 12px;
+gap: 13px;
 }
 
 .field {
@@ -333,59 +360,80 @@ flex-direction: column;
 gap: 8px;
 }
 
-.field.full {
-grid-column: 1 / -1;
-}
-
 .field label {
-color: var(--auth-muted-2);
-font-size: 11px;
+color: var(--access-muted-soft);
+font-size: 10px;
 font-weight: 900;
-letter-spacing: 0.1em;
+letter-spacing: 0.12em;
 text-transform: uppercase;
 }
 
 .input {
 width: 100%;
-min-height: 48px;
-padding: 0 14px;
-border: 1px solid rgba(115, 185, 255, 0.13);
-background: rgba(2, 6, 14, 0.72);
-color: var(--auth-text);
+min-height: 51px;
+padding: 0 15px;
+border: 1px solid rgba(115, 185, 255, 0.14);
 border-radius: 14px;
 outline: none;
+background: rgba(2, 6, 14, 0.76);
+color: var(--access-text);
+font-size: 14px;
 transition:
 border-color 0.16s ease,
 box-shadow 0.16s ease,
 background 0.16s ease;
 }
 
-.input:focus {
-border-color: rgba(79, 195, 255, 0.42);
-box-shadow: 0 0 0 4px rgba(79, 195, 255, 0.08);
-background: rgba(2, 6, 14, 0.88);
+.input::placeholder {
+color: rgba(198, 211, 226, 0.37);
 }
 
-.auth-button-row,
-.auth-session-actions {
-margin-top: 16px;
+.input:focus {
+border-color: rgba(79, 195, 255, 0.42);
+background: rgba(2, 6, 14, 0.9);
+box-shadow: 0 0 0 4px rgba(79, 195, 255, 0.08);
+}
+
+.input:disabled {
+opacity: 0.58;
+}
+
+.mono {
+font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+
+.form-helper {
+margin: 0;
+color: var(--access-muted-soft);
+font-size: 12px;
+line-height: 1.58;
+}
+
+.button-row {
+display: flex;
+flex-wrap: wrap;
+gap: 10px;
+margin-top: 3px;
 }
 
 .auth-button {
 appearance: none;
-border: 0;
-cursor: pointer;
-min-height: 44px;
-padding: 0 16px;
+display: inline-flex;
+align-items: center;
+justify-content: center;
+gap: 8px;
+min-height: 48px;
+padding: 0 18px;
 border-radius: 14px;
-font-weight: 900;
 font-size: 13px;
-letter-spacing: 0.02em;
+font-weight: 900;
+letter-spacing: 0.035em;
+cursor: pointer;
 transition:
 transform 0.16s ease,
 opacity 0.16s ease,
-border-color 0.16s ease,
-background 0.16s ease;
+background 0.16s ease,
+border-color 0.16s ease;
 }
 
 .auth-button:hover:not(:disabled) {
@@ -393,93 +441,235 @@ transform: translateY(-1px);
 }
 
 .auth-button:disabled {
-opacity: 0.55;
+opacity: 0.54;
 cursor: not-allowed;
 }
 
 .auth-button-primary {
-color: #04111d;
-background: linear-gradient(135deg, var(--auth-accent-2), var(--auth-accent));
-box-shadow: 0 14px 34px rgba(79, 195, 255, 0.14);
+border: 0;
+color: #03111e;
+background: linear-gradient(135deg, var(--access-accent-soft), var(--access-accent));
+box-shadow: 0 14px 32px rgba(79, 195, 255, 0.14);
 }
 
 .auth-button-secondary {
-color: var(--auth-text);
-background: rgba(255, 255, 255, 0.045);
-border: 1px solid var(--auth-border);
+border: 1px solid var(--access-border);
+background: rgba(255, 255, 255, 0.04);
+color: var(--access-text);
 }
 
 .auth-button-danger {
-color: #ffd5d5;
-background: rgba(42, 14, 14, 0.78);
-border: 1px solid rgba(255, 135, 135, 0.2);
+border: 1px solid rgba(255, 135, 135, 0.19);
+background: rgba(255, 135, 135, 0.065);
+color: #ffdada;
 }
 
-.auth-step-card {
-padding: 16px;
+.auth-button-block {
+width: 100%;
 }
 
-.auth-step-index {
+.ready-panel {
+text-align: center;
+padding-top: clamp(25px, 5vw, 38px);
+padding-bottom: clamp(25px, 5vw, 38px);
+}
+
+.ready-icon {
+display: grid;
+place-items: center;
+width: 60px;
+height: 60px;
+margin: 0 auto 17px;
+border-radius: 20px;
+border: 1px solid rgba(123, 255, 177, 0.23);
+background:
+radial-gradient(circle at 50% 0%, rgba(123, 255, 177, 0.13), transparent 55%),
+rgba(123, 255, 177, 0.05);
+color: var(--access-good);
+font-size: 26px;
+box-shadow: 0 0 30px rgba(123, 255, 177, 0.08);
+}
+
+.ready-meta {
+display: flex;
+justify-content: center;
+flex-wrap: wrap;
+gap: 9px;
+margin: 19px 0 21px;
+}
+
+.ready-pill {
 display: inline-flex;
 align-items: center;
-justify-content: center;
-width: 28px;
-height: 28px;
-margin-bottom: 12px;
+gap: 7px;
+min-height: 34px;
+padding: 0 11px;
 border-radius: 999px;
-border: 1px solid rgba(115, 185, 255, 0.2);
-background: rgba(79, 195, 255, 0.06);
-color: var(--auth-accent-2);
+border: 1px solid rgba(123, 255, 177, 0.17);
+background: rgba(123, 255, 177, 0.045);
+color: var(--access-good);
 font-size: 11px;
+font-weight: 800;
+}
+
+.ready-pill.neutral {
+color: var(--access-muted);
+border-color: rgba(115, 185, 255, 0.12);
+background: rgba(255, 255, 255, 0.03);
+}
+
+.ready-panel .button-row {
+justify-content: center;
+}
+
+.details-panel {
+margin: 0 clamp(20px, 5vw, 44px) clamp(22px, 5vw, 36px);
+border-radius: 18px;
+border: 1px solid rgba(115, 185, 255, 0.11);
+background: rgba(255, 255, 255, 0.022);
+overflow: hidden;
+}
+
+.details-panel summary {
+display: flex;
+align-items: center;
+justify-content: space-between;
+gap: 10px;
+padding: 16px 17px;
+cursor: pointer;
+list-style: none;
+color: var(--access-muted);
+font-size: 12px;
 font-weight: 900;
-letter-spacing: 0.08em;
+letter-spacing: 0.1em;
+text-transform: uppercase;
 }
 
-.auth-step-title {
-margin: 0;
-font-size: 16px;
-letter-spacing: -0.02em;
+.details-panel summary::-webkit-details-marker {
+display: none;
 }
 
-.auth-step-copy {
-margin-top: 8px;
-color: var(--auth-muted);
-font-size: 14px;
-line-height: 1.6;
+.details-panel summary::after {
+content: "+";
+font-size: 18px;
+font-weight: 500;
+color: var(--access-accent-soft);
+}
+
+.details-panel[open] summary::after {
+content: "−";
+}
+
+.details-content {
+display: grid;
+gap: 16px;
+padding: 0 16px 17px;
+border-top: 1px solid rgba(115, 185, 255, 0.075);
+}
+
+.status-grid {
+display: grid;
+grid-template-columns: repeat(3, minmax(0, 1fr));
+gap: 9px;
+padding-top: 16px;
+}
+
+.status-item,
+.list-item {
+border-radius: 14px;
+border: 1px solid rgba(115, 185, 255, 0.08);
+background: rgba(255, 255, 255, 0.028);
+padding: 12px;
+}
+
+.status-label,
+.list-heading {
+color: var(--access-muted-soft);
+font-size: 9px;
+font-weight: 900;
+letter-spacing: 0.12em;
+text-transform: uppercase;
+}
+
+.status-value {
+margin-top: 7px;
+color: var(--access-text);
+font-size: 13px;
+font-weight: 760;
+line-height: 1.42;
+word-break: break-word;
+}
+
+.management-actions {
+display: flex;
+flex-wrap: wrap;
+gap: 9px;
+}
+
+.management-actions .auth-button {
+min-height: 42px;
+padding: 0 13px;
+font-size: 11px;
+}
+
+.detail-list {
+display: grid;
+gap: 9px;
+}
+
+.detail-list-body {
+display: grid;
+gap: 8px;
+margin-top: 9px;
 }
 
 .list-item {
 display: grid;
 gap: 6px;
-padding: 12px 14px;
 }
 
 .list-item-head {
 display: flex;
 align-items: center;
 justify-content: space-between;
-gap: 10px;
-flex-wrap: wrap;
+gap: 8px;
+}
+
+.summary-value {
+min-width: 0;
+overflow: hidden;
+text-overflow: ellipsis;
+color: var(--access-text);
+font-size: 12px;
+font-weight: 760;
+}
+
+.summary-copy {
+color: var(--access-muted-soft);
+font-size: 11px;
+line-height: 1.5;
 }
 
 .list-empty {
-padding: 14px;
-border-radius: 16px;
-border: 1px dashed rgba(115, 185, 255, 0.14);
-background: rgba(255, 255, 255, 0.025);
-font-size: 13px;
+padding: 12px;
+border: 1px dashed rgba(115, 185, 255, 0.13);
+border-radius: 13px;
+color: var(--access-muted-soft);
+font-size: 12px;
+line-height: 1.5;
 }
 
 .pill {
 display: inline-flex;
 align-items: center;
-gap: 8px;
-min-height: 30px;
-padding: 0 10px;
+justify-content: center;
+min-height: 27px;
+padding: 0 9px;
 border-radius: 999px;
-border: 1px solid rgba(115, 185, 255, 0.14);
-background: rgba(255, 255, 255, 0.04);
-font-size: 10px;
+border: 1px solid rgba(115, 185, 255, 0.12);
+background: rgba(255, 255, 255, 0.034);
+color: var(--access-muted);
+font-size: 9px;
 font-weight: 900;
 letter-spacing: 0.09em;
 text-transform: uppercase;
@@ -487,63 +677,64 @@ white-space: nowrap;
 }
 
 .pill.good {
-color: var(--auth-good);
-border-color: rgba(123, 255, 177, 0.24);
+color: var(--access-good);
+border-color: rgba(123, 255, 177, 0.2);
 }
 
 .pill.warn {
-color: var(--auth-warn);
-border-color: rgba(255, 207, 102, 0.24);
+color: var(--access-warn);
+border-color: rgba(255, 207, 102, 0.2);
 }
 
 .pill.bad {
-color: var(--auth-bad);
-border-color: rgba(255, 135, 135, 0.24);
+color: var(--access-bad);
+border-color: rgba(255, 135, 135, 0.2);
 }
 
-.pill.neutral {
-color: var(--auth-muted);
+.gateway-footnote {
+margin: 0 auto;
+padding: 0 22px 26px;
+max-width: 570px;
+text-align: center;
+color: var(--access-muted-soft);
+font-size: 11px;
+line-height: 1.6;
 }
 
-.mono {
-font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+@media (max-width: 720px) {
+.access-main {
+width: min(var(--access-max), calc(100% - 20px));
+padding-top: 25px;
+padding-bottom: 42px;
 }
 
-@media (max-width: 1180px) {
-.auth-hero,
-.auth-main-grid {
+.access-shell {
+border-radius: 22px;
+}
+
+.access-intro {
+padding-top: 23px;
+}
+
+.access-title {
+font-size: clamp(31px, 11vw, 42px);
+}
+
+.account-strip {
+align-items: flex-start;
+flex-direction: column;
+}
+
+.account-strip-action {
+width: 100%;
+}
+
+.status-grid {
 grid-template-columns: 1fr;
 }
 
-.auth-hero-points,
-.auth-status-grid {
-grid-template-columns: repeat(2, minmax(0, 1fr));
-}
-}
-
-@media (max-width: 820px) {
-.auth-page-main {
-width: min(var(--auth-max), calc(100% - 20px));
-padding-top: 24px;
-}
-
-.auth-hero-points,
-.auth-status-grid,
-.form-grid {
-grid-template-columns: 1fr;
-}
-
-.auth-panel,
-.auth-card {
-padding: 18px;
-border-radius: 18px;
-}
-
-.auth-title {
-font-size: clamp(30px, 11vw, 44px);
-}
-
-.auth-chip-row .auth-button {
+.management-actions .auth-button,
+.button-row .auth-button {
 width: 100%;
 }
 }
@@ -554,118 +745,86 @@ width: 100%;
 data-shell-auto="true"
 data-page="auth"
 data-active-page="auth"
-data-shell-active="launchpad"
-data-active-nav="launchpad"
+data-shell-active="sentinel"
+data-active-nav="sentinel"
 >
-<div class="auth-page-main">
-<section class="auth-hero">
-<section class="auth-panel">
-<div class="auth-eyebrow">Sentinel Access</div>
-<h1 class="auth-title">Account access, wallet control, and Sentinel entry in one place.</h1>
-<p class="auth-copy">
-Create or sign into your MSS Protocol account, redeem your Sentinel access code, and link the wallet you want attached to your access profile.
+<div id="layoutShellHeader"></div>
+
+<main class="access-main">
+<section class="access-shell" aria-label="Sentinel Watcher access gateway">
+<header class="access-intro">
+<div class="access-eyebrow">Sentinel Watcher Access</div>
+
+<h1 class="access-title">Enter Sentinel Watcher.</h1>
+
+<p class="access-copy">
+Secure account access for selected MSS Protocol testing participants.
+Sign in, activate your code, and enter once your access profile is ready.
 </p>
 
-<div class="auth-chip-row">
-<div class="auth-chip">
-<span>Account</span>
-<strong id="authStatusChip">Ready</strong>
+<div class="access-stage" aria-live="polite">
+<span>Current step</span>
+<strong id="heroNextStepValue">Sign in or create account</strong>
 </div>
-<div class="auth-chip">
-<span>Access</span>
-<strong id="accessStatusChip">Inactive</strong>
+</header>
+
+<div id="authBanner" class="banner" role="status" aria-live="polite"></div>
+
+<section id="signedInAccountStrip" class="account-strip" hidden>
+<div class="account-strip-main">
+<span class="account-dot" aria-hidden="true"></span>
+
+<div class="account-strip-copy">
+<span class="account-strip-label">Signed In Account</span>
+<span id="signedInAccountValue" class="account-strip-value">—</span>
 </div>
-<div class="auth-chip">
-<span>Wallet</span>
-<strong id="walletStatusChip">No Wallet</strong>
-</div>
-<a class="auth-button auth-button-secondary" href="/launchpad.html">Back to Launchpad</a>
 </div>
 
-<div class="auth-hero-points">
-<div class="auth-point">
-<div class="auth-label">Account</div>
-<div class="auth-value" id="heroAccountStateValue">Not signed in</div>
-</div>
-<div class="auth-point">
-<div class="auth-label">Wallet</div>
-<div class="auth-value" id="heroWalletStateValue">Not connected</div>
-</div>
-<div class="auth-point">
-<div class="auth-label">Access</div>
-<div class="auth-value" id="heroAccessStateValue">No entitlement</div>
-</div>
-<div class="auth-point">
-<div class="auth-label">Next Step</div>
-<div class="auth-value" id="heroNextStepValue">Create account or sign in</div>
-</div>
-</div>
+<button
+id="signOutButton"
+class="account-strip-action"
+type="button"
+>
+Sign Out
+</button>
 </section>
 
-<aside class="auth-panel">
-<h2 class="auth-section-title">Clean access model</h2>
-<p class="auth-section-copy">
-Access belongs to the account. Wallets can be connected, replaced, or disconnected later without losing the entitlement history attached to that account.
+<section id="guestPanel" class="gateway-panel">
+<div class="gateway-head">
+<div class="gateway-step">Step 01 · Account</div>
+<h2 class="gateway-title">Sign in to continue</h2>
+<p class="gateway-copy">
+Your Sentinel entitlement is attached to your MSS Protocol account.
 </p>
-
-<div class="auth-summary-grid">
-<div class="auth-summary-item">
-<div class="auth-label">Step 1</div>
-<div class="auth-value">Sign in or register</div>
-<div class="auth-note">Your MSS account becomes the base identity for Sentinel access.</div>
 </div>
 
-<div class="auth-summary-item">
-<div class="auth-label">Step 2</div>
-<div class="auth-value">Redeem access</div>
-<div class="auth-note">Selected access codes activate the Sentinel entitlement window.</div>
-</div>
-
-<div class="auth-summary-item">
-<div class="auth-label">Step 3</div>
-<div class="auth-value">Link wallet</div>
-<div class="auth-note">Attach the wallet you want associated with Sentinel usage.</div>
-</div>
-</div>
-</aside>
-</section>
-
-<main class="auth-stack">
-<div id="authBanner" class="banner"></div>
-
-<section class="auth-main-grid">
-<section class="auth-stack">
-<section id="guestPanel" class="auth-card">
-<div class="auth-eyebrow">Account</div>
-<h2 class="auth-section-title" style="margin-top: 14px;">Sign in or create account</h2>
-<p class="auth-section-copy">
-Start here. Once signed in, you can redeem access and manage wallet linkage from the same account.
-</p>
-
-<div class="segmented" role="tablist" aria-label="Authentication mode">
+<div class="segmented" role="tablist" aria-label="Account access method">
 <button
 id="showSignInButton"
 class="segment-button active"
 type="button"
 role="tab"
 aria-selected="true"
+aria-controls="signInForm"
 >
 Sign In
 </button>
+
 <button
 id="showRegisterButton"
 class="segment-button"
 type="button"
 role="tab"
 aria-selected="false"
+aria-controls="registerForm"
 >
-Register
+Create Account
 </button>
 </div>
 
 <form id="signInForm" class="auth-form active" autocomplete="on">
 <div class="form-grid">
-<div class="field full">
+<div class="field">
 <label for="signInEmailInput">Email</label>
 <input
 id="signInEmailInput"
@@ -673,10 +832,11 @@ class="input"
 type="email"
 placeholder="Enter your email"
 autocomplete="username"
+required
 />
 </div>
 
-<div class="field full">
+<div class="field">
 <label for="signInPasswordInput">Password</label>
 <input
 id="signInPasswordInput"
@@ -684,16 +844,17 @@ class="input"
 type="password"
 placeholder="Enter your password"
 autocomplete="current-password"
+required
 />
 </div>
 </div>
 
-<div class="auth-helper">
-Use the account that should own the Sentinel entitlement.
-</div>
-
-<div class="auth-button-row">
-<button id="signInSubmitButton" class="auth-button auth-button-primary" type="submit">
+<div class="button-row">
+<button
+id="signInSubmitButton"
+class="auth-button auth-button-primary auth-button-block"
+type="submit"
+>
 Sign In
 </button>
 </div>
@@ -701,7 +862,7 @@ Sign In
 
 <form id="registerForm" class="auth-form" autocomplete="on">
 <div class="form-grid">
-<div class="field full">
+<div class="field">
 <label for="registerDisplayNameInput">Display Name</label>
 <input
 id="registerDisplayNameInput"
@@ -712,7 +873,7 @@ autocomplete="nickname"
 />
 </div>
 
-<div class="field full">
+<div class="field">
 <label for="registerEmailInput">Email</label>
 <input
 id="registerEmailInput"
@@ -720,6 +881,7 @@ class="input"
 type="email"
 placeholder="Enter your email"
 autocomplete="email"
+required
 />
 </div>
 
@@ -731,6 +893,7 @@ class="input"
 type="password"
 placeholder="Create a password"
 autocomplete="new-password"
+required
 />
 </div>
 
@@ -740,202 +903,232 @@ autocomplete="new-password"
 id="registerConfirmPasswordInput"
 class="input"
 type="password"
-placeholder="Re-enter password"
+placeholder="Re-enter your password"
 autocomplete="new-password"
+required
 />
 </div>
 </div>
 
-<div class="auth-helper">
+<p class="form-helper">
 Password must be at least 8 characters.
-</div>
+</p>
 
-<div class="auth-button-row">
-<button id="registerSubmitButton" class="auth-button auth-button-primary" type="submit">
+<div class="button-row">
+<button
+id="registerSubmitButton"
+class="auth-button auth-button-primary auth-button-block"
+type="submit"
+>
 Create Account
 </button>
 </div>
 </form>
 </section>
 
-<section class="auth-card">
-<div class="auth-eyebrow">Access Code</div>
-<h2 class="auth-section-title" style="margin-top: 14px;">Redeem Sentinel access</h2>
-<p class="auth-section-copy">
-Enter your selected access code after signing in. The entitlement attaches to your MSS account.
+<section id="redeemPanel" class="gateway-panel" hidden>
+<div class="gateway-head">
+<div class="gateway-step">Step 02 · Activation</div>
+<h2 class="gateway-title">Redeem your access code</h2>
+<p class="gateway-copy">
+Enter the Sentinel Watcher access code issued to your account.
 </p>
+</div>
 
-<form id="redeemAccessCodeForm" class="auth-form active" autocomplete="off">
+<form id="redeemAccessCodeForm" class="auth-form gateway-active" autocomplete="off">
 <div class="form-grid">
-<div class="field full">
-<label for="accessCodeInput">Access Code</label>
+<div class="field">
+<label for="accessCodeInput">Sentinel Access Code</label>
 <input
 id="accessCodeInput"
 class="input mono"
 type="text"
-placeholder="Enter access code"
+placeholder="MSS-XXXX-XXXX-XXXX"
 spellcheck="false"
+autocapitalize="characters"
+required
 />
 </div>
 </div>
 
-<div class="auth-helper">
-Access code first, wallet linkage second. Both remain controlled from this account.
-</div>
+<p class="form-helper">
+Codes activate access only for the authorised account using them.
+</p>
 
-<div class="auth-button-row">
-<button id="redeemAccessCodeButton" class="auth-button auth-button-primary" type="submit">
-Redeem Code
+<div class="button-row">
+<button
+id="redeemAccessCodeButton"
+class="auth-button auth-button-primary auth-button-block"
+type="submit"
+>
+Activate Access
 </button>
 </div>
 </form>
 </section>
 
-<section class="auth-card">
-<div class="auth-eyebrow">Wallet</div>
-<h2 class="auth-section-title" style="margin-top: 14px;">Connect or replace wallet</h2>
-<p class="auth-section-copy">
-Link the wallet you want connected to Sentinel access. You can replace it later without creating a new account.
+<section id="walletPanel" class="gateway-panel" hidden>
+<div class="gateway-head">
+<div class="gateway-step">Step 03 · Wallet Link</div>
+<h2 class="gateway-title">Connect your Solana wallet</h2>
+<p class="gateway-copy">
+Access is active. Link the wallet you want associated with your Sentinel Watcher usage.
 </p>
-
-<div class="auth-step-grid">
-<div class="auth-step-card">
-<div class="auth-step-index">01</div>
-<h3 class="auth-step-title">Connect</h3>
-<div class="auth-step-copy">
-Link your active Solana wallet after sign-in.
-</div>
 </div>
 
-<div class="auth-step-card">
-<div class="auth-step-index">02</div>
-<h3 class="auth-step-title">Replace</h3>
-<div class="auth-step-copy">
-Move access to a different wallet when needed.
-</div>
-</div>
-
-<div class="auth-step-card">
-<div class="auth-step-index">03</div>
-<h3 class="auth-step-title">Disconnect</h3>
-<div class="auth-step-copy">
-Remove the active wallet link while keeping your account history.
-</div>
-</div>
-</div>
-
-<div class="auth-button-row">
-<button id="connectWalletButton" class="auth-button auth-button-primary" type="button">
+<div class="button-row">
+<button
+id="connectWalletButton"
+class="auth-button auth-button-primary auth-button-block"
+type="button"
+>
 Connect Wallet
 </button>
-<button id="replaceWalletButton" class="auth-button auth-button-secondary" type="button">
+</div>
+
+<p class="form-helper" style="margin-top: 14px;">
+Wallet linkage can be replaced later from your account details.
+</p>
+</section>
+
+<section id="readyPanel" class="gateway-panel ready-panel" hidden>
+<div class="ready-icon" aria-hidden="true">✓</div>
+
+<div class="gateway-step">Access Ready</div>
+
+<h2 class="gateway-title">Sentinel Watcher is unlocked</h2>
+
+<p class="gateway-copy">
+Your account is active and your wallet is linked. Continue into the Sentinel testing surface.
+</p>
+
+<div class="ready-meta">
+<span class="ready-pill">Access Active</span>
+<span id="readyWalletPill" class="ready-pill neutral">Wallet Linked</span>
+</div>
+
+<div class="button-row">
+<button
+id="continueToSentinelButton"
+class="auth-button auth-button-primary"
+type="button"
+>
+Enter Sentinel Watcher
+</button>
+</div>
+</section>
+
+<details id="accountDetailsPanel" class="details-panel" hidden>
+<summary>Account Details</summary>
+
+<div class="details-content">
+<div class="status-grid">
+<div class="status-item">
+<div class="status-label">Account</div>
+<div id="sessionAccountValue" class="status-value">Guest</div>
+</div>
+
+<div class="status-item">
+<div class="status-label">Access</div>
+<div id="sessionAccessValue" class="status-value">No entitlement</div>
+</div>
+
+<div class="status-item">
+<div class="status-label">Wallet</div>
+<div id="sessionWalletValue" class="status-value">Not connected</div>
+</div>
+
+<div class="status-item">
+<div class="status-label">Identity</div>
+<div id="sessionIdentityValue" class="status-value">None</div>
+</div>
+
+<div class="status-item">
+<div class="status-label">Active Plan</div>
+<div id="sessionPlanValue" class="status-value">—</div>
+</div>
+
+<div class="status-item">
+<div class="status-label">Access Expires</div>
+<div id="sessionExpiryValue" class="status-value">—</div>
+</div>
+</div>
+
+<div hidden aria-hidden="true">
+<span id="heroAccountStateValue">Not signed in</span>
+<span id="heroWalletStateValue">Not connected</span>
+<span id="heroAccessStateValue">No entitlement</span>
+<span id="authStatusChip">Guest</span>
+<span id="accessStatusChip">Inactive</span>
+<span id="walletStatusChip">No Wallet</span>
+</div>
+
+<div class="management-actions">
+<button
+id="refreshSessionButton"
+class="auth-button auth-button-secondary"
+type="button"
+>
+Refresh Status
+</button>
+
+<button
+id="replaceWalletButton"
+class="auth-button auth-button-secondary"
+type="button"
+>
 Replace Wallet
 </button>
-<button id="disconnectWalletButton" class="auth-button auth-button-danger" type="button">
-Disconnect
+
+<button
+id="disconnectWalletButton"
+class="auth-button auth-button-danger"
+type="button"
+>
+Disconnect Wallet
 </button>
 </div>
 
-<div class="auth-summary-grid">
-<div class="auth-summary-item">
-<div class="auth-label">Wallet Status</div>
-<div class="auth-value" id="walletStatusValue">Not connected</div>
+<div class="detail-list">
+<div class="list-heading">Linked Wallet</div>
+
+<div class="status-item">
+<div id="linkedWalletAddressValue" class="status-value mono">—</div>
+<div id="walletStatusValue" class="summary-copy">Not connected</div>
+<div id="walletUpdatedAtValue" class="summary-copy">—</div>
 </div>
 
-<div class="auth-summary-item">
-<div class="auth-label">Wallet Updated</div>
-<div class="auth-value" id="walletUpdatedAtValue">—</div>
-</div>
-</div>
-
-<div class="list-box">
-<div class="auth-label">Linked Wallets</div>
-<div id="linkedWalletsList">
+<div id="linkedWalletsList" class="detail-list-body">
 <div class="list-empty">No linked wallets yet.</div>
 </div>
 </div>
-</section>
-</section>
 
-<aside class="auth-stack">
-<section class="auth-card">
-<div class="auth-eyebrow">Session</div>
-<h2 class="auth-section-title" style="margin-top: 14px;">Current state</h2>
-<p class="auth-section-copy">
-Live account, wallet, and Sentinel entitlement status.
-</p>
+<div class="detail-list">
+<div class="list-heading">Entitlement History</div>
 
-<div class="auth-status-grid">
-<div class="auth-status-card">
-<div class="auth-label">Account</div>
-<div class="auth-value" id="sessionAccountValue">Guest</div>
-</div>
-
-<div class="auth-status-card">
-<div class="auth-label">Wallet</div>
-<div class="auth-value" id="sessionWalletValue">Not connected</div>
-</div>
-
-<div class="auth-status-card">
-<div class="auth-label">Access</div>
-<div class="auth-value" id="sessionAccessValue">No entitlement</div>
-</div>
-
-<div class="auth-status-card">
-<div class="auth-label">Expires</div>
-<div class="auth-value" id="sessionExpiryValue">—</div>
-</div>
-</div>
-
-<div class="auth-session-panel">
-<div class="auth-session-box">
-<div class="auth-label">Signed-In User</div>
-<div class="auth-value" id="sessionIdentityValue">None</div>
-</div>
-
-<div class="auth-session-box">
-<div class="auth-label">Linked Wallet</div>
-<div class="auth-value mono" id="linkedWalletAddressValue">—</div>
-</div>
-
-<div class="auth-session-box">
-<div class="auth-label">Active Plan</div>
-<div class="auth-value" id="sessionPlanValue">—</div>
-</div>
-
-<div class="auth-session-actions">
-<button id="refreshSessionButton" class="auth-button auth-button-secondary" type="button">
-Refresh
-</button>
-<button id="signOutButton" class="auth-button auth-button-secondary" type="button">
-Sign Out
-</button>
-<button id="continueToSentinelButton" class="auth-button auth-button-primary" type="button">
-Enter Sentinel
-</button>
-</div>
-</div>
-</section>
-
-<section class="auth-card">
-<div class="auth-eyebrow">Entitlements</div>
-<h2 class="auth-section-title" style="margin-top: 14px;">Access history</h2>
-<p class="auth-section-copy">
-Active and previous Sentinel entitlements attached to this account.
-</p>
-
-<div class="list-box">
-<div id="entitlementsList">
+<div id="entitlementsList" class="detail-list-body">
 <div class="list-empty">No entitlements on this account yet.</div>
 </div>
 </div>
-</section>
-</aside>
+</div>
+</details>
+
+<p class="gateway-footnote">
+Sentinel Watcher access is issued in controlled testing stages. Only use access credentials provided directly through official MSS Protocol channels.
+</p>
 </section>
 </main>
-</div>
 
-<script type="module" src="/assets/layout-shell.js?v=20260524-shell-v4"></script>
-<script type="module" src="/assets/pages/auth.js?v=20260514-shell-v3"></script>
+<div id="layoutShellFooter"></div>
+
+<script
+type="module"
+src="/assets/layout-shell.js?v=20260524-sentinel-gateway-v1"
+></script>
+
+<script
+type="module"
+src="/assets/pages/auth.js?v=20260524-sentinel-gateway-v1"
+></script>
 </body>
 </html>
