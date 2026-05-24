@@ -10,7 +10,7 @@ content="MSS Protocol Launchpad — security-first launch command for protected 
 />
 
 <link rel="stylesheet" href="./assets/app.css?v=7" />
-<link rel="modulepreload" href="./assets/layout-shell.js" />
+<link rel="modulepreload" href="./assets/layout-shell.js?v=20260524-shell-v4" />
 <link rel="modulepreload" href="./assets/pages/launches.js?v=9" />
 
 <style>
@@ -1648,7 +1648,7 @@ import "./assets/pages/launches.js?v=9";
 
 async function mountSharedShell() {
 try {
-const shellModule = await import("./assets/layout-shell.js");
+const shellModule = await import("./assets/layout-shell.js?v=20260524-shell-v4");
 const mountShell =
 shellModule.mountLayoutShell ||
 shellModule.renderLayoutShell ||

@@ -11,7 +11,7 @@ content="MSS Protocol Launch Terminal — builder identity, protected phase trut
 
 <link rel="stylesheet" href="./assets/app.css?v=7" />
 <link rel="stylesheet" href="./assets/chart.css?v=7" />
-<link rel="modulepreload" href="./assets/layout-shell.js" />
+<link rel="modulepreload" href="./assets/layout-shell.js?v=20260524-shell-v4" />
 <link rel="modulepreload" href="./assets/pages/launch.js?v=9" />
 
 <style>
@@ -2184,7 +2184,7 @@ disabled
 <script type="module">
 async function mountSharedShell() {
 try {
-const shellModule = await import("./assets/layout-shell.js");
+const shellModule = await import("./assets/layout-shell.js?v=20260524-shell-v4");
 const mountShell =
 shellModule.mountLayoutShell ||
 shellModule.renderLayoutShell ||

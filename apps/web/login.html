@@ -541,7 +541,7 @@ import { bindSessionUi, login } from "./assets/auth.js";
 
 async function mountSharedShell() {
 try {
-const shellModule = await import("./assets/layout-shell.js");
+const shellModule = await import("./assets/layout-shell.js?v=20260524-shell-v4");
 const mountShell =
 shellModule.mountLayoutShell ||
 shellModule.renderLayoutShell ||

@@ -10,7 +10,7 @@ content="Create a security-first MSS launch with locked template rules, required
 />
 
 <link rel="stylesheet" href="./assets/app.css?v=7" />
-<link rel="modulepreload" href="./assets/layout-shell.js" />
+<link rel="modulepreload" href="./assets/layout-shell.js?v=20260524-shell-v4" />
 <link rel="modulepreload" href="./assets/pages/launch-create.js?v=9" />
 
 <style>
@@ -2137,7 +2137,7 @@ SOL quote refresh target: every 20 seconds without closing the payment or confir
 <script type="module">
 async function mountSharedShell() {
 try {
-const shellModule = await import("./assets/layout-shell.js");
+const shellModule = await import("./assets/layout-shell.js?v=20260524-shell-v4");
 const mountShell =
 shellModule.mountLayoutShell ||
 shellModule.renderLayoutShell ||

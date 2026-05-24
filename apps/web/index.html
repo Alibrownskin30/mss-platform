@@ -29,7 +29,7 @@ content="Security intelligence for transparent crypto markets."
 />
 <meta name="twitter:image" content="https://mssprotocol.com/assets/og/mss-preview.png" />
 
-<link rel="modulepreload" href="./assets/layout-shell.js" />
+<link rel="modulepreload" href="./assets/layout-shell.js?v=20260524-shell-v4" />
 
 <style>
 :root{
@@ -1063,7 +1063,7 @@ const $ = (id) => document.getElementById(id);
 
 async function mountSharedShell() {
 try {
-const shellModule = await import("./assets/layout-shell.js");
+const shellModule = await import("./assets/layout-shell.js?v=20260524-shell-v4");
 
 if (
 document.getElementById("mssShellHeader") ||
