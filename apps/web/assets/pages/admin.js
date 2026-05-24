@@ -1,19 +1,27 @@
 import {
+ADMIN_SESSION_INVALID_EVENT,
+ADMIN_SESSION_READY_EVENT,
+apiFetch,
 arrayify,
 cleanText,
-createAdminKeyApiFetch,
 formatDateTime,
 formatNumber,
 formatSignedCurrency,
+getAdminSessionSnapshot,
 safeNumber,
+setAdminSessionSnapshot,
 setBanner,
 setText,
 titleCase,
 todayIso,
 } from "./admin-core.js"
 
+const REQUIRED_ADMIN_SCOPE = "admin"
+
 const state = {
+adminSession: null,
 loadingCount: 0,
+reauthPending: false,
 cases: [],
 sentinel: null,
 accessSummary: null,
@@ -30,42 +38,117 @@ sentinelHealthChip: document.getElementById("sentinelHealthChip"),
 accessHealthChip: document.getElementById("accessHealthChip"),
 
 adminOpenCasesValue: document.getElementById("adminOpenCasesValue"),
+adminOpenCasesValueMirror: document.getElementById("adminOpenCasesValueMirror"),
 adminEscalatedCasesValue: document.getElementById("adminEscalatedCasesValue"),
 adminResolvedCasesValue: document.getElementById("adminResolvedCasesValue"),
 adminTotalCasesValue: document.getElementById("adminTotalCasesValue"),
 
 adminSentinelModeValue: document.getElementById("adminSentinelModeValue"),
-adminSentinelOpenPositionsValue: document.getElementById("adminSentinelOpenPositionsValue"),
-adminSentinelRealizedPnlValue: document.getElementById("adminSentinelRealizedPnlValue"),
-adminSentinelKillSwitchValue: document.getElementById("adminSentinelKillSwitchValue"),
+adminSentinelModeValueMirror: document.getElementById(
+"adminSentinelModeValueMirror"
+),
+adminSentinelOpenPositionsValue: document.getElementById(
+"adminSentinelOpenPositionsValue"
+),
+adminSentinelRealizedPnlValue: document.getElementById(
+"adminSentinelRealizedPnlValue"
+),
+adminSentinelKillSwitchValue: document.getElementById(
+"adminSentinelKillSwitchValue"
+),
 
-adminAccessTotalCodesValue: document.getElementById("adminAccessTotalCodesValue"),
-adminAccessActiveCodesValue: document.getElementById("adminAccessActiveCodesValue"),
-adminAccessRedemptionsValue: document.getElementById("adminAccessRedemptionsValue"),
-adminAccessEntitlementsValue: document.getElementById("adminAccessEntitlementsValue"),
+adminAccessTotalCodesValue: document.getElementById(
+"adminAccessTotalCodesValue"
+),
+adminAccessTotalCodesValueMirror: document.getElementById(
+"adminAccessTotalCodesValueMirror"
+),
+adminAccessActiveCodesValue: document.getElementById(
+"adminAccessActiveCodesValue"
+),
+adminAccessRedemptionsValue: document.getElementById(
+"adminAccessRedemptionsValue"
+),
+adminAccessEntitlementsValue: document.getElementById(
+"adminAccessEntitlementsValue"
+),
+adminAccessEntitlementsValueMirror: document.getElementById(
+"adminAccessEntitlementsValueMirror"
+),
 
 adminNotificationsList: document.getElementById("adminNotificationsList"),
 adminApiStatusValue: document.getElementById("adminApiStatusValue"),
 adminUpdatedAtValue: document.getElementById("adminUpdatedAtValue"),
 }
 
-const apiFetchComplianceAdmin = createAdminKeyApiFetch({
-basePath: "/api/compliance-admin",
-storageKey: "mss_admin_key",
-windowOverrideKey: "__MSS_ADMIN_KEY__",
-headerName: "x-admin-key",
-promptLabel: "Enter MSS admin key",
-missingKeyMessage: "MSS admin key is required.",
-})
+function normalizeScopes(scopes) {
+return arrayify(scopes)
+.map((scope) => cleanText(scope, 64).toLowerCase())
+.filter(Boolean)
+}
 
-const apiFetchSentinelAccessAdmin = createAdminKeyApiFetch({
-basePath: "/api/sentinel-access-admin",
-storageKey: "mss_sentinel_access_admin_key",
-windowOverrideKey: "__SENTINEL_ACCESS_ADMIN_KEY__",
-headerName: "x-admin-key",
-promptLabel: "Enter Sentinel Access admin key",
-missingKeyMessage: "Sentinel Access admin key is required.",
+function sessionAllowsAdmin(session) {
+return normalizeScopes(session?.scopes).includes(REQUIRED_ADMIN_SCOPE)
+}
+
+function acceptAdminSession(session) {
+if (!sessionAllowsAdmin(session)) {
+return null
+}
+
+state.adminSession = session
+setAdminSessionSnapshot(session)
+
+return session
+}
+
+function getExistingAdminSession() {
+const currentSnapshot = getAdminSessionSnapshot()
+
+if (currentSnapshot && sessionAllowsAdmin(currentSnapshot)) {
+return acceptAdminSession(currentSnapshot)
+}
+
+const guardState = window.MSSAdminSessionGuard?.getState?.()
+
+if (
+guardState?.authenticated &&
+guardState?.session &&
+sessionAllowsAdmin(guardState.session)
+) {
+return acceptAdminSession(guardState.session)
+}
+
+return null
+}
+
+function waitForAuthenticatedAdminSession() {
+const existingSession = getExistingAdminSession()
+
+if (existingSession) {
+return Promise.resolve(existingSession)
+}
+
+return new Promise((resolve) => {
+const onReady = (event) => {
+const session = acceptAdminSession(event?.detail?.session || null)
+
+if (!session) return
+
+window.removeEventListener(ADMIN_SESSION_READY_EVENT, onReady)
+resolve(session)
+}
+
+window.addEventListener(ADMIN_SESSION_READY_EVENT, onReady)
+
+const retrySession = getExistingAdminSession()
+
+if (retrySession) {
+window.removeEventListener(ADMIN_SESSION_READY_EVENT, onReady)
+resolve(retrySession)
+}
 })
+}
 
 function setAdminBanner(message = "", variant = "good") {
 setBanner(els.adminBanner, message, variant)
@@ -80,6 +163,12 @@ el.className = "admin-chip chip"
 if (variant) {
 el.classList.add(variant)
 }
+}
+
+function setTextAcross(elements = [], value) {
+elements.forEach((element) => {
+setText(element, value)
+})
 }
 
 function isLoading() {
@@ -101,22 +190,93 @@ const loading = isLoading()
 
 if (els.refreshAdminButton) {
 els.refreshAdminButton.disabled = loading
-els.refreshAdminButton.textContent = loading ? "Refreshing..." : "Refresh Admin Snapshot"
+els.refreshAdminButton.textContent = loading
+? "Refreshing..."
+: "Refresh Snapshot"
 }
 
 setText(els.adminApiStatusValue, loading ? "Loading" : "Ready")
 }
 
+function handleAdminApiAuthorizationError(error) {
+if (![401, 403].includes(Number(error?.status))) {
+return false
+}
+
+if (state.reauthPending) {
+return true
+}
+
+state.reauthPending = true
+state.adminSession = null
+setAdminSessionSnapshot(null)
+
+const message =
+error?.status === 403
+? "Your admin session does not have permission to open this command center."
+: "Your admin session has expired. Returning to secure sign-in."
+
+setAdminBanner(message, "bad")
+
+const guard = window.MSSAdminSessionGuard
+
+if (guard?.requireAdminSession) {
+guard
+.requireAdminSession({
+requiredScope: REQUIRED_ADMIN_SCOPE,
+redirectUnauthenticated: true,
+})
+.catch(() => {})
+.finally(() => {
+state.reauthPending = false
+})
+}
+
+return true
+}
+
+async function apiFetchComplianceAdmin(path, options = {}) {
+try {
+return await apiFetch(`/api/compliance-admin${path}`, options)
+} catch (error) {
+handleAdminApiAuthorizationError(error)
+throw error
+}
+}
+
+async function apiFetchSentinelAccessAdmin(path, options = {}) {
+try {
+return await apiFetch(`/api/sentinel-access-admin${path}`, options)
+} catch (error) {
+handleAdminApiAuthorizationError(error)
+throw error
+}
+}
+
 function isLiveEntitlement(entitlement) {
 const status = cleanText(entitlement?.status, 64).toLowerCase()
-if (status !== "active") return false
+
+if (status !== "active") {
+return false
+}
 
 const now = Date.now()
-const startsAt = entitlement?.starts_at ? new Date(entitlement.starts_at).getTime() : null
-const endsAt = entitlement?.ends_at ? new Date(entitlement.ends_at).getTime() : null
 
-if (startsAt && !Number.isNaN(startsAt) && startsAt > now) return false
-if (endsAt && !Number.isNaN(endsAt) && endsAt <= now) return false
+const startsAt = entitlement?.starts_at
+? new Date(entitlement.starts_at).getTime()
+: null
+
+const endsAt = entitlement?.ends_at
+? new Date(entitlement.ends_at).getTime()
+: null
+
+if (startsAt && !Number.isNaN(startsAt) && startsAt > now) {
+return false
+}
+
+if (endsAt && !Number.isNaN(endsAt) && endsAt <= now) {
+return false
+}
 
 return true
 }
@@ -158,8 +318,7 @@ return payload.summary || {}
 }
 
 function getSentinelPnl(payload = state.sentinel || {}) {
-const summary = getSentinelSummary(payload)
-return summary.pnl || {}
+return getSentinelSummary(payload).pnl || {}
 }
 
 function getSentinelOpenPositions(payload = state.sentinel || {}) {
@@ -206,7 +365,9 @@ mode === "emergency_stop"
 
 async function loadComplianceSnapshot() {
 const payload = await apiFetchComplianceAdmin("/cases")
+
 state.cases = arrayify(payload?.cases)
+
 return state.cases
 }
 
@@ -218,11 +379,17 @@ params.set("date", todayIso)
 params.set("mode", "paper")
 
 try {
-const payload = await apiFetchComplianceAdmin(`/sentinel/status?${params.toString()}`)
+const payload = await apiFetchComplianceAdmin(
+`/sentinel/status?${params.toString()}`
+)
+
 state.sentinel = payload || null
+
 return state.sentinel
 } catch (error) {
-if (error?.status !== 404) throw error
+if (error?.status !== 404) {
+throw error
+}
 
 const [settingsPayload, summaryPayload] = await Promise.all([
 apiFetchComplianceAdmin("/sentinel/settings"),
@@ -270,7 +437,11 @@ const resolvedLike = cases.filter((item) =>
 ["approved", "rejected"].includes(getCaseStatus(item))
 ).length
 
-setText(els.adminOpenCasesValue, formatNumber(openLike))
+setTextAcross(
+[els.adminOpenCasesValue, els.adminOpenCasesValueMirror],
+formatNumber(openLike)
+)
+
 setText(els.adminEscalatedCasesValue, formatNumber(escalatedLike))
 setText(els.adminResolvedCasesValue, formatNumber(resolvedLike))
 setText(els.adminTotalCasesValue, formatNumber(cases.length))
@@ -295,13 +466,25 @@ const mode = getSentinelMode(payload)
 const openPositions = getSentinelOpenPositions(payload)
 const realizedPnl = getSentinelRealizedPnl(payload)
 const killSwitchActive = getSentinelKillSwitch(payload)
+const modeLabel = titleCase(mode) || "Paper"
 
-setText(els.adminSentinelModeValue, titleCase(mode) || "Paper")
+setTextAcross(
+[els.adminSentinelModeValue, els.adminSentinelModeValueMirror],
+modeLabel
+)
+
 setText(els.adminSentinelOpenPositionsValue, formatNumber(openPositions))
 setText(els.adminSentinelRealizedPnlValue, formatSignedCurrency(realizedPnl))
-setText(els.adminSentinelKillSwitchValue, killSwitchActive ? "Active" : "Inactive")
+setText(
+els.adminSentinelKillSwitchValue,
+killSwitchActive ? "Active" : "Inactive"
+)
 
-els.adminSentinelRealizedPnlValue?.classList.remove("pnl-good", "pnl-bad", "pnl-neutral")
+els.adminSentinelRealizedPnlValue?.classList.remove(
+"pnl-good",
+"pnl-bad",
+"pnl-neutral"
+)
 
 if (els.adminSentinelRealizedPnlValue) {
 if (realizedPnl > 0) {
@@ -332,8 +515,16 @@ setChip(els.sentinelHealthChip, "Paper", "good")
 function renderAccessSnapshot() {
 const summary = state.accessSummary || {}
 
-const totalCodes = safeNumber(summary.total_codes ?? summary.totalCodes, 0)
-const activeCodes = safeNumber(summary.active_codes ?? summary.activeCodes, 0)
+const totalCodes = safeNumber(
+summary.total_codes ?? summary.totalCodes,
+0
+)
+
+const activeCodes = safeNumber(
+summary.active_codes ?? summary.activeCodes,
+0
+)
+
 const redemptions = safeNumber(
 summary.total_redemptions ??
 summary.totalRedemptions ??
@@ -341,12 +532,26 @@ summary.redeemed_codes ??
 summary.redeemedCodes,
 0
 )
-const liveEntitlements = state.accessEntitlements.filter(isLiveEntitlement).length
 
-setText(els.adminAccessTotalCodesValue, formatNumber(totalCodes))
+const liveEntitlements = state.accessEntitlements.filter(
+isLiveEntitlement
+).length
+
+setTextAcross(
+[els.adminAccessTotalCodesValue, els.adminAccessTotalCodesValueMirror],
+formatNumber(totalCodes)
+)
+
 setText(els.adminAccessActiveCodesValue, formatNumber(activeCodes))
 setText(els.adminAccessRedemptionsValue, formatNumber(redemptions))
-setText(els.adminAccessEntitlementsValue, formatNumber(liveEntitlements))
+
+setTextAcross(
+[
+els.adminAccessEntitlementsValue,
+els.adminAccessEntitlementsValueMirror,
+],
+formatNumber(liveEntitlements)
+)
 
 if (state.errors.some((item) => item.scope === "access")) {
 setChip(els.accessHealthChip, "Error", "bad")
@@ -378,8 +583,15 @@ const sentinelMode = getSentinelMode(state.sentinel || {})
 const killSwitchActive = getSentinelKillSwitch(state.sentinel || {})
 
 const accessSummary = state.accessSummary || {}
-const activeCodes = safeNumber(accessSummary.active_codes ?? accessSummary.activeCodes, 0)
-const liveEntitlements = state.accessEntitlements.filter(isLiveEntitlement).length
+
+const activeCodes = safeNumber(
+accessSummary.active_codes ?? accessSummary.activeCodes,
+0
+)
+
+const liveEntitlements = state.accessEntitlements.filter(
+isLiveEntitlement
+).length
 
 state.errors.forEach((error) => {
 notifications.push({
@@ -391,7 +603,9 @@ priority: "bad",
 
 if (escalatedLike > 0) {
 notifications.push({
-title: `${escalatedLike} compliance case${escalatedLike === 1 ? "" : "s"} need priority review`,
+title: `${escalatedLike} compliance case${
+escalatedLike === 1 ? "" : "s"
+} need priority review`,
 copy: "Escalated or frozen compliance cases should be reviewed before normal queue items.",
 priority: "bad",
 })
@@ -399,7 +613,9 @@ priority: "bad",
 
 if (openLike > 0) {
 notifications.push({
-title: `${openLike} compliance case${openLike === 1 ? "" : "s"} open or pending`,
+title: `${openLike} compliance case${
+openLike === 1 ? "" : "s"
+} open or pending`,
 copy: "The compliance queue has items waiting for manual action or additional review.",
 priority: "warn",
 })
@@ -426,7 +642,7 @@ priority: "warn",
 } else {
 notifications.push({
 title: "Sentinel is running in paper posture",
-copy: "Paper mode remains the correct default while devnet/staging observation and audit accuracy are being proven.",
+copy: "Paper mode remains the correct default while devnet and staging observation, mark-to-market behaviour, and audit accuracy are being proven.",
 priority: "good",
 })
 }
@@ -434,7 +650,11 @@ priority: "good",
 if (activeCodes > 0 || liveEntitlements > 0) {
 notifications.push({
 title: "Sentinel tester access is active",
-copy: `${formatNumber(activeCodes)} active code${activeCodes === 1 ? "" : "s"} and ${formatNumber(liveEntitlements)} live entitlement${liveEntitlements === 1 ? "" : "s"} are currently visible.`,
+copy: `${formatNumber(activeCodes)} active code${
+activeCodes === 1 ? "" : "s"
+} and ${formatNumber(liveEntitlements)} live entitlement${
+liveEntitlements === 1 ? "" : "s"
+} are currently visible.`,
 priority: "good",
 })
 }
@@ -450,8 +670,58 @@ priority: "good",
 return notifications
 }
 
+function createNotificationNode(item) {
+const notification = document.createElement("div")
+notification.className = "admin-notification"
+
+const row = document.createElement("div")
+row.style.display = "flex"
+row.style.alignItems = "flex-start"
+row.style.justifyContent = "space-between"
+row.style.gap = "12px"
+
+const copyWrap = document.createElement("div")
+
+const title = document.createElement("div")
+title.className = "admin-notification-title"
+title.textContent = cleanText(item.title, 180)
+
+const copy = document.createElement("div")
+copy.className = "admin-notification-copy"
+copy.textContent = cleanText(item.copy, 500)
+
+copyWrap.appendChild(title)
+copyWrap.appendChild(copy)
+
+const chip = document.createElement("span")
+
+const chipVariant =
+item.priority === "bad"
+? "bad"
+: item.priority === "good"
+? "good"
+: "warn"
+
+const chipLabel =
+item.priority === "bad"
+? "Priority"
+: item.priority === "good"
+? "Clear"
+: "Review"
+
+chip.className = `admin-chip chip ${chipVariant}`
+chip.textContent = chipLabel
+
+row.appendChild(copyWrap)
+row.appendChild(chip)
+notification.appendChild(row)
+
+return notification
+}
+
 function renderNotifications() {
 const host = els.adminNotificationsList
+
 if (!host) return
 
 const notifications = buildNotifications()
@@ -459,23 +729,7 @@ const notifications = buildNotifications()
 host.innerHTML = ""
 
 notifications.forEach((item) => {
-const node = document.createElement("div")
-node.className = "admin-notification"
-
-const chipVariant = item.priority === "bad" ? "bad" : item.priority === "good" ? "good" : "warn"
-const chipLabel = item.priority === "bad" ? "Priority" : item.priority === "good" ? "Clear" : "Review"
-
-node.innerHTML = `
-<div style="display:flex;align-items:flex-start;justify-content:space-between;gap:12px;">
-<div>
-<div class="admin-notification-title">${cleanText(item.title, 180)}</div>
-<div class="admin-notification-copy">${cleanText(item.copy, 500)}</div>
-</div>
-<span class="admin-chip chip ${chipVariant}">${chipLabel}</span>
-</div>
-`
-
-host.appendChild(node)
+host.appendChild(createNotificationNode(item))
 })
 }
 
@@ -484,6 +738,7 @@ renderComplianceSnapshot()
 renderSentinelSnapshot()
 renderAccessSnapshot()
 renderNotifications()
+
 setText(els.adminUpdatedAtValue, formatDateTime(new Date().toISOString()))
 }
 
@@ -506,11 +761,21 @@ addError(scopes[index], result.reason)
 }
 })
 
+if (
+state.errors.some((error) =>
+[401, 403].includes(Number(error.status))
+)
+) {
+return
+}
+
 renderSnapshot()
 
 if (state.errors.length) {
 setAdminBanner(
-`${state.errors.length} admin surface${state.errors.length === 1 ? "" : "s"} could not be loaded. Review notifications below.`,
+`${state.errors.length} admin surface${
+state.errors.length === 1 ? "" : "s"
+} could not be loaded. Review notifications below.`,
 "bad"
 )
 } else if (showSuccess) {
@@ -519,7 +784,12 @@ setAdminBanner("Admin snapshot refreshed.", "good")
 setAdminBanner("")
 }
 } catch (error) {
-setAdminBanner(error?.message || "Failed to load admin snapshot.", "bad")
+if (!handleAdminApiAuthorizationError(error)) {
+setAdminBanner(
+error?.message || "Failed to load admin snapshot.",
+"bad"
+)
+}
 } finally {
 endLoading()
 }
@@ -529,6 +799,15 @@ function bindActions() {
 els.refreshAdminButton?.addEventListener("click", async () => {
 await loadAdminSnapshot({ showSuccess: true })
 })
+
+window.addEventListener(ADMIN_SESSION_INVALID_EVENT, (event) => {
+const detail = event?.detail || {}
+
+handleAdminApiAuthorizationError({
+status: detail.status || 401,
+payload: detail.payload || null,
+})
+})
 }
 
 function initEmptyState() {
@@ -536,20 +815,39 @@ setChip(els.complianceHealthChip, "Loading", "warn")
 setChip(els.sentinelHealthChip, "Loading", "warn")
 setChip(els.accessHealthChip, "Loading", "warn")
 
-setText(els.adminOpenCasesValue, "—")
+setTextAcross(
+[els.adminOpenCasesValue, els.adminOpenCasesValueMirror],
+"—"
+)
+
 setText(els.adminEscalatedCasesValue, "—")
 setText(els.adminResolvedCasesValue, "—")
 setText(els.adminTotalCasesValue, "—")
 
-setText(els.adminSentinelModeValue, "—")
+setTextAcross(
+[els.adminSentinelModeValue, els.adminSentinelModeValueMirror],
+"—"
+)
+
 setText(els.adminSentinelOpenPositionsValue, "—")
 setText(els.adminSentinelRealizedPnlValue, "—")
 setText(els.adminSentinelKillSwitchValue, "—")
 
-setText(els.adminAccessTotalCodesValue, "—")
+setTextAcross(
+[els.adminAccessTotalCodesValue, els.adminAccessTotalCodesValueMirror],
+"—"
+)
+
 setText(els.adminAccessActiveCodesValue, "—")
 setText(els.adminAccessRedemptionsValue, "—")
-setText(els.adminAccessEntitlementsValue, "—")
+
+setTextAcross(
+[
+els.adminAccessEntitlementsValue,
+els.adminAccessEntitlementsValueMirror,
+],
+"—"
+)
 
 setText(els.adminApiStatusValue, "Idle")
 setText(els.adminUpdatedAtValue, "—")
@@ -561,10 +859,17 @@ initEmptyState()
 bindActions()
 refreshLoadingUi()
 
+await waitForAuthenticatedAdminSession()
 await loadAdminSnapshot()
 }
 
 init().catch((error) => {
 console.error("Failed to initialize admin page", error)
-setAdminBanner(error?.message || "Failed to initialize admin page.", "bad")
+
+if (!handleAdminApiAuthorizationError(error)) {
+setAdminBanner(
+error?.message || "Failed to initialize admin page.",
+"bad"
+)
+}
 })

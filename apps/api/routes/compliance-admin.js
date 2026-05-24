@@ -10,6 +10,11 @@ REASON_CODE,
 ensureReasonCodeArray,
 } from "../services/cassie/sentinel/reason-codes.js"
 import { getSentinelEngineStatus } from "../services/cassie/sentinel/engine.js"
+import {
+clearAdminSessionCookie,
+getAdminGateRuntimeConfig,
+getAdminSessionFromRequest,
+} from "../middleware/adminGate.js"
 
 const router = express.Router()
 
@@ -314,6 +319,85 @@ return SENTINEL_SETTINGS_FIELDS.filter(
 )
 }
 
+function normalizeAdminSessionScopes(session = null) {
+return Array.isArray(session?.scopes)
+? session.scopes
+.map((scope) => cleanText(scope, 64).toLowerCase())
+.filter(Boolean)
+: []
+}
+
+function hasRequiredAdminScope(session = null) {
+const scopes = new Set(normalizeAdminSessionScopes(session))
+return scopes.has("admin")
+}
+
+function getAuthenticatedAdminActorId(req) {
+return cleanText(req.adminSession?.actor, 255) || "admin"
+}
+
+function requireAdminSession(req, res, next) {
+try {
+const runtime = getAdminGateRuntimeConfig()
+
+if (!runtime.enabled) {
+req.adminSession = {
+actor: "admin-gate-disabled",
+scopes: ["admin"],
+credentialType: "gate_disabled",
+expiresAt: null,
+}
+
+return next()
+}
+
+if (!runtime.sessionConfigured) {
+return res.status(503).json({
+ok: false,
+error: "admin_session_not_configured",
+message:
+"Admin sessions are not configured. Add ADMIN_SESSION_SECRET to the server environment.",
+})
+}
+
+const session = getAdminSessionFromRequest(req)
+
+if (!session) {
+clearAdminSessionCookie(res)
+
+return res.status(401).json({
+ok: false,
+error: "admin_session_required",
+message: "Admin login is required.",
+gate_enabled: true,
+authentication_required: true,
+authenticated: false,
+redirect_path: "/admin-login.html",
+})
+}
+
+if (!hasRequiredAdminScope(session)) {
+return res.status(403).json({
+ok: false,
+error: "admin_scope_required",
+message: "This admin session does not have permission for this surface.",
+})
+}
+
+req.adminSession = session
+
+return next()
+} catch (error) {
+console.error("Compliance admin session validation failed", error)
+
+return res.status(500).json({
+ok: false,
+error: "admin_session_validation_failed",
+message: "Unable to validate the admin session.",
+})
+}
+}
+
 function serializeSentinelSettings(row) {
 const normalized = normalizeSentinelConfig({
 ...DEFAULT_SENTINEL_CONFIG,
@@ -337,7 +421,10 @@ return cleanText(error, 1000)
 
 if (typeof error === "object") {
 return {
-message: cleanText(error.message || error.error || "Unknown Sentinel error", 1000),
+message: cleanText(
+error.message || error.error || "Unknown Sentinel error",
+1000
+),
 code: cleanText(error.code || error.name || "", 120) || null,
 at: error.at || error.created_at || error.timestamp || null,
 }
@@ -368,7 +455,8 @@ watcher_enabled:
 summary.watcher_enabled == null ? null : Boolean(summary.watcher_enabled),
 snapshots_seen: Number(summary.snapshots_seen ?? 0),
 snapshots_processed: Number(summary.snapshots_processed ?? 0),
-provider_name: cleanText(summary.provider_name || summary.providerName, 160) || null,
+provider_name:
+cleanText(summary.provider_name || summary.providerName, 160) || null,
 live_prices_resolved: Number(summary.live_prices_resolved ?? 0),
 live_prices_requested: Number(summary.live_prices_requested ?? 0),
 error: summary.error ? cleanText(summary.error, 1000) : null,
@@ -506,15 +594,21 @@ liquidity_usd: row.liquidity_usd == null ? null : Number(row.liquidity_usd),
 regime_state: row.regime_state,
 regime_score: row.regime_score == null ? null : Number(row.regime_score),
 operator_quality_score:
-row.operator_quality_score == null ? null : Number(row.operator_quality_score),
+row.operator_quality_score == null
+? null
+: Number(row.operator_quality_score),
 hidden_control_risk:
 row.hidden_control_risk == null ? null : Number(row.hidden_control_risk),
 buy_pressure_score:
 row.buy_pressure_score == null ? null : Number(row.buy_pressure_score),
 reclaim_strength_score:
-row.reclaim_strength_score == null ? null : Number(row.reclaim_strength_score),
+row.reclaim_strength_score == null
+? null
+: Number(row.reclaim_strength_score),
 structural_health_score:
-row.structural_health_score == null ? null : Number(row.structural_health_score),
+row.structural_health_score == null
+? null
+: Number(row.structural_health_score),
 action_size_usd: row.action_size_usd == null ? null : Number(row.action_size_usd),
 bank_fraction: row.bank_fraction == null ? null : Number(row.bank_fraction),
 execution_status: row.execution_status,
@@ -529,17 +623,23 @@ function serializeAdminAuditRow(row) {
 if (!row) return null
 
 const out = {}
+
 for (const [key, value] of Object.entries(row)) {
 if (key.endsWith("_json")) {
 out[key] = parseJson(value, value)
 continue
 }
+
 out[key] = value
 }
+
 return out
 }
 
-function buildEmptySentinelDailyStats(statDate = todayUtcDate(), executionMode = "paper") {
+function buildEmptySentinelDailyStats(
+statDate = todayUtcDate(),
+executionMode = "paper"
+) {
 return {
 id: null,
 stat_date: statDate,
@@ -709,6 +809,7 @@ return db.get(`SELECT * FROM cassie_sentinel_settings WHERE id = 1`)
 
 async function ensureSentinelSettingsRow(actorId = "system") {
 const exists = await tableExists("cassie_sentinel_settings")
+
 if (!exists) {
 throw new Error("cassie_sentinel_settings table is missing")
 }
@@ -727,11 +828,14 @@ const normalized = normalizeSentinelConfig({
 })
 
 const columns = await getTableColumns("cassie_sentinel_settings")
+
 if (!columns.size) {
 throw new Error("Unable to inspect cassie_sentinel_settings schema")
 }
 
-const existing = await db.get(`SELECT id FROM cassie_sentinel_settings WHERE id = 1`)
+const existing = await db.get(
+`SELECT id FROM cassie_sentinel_settings WHERE id = 1`
+)
 
 const fieldMap = {
 id: 1,
@@ -759,7 +863,9 @@ params
 return
 }
 
-const insertColumns = Object.keys(fieldMap).filter((column) => columns.has(column))
+const insertColumns = Object.keys(fieldMap).filter((column) =>
+columns.has(column)
+)
 const insertPlaceholders = insertColumns.map(() => "?")
 const insertParams = insertColumns.map((column) => toDbValue(fieldMap[column]))
 
@@ -885,6 +991,7 @@ const values = []
 
 for (const [column, value] of Object.entries(candidateValues)) {
 if (!columns.has(column)) continue
+
 insertColumns.push(column)
 placeholders.push("?")
 values.push(value)
@@ -979,7 +1086,9 @@ open_total_cost_usd: Number(row?.open_total_cost_usd ?? 0),
 open_current_value_usd: Number(row?.open_current_value_usd ?? 0),
 open_realized_pnl_usd: Number(row?.open_realized_pnl_usd ?? 0),
 open_unrealized_pnl_usd: Number(row?.open_unrealized_pnl_usd ?? 0),
-open_remaining_cost_basis_usd: Number(row?.open_remaining_cost_basis_usd ?? 0),
+open_remaining_cost_basis_usd: Number(
+row?.open_remaining_cost_basis_usd ?? 0
+),
 }
 }
 
@@ -1048,12 +1157,15 @@ params
 const openSummary = await getSentinelOpenPositionSummary(executionMode)
 
 const rowsCount = Number(aggregate?.rows_count ?? 0)
+
 if (!rowsCount) {
 return {
 ...empty,
 ...openSummary,
 unrealized_pnl_usd: Number(openSummary.open_unrealized_pnl_usd ?? 0),
-open_unrealized_pnl_usd: Number(openSummary.open_unrealized_pnl_usd ?? 0),
+open_unrealized_pnl_usd: Number(
+openSummary.open_unrealized_pnl_usd ?? 0
+),
 net_pnl_usd: Number(openSummary.open_unrealized_pnl_usd ?? 0),
 }
 }
@@ -1065,7 +1177,10 @@ return {
 period: range.period,
 label: range.label,
 rolling_days: range.rolling_days,
-start_date: range.period === "overall" ? aggregate?.first_stat_date || null : range.start_date,
+start_date:
+range.period === "overall"
+? aggregate?.first_stat_date || null
+: range.start_date,
 end_date: aggregate?.last_stat_date || range.end_date,
 execution_mode: executionMode,
 rows_count: rowsCount,
@@ -1079,7 +1194,9 @@ total_spend_usd:
 Number(aggregate?.scout_spend_usd ?? 0) +
 Number(aggregate?.sniper_spend_usd ?? 0),
 realized_pnl_usd: realizedPnlUsd,
-latest_daily_unrealized_pnl_usd: Number(latest?.daily_unrealized_pnl_usd ?? 0),
+latest_daily_unrealized_pnl_usd: Number(
+latest?.daily_unrealized_pnl_usd ?? 0
+),
 unrealized_pnl_usd: openUnrealizedPnlUsd,
 open_unrealized_pnl_usd: openUnrealizedPnlUsd,
 net_pnl_usd: realizedPnlUsd + openUnrealizedPnlUsd,
@@ -1087,7 +1204,9 @@ loss_usd: Number(aggregate?.loss_usd ?? 0),
 consecutive_failures: Number(latest?.consecutive_failures ?? 0),
 recent_rug_rate_pct: Number(aggregate?.recent_rug_rate_pct ?? 0),
 reclaim_success_rate_pct: Number(aggregate?.reclaim_success_rate_pct ?? 0),
-avg_market_liquidity_usd: Number(aggregate?.avg_market_liquidity_usd ?? 0),
+avg_market_liquidity_usd: Number(
+aggregate?.avg_market_liquidity_usd ?? 0
+),
 ...openSummary,
 note:
 "Realized PnL and spend are period-based. Unrealized PnL reflects currently open Sentinel positions.",
@@ -1101,7 +1220,8 @@ mode = null,
 } = {}) {
 const settingsRow = await getSentinelSettingsRow()
 const settings = serializeSentinelSettings(settingsRow)
-const executionMode = mode && SENTINEL_MODES.has(mode) ? mode : settings.execution_mode
+const executionMode =
+mode && SENTINEL_MODES.has(mode) ? mode : settings.execution_mode
 const engine = getCompactSentinelEngineStatus()
 const statDate = parseDateOnly(date)
 const openPositions = await getSentinelOpenPositionCount(executionMode)
@@ -1211,6 +1331,8 @@ LIMIT ?
 return rows.map(serializeAdminAuditRow)
 }
 
+router.use(requireAdminSession)
+
 router.get("/cases", async (req, res) => {
 try {
 const limit = Math.max(
@@ -1222,6 +1344,7 @@ const filters = []
 const params = []
 
 const status = cleanText(req.query.status, 32).toLowerCase()
+
 if (CASE_STATUSES.has(status)) {
 filters.push("c.status = ?")
 params.push(status)
@@ -1231,6 +1354,7 @@ const caseType = cleanText(
 req.query.case_type || req.query.caseType,
 32
 ).toLowerCase()
+
 if (caseType) {
 filters.push("c.case_type = ?")
 params.push(caseType)
@@ -1240,32 +1364,43 @@ const riskLevel = cleanText(
 req.query.risk_level || req.query.riskLevel,
 32
 ).toLowerCase()
+
 if (RISK_LEVELS.has(riskLevel)) {
 filters.push("c.risk_level = ?")
 params.push(riskLevel)
 }
 
 const profileId = parseIntSafe(
-req.query.compliance_profile_id || req.query.profile_id || req.query.profileId
+req.query.compliance_profile_id ||
+req.query.profile_id ||
+req.query.profileId
 )
+
 if (profileId) {
 filters.push("c.compliance_profile_id = ?")
 params.push(profileId)
 }
 
 const launchId = parseIntSafe(req.query.launch_id || req.query.launchId)
+
 if (launchId) {
 filters.push("c.launch_id = ?")
 params.push(launchId)
 }
 
-const assignedTo = cleanText(req.query.assigned_to || req.query.assignedTo, 120)
+const assignedTo = cleanText(
+req.query.assigned_to || req.query.assignedTo,
+120
+)
+
 if (assignedTo) {
 filters.push("c.assigned_to = ?")
 params.push(assignedTo)
 }
 
-const whereClause = filters.length ? `WHERE ${filters.join(" AND ")}` : ""
+const whereClause = filters.length
+? `WHERE ${filters.join(" AND ")}`
+: ""
 
 const rows = await db.all(
 `
@@ -1368,6 +1503,7 @@ builder_wallet: row.builder_wallet || null,
 })
 } catch (error) {
 console.error("GET /api/compliance-admin/cases failed", error)
+
 return res.status(500).json({
 ok: false,
 error: "Failed to fetch compliance cases",
@@ -1447,6 +1583,7 @@ builder_wallet: row.builder_wallet || null,
 })
 } catch (error) {
 console.error("GET /api/compliance-admin/cases/:id failed", error)
+
 return res.status(500).json({
 ok: false,
 error: "Failed to fetch compliance case",
@@ -1458,7 +1595,7 @@ message: error?.message || String(error),
 router.post("/cases/:id/approve", async (req, res) => {
 try {
 const caseId = parseIntSafe(req.params.id)
-const actorId = cleanText(req.body?.actor_id || req.body?.actorId, 120) || "admin"
+const actorId = getAuthenticatedAdminActorId(req)
 const notes = cleanText(req.body?.notes, 2000) || null
 
 if (!caseId) {
@@ -1469,6 +1606,7 @@ error: "Valid case id is required",
 }
 
 const before = await getCaseById(caseId)
+
 if (!before) {
 return res.status(404).json({
 ok: false,
@@ -1524,6 +1662,7 @@ case: after,
 })
 } catch (error) {
 console.error("POST /api/compliance-admin/cases/:id/approve failed", error)
+
 return res.status(500).json({
 ok: false,
 error: "Failed to approve compliance case",
@@ -1535,7 +1674,7 @@ message: error?.message || String(error),
 router.post("/cases/:id/reject", async (req, res) => {
 try {
 const caseId = parseIntSafe(req.params.id)
-const actorId = cleanText(req.body?.actor_id || req.body?.actorId, 120) || "admin"
+const actorId = getAuthenticatedAdminActorId(req)
 const notes = cleanText(req.body?.notes, 2000) || null
 
 if (!caseId) {
@@ -1546,6 +1685,7 @@ error: "Valid case id is required",
 }
 
 const before = await getCaseById(caseId)
+
 if (!before) {
 return res.status(404).json({
 ok: false,
@@ -1599,6 +1739,7 @@ case: after,
 })
 } catch (error) {
 console.error("POST /api/compliance-admin/cases/:id/reject failed", error)
+
 return res.status(500).json({
 ok: false,
 error: "Failed to reject compliance case",
@@ -1610,7 +1751,7 @@ message: error?.message || String(error),
 router.post("/cases/:id/freeze", async (req, res) => {
 try {
 const caseId = parseIntSafe(req.params.id)
-const actorId = cleanText(req.body?.actor_id || req.body?.actorId, 120) || "admin"
+const actorId = getAuthenticatedAdminActorId(req)
 const notes = cleanText(req.body?.notes, 2000) || null
 
 if (!caseId) {
@@ -1621,6 +1762,7 @@ error: "Valid case id is required",
 }
 
 const before = await getCaseById(caseId)
+
 if (!before) {
 return res.status(404).json({
 ok: false,
@@ -1652,7 +1794,10 @@ manual_review_reason = ?,
 updated_at = CURRENT_TIMESTAMP
 WHERE id = ?
 `,
-[notes || "Profile frozen pending compliance review", before.compliance_profile_id]
+[
+notes || "Profile frozen pending compliance review",
+before.compliance_profile_id,
+]
 )
 }
 
@@ -1674,6 +1819,7 @@ case: after,
 })
 } catch (error) {
 console.error("POST /api/compliance-admin/cases/:id/freeze failed", error)
+
 return res.status(500).json({
 ok: false,
 error: "Failed to freeze compliance case",
@@ -1685,8 +1831,11 @@ message: error?.message || String(error),
 router.post("/cases/:id/assign", async (req, res) => {
 try {
 const caseId = parseIntSafe(req.params.id)
-const actorId = cleanText(req.body?.actor_id || req.body?.actorId, 120) || "admin"
-const assignedTo = cleanText(req.body?.assigned_to || req.body?.assignedTo, 120)
+const actorId = getAuthenticatedAdminActorId(req)
+const assignedTo = cleanText(
+req.body?.assigned_to || req.body?.assignedTo,
+120
+)
 
 if (!caseId) {
 return res.status(400).json({
@@ -1703,6 +1852,7 @@ error: "assigned_to is required",
 }
 
 const before = await getCaseById(caseId)
+
 if (!before) {
 return res.status(404).json({
 ok: false,
@@ -1739,6 +1889,7 @@ case: after,
 })
 } catch (error) {
 console.error("POST /api/compliance-admin/cases/:id/assign failed", error)
+
 return res.status(500).json({
 ok: false,
 error: "Failed to assign compliance case",
@@ -1750,7 +1901,7 @@ message: error?.message || String(error),
 router.post("/cases/:id/escalate", async (req, res) => {
 try {
 const caseId = parseIntSafe(req.params.id)
-const actorId = cleanText(req.body?.actor_id || req.body?.actorId, 120) || "admin"
+const actorId = getAuthenticatedAdminActorId(req)
 const notes = cleanText(req.body?.notes, 2000) || null
 const riskLevel = normalizeRiskLevel(
 req.body?.risk_level || req.body?.riskLevel,
@@ -1765,6 +1916,7 @@ error: "Valid case id is required",
 }
 
 const before = await getCaseById(caseId)
+
 if (!before) {
 return res.status(404).json({
 ok: false,
@@ -1819,6 +1971,7 @@ case: after,
 })
 } catch (error) {
 console.error("POST /api/compliance-admin/cases/:id/escalate failed", error)
+
 return res.status(500).json({
 ok: false,
 error: "Failed to escalate compliance case",
@@ -1839,6 +1992,7 @@ ok: true,
 })
 } catch (error) {
 console.error("GET /api/compliance-admin/sentinel/status failed", error)
+
 return res.status(500).json({
 ok: false,
 error: "Failed to load Sentinel status",
@@ -1858,6 +2012,7 @@ engine: getCompactSentinelEngineStatus(),
 })
 } catch (error) {
 console.error("GET /api/compliance-admin/sentinel/settings failed", error)
+
 return res.status(500).json({
 ok: false,
 error: "Failed to load Sentinel settings",
@@ -1868,18 +2023,18 @@ message: error?.message || String(error),
 
 router.patch("/sentinel/settings", async (req, res) => {
 try {
-const actorId =
-cleanText(req.body?.actor_id || req.headers["x-admin-actor"] || "admin", 255) ||
-"admin"
+const actorId = getAuthenticatedAdminActorId(req)
 const notes = cleanText(req.body?.notes || "", 2000) || null
 const currentRow = await getSentinelSettingsRow()
 const before = serializeSentinelSettings(currentRow)
 
 const patch = {}
+
 for (const [field, rule] of Object.entries(SENTINEL_PATCH_FIELDS)) {
 if (!(field in (req.body || {}))) continue
 
 const parsed = parsePatchFieldValue(req.body[field], rule)
+
 if (parsed == null || isOutOfRange(parsed, rule)) {
 return res.status(400).json({
 ok: false,
@@ -1940,6 +2095,7 @@ engine: getCompactSentinelEngineStatus(),
 })
 } catch (error) {
 console.error("PATCH /api/compliance-admin/sentinel/settings failed", error)
+
 return res.status(500).json({
 ok: false,
 error: "Failed to update Sentinel settings",
@@ -1950,9 +2106,7 @@ message: error?.message || String(error),
 
 router.post("/sentinel/mode", async (req, res) => {
 try {
-const actorId =
-cleanText(req.body?.actor_id || req.headers["x-admin-actor"] || "admin", 255) ||
-"admin"
+const actorId = getAuthenticatedAdminActorId(req)
 const notes = cleanText(req.body?.notes || "", 2000) || null
 const reason = cleanText(req.body?.reason || "", 500) || null
 const confirmLive = parseBoolSafe(req.body?.confirm_live, false)
@@ -1971,7 +2125,8 @@ if (
 ) {
 return res.status(400).json({
 ok: false,
-error: "confirm_live=true is required before switching into mainnet execution",
+error:
+"confirm_live=true is required before switching into mainnet execution",
 })
 }
 
@@ -2035,6 +2190,7 @@ engine: getCompactSentinelEngineStatus(),
 })
 } catch (error) {
 console.error("POST /api/compliance-admin/sentinel/mode failed", error)
+
 return res.status(500).json({
 ok: false,
 error: "Failed to switch Sentinel execution mode",
@@ -2046,9 +2202,7 @@ message: error?.message || String(error),
 router.post("/sentinel/emergency-stop", async (req, res) => {
 try {
 const enabled = parseBoolSafe(req.body?.enabled, false)
-const actorId =
-cleanText(req.body?.actor_id || req.headers["x-admin-actor"] || "admin", 255) ||
-"admin"
+const actorId = getAuthenticatedAdminActorId(req)
 const notes = cleanText(req.body?.notes || "", 2000) || null
 const reason = cleanText(req.body?.reason || "", 500) || null
 
@@ -2110,6 +2264,7 @@ engine: getCompactSentinelEngineStatus(),
 })
 } catch (error) {
 console.error("POST /api/compliance-admin/sentinel/emergency-stop failed", error)
+
 return res.status(500).json({
 ok: false,
 error: "Failed to activate Sentinel emergency stop",
@@ -2120,7 +2275,10 @@ message: error?.message || String(error),
 
 router.get("/sentinel/admin-audit", async (req, res) => {
 try {
-const limit = Math.max(1, Math.min(500, parseIntSafe(req.query.limit, 100) || 100))
+const limit = Math.max(
+1,
+Math.min(500, parseIntSafe(req.query.limit, 100) || 100)
+)
 const action = cleanText(req.query.action || "", 120)
 const actorId = cleanText(req.query.actor_id || "", 255)
 const targetType = cleanText(req.query.target_type || "", 120)
@@ -2139,6 +2297,7 @@ audit,
 })
 } catch (error) {
 console.error("GET /api/compliance-admin/sentinel/admin-audit failed", error)
+
 return res.status(500).json({
 ok: false,
 error: "Failed to load Sentinel admin audit log",
@@ -2149,7 +2308,10 @@ message: error?.message || String(error),
 
 router.get("/sentinel/audit/admin", async (req, res) => {
 try {
-const limit = Math.max(1, Math.min(500, parseIntSafe(req.query.limit, 100) || 100))
+const limit = Math.max(
+1,
+Math.min(500, parseIntSafe(req.query.limit, 100) || 100)
+)
 const action = cleanText(req.query.action || "", 120)
 const actorId = cleanText(req.query.actor_id || "", 255)
 const targetType = cleanText(req.query.target_type || "", 120)
@@ -2168,6 +2330,7 @@ audit,
 })
 } catch (error) {
 console.error("GET /api/compliance-admin/sentinel/audit/admin failed", error)
+
 return res.status(500).json({
 ok: false,
 error: "Failed to load Sentinel admin audit log",
@@ -2178,17 +2341,22 @@ message: error?.message || String(error),
 
 router.get("/sentinel/positions", async (req, res) => {
 try {
-const limit = Math.max(1, Math.min(parseIntSafe(req.query.limit, 50) || 50, 250))
+const limit = Math.max(
+1,
+Math.min(parseIntSafe(req.query.limit, 50) || 50, 250)
+)
 const filters = []
 const params = []
 
 const rawScope = cleanText(req.query.scope || "", 32).toLowerCase()
+
 if (rawScope && !SENTINEL_POSITION_SCOPES.has(rawScope)) {
 return res.status(400).json({
 ok: false,
 error: "Invalid scope filter",
 })
 }
+
 const scope = normalizeSentinelPositionScope(rawScope || "open", "open")
 
 const stage = cleanText(req.query.stage || "", 64).toLowerCase()
@@ -2204,6 +2372,7 @@ ok: false,
 error: "Invalid mode filter",
 })
 }
+
 filters.push(`execution_mode = ?`)
 params.push(mode)
 }
@@ -2239,6 +2408,7 @@ ok: false,
 error: "Invalid outcome filter",
 })
 }
+
 filters.push(`stage = ?`)
 params.push(outcome)
 } else if (scope === "open") {
@@ -2250,6 +2420,7 @@ filters.push(`stage IN ('closed','invalidated')`)
 }
 
 const whereSql = filters.length ? `WHERE ${filters.join(" AND ")}` : ""
+
 const rows = await db.all(
 `
 SELECT *
@@ -2275,6 +2446,7 @@ positions: rows.map(serializeSentinelPosition),
 })
 } catch (error) {
 console.error("GET /api/compliance-admin/sentinel/positions failed", error)
+
 return res.status(500).json({
 ok: false,
 error: "Failed to load Sentinel positions",
@@ -2328,6 +2500,7 @@ audit: audit.map(serializeSentinelAuditRow),
 })
 } catch (error) {
 console.error("GET /api/compliance-admin/sentinel/positions/:id failed", error)
+
 return res.status(500).json({
 ok: false,
 error: "Failed to load Sentinel position detail",
@@ -2338,35 +2511,50 @@ message: error?.message || String(error),
 
 router.get("/sentinel/audit", async (req, res) => {
 try {
-const limit = Math.max(1, Math.min(parseIntSafe(req.query.limit, 100) || 100, 500))
+const limit = Math.max(
+1,
+Math.min(parseIntSafe(req.query.limit, 100) || 100, 500)
+)
 const filters = []
 const params = []
 
 const eventType = cleanText(req.query.event_type || "", 64).toLowerCase()
 const decision = cleanText(req.query.decision || "", 64).toLowerCase()
 
-const rawExecutionStatus = cleanText(req.query.execution_status || "", 32).toLowerCase()
-if (rawExecutionStatus && !SENTINEL_AUDIT_EXECUTION_STATUSES.has(rawExecutionStatus)) {
+const rawExecutionStatus = cleanText(
+req.query.execution_status || "",
+32
+).toLowerCase()
+
+if (
+rawExecutionStatus &&
+!SENTINEL_AUDIT_EXECUTION_STATUSES.has(rawExecutionStatus)
+) {
 return res.status(400).json({
 ok: false,
 error: "Invalid execution_status filter",
 })
 }
-const executionStatus = normalizeSentinelAuditExecutionStatus(rawExecutionStatus, "")
+
+const executionStatus = normalizeSentinelAuditExecutionStatus(
+rawExecutionStatus,
+""
+)
 
 const mode = cleanText(req.query.mode || "", 64).toLowerCase()
 const tokenId = cleanText(req.query.token_id || "", 255)
 const mintAddress = cleanText(req.query.mint_address || "", 255)
 
 const rawActorType = cleanText(req.query.actor_type || "", 32).toLowerCase()
+
 if (rawActorType && !SENTINEL_AUDIT_ACTOR_TYPES.has(rawActorType)) {
 return res.status(400).json({
 ok: false,
 error: "Invalid actor_type filter",
 })
 }
-const actorType = normalizeSentinelAuditActorType(rawActorType, "")
 
+const actorType = normalizeSentinelAuditActorType(rawActorType, "")
 const actorId = cleanText(req.query.actor_id || "", 255)
 const reasonCode = cleanText(req.query.reason_code || "", 128)
 const positionId = parseIntSafe(req.query.position_id, null)
@@ -2378,6 +2566,7 @@ ok: false,
 error: "Invalid Sentinel audit event_type filter",
 })
 }
+
 filters.push(`event_type = ?`)
 params.push(eventType)
 }
@@ -2399,6 +2588,7 @@ ok: false,
 error: "Invalid mode filter",
 })
 }
+
 filters.push(`execution_mode = ?`)
 params.push(mode)
 }
@@ -2434,6 +2624,7 @@ params.push(positionId)
 }
 
 const whereSql = filters.length ? `WHERE ${filters.join(" AND ")}` : ""
+
 const rows = await db.all(
 `
 SELECT *
@@ -2452,6 +2643,7 @@ audit: rows.map(serializeSentinelAuditRow),
 })
 } catch (error) {
 console.error("GET /api/compliance-admin/sentinel/audit failed", error)
+
 return res.status(500).json({
 ok: false,
 error: "Failed to load Sentinel audit log",
@@ -2466,7 +2658,9 @@ const date = parseDateOnly(req.query.date || todayUtcDate())
 const mode = normalizeSentinelMode(req.query.mode || "paper", "paper")
 
 const row = await getSentinelDailyStatsRow(date, mode)
-const stats = serializeSentinelDailyStats(row) || buildEmptySentinelDailyStats(date, mode)
+const stats =
+serializeSentinelDailyStats(row) ||
+buildEmptySentinelDailyStats(date, mode)
 
 return res.json({
 ok: true,
@@ -2474,6 +2668,7 @@ stats,
 })
 } catch (error) {
 console.error("GET /api/compliance-admin/sentinel/stats/daily failed", error)
+
 return res.status(500).json({
 ok: false,
 error: "Failed to load Sentinel daily stats",
@@ -2499,6 +2694,7 @@ stats,
 })
 } catch (error) {
 console.error("GET /api/compliance-admin/sentinel/stats/summary failed", error)
+
 return res.status(500).json({
 ok: false,
 error: "Failed to load Sentinel period stats",
@@ -2522,6 +2718,7 @@ engine: payload.engine,
 })
 } catch (error) {
 console.error("GET /api/compliance-admin/sentinel/summary failed", error)
+
 return res.status(500).json({
 ok: false,
 error: "Failed to load Sentinel summary",

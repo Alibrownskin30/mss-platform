@@ -1,6 +1,11 @@
 import express from "express"
 import crypto from "node:crypto"
 import db from "../db/index.js"
+import {
+clearAdminSessionCookie,
+getAdminGateRuntimeConfig,
+getAdminSessionFromRequest,
+} from "../middleware/adminGate.js"
 
 const router = express.Router()
 
@@ -12,6 +17,12 @@ const ENTITLEMENT_STATUS_SET = new Set([
 "scheduled",
 ])
 const REDEMPTION_STATUS_SET = new Set(["success", "failed", "revoked"])
+
+const SENTINEL_ACCESS_ADMIN_SCOPES = new Set([
+"admin",
+"sentinel_admin",
+"sentinel_access",
+])
 
 const TABLE_INFO_SQL = {
 sentinel_access_codes: `PRAGMA table_info(sentinel_access_codes)`,
@@ -64,6 +75,19 @@ function normalizeAccessCodeInput(code) {
 return cleanText(code, 128).replace(/\s+/g, "").toUpperCase()
 }
 
+function normalizeAdminScopes(scopes = []) {
+return Array.isArray(scopes)
+? scopes
+.map((scope) => cleanText(scope, 64).toLowerCase())
+.filter(Boolean)
+: []
+}
+
+function hasSentinelAccessAdminScope(session = null) {
+const scopes = normalizeAdminScopes(session?.scopes)
+return scopes.some((scope) => SENTINEL_ACCESS_ADMIN_SCOPES.has(scope))
+}
+
 function getInsertId(result) {
 return (
 Number(result?.lastID || 0) ||
@@ -86,12 +110,15 @@ const expiresAtTs = row?.expires_at
 : null
 
 if (!isActive) return "inactive"
+
 if (startsAtTs && !Number.isNaN(startsAtTs) && startsAtTs > now) {
 return "scheduled"
 }
+
 if (expiresAtTs && !Number.isNaN(expiresAtTs) && expiresAtTs <= now) {
 return "expired"
 }
+
 if (maxRedemptions > 0 && redeemedCount >= maxRedemptions) {
 return "exhausted"
 }
@@ -156,10 +183,7 @@ state: buildCodeState(row),
 function serializeRedemption(row) {
 if (!row) return null
 
-const redemptionStatus = cleanText(
-row.redemption_status,
-64
-).toLowerCase()
+const redemptionStatus = cleanText(row.redemption_status, 64).toLowerCase()
 
 return {
 id: Number(row.id || 0),
@@ -355,37 +379,90 @@ email: null,
 }
 }
 
-/*
-This router must remain mounted behind requireSentinelAccessAdminGate in
-server.js. The extra local guard below prevents accidental unprotected
-mounting from silently exposing tester-access controls.
-*/
-function requireMountedAdminGate(req, res, next) {
-if (req.adminGate?.ok) {
+function requireSentinelAccessAdminSession(req, res, next) {
+try {
+const runtime = getAdminGateRuntimeConfig()
+
+if (!runtime.enabled) {
+req.adminSession = {
+actor: "admin-gate-disabled",
+scopes: ["admin"],
+credentialType: "gate_disabled",
+expiresAt: null,
+}
+
 return next()
 }
+
+if (!runtime.sessionConfigured) {
+return res.status(503).json({
+ok: false,
+error: "admin_session_not_configured",
+message:
+"Admin sessions are not configured. Add ADMIN_SESSION_SECRET to the server environment.",
+})
+}
+
+const session = getAdminSessionFromRequest(req)
+
+if (!session) {
+clearAdminSessionCookie(res)
 
 return res.status(401).json({
 ok: false,
 error: "admin_session_required",
 message: "Authenticated Sentinel Access administration is required.",
-login_required: true,
-login_path: "/admin-login.html",
+gate_enabled: true,
+authentication_required: true,
+authenticated: false,
+redirect_path: "/admin-login.html",
 })
 }
 
+if (!hasSentinelAccessAdminScope(session)) {
+return res.status(403).json({
+ok: false,
+error: "admin_scope_required",
+message:
+"This admin session does not have permission for Sentinel Access administration.",
+})
+}
+
+req.adminSession = {
+...session,
+scopes: normalizeAdminScopes(session.scopes),
+}
+
+return next()
+} catch (error) {
+console.error("Sentinel Access admin session validation failed", error)
+
+return res.status(500).json({
+ok: false,
+error: "admin_session_validation_failed",
+message: "Unable to validate the admin session.",
+})
+}
+}
+
 function getActorId(req) {
-return cleanText(req.adminGate?.actor, 255) || "authenticated-admin"
+return cleanText(req.adminSession?.actor, 255) || "admin"
 }
 
 function getAdminAuditContext(req) {
+const session = req.adminSession || {}
+
 return {
-auth_type: cleanText(req.adminGate?.authType, 64) || "unknown",
-scope: cleanText(req.adminGate?.scope, 64) || "sentinel_access",
-session_id: cleanText(req.adminGate?.sessionId, 120) || null,
-scopes: Array.isArray(req.adminGate?.scopes)
-? req.adminGate.scopes.map((scope) => cleanText(scope, 64)).filter(Boolean)
-: [],
+auth_type:
+cleanText(
+session.credentialType ||
+session.credential_type ||
+"admin_session",
+64
+) || "admin_session",
+scope: "sentinel_access",
+scopes: normalizeAdminScopes(session.scopes),
+session_expires_at: session.expiresAt || session.expires_at || null,
 }
 }
 
@@ -632,7 +709,7 @@ return (rows || []).map(serializeAudit)
 
 async function insertAdminAudit({
 action,
-actorId = "authenticated-admin",
+actorId = "admin",
 status = "ok",
 notes = null,
 targetType = null,
@@ -651,7 +728,7 @@ if (!columns.size) return
 
 const candidateValues = {
 actor_type: "admin",
-actor_id: cleanText(actorId, 255) || "authenticated-admin",
+actor_id: cleanText(actorId, 255) || "admin",
 action: cleanText(action, 120),
 status: cleanText(status, 64),
 target_type: cleanText(targetType, 120) || null,
@@ -710,7 +787,7 @@ throw new Error("expires_at must be later than starts_at")
 }
 }
 
-router.use(requireMountedAdminGate)
+router.use(requireSentinelAccessAdminSession)
 
 router.get("/summary", async (req, res) => {
 try {
@@ -723,10 +800,8 @@ listEntitlements({ limit: 500 }),
 const summary = {
 total_codes: codes.length,
 active_codes: codes.filter((item) => item.state === "active").length,
-scheduled_codes: codes.filter((item) => item.state === "scheduled")
-.length,
-exhausted_codes: codes.filter((item) => item.state === "exhausted")
-.length,
+scheduled_codes: codes.filter((item) => item.state === "scheduled").length,
+exhausted_codes: codes.filter((item) => item.state === "exhausted").length,
 expired_codes: codes.filter((item) => item.state === "expired").length,
 inactive_codes: codes.filter((item) => item.state === "inactive").length,
 total_redemptions: redemptions.length,
@@ -925,10 +1000,6 @@ starts_at: startsAt,
 expires_at: expiresAt,
 notes,
 metadata_json: JSON.stringify(metadata ?? {}),
-created_by_user_id: parseIntSafe(
-req.body?.created_by_user_id,
-null
-),
 }
 
 const insertColumns = []

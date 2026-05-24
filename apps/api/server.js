@@ -21,6 +21,7 @@ import launchLifecycleRoutes from "./routes/launch-lifecycle.js";
 import complianceRoutes from "./routes/compliance.js";
 import complianceAdminRoutes from "./routes/compliance-admin.js";
 import sentinelAccessAdminRoutes from "./routes/sentinel-access-admin.js";
+import adminAuthRoutes from "./routes/admin-auth.js";
 import authRoutes, { getSessionUserFromRequest } from "./routes/auth.js";
 import launcherDb, { dbPath as launcherDbPath } from "./db/index.js";
 import {
@@ -278,6 +279,7 @@ app.use(cassie);
 
 // ---- Route mounts ----
 app.use("/api/auth", authLimiter, authSlow, authRoutes);
+app.use("/api/admin-session", authLimiter, authSlow, adminAuthRoutes);
 
 app.use("/api/builders", builderRoutes);
 app.use("/api/launcher", launcherRoutes);

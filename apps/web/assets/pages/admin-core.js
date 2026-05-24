@@ -2,26 +2,33 @@ const DEFAULT_CURRENCY = "USD"
 
 export const todayIso = new Date().toISOString().slice(0, 10)
 
+export const ADMIN_SESSION_STATUS_PATH = "/api/admin-session/status"
+export const ADMIN_SESSION_LOGIN_PATH = "/api/admin-session/login"
+export const ADMIN_SESSION_LOGOUT_PATH = "/api/admin-session/logout"
+export const ADMIN_SESSION_READY_EVENT = "mss:admin-session-ready"
+export const ADMIN_SESSION_INVALID_EVENT = "mss:admin-session-invalid"
+
+/*
+Retained as compatibility exports while older admin controllers are replaced.
+These identifiers are no longer used to read or store browser credentials.
+*/
 export const ADMIN_GATE_STORAGE_KEY = "mss_admin_gate_key"
-export const SENTINEL_ACCESS_ADMIN_KEY_STORAGE_KEY = "mss_sentinel_access_admin_key"
+export const SENTINEL_ACCESS_ADMIN_KEY_STORAGE_KEY =
+"mss_sentinel_access_admin_key"
 
-const ADMIN_GATE_HEADER_NAME = "x-admin-key"
-const SENTINEL_ACCESS_ADMIN_HEADER_NAME = "x-sentinel-access-admin-key"
-
-const ADMIN_GATE_WINDOW_OVERRIDE_KEYS = [
-"__MSS_ADMIN_GATE_KEY__",
-"__MSS_ADMIN_KEY__",
-"__ADMIN_GATE_KEY__",
+const LEGACY_ADMIN_STORAGE_KEYS = [
+ADMIN_GATE_STORAGE_KEY,
+SENTINEL_ACCESS_ADMIN_KEY_STORAGE_KEY,
 ]
 
-const SENTINEL_ACCESS_WINDOW_OVERRIDE_KEYS = [
-"__SENTINEL_ACCESS_ADMIN_KEY__",
-"__MSS_SENTINEL_ACCESS_ADMIN_KEY__",
-"__MSS_ADMIN_GATE_KEY__",
-"__MSS_ADMIN_KEY__",
-]
+const LEGACY_BROWSER_ADMIN_HEADERS = new Set([
+"x-admin-key",
+"x-mss-admin-key",
+"x-sentinel-admin-key",
+"x-sentinel-access-admin-key",
+])
 
-const adminPromptInFlight = new Map()
+let cachedAdminSession = null
 
 export function cleanText(value, max = 500) {
 return String(value ?? "").trim().slice(0, max)
@@ -32,8 +39,13 @@ if (typeof value === "boolean") return value
 
 const normalized = cleanText(value, 16).toLowerCase()
 
-if (["true", "1", "yes", "y", "enabled", "on"].includes(normalized)) return true
-if (["false", "0", "no", "n", "disabled", "off"].includes(normalized)) return false
+if (["true", "1", "yes", "y", "enabled", "on"].includes(normalized)) {
+return true
+}
+
+if (["false", "0", "no", "n", "disabled", "off"].includes(normalized)) {
+return false
+}
 
 return fallback
 }
@@ -52,7 +64,10 @@ for (const value of values) {
 if (value == null || value === "") continue
 
 const num = Number(value)
-if (Number.isFinite(num)) return num
+
+if (Number.isFinite(num)) {
+return num
+}
 }
 
 return fallback
@@ -79,19 +94,30 @@ return cleanText(value, 120)
 
 export function formatDateTime(value) {
 const date = new Date(value)
-if (!value || Number.isNaN(date.getTime())) return "—"
+
+if (!value || Number.isNaN(date.getTime())) {
+return "—"
+}
+
 return date.toLocaleString()
 }
 
 export function formatDate(value) {
 const date = new Date(value)
-if (!value || Number.isNaN(date.getTime())) return "—"
+
+if (!value || Number.isNaN(date.getTime())) {
+return "—"
+}
+
 return date.toLocaleDateString()
 }
 
 export function formatCurrency(value, currency = DEFAULT_CURRENCY) {
 const num = Number(value)
-if (!Number.isFinite(num)) return "$0.00"
+
+if (!Number.isFinite(num)) {
+return "$0.00"
+}
 
 return new Intl.NumberFormat(undefined, {
 style: "currency",
@@ -102,9 +128,13 @@ maximumFractionDigits: 2,
 
 export function formatSignedCurrency(value, currency = DEFAULT_CURRENCY) {
 const num = Number(value)
-if (!Number.isFinite(num)) return "$0.00"
+
+if (!Number.isFinite(num)) {
+return "$0.00"
+}
 
 const abs = Math.abs(num)
+
 const formatted = new Intl.NumberFormat(undefined, {
 style: "currency",
 currency,
@@ -119,21 +149,32 @@ return formatted
 
 export function formatPercent(value, fractionDigits = 1) {
 const num = Number(value)
-if (!Number.isFinite(num)) return "0%"
+
+if (!Number.isFinite(num)) {
+return "0%"
+}
+
 return `${num.toFixed(fractionDigits)}%`
 }
 
 export function formatSignedPercent(value, fractionDigits = 1) {
 const num = Number(value)
-if (!Number.isFinite(num)) return "0%"
+
+if (!Number.isFinite(num)) {
+return "0%"
+}
 
 const prefix = num > 0 ? "+" : ""
+
 return `${prefix}${num.toFixed(fractionDigits)}%`
 }
 
 export function formatNumber(value, fractionDigits = 0) {
 const num = Number(value)
-if (!Number.isFinite(num)) return "0"
+
+if (!Number.isFinite(num)) {
+return "0"
+}
 
 return new Intl.NumberFormat(undefined, {
 maximumFractionDigits: fractionDigits,
@@ -153,27 +194,33 @@ return String(value)
 
 export function setText(el, value) {
 if (!el) return
+
 el.textContent = value == null || value === "" ? "—" : String(value)
 }
 
 export function setValue(el, value) {
 if (!el) return
+
 el.value = value == null ? "" : String(value)
 }
 
 export function setBoolSelect(el, value) {
 if (!el) return
+
 el.value = String(Boolean(value))
 }
 
 export function setVisible(el, visible, display = "") {
 if (!el) return
+
 el.style.display = visible ? display : "none"
 }
 
 export function setDisabled(items = [], disabled = false) {
 arrayify(items).forEach((item) => {
-if (item) item.disabled = Boolean(disabled)
+if (item) {
+item.disabled = Boolean(disabled)
+}
 })
 }
 
@@ -181,7 +228,9 @@ export function getApiBase() {
 const { protocol, hostname } = window.location
 const override = cleanText(window.__API_BASE__ || "", 1000)
 
-if (override) return override.replace(/\/$/, "")
+if (override) {
+return override.replace(/\/$/, "")
+}
 
 if (
 hostname === "127.0.0.1" ||
@@ -192,15 +241,24 @@ return `${protocol}//${hostname}:8787`
 }
 
 if (hostname.includes("-3000.app.github.dev")) {
-return `${protocol}//${hostname.replace("-3000.app.github.dev", "-8787.app.github.dev")}`
+return `${protocol}//${hostname.replace(
+"-3000.app.github.dev",
+"-8787.app.github.dev"
+)}`
 }
 
 if (hostname.includes("-3001.app.github.dev")) {
-return `${protocol}//${hostname.replace("-3001.app.github.dev", "-8787.app.github.dev")}`
+return `${protocol}//${hostname.replace(
+"-3001.app.github.dev",
+"-8787.app.github.dev"
+)}`
 }
 
 if (hostname.includes("-4173.app.github.dev")) {
-return `${protocol}//${hostname.replace("-4173.app.github.dev", "-8787.app.github.dev")}`
+return `${protocol}//${hostname.replace(
+"-4173.app.github.dev",
+"-8787.app.github.dev"
+)}`
 }
 
 if (/:\d+$/.test(window.location.host)) {
@@ -214,6 +272,7 @@ export const API_BASE = getApiBase()
 
 function normalizeApiPath(path) {
 const raw = cleanText(path, 2000)
+
 if (!raw) return ""
 
 try {
@@ -227,182 +286,231 @@ return raw.split("?")[0]
 
 export function isComplianceAdminApiPath(path) {
 const normalized = normalizeApiPath(path)
-return normalized === "/api/compliance-admin" || normalized.startsWith("/api/compliance-admin/")
+
+return (
+normalized === "/api/compliance-admin" ||
+normalized.startsWith("/api/compliance-admin/")
+)
 }
 
 export function isSentinelAccessAdminApiPath(path) {
 const normalized = normalizeApiPath(path)
+
 return (
 normalized === "/api/sentinel-access-admin" ||
 normalized.startsWith("/api/sentinel-access-admin/")
 )
 }
 
-export function isAdminProtectedApiPath(path) {
-return isComplianceAdminApiPath(path) || isSentinelAccessAdminApiPath(path)
-}
+export function isAdminSessionApiPath(path) {
+const normalized = normalizeApiPath(path)
 
-function readWindowOverride(windowOverrideKey = "") {
-const keys = Array.isArray(windowOverrideKey)
-? windowOverrideKey
-: [windowOverrideKey].filter(Boolean)
-
-for (const key of keys) {
-const value = cleanText(window[key] || "", 2000)
-if (value) return value
-}
-
-return ""
-}
-
-export function getStoredAdminKey(storageKey, windowOverrideKey = "") {
-const override = readWindowOverride(windowOverrideKey)
-if (override) return override
-
-try {
-return cleanText(localStorage.getItem(storageKey), 2000)
-} catch {
-return ""
-}
-}
-
-export function storeAdminKey(storageKey, value) {
-try {
-const clean = cleanText(value, 2000)
-
-if (!clean) {
-localStorage.removeItem(storageKey)
-return
-}
-
-localStorage.setItem(storageKey, clean)
-} catch {}
-}
-
-export function getStoredAdminGateKey() {
-return getStoredAdminKey(ADMIN_GATE_STORAGE_KEY, ADMIN_GATE_WINDOW_OVERRIDE_KEYS)
-}
-
-export function getStoredSentinelAccessAdminKey() {
-return getStoredAdminKey(
-SENTINEL_ACCESS_ADMIN_KEY_STORAGE_KEY,
-SENTINEL_ACCESS_WINDOW_OVERRIDE_KEYS
+return (
+normalized === "/api/admin-session/status" ||
+normalized === "/api/admin-session/login" ||
+normalized === "/api/admin-session/logout"
 )
 }
 
-export function getStoredAdminKeyForPath(path) {
-if (isSentinelAccessAdminApiPath(path)) {
-return getStoredAdminGateKey() || getStoredSentinelAccessAdminKey()
+export function isAdminProtectedApiPath(path) {
+return (
+isComplianceAdminApiPath(path) ||
+isSentinelAccessAdminApiPath(path)
+)
 }
 
-if (isComplianceAdminApiPath(path)) {
-return getStoredAdminGateKey()
+function normalizeScopes(scopes) {
+return arrayify(scopes)
+.map((scope) => cleanText(scope, 64).toLowerCase())
+.filter(Boolean)
 }
 
-return ""
-}
-
-export function clearStoredAdminKeyForPath(path) {
-if (isSentinelAccessAdminApiPath(path)) {
-storeAdminKey(SENTINEL_ACCESS_ADMIN_KEY_STORAGE_KEY, "")
-storeAdminKey(ADMIN_GATE_STORAGE_KEY, "")
-return
-}
-
-if (isComplianceAdminApiPath(path)) {
-storeAdminKey(ADMIN_GATE_STORAGE_KEY, "")
-}
-}
-
-function getAdminAuthContextForPath(path) {
-if (isSentinelAccessAdminApiPath(path)) {
-return {
-storageKey: SENTINEL_ACCESS_ADMIN_KEY_STORAGE_KEY,
-windowOverrideKey: SENTINEL_ACCESS_WINDOW_OVERRIDE_KEYS,
-promptLabel: "Enter Sentinel Access admin key",
-missingKeyMessage: "Sentinel Access admin key is required.",
-kind: "sentinel-access-admin",
-}
-}
-
-if (isComplianceAdminApiPath(path)) {
-return {
-storageKey: ADMIN_GATE_STORAGE_KEY,
-windowOverrideKey: ADMIN_GATE_WINDOW_OVERRIDE_KEYS,
-promptLabel: "Enter MSS admin gate key",
-missingKeyMessage: "MSS admin gate key is required.",
-kind: "admin-gate",
-}
-}
-
+function normalizeAdminSession(session) {
+if (!session || typeof session !== "object") {
 return null
 }
 
-export function getAdminHeadersForPath(path, { overrideKey = "" } = {}) {
-if (!isAdminProtectedApiPath(path)) return {}
+const scopes = normalizeScopes(session.scopes)
 
-const key = cleanText(overrideKey, 2000) || getStoredAdminKeyForPath(path)
-if (!key) return {}
-
-const headers = {
-[ADMIN_GATE_HEADER_NAME]: key,
+if (!scopes.length) {
+return null
 }
 
-if (isSentinelAccessAdminApiPath(path)) {
-headers[SENTINEL_ACCESS_ADMIN_HEADER_NAME] = key
+return {
+actor:
+cleanText(session.actor || session.actor_id, 120) ||
+"admin",
+scopes,
+issued_at:
+session.issued_at ??
+session.issuedAt ??
+null,
+expires_at:
+session.expires_at ??
+session.expiresAt ??
+null,
+}
 }
 
-return headers
+export function setAdminSessionSnapshot(session = null) {
+const normalized = normalizeAdminSession(session)
+
+cachedAdminSession = normalized
+
+if (normalized) {
+window.__MSS_ADMIN_SESSION__ = normalized
+} else {
+window.__MSS_ADMIN_SESSION__ = null
 }
 
-async function requestAdminKeyForPath(path) {
-const context = getAdminAuthContextForPath(path)
-
-if (!context) return ""
-
-const promptKey = `${context.kind}:${context.storageKey}`
-
-if (adminPromptInFlight.has(promptKey)) {
-return adminPromptInFlight.get(promptKey)
+return normalized
 }
 
-const task = Promise.resolve().then(() => {
-const entered = window.prompt(context.promptLabel)
-const clean = cleanText(entered, 2000)
+export function getAdminSessionSnapshot() {
+const windowSession = normalizeAdminSession(window.__MSS_ADMIN_SESSION__)
 
-if (clean) {
-storeAdminKey(context.storageKey, clean)
-
-if (context.kind === "admin-gate") {
-storeAdminKey(ADMIN_GATE_STORAGE_KEY, clean)
+if (windowSession) {
+cachedAdminSession = windowSession
+return windowSession
 }
 
-return clean
+const guardSession = normalizeAdminSession(
+window.MSSAdminSessionGuard?.getState?.()?.session
+)
+
+if (guardSession) {
+cachedAdminSession = guardSession
+return guardSession
 }
 
+return cachedAdminSession
+}
+
+export function getAdminSessionActorId(fallback = "admin") {
+const session = getAdminSessionSnapshot()
+
+return cleanText(session?.actor, 120) || cleanText(fallback, 120) || "admin"
+}
+
+export function sessionHasAdminScope(scope = "admin", session = null) {
+const normalizedSession =
+normalizeAdminSession(session) ||
+getAdminSessionSnapshot()
+
+const requiredScope = cleanText(scope, 64).toLowerCase()
+
+if (!normalizedSession?.scopes?.length || !requiredScope) {
+return false
+}
+
+if (normalizedSession.scopes.includes("admin")) {
+return true
+}
+
+return normalizedSession.scopes.includes(requiredScope)
+}
+
+export function purgeLegacyAdminCredentials() {
+try {
+LEGACY_ADMIN_STORAGE_KEYS.forEach((storageKey) => {
+localStorage.removeItem(storageKey)
+})
+} catch {}
+
+LEGACY_BROWSER_ADMIN_HEADERS.forEach(() => {})
+}
+
+/*
+Compatibility no-ops. Shared admin code no longer reads, stores, prompts for,
+or injects raw admin credentials in the browser.
+*/
+export function getStoredAdminKey() {
+purgeLegacyAdminCredentials()
 return ""
-})
-
-adminPromptInFlight.set(promptKey, task)
-
-return task.finally(() => {
-adminPromptInFlight.delete(promptKey)
-})
 }
 
-async function apiFetchOnce(path, options = {}, { adminKeyOverride = "" } = {}) {
-const adminHeaders = getAdminHeadersForPath(path, {
-overrideKey: adminKeyOverride,
+export function storeAdminKey() {
+purgeLegacyAdminCredentials()
+return false
+}
+
+export function getStoredAdminGateKey() {
+purgeLegacyAdminCredentials()
+return ""
+}
+
+export function getStoredSentinelAccessAdminKey() {
+purgeLegacyAdminCredentials()
+return ""
+}
+
+export function getStoredAdminKeyForPath() {
+purgeLegacyAdminCredentials()
+return ""
+}
+
+export function clearStoredAdminKeyForPath() {
+purgeLegacyAdminCredentials()
+}
+
+export function getAdminHeadersForPath() {
+purgeLegacyAdminCredentials()
+return {}
+}
+
+function sanitizeBrowserHeaders(path, headers = {}) {
+const safeHeaders = {
+...(headers || {}),
+}
+
+if (!isAdminProtectedApiPath(path)) {
+return safeHeaders
+}
+
+Object.keys(safeHeaders).forEach((headerName) => {
+if (LEGACY_BROWSER_ADMIN_HEADERS.has(headerName.toLowerCase())) {
+delete safeHeaders[headerName]
+}
 })
+
+return safeHeaders
+}
+
+function emitAdminSessionInvalid(path, error) {
+if (!isAdminProtectedApiPath(path)) {
+return
+}
+
+window.dispatchEvent(
+new CustomEvent(ADMIN_SESSION_INVALID_EVENT, {
+detail: {
+path: normalizeApiPath(path),
+status: error?.status || null,
+payload: error?.payload || null,
+},
+})
+)
+}
+
+export async function apiFetch(path, options = {}) {
+const {
+retryAdminAuth: _removedLegacyRetryOption,
+...fetchOptions
+} = options || {}
+
+const safeHeaders = sanitizeBrowserHeaders(path, fetchOptions.headers)
 
 const response = await fetch(`${API_BASE}${path}`, {
 credentials: "include",
 headers: {
 "Content-Type": "application/json",
-...adminHeaders,
-...(options.headers || {}),
+...safeHeaders,
 },
-...options,
+...fetchOptions,
+headers: {
+"Content-Type": "application/json",
+...safeHeaders,
+},
 })
 
 let payload = null
@@ -415,11 +523,20 @@ payload = null
 
 if (!response.ok) {
 const error = new Error(
-payload?.error || payload?.message || `Request failed (${response.status})`
+payload?.message ||
+payload?.error ||
+`Request failed (${response.status})`
 )
 
 error.status = response.status
 error.payload = payload
+
+if (
+isAdminProtectedApiPath(path) &&
+(response.status === 401 || response.status === 403)
+) {
+emitAdminSessionInvalid(path, error)
+}
 
 throw error
 }
@@ -427,38 +544,11 @@ throw error
 return payload
 }
 
-export async function apiFetch(path, options = {}) {
-const {
-retryAdminAuth = true,
-...fetchOptions
-} = options || {}
-
-try {
-return await apiFetchOnce(path, fetchOptions)
-} catch (error) {
-if (!retryAdminAuth || error?.status !== 401 || !isAdminProtectedApiPath(path)) {
-throw error
-}
-
-clearStoredAdminKeyForPath(path)
-
-const retryKey = await requestAdminKeyForPath(path)
-const context = getAdminAuthContextForPath(path)
-
-if (!retryKey) {
-const missingError = new Error(context?.missingKeyMessage || "Admin key is required.")
-missingError.status = 401
-missingError.payload = error?.payload || null
-throw missingError
-}
-
-return apiFetchOnce(path, fetchOptions, {
-adminKeyOverride: retryKey,
-})
-}
-}
-
-export async function apiFetchFirst(paths, options = {}, { allowStatuses = [] } = {}) {
+export async function apiFetchFirst(
+paths,
+options = {},
+{ allowStatuses = [] } = {}
+) {
 let lastError = null
 
 for (let index = 0; index < paths.length; index += 1) {
@@ -478,7 +568,10 @@ payload: error.payload || null,
 }
 
 const isLast = index === paths.length - 1
-if (error?.status === 404 && !isLast) continue
+
+if (error?.status === 404 && !isLast) {
+continue
+}
 
 throw error
 }
@@ -487,13 +580,48 @@ throw error
 throw lastError || new Error("Request failed")
 }
 
+export async function loadAdminSessionStatus() {
+const payload = await apiFetch(ADMIN_SESSION_STATUS_PATH)
+
+const session = payload?.authenticated
+? setAdminSessionSnapshot(payload.session)
+: setAdminSessionSnapshot(null)
+
+return {
+...payload,
+session,
+}
+}
+
+export async function logoutAdminSession() {
+try {
+return await apiFetch(ADMIN_SESSION_LOGOUT_PATH, {
+method: "POST",
+body: JSON.stringify({}),
+})
+} finally {
+setAdminSessionSnapshot(null)
+purgeLegacyAdminCredentials()
+}
+}
+
 function getBannerBaseClass(el) {
 if (!el) return "admin-banner"
 
 const stored = cleanText(el.dataset?.bannerBaseClass, 240)
-if (stored) return stored
 
-const removable = new Set(["show", "good", "warn", "bad", "neutral"])
+if (stored) {
+return stored
+}
+
+const removable = new Set([
+"show",
+"good",
+"warn",
+"bad",
+"neutral",
+])
+
 const baseClasses = Array.from(el.classList || []).filter((className) => {
 return !removable.has(className)
 })
@@ -503,6 +631,7 @@ const baseClass = baseClasses.length
 : "admin-banner"
 
 el.dataset.bannerBaseClass = baseClass
+
 return baseClass
 }
 
@@ -542,8 +671,10 @@ clearBanner(el)
 
 export function createPill(text, variant = "neutral") {
 const span = document.createElement("span")
+
 span.className = `pill admin-pill ${variant}`
 span.textContent = cleanText(text, 120) || "—"
+
 return span
 }
 
@@ -630,7 +761,11 @@ export function getRiskVariant(riskLevel) {
 const normalized = cleanText(riskLevel, 32).toLowerCase()
 
 if (normalized === "low") return "good"
-if (normalized === "critical" || normalized === "high") return "bad"
+
+if (normalized === "critical" || normalized === "high") {
+return "bad"
+}
+
 if (normalized === "medium") return "warn"
 
 return "neutral"
@@ -639,7 +774,9 @@ return "neutral"
 export function getPnlVariant(value) {
 const num = Number(value)
 
-if (!Number.isFinite(num) || Math.abs(num) < 0.005) return "neutral"
+if (!Number.isFinite(num) || Math.abs(num) < 0.005) {
+return "neutral"
+}
 
 return num > 0 ? "good" : "bad"
 }
@@ -656,7 +793,12 @@ return "pnl-neutral"
 export function setMoneyTone(el, value, { lossPositive = false } = {}) {
 if (!el) return
 
-el.classList.remove("pnl-good", "pnl-bad", "pnl-neutral", "sentinel-loss-metric")
+el.classList.remove(
+"pnl-good",
+"pnl-bad",
+"pnl-neutral",
+"sentinel-loss-metric"
+)
 
 const num = Number(value)
 
@@ -701,98 +843,29 @@ return count
 }
 }
 
-export function createAdminKeyPrompt({
-storageKey,
-promptLabel = "Enter admin key",
-windowOverrideKey = "",
-} = {}) {
-let promptInFlight = null
+/*
+Compatibility wrappers for any controller not yet replaced.
+They no longer request, store, or transmit raw keys. Protected requests
+authenticate only through the signed HTTP-only admin session cookie.
+*/
+export function createAdminKeyPrompt() {
+return async function requestRemovedBrowserAdminKey() {
+const error = new Error(
+"Browser admin-key prompts have been removed. Sign in through the secure admin login page."
+)
 
-return async function requestAdminKey() {
-if (promptInFlight) return promptInFlight
-
-promptInFlight = Promise.resolve().then(() => {
-const entered = window.prompt(promptLabel)
-const clean = cleanText(entered, 2000)
-
-if (clean) {
-storeAdminKey(storageKey, clean)
-return clean
-}
-
-return ""
-})
-
-return promptInFlight.finally(() => {
-promptInFlight = null
-})
-}
-}
-
-export function createAdminKeyApiFetch({
-basePath,
-storageKey,
-windowOverrideKey = "",
-headerName = ADMIN_GATE_HEADER_NAME,
-promptLabel = "Enter admin key",
-missingKeyMessage = "Admin key is required.",
-} = {}) {
-const requestAdminKey = createAdminKeyPrompt({
-storageKey,
-promptLabel,
-windowOverrideKey,
-})
-
-return async function apiFetchWithAdminKey(
-path,
-options = {},
-{ retryOnUnauthorized = true } = {}
-) {
-const storedKey = getStoredAdminKey(storageKey, windowOverrideKey)
-
-const headers = {
-...(options.headers || {}),
-}
-
-if (storedKey) {
-headers[headerName] = storedKey
-
-if (basePath === "/api/sentinel-access-admin") {
-headers[SENTINEL_ACCESS_ADMIN_HEADER_NAME] = storedKey
-}
-}
-
-try {
-return await apiFetch(`${basePath}${path}`, {
-...options,
-headers,
-retryAdminAuth: false,
-})
-} catch (error) {
-if (retryOnUnauthorized && error?.status === 401) {
-storeAdminKey(storageKey, "")
-
-const retryKey = await requestAdminKey()
-
-if (!retryKey) {
-throw new Error(missingKeyMessage)
-}
-
-return apiFetch(`${basePath}${path}`, {
-...options,
-headers: {
-...(options.headers || {}),
-[headerName]: retryKey,
-...(basePath === "/api/sentinel-access-admin"
-? { [SENTINEL_ACCESS_ADMIN_HEADER_NAME]: retryKey }
-: {}),
-},
-retryAdminAuth: false,
-})
-}
+error.status = 401
+error.code = "admin_session_required"
 
 throw error
 }
+}
+
+export function createAdminKeyApiFetch({ basePath = "" } = {}) {
+const safeBasePath = cleanText(basePath, 500)
+
+return async function apiFetchWithAdminSession(path, options = {}) {
+return apiFetch(`${safeBasePath}${path}`, options)
 }
 }
 
@@ -803,29 +876,41 @@ openDetailsSelector = "details.admin-section",
 } = {}) {
 document.querySelectorAll(tabSelector).forEach((tab) => {
 tab.addEventListener("click", (event) => {
-const sectionId = cleanText(tab.getAttribute("data-mss-admin-tab"), 64)
+const sectionId = cleanText(
+tab.getAttribute("data-mss-admin-tab"),
+64
+)
+
 const href = cleanText(tab.getAttribute("href"), 128)
 
 document.querySelectorAll(tabSelector).forEach((candidate) => {
 candidate.classList.toggle(
 activeClass,
-cleanText(candidate.getAttribute("data-mss-admin-tab"), 64) === sectionId
+cleanText(
+candidate.getAttribute("data-mss-admin-tab"),
+64
+) === sectionId
 )
 })
 
 if (!href.startsWith("#")) return
 
 const target = document.getElementById(href.slice(1))
+
 if (!target) return
 
 event.preventDefault()
 
 const sectionDetails = target.querySelector(openDetailsSelector)
+
 if (sectionDetails) {
 sectionDetails.open = true
 }
 
-target.scrollIntoView({ behavior: "smooth", block: "start" })
+target.scrollIntoView({
+behavior: "smooth",
+block: "start",
+})
 
 try {
 window.history.replaceState(null, "", href)
@@ -833,3 +918,9 @@ window.history.replaceState(null, "", href)
 })
 })
 }
+
+purgeLegacyAdminCredentials()
+
+window.addEventListener(ADMIN_SESSION_READY_EVENT, (event) => {
+setAdminSessionSnapshot(event?.detail?.session || null)
+})
