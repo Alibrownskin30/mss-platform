@@ -694,6 +694,26 @@ cell.textContent = "—"
 return cell
 }
 
+function renderTableEmpty(
+tbody,
+colspan = 1,
+message = "No records found."
+) {
+if (!tbody) return
+
+tbody.innerHTML = ""
+
+const row = document.createElement("tr")
+const cell = document.createElement("td")
+
+cell.colSpan = Math.max(1, Number(colspan) || 1)
+cell.className = "admin-table-empty"
+cell.textContent = cleanText(message, 500) || "No records found."
+
+row.appendChild(cell)
+tbody.appendChild(row)
+}
+
 function getSentinelModeVariant(mode) {
 const normalized = cleanText(mode, 64).toLowerCase()
 
