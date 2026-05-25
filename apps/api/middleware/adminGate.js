@@ -4,6 +4,7 @@ const DEFAULT_ADMIN_HEADER = "x-admin-key";
 const DEFAULT_SESSION_COOKIE_NAME = "mss_admin_session";
 const DEFAULT_SESSION_TTL_HOURS = 12;
 const DEFAULT_SESSION_VERSION = "v1";
+const DEFAULT_SESSION_COOKIE_SAME_SITE = "lax";
 
 const ADMIN_SCOPE = "admin";
 const COMPLIANCE_ADMIN_SCOPE = "compliance_admin";
@@ -174,6 +175,108 @@ return clean(rawValue, 10000);
 return "";
 }
 
+function getRequestFromContext(context = null) {
+if (!context) return null;
+
+if (context.headers && typeof context.headers === "object") {
+return context;
+}
+
+if (context.req?.headers && typeof context.req.headers === "object") {
+return context.req;
+}
+
+return null;
+}
+
+function getRequestHostname(context = null) {
+const req = getRequestFromContext(context);
+
+const hostname =
+clean(req?.hostname, 255).toLowerCase() ||
+clean(req?.headers?.host, 255).toLowerCase();
+
+if (!hostname) return "";
+
+return hostname.split(":")[0];
+}
+
+function requestUsesHttps(context = null) {
+const req = getRequestFromContext(context);
+
+if (!req) return false;
+if (req.secure === true) return true;
+
+const forwardedProto = clean(
+req.headers?.["x-forwarded-proto"],
+64
+)
+.split(",")[0]
+.trim()
+.toLowerCase();
+
+return forwardedProto === "https";
+}
+
+function normalizeCookieDomain(value) {
+let domain = clean(value, 255).toLowerCase();
+
+if (!domain) return "";
+
+domain = domain
+.replace(/^https?:\/\//, "")
+.split("/")[0]
+.split(":")[0]
+.trim();
+
+if (!domain) return "";
+
+if (
+domain === "localhost" ||
+domain === "127.0.0.1" ||
+domain === "[::1]"
+) {
+return "";
+}
+
+if (!domain.startsWith(".")) {
+domain = `.${domain}`;
+}
+
+if (!/^\.[a-z0-9.-]+$/.test(domain)) {
+return "";
+}
+
+return domain;
+}
+
+function inferSharedAdminCookieDomain(context = null) {
+const hostname = getRequestHostname(context);
+
+if (hostname === "api.devnet.mssprotocol.com") {
+return ".devnet.mssprotocol.com";
+}
+
+if (hostname === "api.mssprotocol.com") {
+return ".mssprotocol.com";
+}
+
+return "";
+}
+
+function getAdminSessionCookieDomain(context = null) {
+const configuredDomain = normalizeCookieDomain(
+process.env.ADMIN_SESSION_COOKIE_DOMAIN ||
+process.env.MSS_ADMIN_SESSION_COOKIE_DOMAIN
+);
+
+if (configuredDomain) {
+return configuredDomain;
+}
+
+return inferSharedAdminCookieDomain(context);
+}
+
 function getAdminSessionCookieName() {
 const configuredName = clean(process.env.ADMIN_SESSION_COOKIE_NAME, 120);
 
@@ -208,24 +311,32 @@ DEFAULT_SESSION_TTL_HOURS
 return Math.round(hours * 60 * 60 * 1000);
 }
 
-function getAdminSessionCookieOptions() {
+function getAdminSessionCookieOptions(context = null) {
 const nodeEnv = clean(process.env.NODE_ENV, 32).toLowerCase();
 
-const secure = parseBool(
+const secureDefault =
+nodeEnv === "production" || requestUsesHttps(context);
+
+let secure = parseBool(
 process.env.ADMIN_SESSION_COOKIE_SECURE,
-nodeEnv === "production"
+secureDefault
 );
 
 const configuredSameSite = clean(
-process.env.ADMIN_SESSION_COOKIE_SAME_SITE,
+process.env.ADMIN_SESSION_COOKIE_SAME_SITE ||
+process.env.ADMIN_SESSION_COOKIE_SAMESITE,
 20
 ).toLowerCase();
 
 const sameSite = ["strict", "lax", "none"].includes(configuredSameSite)
 ? configuredSameSite
-: "strict";
+: DEFAULT_SESSION_COOKIE_SAME_SITE;
 
-const domain = clean(process.env.ADMIN_SESSION_COOKIE_DOMAIN, 255);
+if (sameSite === "none") {
+secure = true;
+}
+
+const domain = getAdminSessionCookieDomain(context);
 
 return {
 httpOnly: true,
@@ -235,6 +346,56 @@ path: "/",
 maxAge: getAdminSessionTtlMs(),
 ...(domain ? { domain } : {}),
 };
+}
+
+function getCookieClearDomains(context = null) {
+const hostname = getRequestHostname(context);
+const configuredDomain = getAdminSessionCookieDomain(context);
+
+const domains = [null];
+
+if (configuredDomain) {
+domains.push(configuredDomain);
+}
+
+if (hostname === "api.devnet.mssprotocol.com") {
+domains.push(".devnet.mssprotocol.com");
+domains.push(".mssprotocol.com");
+}
+
+if (hostname === "api.mssprotocol.com") {
+domains.push(".mssprotocol.com");
+}
+
+const seen = new Set();
+
+return domains.filter((domain) => {
+const key = domain || "__host_only__";
+
+if (seen.has(key)) return false;
+
+seen.add(key);
+return true;
+});
+}
+
+function clearAdminSessionCookieVariants(res, context = null) {
+const cookieName = getAdminSessionCookieName();
+const options = getAdminSessionCookieOptions(context);
+
+const clearBaseOptions = {
+httpOnly: options.httpOnly,
+secure: options.secure,
+sameSite: options.sameSite,
+path: options.path,
+};
+
+getCookieClearDomains(context).forEach((domain) => {
+res.clearCookie(cookieName, {
+...clearBaseOptions,
+...(domain ? { domain } : {}),
+});
+});
 }
 
 function encodeSessionPayload(payload) {
@@ -321,11 +482,16 @@ scope,
 };
 }
 
-export function getAdminGateRuntimeConfig() {
+export function getAdminGateRuntimeConfig(context = null) {
+const cookieOptions = getAdminSessionCookieOptions(context);
+
 return {
 enabled: isGateEnabled(),
 sessionConfigured: Boolean(getAdminSessionSecret()),
 cookieName: getAdminSessionCookieName(),
+cookieDomain: cookieOptions.domain || null,
+cookieSameSite: cookieOptions.sameSite,
+cookieSecure: cookieOptions.secure,
 sessionVersion: getAdminSessionVersion(),
 sessionTtlMs: getAdminSessionTtlMs(),
 };
@@ -433,9 +599,15 @@ scopes: verified.scopes,
 return {
 ok: true,
 credentialType: verified.credentialType,
+credential_type: verified.credentialType,
 scopes: verified.scopes,
 actor: session.payload.actor,
+issuedAt: session.payload.issued_at,
+issued_at: session.payload.issued_at,
 expiresAt: session.payload.expires_at,
+expires_at: session.payload.expires_at,
+sessionId: session.payload.session_id,
+session_id: session.payload.session_id,
 token: session.token,
 };
 }
@@ -467,9 +639,7 @@ if (!payload || payload.version !== 1) {
 return null;
 }
 
-if (
-clean(payload.session_version, 64) !== getAdminSessionVersion()
-) {
+if (clean(payload.session_version, 64) !== getAdminSessionVersion()) {
 return null;
 }
 
@@ -490,29 +660,26 @@ ok: true,
 actor: clean(payload.actor, 120) || "admin",
 scopes,
 issuedAt: Number(payload.issued_at) || null,
+issued_at: Number(payload.issued_at) || null,
 expiresAt,
+expires_at: expiresAt,
 sessionId: clean(payload.session_id, 120) || null,
+session_id: clean(payload.session_id, 120) || null,
 };
 }
 
-export function setAdminSessionCookie(res, token) {
-res.cookie(
-getAdminSessionCookieName(),
-clean(token, 10000),
-getAdminSessionCookieOptions()
-);
+export function setAdminSessionCookie(res, token, req = null) {
+const context = req || res;
+const cookieName = getAdminSessionCookieName();
+const cookieOptions = getAdminSessionCookieOptions(context);
+
+clearAdminSessionCookieVariants(res, context);
+
+res.cookie(cookieName, clean(token, 10000), cookieOptions);
 }
 
-export function clearAdminSessionCookie(res) {
-const options = getAdminSessionCookieOptions();
-
-res.clearCookie(getAdminSessionCookieName(), {
-httpOnly: options.httpOnly,
-secure: options.secure,
-sameSite: options.sameSite,
-path: options.path,
-...(options.domain ? { domain: options.domain } : {}),
-});
+export function clearAdminSessionCookie(res, req = null) {
+clearAdminSessionCookieVariants(res, req || res);
 }
 
 export function createAdminGate({
