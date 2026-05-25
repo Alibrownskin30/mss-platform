@@ -6,6 +6,8 @@ formatDateTime,
 } from "./admin-core.js"
 
 const ADMIN_SESSION_BASE_PATH = "/api/admin-session"
+const ADMIN_SESSION_STATUS_PATH = `${ADMIN_SESSION_BASE_PATH}/status`
+const ADMIN_SESSION_LOGIN_PATH = `${ADMIN_SESSION_BASE_PATH}/login`
 const ADMIN_ACTOR_STORAGE_KEY = "mss_admin_actor_id"
 
 const ADMIN_PAGE_RULES = Object.freeze({
@@ -24,6 +26,7 @@ loading: false,
 gateEnabled: true,
 sessionConfigured: true,
 session: null,
+statusPayload: null,
 redirectTimer: null,
 }
 
@@ -67,6 +70,12 @@ return
 
 localStorage.setItem(ADMIN_ACTOR_STORAGE_KEY, normalized)
 } catch {}
+}
+
+function sleep(ms = 0) {
+return new Promise((resolve) => {
+window.setTimeout(resolve, Math.max(0, Number(ms) || 0))
+})
 }
 
 function setStatusChip(label = "Authentication Required", variant = "") {
@@ -138,51 +147,78 @@ state.loading = Boolean(loading)
 updateControlState()
 }
 
+function getSessionCandidates(payload) {
+if (!payload || typeof payload !== "object") {
+return []
+}
+
+return [
+payload.session,
+payload.admin_session,
+payload.data?.session,
+payload.session?.session,
+payload.admin_session?.session,
+payload,
+].filter((candidate) => candidate && typeof candidate === "object")
+}
+
 function getSessionPayload(payload) {
-if (!payload || payload.authenticated === false) return null
+if (!payload || typeof payload !== "object") {
+return null
+}
 
-const source = payload.session || payload.admin_session || payload
+if (payload.authenticated === false) {
+return null
+}
 
+const candidates = getSessionCandidates(payload)
+
+for (const source of candidates) {
 const scopes = normalizeScopes(
 source.scopes ||
-payload.scopes ||
 source.permissions ||
+payload.scopes ||
 payload.permissions
 )
 
-if (!scopes.length) return null
+if (!scopes.length) {
+continue
+}
 
 return {
 actor:
 cleanText(
 source.actor ||
-payload.actor ||
 source.actor_id ||
+payload.actor ||
 payload.actor_id,
 120
 ) || "admin",
 scopes,
 credentialType: cleanText(
 source.credential_type ||
-payload.credential_type ||
 source.credentialType ||
+payload.credential_type ||
 payload.credentialType,
 64
 ),
 issuedAt:
 source.issued_at ||
-payload.issued_at ||
 source.issuedAt ||
+payload.issued_at ||
 payload.issuedAt ||
 null,
 expiresAt:
 source.expires_at ||
-payload.expires_at ||
 source.expiresAt ||
+payload.expires_at ||
 payload.expiresAt ||
 null,
 bypass: false,
 }
+}
+
+return null
 }
 
 function sessionHasScope(session, scope) {
@@ -246,10 +282,11 @@ if (sessionHasScope(session, "admin")) {
 return "admin.html"
 }
 
-if (
-sessionHasScope(session, "sentinel_admin") ||
-sessionHasScope(session, "sentinel_access")
-) {
+if (sessionHasScope(session, "sentinel_admin")) {
+return "sentinel-admin.html"
+}
+
+if (sessionHasScope(session, "sentinel_access")) {
 return "sentinel-access-admin.html"
 }
 
@@ -379,7 +416,11 @@ updateControlState()
 }
 
 function getLoginErrorMessage(error) {
-const errorCode = cleanText(error?.payload?.error, 120)
+const errorCode = cleanText(
+error?.code ||
+error?.payload?.error,
+160
+)
 
 if (errorCode === "admin_gate_disabled" || error?.status === 409) {
 return "Admin authentication is disabled in this environment."
@@ -407,6 +448,10 @@ error?.status === 503
 return "The admin session layer is not fully configured on the server."
 }
 
+if (errorCode === "admin_session_cookie_not_verified") {
+return "The key was accepted, but the protected admin session was not retained. The API session-cookie or domain configuration still needs correction."
+}
+
 if (error?.status === 404) {
 return "The admin session endpoints have not been wired into the API yet."
 }
@@ -414,15 +459,36 @@ return "The admin session endpoints have not been wired into the API yet."
 return error?.message || "Authentication failed."
 }
 
+async function adminRequest(path, options = {}) {
+return apiFetch(path, {
+cache: "no-store",
+...options,
+headers: {
+Accept: "application/json",
+"Cache-Control": "no-cache",
+...(options.headers || {}),
+},
+})
+}
+
+async function fetchSessionStatus() {
+const payload = await adminRequest(
+`${ADMIN_SESSION_STATUS_PATH}?nocache=${Date.now()}`
+)
+
+state.statusPayload = payload || null
+state.gateEnabled = payload?.gate_enabled !== false
+state.sessionConfigured = payload?.session_configured !== false
+
+return payload
+}
+
 async function loadExistingSession() {
 setLoading(true)
 clearBanner()
 
 try {
-const payload = await apiFetch(`${ADMIN_SESSION_BASE_PATH}/status`)
-
-state.gateEnabled = payload?.gate_enabled !== false
-state.sessionConfigured = payload?.session_configured !== false
+const payload = await fetchSessionStatus()
 
 if (!state.gateEnabled) {
 renderGateDisabled()
@@ -468,6 +534,60 @@ setLoading(false)
 }
 }
 
+async function verifyAuthenticatedSessionAfterLogin(loginPayload) {
+const responseSession = getSessionPayload(loginPayload)
+let latestStatusPayload = null
+
+for (let attempt = 0; attempt < 2; attempt += 1) {
+if (attempt > 0) {
+await sleep(140)
+}
+
+latestStatusPayload = await fetchSessionStatus()
+
+if (!state.gateEnabled) {
+return {
+session: state.session,
+statusPayload: latestStatusPayload,
+gateDisabled: true,
+}
+}
+
+if (!state.sessionConfigured) {
+return {
+session: null,
+statusPayload: latestStatusPayload,
+sessionNotConfigured: true,
+}
+}
+
+const verifiedSession = getSessionPayload(latestStatusPayload)
+
+if (verifiedSession) {
+return {
+session: verifiedSession,
+statusPayload: latestStatusPayload,
+}
+}
+}
+
+if (responseSession) {
+const error = new Error(
+"The server returned a login session, but the browser could not verify the protected session cookie."
+)
+error.code = "admin_session_cookie_not_verified"
+error.payload = latestStatusPayload
+throw error
+}
+
+const error = new Error(
+"The key was accepted, but no authenticated admin session was returned by the API."
+)
+error.code = "admin_session_cookie_not_verified"
+error.payload = latestStatusPayload
+throw error
+}
+
 async function submitLogin(event) {
 event.preventDefault()
 
@@ -501,19 +621,38 @@ clearBanner()
 setStatusChip("Authenticating")
 
 try {
-const payload = await apiFetch(`${ADMIN_SESSION_BASE_PATH}/login`, {
+const loginPayload = await adminRequest(ADMIN_SESSION_LOGIN_PATH, {
 method: "POST",
 body: JSON.stringify({
+key: adminKey,
 admin_key: adminKey,
+actor: actorId,
 actor_id: actorId,
 redirect_path: getRequestedRedirectPath(),
 }),
 })
 
-const session = getSessionPayload(payload)
+const verification = await verifyAuthenticatedSessionAfterLogin(loginPayload)
+
+if (verification.gateDisabled) {
+renderGateDisabled()
+redirectToAdmin(state.session)
+return
+}
+
+if (verification.sessionNotConfigured) {
+renderSessionNotConfigured()
+return
+}
+
+const session = verification.session
 
 if (!session) {
-throw new Error("The server did not return an authenticated admin session.")
+const error = new Error(
+"The API did not return a verified authenticated admin session."
+)
+error.code = "admin_session_cookie_not_verified"
+throw error
 }
 
 if (els.keyInput) {
@@ -597,6 +736,7 @@ els.actorInput.value = storedActorId
 state.gateEnabled = true
 state.sessionConfigured = true
 state.session = null
+state.statusPayload = null
 
 setStatusChip("Authentication Required")
 clearBanner()
