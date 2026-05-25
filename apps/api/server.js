@@ -387,15 +387,18 @@ const sentinelAccessAdminSessionGate = requireSignedAdminSession([
 "sentinel_access",
 ]);
 
+// ---- Authentication gateways ----
+// Auth and admin-session creation must run before Cassie middleware so
+// valid login requests can return and retain HTTP-only session cookies.
+app.use("/api/auth", authLimiter, authSlow, authRoutes);
+app.use("/api/admin-session", authLimiter, authSlow, adminAuthRoutes);
+
 // ---- Cassie (middleware + intel layer) ----
 const { cassie, cassieApi, cassieIntel } = createCassie();
 
 app.use(cassie);
 
 // ---- Route mounts ----
-app.use("/api/auth", authLimiter, authSlow, authRoutes);
-app.use("/api/admin-session", authLimiter, authSlow, adminAuthRoutes);
-
 app.use("/api/builders", builderRoutes);
 app.use("/api/launcher", launcherRoutes);
 app.use("/api/launch-lifecycle", launchLifecycleRoutes);
