@@ -1,5 +1,10 @@
+const ADMIN_SESSION_GUARD_VERSION = "20260526-admin-session-api-v3"
+
 const DEFAULT_LOGIN_PATH = "/admin-login.html"
 const DEFAULT_FALLBACK_PATH = "/admin.html"
+
+const ADMIN_SESSION_STATUS_PATH = "/api/admin-session/status"
+const ADMIN_SESSION_LOGOUT_PATH = "/api/admin-session/logout"
 
 const ADMIN_SCOPE = "admin"
 const COMPLIANCE_ADMIN_SCOPE = "compliance_admin"
@@ -20,6 +25,8 @@ authenticated: false,
 session: null,
 requiredScope: null,
 statusPayload: null,
+apiBase: null,
+guardVersion: ADMIN_SESSION_GUARD_VERSION,
 }
 
 function cleanText(value, max = 1000) {
@@ -32,9 +39,31 @@ return [...new Set(items.filter(Boolean))]
 
 function getApiBase() {
 const { protocol, hostname } = window.location
+
+/*
+Production admin surfaces must always use the matching API deployment.
+This is intentionally resolved before any optional local override so a
+stale frontend value cannot send protected session checks to the web host.
+*/
+if (
+hostname === "devnet.mssprotocol.com" ||
+hostname === "www.devnet.mssprotocol.com"
+) {
+return "https://api.devnet.mssprotocol.com"
+}
+
+if (
+hostname === "mssprotocol.com" ||
+hostname === "www.mssprotocol.com"
+) {
+return "https://api.mssprotocol.com"
+}
+
 const override = cleanText(window.__API_BASE__ || "", 1000)
 
-if (override) return override.replace(/\/$/, "")
+if (override) {
+return override.replace(/\/$/, "")
+}
 
 if (
 hostname === "127.0.0.1" ||
@@ -65,20 +94,6 @@ return `${protocol}//${hostname.replace(
 )}`
 }
 
-if (
-hostname === "devnet.mssprotocol.com" ||
-hostname === "www.devnet.mssprotocol.com"
-) {
-return "https://api.devnet.mssprotocol.com"
-}
-
-if (
-hostname === "mssprotocol.com" ||
-hostname === "www.mssprotocol.com"
-) {
-return "https://api.mssprotocol.com"
-}
-
 if (/:\d+$/.test(window.location.host)) {
 return `${protocol}//${hostname}:8787`
 }
@@ -87,6 +102,14 @@ return window.location.origin
 }
 
 const API_BASE = getApiBase()
+
+state.apiBase = API_BASE
+
+window.__MSS_ADMIN_GUARD_INFO__ = Object.freeze({
+version: ADMIN_SESSION_GUARD_VERSION,
+apiBase: API_BASE,
+statusPath: ADMIN_SESSION_STATUS_PATH,
+})
 
 function normalizeScope(value) {
 const normalized = cleanText(value, 64).toLowerCase()
@@ -117,13 +140,13 @@ return SENTINEL_ACCESS_SCOPE
 }
 
 /*
-compliance-admin.html and sentinel-admin.html currently call endpoints
-inside /api/compliance-admin, which is intentionally master-admin-only
-until that backend router is split into individually scoped routers.
+compliance-admin.html, sentinel-admin.html and sentinel-settings.html
+currently rely on master-admin protected backend endpoints.
 */
 if (
 pathname.endsWith("/compliance-admin.html") ||
 pathname.endsWith("/sentinel-admin.html") ||
+pathname.endsWith("/sentinel-settings.html") ||
 pathname.endsWith("/admin.html")
 ) {
 return ADMIN_SCOPE
@@ -152,6 +175,25 @@ return path
 return DEFAULT_LOGIN_PATH
 }
 
+function getApiHostLabel() {
+try {
+return new URL(API_BASE).host
+} catch {
+return API_BASE
+}
+}
+
+function buildApiUrl(path, { noCache = false } = {}) {
+const url = new URL(path, `${API_BASE}/`)
+
+if (noCache) {
+url.searchParams.set("guard", ADMIN_SESSION_GUARD_VERSION)
+url.searchParams.set("nocache", String(Date.now()))
+}
+
+return url.toString()
+}
+
 function createHttpError(response, payload) {
 const error = new Error(
 payload?.message ||
@@ -165,14 +207,41 @@ error.payload = payload
 return error
 }
 
-async function requestJson(path, options = {}) {
-const response = await fetch(`${API_BASE}${path}`, {
+async function requestJson(
+path,
+options = {},
+{
+noCache = false,
+} = {}
+) {
+const {
+headers: optionHeaders = {},
+method: requestedMethod = "GET",
+...fetchOptions
+} = options
+
+const method = cleanText(requestedMethod, 12).toUpperCase() || "GET"
+
+const headers = {
+Accept: "application/json",
+...optionHeaders,
+}
+
+if (
+method !== "GET" &&
+method !== "HEAD" &&
+!headers["Content-Type"] &&
+!headers["content-type"]
+) {
+headers["Content-Type"] = "application/json"
+}
+
+const response = await fetch(buildApiUrl(path, { noCache }), {
 credentials: "include",
-headers: {
-"Content-Type": "application/json",
-...(options.headers || {}),
-},
-...options,
+cache: "no-store",
+...fetchOptions,
+method,
+headers,
 })
 
 let payload = null
@@ -190,26 +259,23 @@ throw createHttpError(response, payload)
 return payload
 }
 
-async function requestFirst(paths, options = {}) {
-let lastError = null
-
-for (let index = 0; index < paths.length; index += 1) {
-try {
-return await requestJson(paths[index], options)
-} catch (error) {
-lastError = error
-
-const hasNext = index < paths.length - 1
-
-if (error?.status === 404 && hasNext) {
-continue
+function isAdminSessionStatusPayload(payload) {
+return Boolean(
+payload &&
+typeof payload === "object" &&
+payload.ok === true &&
+typeof payload.gate_enabled === "boolean" &&
+typeof payload.session_configured === "boolean" &&
+typeof payload.authenticated === "boolean"
+)
 }
 
-throw error
-}
+function getGateDisabledMessage() {
+return `The admin API at ${getApiHostLabel()} reported that admin authentication is disabled. Enable ADMIN_GATE_ENABLED on the API deployment before using this protected console.`
 }
 
-throw lastError || new Error("Admin session request failed.")
+function getSessionNotConfiguredMessage() {
+return `The admin API at ${getApiHostLabel()} has the gate enabled but cannot issue protected sessions. Configure ADMIN_SESSION_SECRET on that API deployment before using this console.`
 }
 
 function injectGuardStyles() {
@@ -247,7 +313,7 @@ font-family: Inter, "DM Sans", Arial, sans-serif;
 }
 
 .mss-admin-guard-card {
-width: min(520px, 100%);
+width: min(560px, 100%);
 padding: 30px;
 border-radius: 22px;
 border: 1px solid rgba(118, 185, 255, 0.16);
@@ -279,6 +345,18 @@ font-size: 14px;
 line-height: 1.65;
 }
 
+.mss-admin-guard-meta {
+margin: -10px 0 24px;
+padding: 11px 12px;
+border-radius: 11px;
+border: 1px solid rgba(118, 185, 255, 0.1);
+background: rgba(118, 185, 255, 0.045);
+color: rgba(148, 180, 214, 0.74);
+font-size: 11px;
+line-height: 1.55;
+word-break: break-word;
+}
+
 .mss-admin-guard-actions {
 display: flex;
 flex-wrap: wrap;
@@ -300,7 +378,11 @@ letter-spacing: 0.02em;
 
 .mss-admin-guard-button.primary {
 border-color: rgba(99, 184, 255, 0.42);
-background: linear-gradient(135deg, rgba(38, 116, 211, 0.92), rgba(44, 168, 228, 0.86));
+background: linear-gradient(
+135deg,
+rgba(38, 116, 211, 0.92),
+rgba(44, 168, 228, 0.86)
+);
 }
 `
 
@@ -338,6 +420,8 @@ detail: {
 authenticated: true,
 session: session || null,
 requiredScope: state.requiredScope,
+apiBase: API_BASE,
+guardVersion: ADMIN_SESSION_GUARD_VERSION,
 },
 })
 )
@@ -405,6 +489,7 @@ function renderGuardFailure({
 title = "Admin access unavailable",
 message = "The admin authentication check could not be completed.",
 showLogin = true,
+showMeta = false,
 } = {}) {
 document.documentElement.classList.remove(
 "mss-admin-auth-pending",
@@ -430,11 +515,26 @@ const heading = createElement("h1", "mss-admin-guard-title", title)
 const copy = createElement("p", "mss-admin-guard-copy", message)
 const actions = createElement("div", "mss-admin-guard-actions")
 
+card.appendChild(eyebrow)
+card.appendChild(heading)
+card.appendChild(copy)
+
+if (showMeta) {
+const meta = createElement(
+"div",
+"mss-admin-guard-meta",
+`Session API: ${getApiHostLabel()} · Guard build: ${ADMIN_SESSION_GUARD_VERSION}`
+)
+
+card.appendChild(meta)
+}
+
 const retryButton = createElement(
 "button",
 "mss-admin-guard-button",
 "Retry authentication"
 )
+
 retryButton.type = "button"
 retryButton.addEventListener("click", () => window.location.reload())
 
@@ -446,6 +546,7 @@ const loginButton = createElement(
 "mss-admin-guard-button primary",
 "Return to admin sign-in"
 )
+
 loginButton.type = "button"
 loginButton.addEventListener("click", () => {
 redirectToLogin(
@@ -457,9 +558,6 @@ state.statusPayload?.login_path || DEFAULT_LOGIN_PATH,
 actions.prepend(loginButton)
 }
 
-card.appendChild(eyebrow)
-card.appendChild(heading)
-card.appendChild(copy)
 card.appendChild(actions)
 screen.appendChild(card)
 
@@ -474,22 +572,35 @@ window.addEventListener("DOMContentLoaded", render, { once: true })
 }
 
 async function loadAdminSessionStatus() {
-return requestFirst([
-"/api/admin-auth/session",
-"/api/admin-session/status",
-])
+const payload = await requestJson(
+ADMIN_SESSION_STATUS_PATH,
+{
+method: "GET",
+},
+{
+noCache: true,
+}
+)
+
+if (!isAdminSessionStatusPayload(payload)) {
+throw new Error(
+`The session API at ${getApiHostLabel()} returned an invalid admin-session status response.`
+)
+}
+
+return payload
 }
 
 async function logoutAdminSession({ redirect = true } = {}) {
 try {
-await requestFirst(
-[
-"/api/admin-auth/logout",
-"/api/admin-session/logout",
-],
+await requestJson(
+ADMIN_SESSION_LOGOUT_PATH,
 {
 method: "POST",
 body: JSON.stringify({}),
+},
+{
+noCache: true,
 }
 )
 } finally {
@@ -546,40 +657,41 @@ const payload = await loadAdminSessionStatus()
 state.statusPayload = payload || null
 state.checked = true
 
-if (!payload?.gate_enabled) {
+if (payload.gate_enabled !== true) {
 renderGuardFailure({
 title: "Admin gate is disabled",
-message:
-"This admin surface is not currently protected by active admin authentication. Enable the admin gate before using the admin console.",
+message: getGateDisabledMessage(),
 showLogin: false,
+showMeta: true,
 })
 
 return null
 }
 
-if (!payload?.session_configured) {
+if (payload.session_configured !== true) {
 renderGuardFailure({
 title: "Admin session is not configured",
-message:
-"The backend admin gate is enabled, but session authentication has not been configured. Add the session secret to the API environment before opening this console.",
+message: getSessionNotConfiguredMessage(),
 showLogin: false,
+showMeta: true,
 })
 
 return null
 }
 
-if (!payload?.authenticated || !payload?.session) {
+if (!payload.authenticated || !payload.session) {
 state.authenticated = false
 state.session = null
 
 if (redirectUnauthenticated) {
-redirectToLogin(payload?.login_path || DEFAULT_LOGIN_PATH, "required")
+redirectToLogin(payload.login_path || DEFAULT_LOGIN_PATH, "required")
 return null
 }
 
 renderGuardFailure({
 title: "Admin sign-in required",
 message: "A valid admin session is required to open this page.",
+showMeta: true,
 })
 
 return null
@@ -589,7 +701,7 @@ if (!sessionAllowsScope(payload.session, state.requiredScope)) {
 state.authenticated = false
 state.session = payload.session
 
-redirectToLogin(payload?.login_path || DEFAULT_LOGIN_PATH, "forbidden")
+redirectToLogin(payload.login_path || DEFAULT_LOGIN_PATH, "forbidden")
 return null
 }
 
@@ -608,6 +720,7 @@ title: "Authentication check failed",
 message:
 error?.message ||
 "The admin session could not be verified. Check that the API is online and try again.",
+showMeta: true,
 })
 
 return null
@@ -625,11 +738,14 @@ console.error("Failed to initialize admin session guard", error)
 renderGuardFailure({
 title: "Authentication check failed",
 message: "The admin page could not be securely opened.",
+showMeta: true,
 })
 })
 }
 
 window.MSSAdminSessionGuard = {
+version: ADMIN_SESSION_GUARD_VERSION,
+apiBase: API_BASE,
 getState() {
 return { ...state }
 },
