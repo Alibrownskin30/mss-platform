@@ -6,12 +6,12 @@
 <title>MSS Protocol — Create Launch</title>
 <meta
 name="description"
-content="Create a security-first MSS launch with locked template rules, required builder bond, CassIE monitoring included, risk-based builder compliance buckets, fixed launch visibility products, and structured checkout."
+content="Create a security-first MSS launch with locked template rules, required Builder Bond, wallet-linked Launcher acknowledgements, CassIE monitoring included, optional visibility products, and structured checkout."
 />
 
 <link rel="stylesheet" href="./assets/app.css?v=7" />
 <link rel="modulepreload" href="./assets/layout-shell.js?v=20260524-shell-v4" />
-<link rel="modulepreload" href="./assets/pages/launch-create.js?v=9" />
+<link rel="modulepreload" href="./assets/pages/launch-create.js?v=20260527-ack-v1" />
 
 <style>
 .create-launch-page{
@@ -240,6 +240,22 @@ line-height:1.6;
 color:rgba(255,245,220,.92);
 }
 
+.create-launch-page .builder-bond-refund-note{
+padding:14px 16px;
+border-radius:17px;
+border:1px solid rgba(229,193,115,.18);
+background:
+radial-gradient(circle at 0% 0%, rgba(229,193,115,.09), transparent 42%),
+rgba(229,193,115,.045);
+font-size:12px;
+line-height:1.68;
+color:rgba(255,245,220,.88);
+}
+
+.create-launch-page .builder-bond-refund-note strong{
+color:#fff3d1;
+}
+
 .create-launch-page .hero-stat{
 border:1px solid rgba(255,255,255,.08);
 border-radius:18px;
@@ -333,6 +349,42 @@ color:var(--muted);
 font-size:13px;
 line-height:1.65;
 max-width:840px;
+}
+
+.create-launch-page .launcher-acknowledgement-panel{
+border-color:rgba(74,165,255,.20);
+background:
+radial-gradient(circle at 0% 0%, rgba(21,156,255,.09), transparent 34%),
+linear-gradient(180deg, rgba(21,156,255,.046), rgba(255,255,255,.022));
+}
+
+.create-launch-page .acknowledgement-summary{
+display:grid;
+grid-template-columns:repeat(3,minmax(0,1fr));
+gap:10px;
+}
+
+.create-launch-page .acknowledgement-summary-item{
+padding:12px 13px;
+border-radius:16px;
+border:1px solid rgba(255,255,255,.08);
+background:rgba(255,255,255,.024);
+}
+
+.create-launch-page .acknowledgement-summary-item .k{
+font-size:10px;
+font-weight:900;
+letter-spacing:.14em;
+text-transform:uppercase;
+color:rgba(220,230,245,.56);
+margin-bottom:6px;
+}
+
+.create-launch-page .acknowledgement-summary-item .v{
+font-size:12px;
+font-weight:800;
+line-height:1.55;
+color:rgba(244,248,255,.90);
 }
 
 .create-launch-page .field-grid{
@@ -1031,12 +1083,15 @@ border:1px solid rgba(255,255,255,.08);
 font-size:12px;
 }
 
-.create-launch-page .ack-list{
+.create-launch-page .ack-list,
+.create-launch-page .launcher-acknowledgement-fields{
 display:grid;
 gap:12px;
 }
 
-.create-launch-page .ack-item{
+.create-launch-page .ack-item,
+.create-launch-page .checkout-check-row,
+.create-launch-page .launcher-acknowledgement-row{
 display:flex;
 gap:10px;
 align-items:flex-start;
@@ -1044,19 +1099,36 @@ padding:12px 14px;
 border-radius:16px;
 border:1px solid rgba(255,255,255,.08);
 background:rgba(255,255,255,.024);
+cursor:pointer;
+transition:.16s ease;
 }
 
-.create-launch-page .ack-item input{
+.create-launch-page .ack-item:hover,
+.create-launch-page .checkout-check-row:hover,
+.create-launch-page .launcher-acknowledgement-row:hover{
+border-color:rgba(74,165,255,.18);
+background:rgba(255,255,255,.04);
+}
+
+.create-launch-page .ack-item input,
+.create-launch-page .checkout-check-row input,
+.create-launch-page .launcher-acknowledgement-row input{
 margin-top:3px;
 width:16px;
 height:16px;
 flex:0 0 auto;
+accent-color:#36d7ff;
 }
 
-.create-launch-page .ack-item-text{
+.create-launch-page .ack-item-text,
+.create-launch-page .checkout-check-row span,
+.create-launch-page .launcher-acknowledgement-row span{
 color:var(--muted);
 font-size:13px;
 line-height:1.6;
+letter-spacing:normal;
+text-transform:none;
+font-weight:500;
 }
 
 .create-launch-page .checkout-summary-card{
@@ -1239,6 +1311,12 @@ line-height:1.6;
 color:#fff;
 }
 
+.create-launch-page .checkout-refund-note{
+border-color:rgba(229,193,115,.18);
+background:rgba(229,193,115,.05);
+color:rgba(255,245,220,.86);
+}
+
 .create-launch-page .quote-refresh-note{
 font-size:11px;
 color:rgba(220,230,245,.56);
@@ -1271,7 +1349,8 @@ font-size:34px;
 .create-launch-page .team-wallet-row,
 .create-launch-page .preview-builder-grid,
 .create-launch-page .option-grid,
-.create-launch-page .addon-grid{
+.create-launch-page .addon-grid,
+.create-launch-page .acknowledgement-summary{
 grid-template-columns:1fr;
 }
 }
@@ -1343,6 +1422,7 @@ text-align:left;
 }
 </style>
 </head>
+
 <body
 class="create-launch-page"
 data-shell-active="launchpad"
@@ -1363,11 +1443,11 @@ data-shell-subtitle="Launch Creation"
 <h1>Create a Security-First MSS Launch</h1>
 
 <div class="hero-copy">
-MSS launch creation now follows a structured builder checkout flow. Template rules remain locked, CassIE monitoring stays standard on every launch, launch visibility products are optional and charged immediately, and the MSS launch fee only settles if the launch reaches live state.
+MSS launch creation follows a structured builder checkout flow. Template rules remain locked, CassIE monitoring stays standard on every launch, optional visibility products are charged immediately, and the MSS Launch Fee only settles if the launch reaches live state.
 </div>
 
 <div class="hero-copy" style="margin-top:10px;">
-Builder access now runs through a smoother risk-based path. Most launches stay open under silent or escalation monitoring, while hard blocking is reserved for explicit triggered risk conditions or required review.
+No identity verification, document upload, KYC or KYB is required for this flow. The connected builder wallet records the required Launcher acknowledgements before the Builder Bond transaction proceeds.
 </div>
 
 <div class="pill-row">
@@ -1375,7 +1455,7 @@ Builder access now runs through a smoother risk-based path. Most launches stay o
 <span class="chip">0.5% Max Wallet Starts</span>
 <span class="chip">CassIE Included Standard</span>
 <span class="chip">Builder Bond Required</span>
-<span class="chip">Risk-Based Builder Access</span>
+<span class="chip">No ID / KYC Required</span>
 </div>
 
 <div id="builderModeHighlight" class="builder-highlight">
@@ -1383,8 +1463,9 @@ Builder access now runs through a smoother risk-based path. Most launches stay o
 <div class="builder-highlight-copy">
 Builder launches use the locked MSS 1B supply model, approved hard-cap tiers of 250 / 500 / 750 / 1000 SOL, fixed soft-cap mapping, visible team wallet breakdowns, capped team allocation, and the same lifecycle flow used across the platform.
 </div>
+
 <div class="builder-bond-note">
-Every template uses a required builder bond. Builder monitoring now follows required / silent / escalation buckets so smooth builders can stay open while triggered risk cases can still be reviewed or blocked.
+Every template uses a required Builder Bond. Before payment, the connected builder wallet must accept the Launcher terms, risk disclosures, project accuracy declaration and prohibited conduct acknowledgement.
 </div>
 </div>
 </section>
@@ -1402,7 +1483,7 @@ Every template uses a required builder bond. Builder monitoring now follows requ
 
 <div class="hero-stat">
 <div class="k">Builder Access Flow</div>
-<div class="v">Most builders should remain open under silent or escalation monitoring. Hard blocking is reserved for explicit backend risk intervention or required review.</div>
+<div class="v">Connect the launch wallet, record the required acknowledgements and proceed without identity verification or document collection.</div>
 </div>
 
 <div class="hero-stat">
@@ -1422,7 +1503,7 @@ Every template uses a required builder bond. Builder monitoring now follows requ
 <div class="form-section-kicker">1 · Template Selection</div>
 <div class="form-section-title">Choose the launch framework</div>
 <div class="form-section-copy">
-Template selection locks MSS launch economics, launch rules, supply posture, access structure, and bond requirements.
+Template selection locks MSS launch economics, launch rules, supply posture, allocation structure and Builder Bond requirements.
 </div>
 </div>
 
@@ -1436,7 +1517,7 @@ Template selection locks MSS launch economics, launch rules, supply posture, acc
 <option value="community">Community</option>
 <option value="degen_zone">Degen Zone</option>
 </select>
-<div class="hint">Template selection locks MSS launch economics and bond requirements.</div>
+<div class="hint">Template selection locks MSS launch economics and Builder Bond requirements.</div>
 </div>
 
 <div class="field">
@@ -1485,7 +1566,7 @@ Template selection locks MSS launch economics, launch rules, supply posture, acc
 
 <div class="template-option" data-template-card="builder">
 <div class="template-option-title">Builder</div>
-<div class="template-option-copy">Structured project template with hard-cap tiers, team wallet visibility, and risk-based builder monitoring.</div>
+<div class="template-option-copy">Structured project template with hard-cap tiers, visible team wallet declarations and additional builder conduct acknowledgements.</div>
 <div class="template-option-meta">
 <span class="template-mini-pill">250 / 500 / 750 / 1000</span>
 <span class="template-mini-pill">Builder Controls</span>
@@ -1499,7 +1580,7 @@ Template selection locks MSS launch economics, launch rules, supply posture, acc
 <div class="form-section-kicker">2 · Token Identity & Media</div>
 <div class="form-section-title">Set the launch identity</div>
 <div class="form-section-copy">
-This controls the public launch identity, logo preview, symbol, and launch narrative shown across the MSS interface.
+This controls the public launch identity, logo preview, symbol and launch narrative shown across the MSS interface.
 </div>
 </div>
 
@@ -1536,21 +1617,23 @@ This controls the public launch identity, logo preview, symbol, and launch narra
 
 <section class="form-section">
 <div class="form-section-head">
-<div class="form-section-kicker">3 · Builder Profile & Links</div>
-<div class="form-section-title">Connect builder identity</div>
+<div class="form-section-kicker">3 · Builder Wallet & Links</div>
+<div class="form-section-title">Connect the launch wallet</div>
 <div class="form-section-copy">
-Launch creation runs from the connected builder wallet. Builder monitoring and access state load from that same wallet, and public profile links can be attached directly to the launch.
+Launch creation runs from the connected builder wallet. Required acknowledgements and any existing internal intervention state are checked against that same wallet before transaction-sensitive actions proceed.
 </div>
 </div>
 
 <div class="field-grid">
 <div class="field full">
 <label>Builder Wallet</label>
+
 <div class="wallet-row">
 <button id="connectWalletBtn" class="btn" type="button">Connect Wallet</button>
 <button id="disconnectWalletBtn" class="btn" type="button" style="display:none;">Disconnect</button>
 <div id="walletPill" class="wallet-pill">No wallet connected</div>
 </div>
+
 <input
 id="wallet"
 name="wallet"
@@ -1559,30 +1642,37 @@ placeholder="Connected wallet will appear here"
 autocomplete="off"
 readonly
 />
-<div id="walletHint" class="hint">Use Connect Wallet to choose Phantom, Solflare, or Backpack.</div>
+
+<div id="walletHint" class="hint">
+Use Connect Wallet to choose Phantom, Solflare, or Backpack.
+</div>
 
 <div id="builderComplianceCard" class="builder-compliance-card">
 <div class="builder-compliance-head">
 <div>
-<div class="builder-compliance-title">Builder Verification & Monitoring</div>
+<div class="builder-compliance-title">Builder Launcher Access</div>
 <p id="builderComplianceCopy" class="builder-compliance-copy">
-Builder verification and monitoring status will load once a wallet is connected.
+Connect a wallet to load its Launcher acknowledgement state.
 </p>
 </div>
-<div id="builderCompliancePill" class="status-pill warn">Monitoring Check</div>
+
+<div id="builderCompliancePill" class="status-pill warn">
+Status Check Pending
+</div>
 </div>
 
 <div id="builderComplianceMeta" class="builder-compliance-meta">
-Bucket: — • Access: —
+Flow: acknowledgement only • No ID / KYC required
 </div>
 
-<div class="builder-compliance-actions">
+<div class="builder-compliance-actions" style="display:none;">
 <a
 id="builderComplianceAction"
 class="btn"
 href="./compliance.html?mode=builder"
+style="display:none;"
 >
-Open Compliance Profile
+Review Launcher Access
 </a>
 </div>
 </div>
@@ -1621,7 +1711,7 @@ Open Compliance Profile
 <div class="form-section-kicker">4 · Launch Economics Snapshot</div>
 <div class="form-section-title">Review locked economics</div>
 <div class="form-section-copy">
-Supply, minimum raise, hard cap, commit rules, and builder controls remain locked to the selected MSS template.
+Supply, minimum raise, hard cap, commit rules and builder controls remain locked to the selected MSS template.
 </div>
 </div>
 
@@ -1708,10 +1798,12 @@ Supply, minimum raise, hard cap, commit rules, and builder controls remain locke
 <div class="field full">
 <label>Team Wallet Breakdown</label>
 <div id="teamWalletInputs" class="team-wallet-list"></div>
+
 <div class="team-summary">
 <span>Current Team Allocation Total</span>
 <strong id="teamAllocationTotal" class="team-total good">0.00%</strong>
 </div>
+
 <div class="hint">Example labels: Marketing, Treasury, Advisors, Core Team.</div>
 </div>
 </div>
@@ -1721,7 +1813,7 @@ Supply, minimum raise, hard cap, commit rules, and builder controls remain locke
 <section class="form-section">
 <div class="form-section-head">
 <div class="form-section-kicker">5 · Required Launch Commitments</div>
-<div class="form-section-title">Builder bond and baseline protection</div>
+<div class="form-section-title">Builder Bond and baseline protection</div>
 <div class="form-section-copy">
 Builder Bond is required on every launch. CassIE Monitoring is included standard and is not an optional add-on.
 </div>
@@ -1740,14 +1832,92 @@ Builder Bond is required on every launch. CassIE Monitoring is included standard
 <div class="hint">CassIE monitoring remains part of the MSS safety standard and is always active on launches.</div>
 </div>
 </div>
+
+<div class="builder-bond-refund-note">
+<strong>Builder Bond protection:</strong> where an internal intervention blocks launch creation after the Builder Bond transaction has been confirmed, the response will state whether the bond has been refunded on-chain, queued for refund, or requires support review before any retry.
+</div>
+</section>
+
+<section
+id="launcherAcknowledgementPanel"
+class="form-section launcher-acknowledgement-panel"
+>
+<div class="form-section-head">
+<div class="form-section-kicker">6 · Launcher Acknowledgements</div>
+<div class="form-section-title">Accept builder terms and conduct requirements</div>
+<div class="form-section-copy">
+No identity verification, KYC, KYB, legal name, date of birth or document upload is required for this launch flow. These acknowledgements are recorded against the connected builder wallet before the Builder Bond transaction is submitted.
+</div>
+</div>
+
+<div class="acknowledgement-summary">
+<div class="acknowledgement-summary-item">
+<div class="k">Identity Check</div>
+<div class="v">Not Required</div>
+</div>
+
+<div class="acknowledgement-summary-item">
+<div class="k">Recorded Against</div>
+<div class="v">Connected Builder Wallet</div>
+</div>
+
+<div class="acknowledgement-summary-item">
+<div class="k">Required Before</div>
+<div class="v">Builder Bond Approval</div>
+</div>
+</div>
+
+<div id="launcherAcknowledgementFields" class="ack-list launcher-acknowledgement-fields">
+<label class="ack-item launcher-acknowledgement-row">
+<input id="ackLauncherTerms" name="ackLauncherTerms" type="checkbox" />
+<div class="ack-item-text">
+I accept the MSS Launcher Terms for creating this launch.
+</div>
+</label>
+
+<label class="ack-item launcher-acknowledgement-row">
+<input id="ackLaunchRiskDisclosure" name="ackLaunchRiskDisclosure" type="checkbox" />
+<div class="ack-item-text">
+I understand crypto launches carry significant risk and outcomes are not guaranteed.
+</div>
+</label>
+
+<label class="ack-item launcher-acknowledgement-row">
+<input id="ackLaunchRules" name="ackLaunchRules" type="checkbox" />
+<div class="ack-item-text">
+I accept the launch rules, allocation conditions, bond rules and transaction conditions.
+</div>
+</label>
+
+<label class="ack-item launcher-acknowledgement-row">
+<input id="ackLaunchNoAdvice" name="ackLaunchNoAdvice" type="checkbox" />
+<div class="ack-item-text">
+I understand MSS provides information and infrastructure only, not investment advice.
+</div>
+</label>
+
+<label class="ack-item launcher-acknowledgement-row">
+<input id="ackProjectDisclosure" name="ackProjectDisclosure" type="checkbox" />
+<div class="ack-item-text">
+I confirm the project information and declared team wallets supplied are accurate.
+</div>
+</label>
+
+<label class="ack-item launcher-acknowledgement-row">
+<input id="ackProhibitedConduct" name="ackProhibitedConduct" type="checkbox" />
+<div class="ack-item-text">
+I agree not to engage in misleading conduct, undisclosed wallet activity or market manipulation.
+</div>
+</label>
+</div>
 </section>
 
 <section class="form-section">
 <div class="form-section-head">
-<div class="form-section-kicker">6 · Launch Visibility</div>
+<div class="form-section-kicker">7 · Launch Visibility</div>
 <div class="form-section-title">Select optional visibility products</div>
 <div class="form-section-copy">
-These products are charged immediately, confirmed immediately, and displayed in the Due Now section of checkout. USD pricing is fixed. SOL equivalent refreshes automatically with market price.
+These products are charged immediately, confirmed immediately and displayed in the Due Now section of checkout. USD pricing is fixed. SOL equivalent refreshes automatically with market price.
 </div>
 </div>
 
@@ -1800,8 +1970,8 @@ These products are charged immediately, confirmed immediately, and displayed in 
 
 <section class="form-section">
 <div class="form-section-head">
-<div class="form-section-kicker">7 · Launch Success</div>
-<div class="form-section-title">MSS launch fee</div>
+<div class="form-section-kicker">8 · Launch Success</div>
+<div class="form-section-title">MSS Launch Fee</div>
 <div class="form-section-copy">
 MSS Launch Fee is not charged at creation. It only settles if the launch reaches live status.
 </div>
@@ -1824,7 +1994,7 @@ MSS Launch Fee is not charged at creation. It only settles if the launch reaches
 
 <section class="form-section">
 <div class="form-section-head">
-<div class="form-section-kicker">8 · Live Momentum</div>
+<div class="form-section-kicker">9 · Live Momentum</div>
 <div class="form-section-title">Available after live</div>
 <div class="form-section-copy">
 These products are intentionally not selectable on the create page. They unlock only after live activation.
@@ -1876,10 +2046,10 @@ These products are intentionally not selectable on the create page. They unlock 
 
 <section class="form-section">
 <div class="form-section-head">
-<div class="form-section-kicker">9 · Final Acknowledgements</div>
-<div class="form-section-title">Confirm launch responsibilities</div>
+<div class="form-section-kicker">10 · Checkout Confirmations</div>
+<div class="form-section-title">Confirm payment timing</div>
 <div class="form-section-copy">
-Final confirmations before the launch is created and checkout is submitted.
+These confirmations cover Builder Bond and product-charge timing. The separate Launcher acknowledgements above cover terms, risk disclosure and builder conduct.
 </div>
 </div>
 
@@ -1931,6 +2101,7 @@ I understand the MSS Launch Fee settles only if the launch goes live.
 <div id="previewSub" class="token-sub">TICK • MEME LITE</div>
 </div>
 </div>
+
 <div id="previewBadge" class="badge">Commit</div>
 </div>
 
@@ -1939,14 +2110,17 @@ I understand the MSS Launch Fee settles only if the launch goes live.
 <div class="k">Minimum Raise</div>
 <div id="previewMinRaise" class="v">— SOL</div>
 </div>
+
 <div class="kv-box">
 <div class="k">Hard Cap</div>
 <div id="previewHardCap" class="v">— SOL</div>
 </div>
+
 <div class="kv-box">
 <div class="k">Supply</div>
 <div id="previewSupply" class="v">—</div>
 </div>
+
 <div class="kv-box">
 <div class="k">Builder</div>
 <div id="previewWallet" class="v">—</div>
@@ -1967,6 +2141,7 @@ I understand the MSS Launch Fee settles only if the launch goes live.
 <div class="k">Team Allocation</div>
 <div id="previewTeamAllocation" class="v">0%</div>
 </div>
+
 <div class="kv-box">
 <div class="k">Builder Bond</div>
 <div id="previewBuilderBond" class="v">0 SOL</div>
@@ -1987,6 +2162,7 @@ I understand the MSS Launch Fee settles only if the launch goes live.
 <div id="checkoutLaunchName" class="checkout-title">Untitled Launch</div>
 <div id="checkoutLaunchSub" class="checkout-sub">MSS Launch • Template Pending</div>
 </div>
+
 <div id="checkoutBuilderBondBadge" class="checkout-badge">Builder Bond</div>
 </div>
 
@@ -2000,6 +2176,7 @@ I understand the MSS Launch Fee settles only if the launch goes live.
 <div class="checkout-row-title">Builder Bond</div>
 <div class="checkout-row-meta">Required</div>
 </div>
+
 <div class="checkout-row-price">
 <div id="checkoutBondPrimary">0 SOL</div>
 <div id="checkoutBondSecondary" class="checkout-row-price-sub">≈ $0</div>
@@ -2011,6 +2188,7 @@ I understand the MSS Launch Fee settles only if the launch goes live.
 <div class="checkout-row-title">Launch Visibility</div>
 <div class="checkout-row-meta">Charged Now</div>
 </div>
+
 <div class="checkout-row-price">
 <div id="checkoutVisibilityTotalPrimary">$0</div>
 <div id="checkoutVisibilityTotalSecondary" class="checkout-row-price-sub">$0 • 0 SOL</div>
@@ -2028,8 +2206,12 @@ I understand the MSS Launch Fee settles only if the launch goes live.
 <div class="checkout-total-label">Due Now Total</div>
 <div>
 <div id="checkoutDueNowPrimary" class="checkout-total-value">0 SOL</div>
-<div id="checkoutDueNowSecondary" class="checkout-total-sub">Builder bond + selected visibility</div>
+<div id="checkoutDueNowSecondary" class="checkout-total-sub">Builder Bond + selected visibility</div>
 </div>
+</div>
+
+<div class="checkout-note checkout-refund-note">
+<strong>Builder Bond protection:</strong> if launch creation is blocked by an internal intervention after bond confirmation, the transaction response will identify whether refund is completed, queued or requires support review.
 </div>
 </section>
 
@@ -2043,6 +2225,7 @@ I understand the MSS Launch Fee settles only if the launch goes live.
 <div class="checkout-row-title">MSS Launch Fee</div>
 <div class="checkout-row-meta">Only If Live</div>
 </div>
+
 <div class="checkout-row-price">
 <div id="checkoutLaunchFeePrimary">3% of final committed SOL</div>
 <div id="checkoutLaunchFeeSecondary" class="checkout-row-price-sub">Estimated value updates after final raise</div>
@@ -2081,14 +2264,17 @@ I understand the MSS Launch Fee settles only if the launch goes live.
 <span>Live Spotlight</span>
 <strong>$149</strong>
 </div>
+
 <div class="checkout-list-item">
 <span>Momentum Distribution</span>
 <strong>$249</strong>
 </div>
+
 <div class="checkout-list-item">
 <span>CassIE Pro Brief</span>
 <strong>$349</strong>
 </div>
+
 <div class="checkout-list-item">
 <span>Launch Concierge</span>
 <strong>$999</strong>
@@ -2110,6 +2296,7 @@ These upgrades unlock only after live activation and are not selectable on the c
 <span>Core Team Development</span>
 <strong>60%</strong>
 </div>
+
 <div class="checkout-list-item">
 <span>MSS Ecosystem Support</span>
 <strong>40%</strong>
@@ -2162,7 +2349,7 @@ console.error("Shared shell mount failed:", err);
 await mountSharedShell();
 </script>
 
-<script type="module" src="./assets/pages/launch-create.js?v=9"></script>
+<script type="module" src="./assets/pages/launch-create.js?v=20260527-ack-v1"></script>
 <script src="/assets/devnet-access-gate.js?v=7"></script>
 </body>
 </html>

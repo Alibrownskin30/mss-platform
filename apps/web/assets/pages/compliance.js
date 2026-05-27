@@ -8,12 +8,106 @@ restoreWalletIfTrusted,
 getMobileWalletHelpText,
 } from "../wallet.js";
 
+const PARTICIPANT_ROLE = "participant";
+const BUILDER_ROLE = "builder";
+const VALID_ROLES = new Set([PARTICIPANT_ROLE, BUILDER_ROLE]);
+
+const ACKNOWLEDGEMENT_FIELDS = Object.freeze({
+participant: [
+{
+id: "ackLauncherTerms",
+key: "terms_accepted",
+timestampKey: "accepted_terms_at",
+label: "I accept the MSS Launcher Terms for participating in this launch.",
+error: "Accept the MSS Launcher Terms before continuing.",
+},
+{
+id: "ackLaunchRiskDisclosure",
+key: "risk_disclosure_accepted",
+timestampKey: "accepted_risk_disclosure_at",
+label:
+"I understand crypto launches carry significant risk and outcomes are not guaranteed.",
+error: "Accept the launch risk disclosure before continuing.",
+},
+{
+id: "ackLaunchRules",
+key: "launch_rules_accepted",
+timestampKey: "accepted_launch_rules_at",
+label:
+"I accept the launch rules, allocation conditions and transaction conditions.",
+error: "Accept the launch rules and transaction conditions before continuing.",
+},
+{
+id: "ackLaunchNoAdvice",
+key: "no_advice_accepted",
+timestampKey: "accepted_no_advice_at",
+label:
+"I understand MSS provides information and infrastructure only, not investment advice.",
+error: "Accept the information-only acknowledgement before continuing.",
+},
+],
+builder: [
+{
+id: "ackLauncherTerms",
+key: "terms_accepted",
+timestampKey: "accepted_terms_at",
+label: "I accept the MSS Launcher Terms for creating this launch.",
+error: "Accept the MSS Launcher Terms before continuing.",
+},
+{
+id: "ackLaunchRiskDisclosure",
+key: "risk_disclosure_accepted",
+timestampKey: "accepted_risk_disclosure_at",
+label:
+"I understand crypto launches carry significant risk and outcomes are not guaranteed.",
+error: "Accept the launch risk disclosure before continuing.",
+},
+{
+id: "ackLaunchRules",
+key: "launch_rules_accepted",
+timestampKey: "accepted_launch_rules_at",
+label:
+"I accept the launch rules, allocation conditions, Builder Bond rules and transaction conditions.",
+error: "Accept the launch rules and transaction conditions before continuing.",
+},
+{
+id: "ackLaunchNoAdvice",
+key: "no_advice_accepted",
+timestampKey: "accepted_no_advice_at",
+label:
+"I understand MSS provides information and infrastructure only, not investment advice.",
+error: "Accept the information-only acknowledgement before continuing.",
+},
+{
+id: "ackProjectDisclosure",
+key: "project_disclosure_accepted",
+timestampKey: "accepted_project_disclosure_at",
+label:
+"I confirm the project information and declared team wallets supplied are accurate.",
+error: "Accept the project information disclosure before continuing.",
+},
+{
+id: "ackProhibitedConduct",
+key: "prohibited_conduct_accepted",
+timestampKey: "accepted_prohibited_conduct_at",
+label:
+"I agree not to engage in misleading conduct, undisclosed wallet activity or market manipulation.",
+error: "Accept the prohibited conduct acknowledgement before continuing.",
+},
+],
+});
+
 const state = {
-mode: "participant",
+mode: PARTICIPANT_ROLE,
 wallet: "",
-profile: null,
+launchId: null,
 statusPayload: null,
 isSubmitting: false,
+statusRequestId: 0,
+acknowledgementDrafts: {
+participant: {},
+builder: {},
+},
 };
 
 const els = {
@@ -44,85 +138,75 @@ walletAddress: document.getElementById("walletAddress"),
 loadStatusButton: document.getElementById("loadStatusButton"),
 
 complianceForm: document.getElementById("complianceForm"),
-profileType: document.getElementById("profileType"),
-countryCode: document.getElementById("countryCode"),
-legalName: document.getElementById("legalName"),
-displayName: document.getElementById("displayName"),
-
-entityFields: document.getElementById("entityFields"),
-entityName: document.getElementById("entityName"),
-entityType: document.getElementById("entityType"),
-entityRegistrationNumber: document.getElementById("entityRegistrationNumber"),
-
-email: document.getElementById("email"),
-phone: document.getElementById("phone"),
-dateOfBirth: document.getElementById("dateOfBirth"),
-riskRating: document.getElementById("riskRating"),
-
-pepStatus: document.getElementById("pepStatus"),
-sanctionsStatus: document.getElementById("sanctionsStatus"),
-manualReviewRequired: document.getElementById("manualReviewRequired"),
-manualReviewReason: document.getElementById("manualReviewReason"),
-
-sourceOfFundsSummary: document.getElementById("sourceOfFundsSummary"),
-sourceOfWealthSummary: document.getElementById("sourceOfWealthSummary"),
-notes: document.getElementById("notes"),
-
-beneficialOwnersSection: document.getElementById("beneficialOwnersSection"),
-beneficialOwnersCollection: document.getElementById("beneficialOwnersCollection"),
-addBeneficialOwnerButton: document.getElementById("addBeneficialOwnerButton"),
-beneficialOwnerTemplate: document.getElementById("beneficialOwnerTemplate"),
-
-authorisedRepresentativesSection: document.getElementById(
-"authorisedRepresentativesSection"
-),
-authorisedRepresentativesCollection: document.getElementById(
-"authorisedRepresentativesCollection"
-),
-addRepresentativeButton: document.getElementById("addRepresentativeButton"),
-representativeTemplate: document.getElementById("representativeTemplate"),
-
 startComplianceButton: document.getElementById("startComplianceButton"),
-submitComplianceButton: document.getElementById("submitComplianceButton"),
 
-// Optional newer placeholders. Safe if absent.
 accessReasonValue: document.getElementById("accessReasonValue"),
 modeBucketValue: document.getElementById("modeBucketValue"),
 builderBucketValue: document.getElementById("builderBucketValue"),
 participantBucketValue: document.getElementById("participantBucketValue"),
 jurisdictionBucketValue: document.getElementById("jurisdictionBucketValue"),
-escalationSignalsList: document.getElementById("escalationSignalsList"),
+
 blockingSignalsList: document.getElementById("blockingSignalsList"),
-escalationSignalsSection: document.getElementById("escalationSignalsSection"),
 blockingSignalsSection: document.getElementById("blockingSignalsSection"),
+escalationSignalsList: document.getElementById("escalationSignalsList"),
+escalationSignalsSection: document.getElementById("escalationSignalsSection"),
+
+profileType: document.getElementById("profileType"),
+countryCode: document.getElementById("countryCode"),
+legalName: document.getElementById("legalName"),
+displayName: document.getElementById("displayName"),
+entityFields: document.getElementById("entityFields"),
+entityName: document.getElementById("entityName"),
+entityType: document.getElementById("entityType"),
+entityRegistrationNumber: document.getElementById("entityRegistrationNumber"),
+email: document.getElementById("email"),
+phone: document.getElementById("phone"),
+dateOfBirth: document.getElementById("dateOfBirth"),
+riskRating: document.getElementById("riskRating"),
+pepStatus: document.getElementById("pepStatus"),
+sanctionsStatus: document.getElementById("sanctionsStatus"),
+manualReviewRequired: document.getElementById("manualReviewRequired"),
+manualReviewReason: document.getElementById("manualReviewReason"),
+sourceOfFundsSummary: document.getElementById("sourceOfFundsSummary"),
+sourceOfWealthSummary: document.getElementById("sourceOfWealthSummary"),
+notes: document.getElementById("notes"),
+beneficialOwnersSection: document.getElementById("beneficialOwnersSection"),
+authorisedRepresentativesSection: document.getElementById(
+"authorisedRepresentativesSection"
+),
+addBeneficialOwnerButton: document.getElementById("addBeneficialOwnerButton"),
+addRepresentativeButton: document.getElementById("addRepresentativeButton"),
 };
+
+function $(id) {
+return document.getElementById(id);
+}
 
 function cleanText(value, max = 500) {
 return String(value ?? "").trim().slice(0, max);
 }
 
-function toBool(value) {
-return value === true || value === 1 || value === "1";
+function normalizeRole(value, fallback = PARTICIPANT_ROLE) {
+const normalized = cleanText(value, 32).toLowerCase();
+return VALID_ROLES.has(normalized) ? normalized : fallback;
+}
+
+function normalizeLaunchId(value) {
+if (value === undefined || value === null || String(value).trim() === "") {
+return null;
+}
+
+const launchId = Number.parseInt(value, 10);
+return Number.isFinite(launchId) && launchId > 0 ? launchId : null;
 }
 
 function shortenWallet(wallet) {
 const value = cleanText(wallet, 200);
+
 if (!value) return "Not connected";
 if (value.length <= 14) return value;
+
 return `${value.slice(0, 6)}…${value.slice(-6)}`;
-}
-
-function setText(el, value) {
-if (el) el.textContent = value;
-}
-
-function setHtml(el, value) {
-if (el) el.innerHTML = value;
-}
-
-function setHidden(el, hidden) {
-if (!el) return;
-el.classList.toggle("hidden", Boolean(hidden));
 }
 
 function escapeHtml(value) {
@@ -132,6 +216,30 @@ return String(value ?? "")
 .replaceAll(">", "&gt;")
 .replaceAll('"', "&quot;")
 .replaceAll("'", "&#039;");
+}
+
+function setText(element, value) {
+if (element) {
+element.textContent = value;
+}
+}
+
+function setHtml(element, value) {
+if (element) {
+element.innerHTML = value;
+}
+}
+
+function setHidden(element, hidden) {
+if (!element) return;
+element.classList.toggle("hidden", Boolean(hidden));
+}
+
+function getSubmitButton() {
+return (
+document.getElementById("submitComplianceButton") ||
+document.getElementById("recordAcknowledgementsButton")
+);
 }
 
 function getApiBase() {
@@ -149,6 +257,10 @@ hostname === "www.devnet.mssprotocol.com"
 return "https://api.devnet.mssprotocol.com";
 }
 
+if (port === "3000") {
+return `${protocol}//${hostname}:8787`;
+}
+
 if (
 hostname === "127.0.0.1" ||
 hostname === "localhost" ||
@@ -158,25 +270,40 @@ return `${protocol}//${hostname}:8787`;
 }
 
 if (hostname.includes("-3000.app.github.dev")) {
-return `${protocol}//${hostname.replace("-3000.app.github.dev", "-8787.app.github.dev")}`;
+return `${protocol}//${hostname.replace(
+"-3000.app.github.dev",
+"-8787.app.github.dev"
+)}`;
 }
 
 if (hostname.includes("-3001.app.github.dev")) {
-return `${protocol}//${hostname.replace("-3001.app.github.dev", "-8787.app.github.dev")}`;
+return `${protocol}//${hostname.replace(
+"-3001.app.github.dev",
+"-8787.app.github.dev"
+)}`;
 }
 
 if (hostname.includes("-4173.app.github.dev")) {
-return `${protocol}//${hostname.replace("-4173.app.github.dev", "-8787.app.github.dev")}`;
+return `${protocol}//${hostname.replace(
+"-4173.app.github.dev",
+"-8787.app.github.dev"
+)}`;
 }
 
-if (port && port !== "80" && port !== "443") {
-return `${protocol}//${hostname}:8787`;
-}
-
-return `${window.location.origin}`;
+return `${protocol}//${hostname}${port ? `:${port}` : ""}`;
 }
 
 const API_BASE = getApiBase();
+
+class ApiRequestError extends Error {
+constructor(message, status = 500, payload = null) {
+super(message || "Request failed.");
+this.name = "ApiRequestError";
+this.status = Number(status || 500);
+this.payload = payload || null;
+this.code = cleanText(payload?.code, 120);
+}
+}
 
 async function apiFetch(path, options = {}) {
 const response = await fetch(`${API_BASE}${path}`, {
@@ -189,15 +316,20 @@ headers: {
 });
 
 let payload = null;
+
 try {
 payload = await response.json();
 } catch {
 payload = null;
 }
 
-if (!response.ok) {
-throw new Error(
-payload?.error || payload?.message || `Request failed (${response.status})`
+if (!response.ok || payload?.ok === false) {
+throw new ApiRequestError(
+payload?.error ||
+payload?.message ||
+`Request failed (${response.status})`,
+response.status,
+payload
 );
 }
 
@@ -206,8 +338,10 @@ return payload;
 
 function setBanner(message = "", variant = "warn") {
 if (!els.banner) return;
+
 els.banner.textContent = message || "";
 els.banner.className = "banner";
+
 if (message) {
 els.banner.classList.add("show");
 els.banner.classList.add(variant);
@@ -216,159 +350,452 @@ els.banner.classList.add(variant);
 
 function clearBanner() {
 if (!els.banner) return;
+
 els.banner.className = "banner";
 els.banner.textContent = "";
 }
 
-function formatBucketLabel(value = "") {
-const normalized = cleanText(value, 32).toLowerCase();
-
-if (normalized === "required") return "Required";
-if (normalized === "silent") return "Silent";
-if (normalized === "escalation") return "Escalation";
-if (normalized === "read_only") return "Read Only";
-if (normalized === "off") return "Off";
-return "Unknown";
+function getRequiredFields(role = state.mode) {
+const normalizedRole = normalizeRole(role);
+return ACKNOWLEDGEMENT_FIELDS[normalizedRole];
 }
 
-function normalizeAccessState(payload = null) {
-const explicit = cleanText(payload?.access_state, 32).toLowerCase();
-if (explicit) return explicit;
+function getRoleDisplayName(role = state.mode) {
+return normalizeRole(role) === BUILDER_ROLE ? "Builder" : "Participant";
+}
 
-const transactionalAccess = Boolean(payload?.transactional_access);
-const status = cleanText(payload?.status, 32).toLowerCase();
-const approvalRequired = Boolean(
-payload?.approval_required ??
-payload?.builder_gate_enabled ??
-payload?.participant_gate_enabled
+function isWalletBlocked(payload = null) {
+if (!payload) return false;
+
+const accessState = cleanText(payload.access_state, 40).toLowerCase();
+const blockingSignals = Array.isArray(payload.blocking_signals)
+? payload.blocking_signals
+: [];
+
+return Boolean(
+payload.internal_intervention_active ||
+accessState === "blocked" ||
+blockingSignals.some((signal) => signal?.blocking === true)
 );
-const restrictedJurisdiction = Boolean(payload?.restricted_jurisdiction);
-const manualReviewRequired = Boolean(
-payload?.manual_review_required || payload?.profile?.manual_review_required
-);
-const escalationRequired = Boolean(payload?.escalation_required);
-const silentMonitoring = Boolean(payload?.silent_monitoring);
-
-if (!transactionalAccess) {
-if (restrictedJurisdiction || manualReviewRequired || status === "rejected" || status === "restricted") {
-return "blocked";
-}
-if (status === "pending") return "pending";
-if (approvalRequired) return "required";
-return "blocked";
 }
 
-if (escalationRequired) return "watch";
-if (silentMonitoring) return "silent";
-if (approvalRequired && status === "approved") return "approved";
-return "open";
+function isAcknowledgementAccepted(payload = null) {
+return Boolean(payload?.acknowledgement_accepted);
+}
+
+function resolveAccessState(payload = null) {
+if (!state.wallet) return "wallet_required";
+if (isWalletBlocked(payload)) return "blocked";
+if (isAcknowledgementAccepted(payload)) return "acknowledged";
+return "acknowledgement_required";
 }
 
 function formatAccessLabel(accessState = "") {
-switch (cleanText(accessState, 32).toLowerCase()) {
+switch (cleanText(accessState, 40).toLowerCase()) {
 case "blocked":
-return "Access Blocked";
-case "pending":
-return "Pending Review";
-case "required":
-return "Verification Required";
-case "watch":
-return "Monitoring Watch";
-case "silent":
-return "Silent Monitoring";
-case "approved":
-return "Approved";
-case "open":
+return "Wallet Blocked";
+case "acknowledged":
+return "Terms Recorded";
+case "acknowledgement_required":
+return "Acknowledgement Required";
+case "wallet_required":
 default:
-return "Access Open";
+return "Connect Wallet";
 }
 }
 
 function getAccessVariant(payload = null) {
-const accessState = normalizeAccessState(payload);
+const accessState = resolveAccessState(payload);
 
 if (accessState === "blocked") return "bad";
-if (accessState === "pending" || accessState === "required") return "warn";
-if (accessState === "watch") return "warn";
+if (
+accessState === "wallet_required" ||
+accessState === "acknowledgement_required"
+) {
+return "warn";
+}
+
 return "good";
 }
 
 function getPrimaryReason(payload = null) {
-const accessReason = cleanText(payload?.access_reason, 1000);
-if (accessReason) return accessReason;
-
-const accessState = normalizeAccessState(payload);
-const modeLabel = state.mode === "builder" ? "Builder" : "Participant";
-const status = cleanText(payload?.status, 32).toLowerCase();
-const restrictedJurisdiction = Boolean(payload?.restricted_jurisdiction);
-const manualReviewRequired = Boolean(
-payload?.manual_review_required || payload?.profile?.manual_review_required
-);
-
-if (restrictedJurisdiction) {
-return "This wallet is associated with a restricted jurisdiction under the current policy.";
-}
-
-if (manualReviewRequired) {
-return (
-cleanText(payload?.profile?.manual_review_reason, 1000) ||
-"Manual review is required before access can continue."
-);
-}
+const accessState = resolveAccessState(payload);
+const serverReason = cleanText(payload?.access_reason, 1000);
 
 if (accessState === "blocked") {
-return `${modeLabel} access is currently blocked.`;
+return (
+serverReason ||
+"This wallet is currently unable to use Launcher transactions. Contact support if you believe this is an error."
+);
 }
 
-if (accessState === "pending") {
-return `${modeLabel} verification is pending review before transactional access can open.`;
+if (accessState === "acknowledged") {
+return state.mode === BUILDER_ROLE
+? "Required Builder Launcher acknowledgements have been recorded. No identity verification or KYC is required for this flow."
+: "Required Participant Launcher acknowledgements have been recorded. No identity verification or KYC is required for this flow.";
 }
 
-if (accessState === "required") {
-return `${modeLabel} verification is required before transactional access can open.`;
+if (accessState === "acknowledgement_required") {
+return state.mode === BUILDER_ROLE
+? "No identity verification or KYC is required. Accept the Launcher terms, risk disclosures and builder conduct requirements before creating a launch."
+: "No identity verification or KYC is required. Accept the Launcher terms and risk disclosures before committing to a launch.";
 }
 
-if (accessState === "watch") {
-return "Escalation-only monitoring is active. Access remains open unless triggered risk conditions require intervention.";
+return "Connect a wallet to review Launcher transaction access and record the required acknowledgements.";
 }
 
-if (accessState === "silent") {
-return "Silent monitoring is active. Access remains open unless explicit risk intervention is triggered.";
+function getReturnHref() {
+const params = new URLSearchParams(window.location.search);
+const suppliedReturnTo = cleanText(params.get("returnTo"), 500);
+
+if (
+suppliedReturnTo &&
+(suppliedReturnTo.startsWith("./") ||
+suppliedReturnTo.startsWith("/")) &&
+!suppliedReturnTo.startsWith("//") &&
+!suppliedReturnTo.toLowerCase().includes("javascript:")
+) {
+return suppliedReturnTo;
 }
 
-if (status === "approved" && payload?.transactional_access) {
-return "This wallet currently satisfies the active compliance access policy.";
+if (state.mode === BUILDER_ROLE) {
+return "./launch-create.html";
 }
 
-return "Connect a wallet or load a profile to review compliance access.";
+if (state.launchId) {
+return `./launch-detail.html?id=${encodeURIComponent(state.launchId)}`;
 }
 
-function renderSignalList(container, section, items, emptyText) {
+return "./launchpad.html";
+}
+
+function getReturnLabel() {
+if (state.mode === BUILDER_ROLE) {
+return "Return to Launch Creator";
+}
+
+if (state.launchId) {
+return "Return to Launch";
+}
+
+return "Return to Launchpad";
+}
+
+function getUrlMode() {
+const params = new URLSearchParams(window.location.search);
+return normalizeRole(params.get("mode") || params.get("role"));
+}
+
+function getUrlWallet() {
+return cleanText(
+new URLSearchParams(window.location.search).get("wallet"),
+120
+);
+}
+
+function getUrlLaunchId() {
+const params = new URLSearchParams(window.location.search);
+
+return normalizeLaunchId(
+params.get("launchId") ||
+params.get("launch_id") ||
+params.get("id")
+);
+}
+
+function updateUrlState() {
+const url = new URL(window.location.href);
+
+url.searchParams.set("mode", state.mode);
+
+if (state.wallet) {
+url.searchParams.set("wallet", state.wallet);
+} else {
+url.searchParams.delete("wallet");
+}
+
+if (state.launchId) {
+url.searchParams.set("launchId", String(state.launchId));
+} else {
+url.searchParams.delete("launchId");
+}
+
+window.history.replaceState({}, "", url.toString());
+}
+
+function rewriteLegacyPageCopy() {
+const title = document.querySelector(".hero-panel h1");
+const heroCopy = document.querySelector(".hero-panel > p");
+const formTitle = document.querySelector(".form-header .section-title");
+const formCopy = document.querySelector(".form-header .section-copy");
+
+document.title = "MSS Protocol — Launcher Acknowledgements";
+
+const description = document.querySelector('meta[name="description"]');
+if (description) {
+description.setAttribute(
+"content",
+"Record MSS Protocol Launcher acknowledgements for builder and participant transaction flows."
+);
+}
+
+setText(title, "Launcher acknowledgements and wallet access.");
+setText(
+heroCopy,
+"MSS Launcher uses a low-friction acknowledgement-only transaction flow. No identity verification or KYC is required by default. Wallet transactions remain subject to internal intervention where a genuine risk block is active."
+);
+
+setText(formTitle, "Launcher acknowledgements");
+setText(
+formCopy,
+"Select participant or builder mode, connect your wallet, then record the acknowledgements required for that transaction flow."
+);
+
+const heroModelValue = document.querySelector(
+".hero-point:nth-child(2) .hero-point-value"
+);
+
+if (heroModelValue) {
+heroModelValue.textContent = "Acknowledgement only";
+}
+}
+
+function hideLegacyElement(element) {
+if (!element) return;
+
+const wrapper =
+element.closest(".subsection") ||
+element.closest(".field-grid") ||
+element.closest(".checkbox-row") ||
+element.closest(".field") ||
+element;
+
+setHidden(wrapper, true);
+}
+
+function suppressLegacyVerificationUi() {
+[
+els.profileType,
+els.countryCode,
+els.legalName,
+els.displayName,
+els.entityName,
+els.entityType,
+els.entityRegistrationNumber,
+els.email,
+els.phone,
+els.dateOfBirth,
+els.riskRating,
+els.pepStatus,
+els.sanctionsStatus,
+els.manualReviewRequired,
+els.manualReviewReason,
+els.sourceOfFundsSummary,
+els.sourceOfWealthSummary,
+els.notes,
+].forEach(hideLegacyElement);
+
+setHidden(els.entityFields, true);
+setHidden(els.beneficialOwnersSection, true);
+setHidden(els.authorisedRepresentativesSection, true);
+setHidden(els.addBeneficialOwnerButton, true);
+setHidden(els.addRepresentativeButton, true);
+setHidden(els.startComplianceButton, true);
+
+setHidden(els.escalationSignalsSection, true);
+setHtml(els.escalationSignalsList, "");
+
+if (els.loadStatusButton) {
+els.loadStatusButton.textContent = "Check Wallet Status";
+}
+}
+
+function ensureAcknowledgementPanel() {
+const form = els.complianceForm;
+if (!form) return;
+
+let panel = $("launcherAcknowledgementPanel");
+
+if (!panel) {
+panel = document.createElement("section");
+panel.id = "launcherAcknowledgementPanel";
+panel.className = "subsection launcher-acknowledgement-panel";
+
+panel.innerHTML = `
+<div>
+<h3 id="launcherAcknowledgementTitle">Terms and risk acknowledgement</h3>
+<p id="launcherAcknowledgementCopy">
+No identity verification or KYC is required for this flow. Confirm the required Launcher acknowledgements below before continuing.
+</p>
+</div>
+
+<div
+id="launcherAcknowledgementFields"
+class="checkbox-row launcher-acknowledgement-fields"
+></div>
+
+<div
+id="launcherAcknowledgementAcceptedNote"
+class="banner hidden"
+style="margin-top: 16px; margin-bottom: 0;"
+></div>
+
+<div
+id="launcherAcknowledgementReturnWrap"
+class="footer-actions hidden"
+style="margin-top: 16px;"
+>
+<a
+id="launcherAcknowledgementReturnAction"
+class="button button-primary"
+href="./launchpad.html"
+>
+Return to Launchpad
+</a>
+</div>
+`;
+
+const footerActions = form.querySelector(".footer-actions");
+
+if (footerActions?.parentNode) {
+footerActions.parentNode.insertBefore(panel, footerActions);
+} else {
+form.appendChild(panel);
+}
+}
+
+if (!getSubmitButton()) {
+const button = document.createElement("button");
+button.id = "recordAcknowledgementsButton";
+button.className = "button button-primary";
+button.type = "submit";
+button.textContent = "Record Acknowledgements";
+
+const actions = document.createElement("div");
+actions.className = "footer-actions";
+actions.appendChild(button);
+
+form.appendChild(actions);
+}
+}
+
+function captureAcknowledgementDraft() {
+const draft = {};
+
+for (const field of getRequiredFields()) {
+const input = $(field.id);
+
+if (input) {
+draft[field.key] = Boolean(input.checked);
+}
+}
+
+state.acknowledgementDrafts[state.mode] = draft;
+}
+
+function getStoredAcknowledgementValue(field, payload = state.statusPayload) {
+if (isAcknowledgementAccepted(payload)) return true;
+
+const acknowledgement = payload?.acknowledgement || null;
+
+return Boolean(
+acknowledgement &&
+field.timestampKey &&
+acknowledgement[field.timestampKey]
+);
+}
+
+function renderAcknowledgementFields() {
+const container = $("launcherAcknowledgementFields");
 if (!container) return;
 
-if (!Array.isArray(items) || !items.length) {
-setHtml(
-container,
-`<div class="signal-empty">${escapeHtml(emptyText)}</div>`
-);
-if (section) section.classList.add("hidden");
+const requiredFields = getRequiredFields();
+const draft = state.acknowledgementDrafts[state.mode] || {};
+const blocked = isWalletBlocked(state.statusPayload);
+const accepted = isAcknowledgementAccepted(state.statusPayload);
+
+container.innerHTML = requiredFields
+.map((field) => {
+const checked =
+accepted ||
+getStoredAcknowledgementValue(field) ||
+Boolean(draft[field.key]);
+
+return `
+<label class="checkbox launcher-acknowledgement-row">
+<input
+id="${escapeHtml(field.id)}"
+data-acknowledgement-key="${escapeHtml(field.key)}"
+type="checkbox"
+${checked ? "checked" : ""}
+${accepted || blocked ? "disabled" : ""}
+/>
+<span>${escapeHtml(field.label)}</span>
+</label>
+`;
+})
+.join("");
+
+for (const field of requiredFields) {
+const input = $(field.id);
+
+if (!input) continue;
+
+input.addEventListener("change", () => {
+captureAcknowledgementDraft();
+clearBanner();
+});
+}
+}
+
+function collectAcknowledgements() {
+const acknowledgements = {};
+
+for (const field of getRequiredFields()) {
+acknowledgements[field.key] = Boolean($(field.id)?.checked);
+}
+
+return acknowledgements;
+}
+
+function validateAcknowledgements() {
+const acknowledgements = collectAcknowledgements();
+
+for (const field of getRequiredFields()) {
+if (!acknowledgements[field.key]) {
+throw new Error(field.error);
+}
+}
+
+return acknowledgements;
+}
+
+function renderBlockingSignals(payload = null) {
+const signals = Array.isArray(payload?.blocking_signals)
+? payload.blocking_signals.filter((signal) => signal?.blocking === true)
+: [];
+
+if (!els.blockingSignalsList || !els.blockingSignalsSection) {
 return;
 }
 
-if (section) section.classList.remove("hidden");
+if (!isWalletBlocked(payload) || !signals.length) {
+setHidden(els.blockingSignalsSection, true);
+setHtml(els.blockingSignalsList, "");
+return;
+}
 
-const markup = items
-.map((item) => {
-const severity = cleanText(item?.severity, 32).toLowerCase() || "medium";
-const code = cleanText(item?.code, 80) || "signal";
-const message = cleanText(item?.message, 1000) || "No detail available.";
-const source = cleanText(item?.source, 80) || "system";
+const markup = signals
+.map((signal) => {
+const message =
+cleanText(signal?.message, 500) ||
+"This wallet is currently unable to use Launcher transactions.";
 
 return `
-<div class="signal-item severity-${escapeHtml(severity)}">
+<div class="signal-item severity-high">
 <div class="signal-item-top">
-<strong>${escapeHtml(code.replaceAll("_", " "))}</strong>
-<span>${escapeHtml(source)}</span>
+<strong>Transaction Access</strong>
+<span>Internal Intervention</span>
 </div>
 <div class="signal-item-copy">${escapeHtml(message)}</div>
 </div>
@@ -376,13 +803,68 @@ return `
 })
 .join("");
 
-setHtml(container, markup);
+setHtml(els.blockingSignalsList, markup);
+setHidden(els.blockingSignalsSection, false);
+}
+
+function renderAcceptedReturnAction(payload = null) {
+const note = $("launcherAcknowledgementAcceptedNote");
+const returnWrap = $("launcherAcknowledgementReturnWrap");
+const action = $("launcherAcknowledgementReturnAction");
+
+const accepted = isAcknowledgementAccepted(payload);
+const blocked = isWalletBlocked(payload);
+
+if (note) {
+note.className = "banner";
+
+if (blocked) {
+note.classList.add("show", "bad");
+note.textContent =
+"Launcher transactions are unavailable for this wallet. Contact support if you believe this is an error.";
+} else if (accepted) {
+note.classList.add("show", "good");
+note.textContent =
+"Required Launcher acknowledgements have been recorded for this wallet.";
+} else {
+note.classList.add("hidden");
+note.textContent = "";
+}
+}
+
+if (action) {
+action.href = getReturnHref();
+action.textContent = getReturnLabel();
+}
+
+if (returnWrap) {
+returnWrap.classList.toggle("hidden", !accepted || blocked);
+}
+}
+
+function updateSubmitButtonState() {
+const submitButton = getSubmitButton();
+if (!submitButton) return;
+
+const blocked = isWalletBlocked(state.statusPayload);
+const accepted = isAcknowledgementAccepted(state.statusPayload);
+
+submitButton.disabled =
+state.isSubmitting || !state.wallet || blocked || accepted;
+
+if (accepted) {
+submitButton.textContent = "Acknowledgements Recorded";
+return;
+}
+
+submitButton.textContent =
+state.mode === BUILDER_ROLE
+? "Record Builder Acknowledgements"
+: "Record Participant Acknowledgements";
 }
 
 function updateModeUi() {
-const isBuilder = state.mode === "builder";
-const profileType = cleanText(els.profileType?.value, 32).toLowerCase();
-const showEntitySections = profileType === "entity";
+const isBuilder = state.mode === BUILDER_ROLE;
 
 els.modeParticipantButton?.classList.toggle("active", !isBuilder);
 els.modeBuilderButton?.classList.toggle("active", isBuilder);
@@ -390,35 +872,45 @@ els.modeBuilderButton?.classList.toggle("active", isBuilder);
 setText(els.complianceModeChip, isBuilder ? "Builder" : "Participant");
 setText(
 els.heroAccessScope,
-isBuilder ? "Builder launch access review" : "Participant access review"
+isBuilder
+? "Builder Launcher acknowledgements"
+: "Participant Launcher acknowledgements"
 );
 setText(els.summaryModeValue, isBuilder ? "Builder" : "Participant");
 
-if (els.startComplianceButton) {
-els.startComplianceButton.textContent = isBuilder
-? "Start Builder Review"
-: "Start Participant Review";
-}
+setText(
+$("launcherAcknowledgementTitle"),
+isBuilder
+? "Builder terms and conduct acknowledgement"
+: "Participant terms and risk acknowledgement"
+);
 
-if (els.submitComplianceButton) {
-els.submitComplianceButton.textContent = isBuilder
-? "Submit Builder Profile"
-: "Submit Participant Profile";
-}
+setText(
+$("launcherAcknowledgementCopy"),
+isBuilder
+? "No identity verification or KYC is required for this flow. Confirm the Launcher terms, risk disclosures and builder conduct requirements before creating a launch."
+: "No identity verification or KYC is required for this flow. Confirm the Launcher terms and risk disclosures before committing to a launch."
+);
 
-setHidden(els.entityFields, !showEntitySections);
-setHidden(els.beneficialOwnersSection, !showEntitySections);
-setHidden(els.authorisedRepresentativesSection, !showEntitySections);
+renderAcknowledgementFields();
+renderAcceptedReturnAction(state.statusPayload);
+updateSubmitButtonState();
 }
 
 function updateStatusUi(statusPayload = null) {
 state.statusPayload = statusPayload || null;
-state.profile = statusPayload?.profile || null;
+
+const payloadWallet = cleanText(statusPayload?.wallet, 120);
+
+if (payloadWallet) {
+state.wallet = payloadWallet;
+}
 
 const variant = getAccessVariant(statusPayload);
-const accessState = normalizeAccessState(statusPayload);
+const accessState = resolveAccessState(statusPayload);
 const accessLabel = formatAccessLabel(accessState);
 const reason = getPrimaryReason(statusPayload);
+const blocked = isWalletBlocked(statusPayload);
 
 if (els.statusPill) {
 els.statusPill.className = `status-pill ${variant}`;
@@ -430,262 +922,80 @@ setText(els.summaryOutcomeValue, accessLabel);
 setText(els.walletStatusCopy, reason);
 
 setText(els.walletValue, shortenWallet(statusPayload?.wallet || state.wallet));
-setText(
-els.countryValue,
-cleanText(statusPayload?.profile?.country_code, 8).toUpperCase() || "Unknown"
-);
-setText(
-els.riskValue,
-cleanText(statusPayload?.profile?.risk_rating, 40) || "Low"
-);
+setText(els.countryValue, "Not Required");
+setText(els.riskValue, blocked ? "Restricted" : "Not Required");
 setText(els.accessValue, accessLabel);
 
-setText(
-els.builderGateValue,
-formatBucketLabel(
-statusPayload?.builder_bucket ||
-(statusPayload?.builder_gate_enabled ? "required" : "silent")
-)
-);
-setText(
-els.participantGateValue,
-formatBucketLabel(
-statusPayload?.participant_bucket ||
-(statusPayload?.participant_gate_enabled ? "required" : "silent")
-)
-);
+setText(els.builderGateValue, "Acknowledgement Only");
+setText(els.participantGateValue, "Acknowledgement Only");
 
-setText(
-els.modeBucketValue,
-formatBucketLabel(statusPayload?.compliance_bucket)
-);
-setText(
-els.builderBucketValue,
-formatBucketLabel(statusPayload?.builder_bucket)
-);
-setText(
-els.participantBucketValue,
-formatBucketLabel(statusPayload?.participant_bucket)
-);
-setText(
-els.jurisdictionBucketValue,
-formatBucketLabel(statusPayload?.jurisdiction_bucket)
-);
+setText(els.modeBucketValue, blocked ? "Blocked" : "Acknowledgement Only");
+setText(els.builderBucketValue, "No KYC");
+setText(els.participantBucketValue, "No KYC");
+setText(els.jurisdictionBucketValue, "Not Collected");
 setText(els.accessReasonValue, reason);
 
-renderSignalList(
-els.blockingSignalsList,
-els.blockingSignalsSection,
-statusPayload?.blocking_signals || [],
-"No blocking signals are active."
-);
+renderBlockingSignals(statusPayload);
 
-renderSignalList(
-els.escalationSignalsList,
-els.escalationSignalsSection,
-statusPayload?.escalation_signals || [],
-"No escalation signals are active."
-);
+setHidden(els.escalationSignalsSection, true);
+setHtml(els.escalationSignalsList, "");
+
+renderAcknowledgementFields();
+renderAcceptedReturnAction(statusPayload);
+updateSubmitButtonState();
 }
 
 function setLoadingState(isLoading) {
 state.isSubmitting = Boolean(isLoading);
 
-if (els.loadStatusButton) els.loadStatusButton.disabled = isLoading;
-if (els.startComplianceButton) els.startComplianceButton.disabled = isLoading;
-if (els.submitComplianceButton) els.submitComplianceButton.disabled = isLoading;
-if (els.connectWalletButton) els.connectWalletButton.disabled = isLoading;
+if (els.loadStatusButton) {
+els.loadStatusButton.disabled = state.isSubmitting;
 }
 
-function collectCollectionItems(container) {
-if (!container) return [];
-
-return Array.from(container.querySelectorAll("[data-item-type]")).map((card) => {
-const out = {};
-card.querySelectorAll("[data-field]").forEach((field) => {
-const key = field.getAttribute("data-field");
-if (!key) return;
-
-if (field.type === "checkbox") {
-out[key] = field.checked;
-} else {
-out[key] = field.value;
-}
-});
-return out;
-});
+if (els.connectWalletButton) {
+els.connectWalletButton.disabled = state.isSubmitting;
 }
 
-function applyCollectionItems(container, template, items = []) {
-if (!container || !template) return;
-container.innerHTML = "";
-items.forEach((item) => appendCollectionCard(container, template, item));
+if (els.modeParticipantButton) {
+els.modeParticipantButton.disabled = state.isSubmitting;
 }
 
-function appendCollectionCard(container, template, values = {}) {
-if (!container || !template) return;
-
-const fragment = template.content.cloneNode(true);
-const card = fragment.querySelector("[data-item-type]");
-if (!card) return;
-
-card.querySelectorAll("[data-field]").forEach((field) => {
-const key = field.getAttribute("data-field");
-const value = values?.[key];
-
-if (field.type === "checkbox") {
-field.checked = Boolean(value);
-} else if (value !== null && value !== undefined) {
-field.value = value;
-}
-});
-
-const removeButton = card.querySelector("[data-remove-item]");
-if (removeButton) {
-removeButton.addEventListener("click", () => {
-card.remove();
-});
+if (els.modeBuilderButton) {
+els.modeBuilderButton.disabled = state.isSubmitting;
 }
 
-container.appendChild(card);
+updateSubmitButtonState();
 }
 
-function populateForm(profile = null, statusPayload = null) {
-const source = profile || {};
-
-if (els.profileType) {
-els.profileType.value = cleanText(source.profile_type, 32) || "individual";
-}
-if (els.countryCode) {
-els.countryCode.value = cleanText(source.country_code, 8).toUpperCase();
-}
-if (els.legalName) {
-els.legalName.value = cleanText(source.legal_name, 200);
-}
-if (els.displayName) {
-els.displayName.value = cleanText(source.display_name, 200);
-}
-
-if (els.entityName) {
-els.entityName.value = cleanText(source.entity_name, 200);
-}
-if (els.entityType) {
-els.entityType.value = cleanText(source.entity_type, 120);
-}
-if (els.entityRegistrationNumber) {
-els.entityRegistrationNumber.value = cleanText(
-source.entity_registration_number,
-120
-);
-}
-
-if (els.email) {
-els.email.value = cleanText(source.email, 200);
-}
-if (els.phone) {
-els.phone.value = cleanText(source.phone, 60);
-}
-if (els.dateOfBirth) {
-els.dateOfBirth.value = cleanText(source.date_of_birth, 40);
-}
-if (els.riskRating) {
-els.riskRating.value = cleanText(source.risk_rating, 32) || "low";
-}
-
-if (els.pepStatus) {
-els.pepStatus.checked = Boolean(source.pep_status);
-}
-if (els.sanctionsStatus) {
-els.sanctionsStatus.checked = Boolean(source.sanctions_status);
-}
-if (els.manualReviewRequired) {
-els.manualReviewRequired.checked = Boolean(source.manual_review_required);
-}
-if (els.manualReviewReason) {
-els.manualReviewReason.value = cleanText(source.manual_review_reason, 1000);
-}
-
-if (els.sourceOfFundsSummary) {
-els.sourceOfFundsSummary.value = cleanText(source.source_of_funds_summary, 1000);
-}
-if (els.sourceOfWealthSummary) {
-els.sourceOfWealthSummary.value = cleanText(
-source.source_of_wealth_summary,
-1000
-);
-}
-if (els.notes) {
-els.notes.value = cleanText(source.notes, 2000);
-}
-
-applyCollectionItems(
-els.beneficialOwnersCollection,
-els.beneficialOwnerTemplate,
-statusPayload?.beneficial_owners || []
-);
-
-applyCollectionItems(
-els.authorisedRepresentativesCollection,
-els.representativeTemplate,
-statusPayload?.authorised_representatives || []
-);
-
-updateModeUi();
-}
-
-function buildPayload() {
-const wallet = cleanText(els.walletAddress?.value, 120);
-
+function buildEmptyStatusPayload(message = "") {
 return {
-wallet,
+ok: true,
+wallet: state.wallet || null,
+role: state.mode,
 mode: state.mode,
-context: state.mode,
-profile_type: cleanText(els.profileType?.value, 32) || "individual",
-country_code: cleanText(els.countryCode?.value, 8).toUpperCase(),
-legal_name: cleanText(els.legalName?.value, 200),
-display_name: cleanText(els.displayName?.value, 200),
-
-entity_name: cleanText(els.entityName?.value, 200),
-entity_type: cleanText(els.entityType?.value, 120),
-entity_registration_number: cleanText(
-els.entityRegistrationNumber?.value,
-120
-),
-
-email: cleanText(els.email?.value, 200),
-phone: cleanText(els.phone?.value, 60),
-date_of_birth: cleanText(els.dateOfBirth?.value, 40),
-
-risk_rating: cleanText(els.riskRating?.value, 32) || "low",
-
-pep_status: toBool(els.pepStatus?.checked),
-sanctions_status: toBool(els.sanctionsStatus?.checked),
-manual_review_required: toBool(els.manualReviewRequired?.checked),
-manual_review_reason: cleanText(els.manualReviewReason?.value, 1000),
-
-source_of_funds_summary: cleanText(els.sourceOfFundsSummary?.value, 1000),
-source_of_wealth_summary: cleanText(els.sourceOfWealthSummary?.value, 1000),
-
-notes: cleanText(els.notes?.value, 2000),
-
-beneficial_owners: collectCollectionItems(els.beneficialOwnersCollection),
-authorised_representatives: collectCollectionItems(
-els.authorisedRepresentativesCollection
-),
+launch_id: state.launchId,
+compliance_model: "acknowledgement_only",
+model: "acknowledgement_only",
+identity_verification_required: false,
+kyc_required: false,
+kyb_required: false,
+acknowledgement_required: true,
+acknowledgement_accepted: false,
+internal_intervention_active: false,
+access_state: state.wallet
+? "acknowledgement_required"
+: "wallet_required",
+access_reason:
+message ||
+(state.wallet
+? "Accept the required Launcher acknowledgements before continuing."
+: "Connect a wallet to review Launcher access."),
+transactional_access: false,
+allowed: false,
+blocking_signals: [],
+escalation_signals: [],
+profile: null,
 };
-}
-
-function getUrlMode() {
-const mode = cleanText(
-new URLSearchParams(window.location.search).get("mode"),
-32
-).toLowerCase();
-
-return mode === "builder" ? "builder" : "participant";
-}
-
-function getUrlWallet() {
-return cleanText(new URLSearchParams(window.location.search).get("wallet"), 120);
 }
 
 function syncWalletUi() {
@@ -702,113 +1012,180 @@ els.walletAddress.value = connectedWallet;
 if (!els.connectWalletButton) return;
 
 if (connectedWallet) {
-els.connectWalletButton.textContent = `Disconnect ${shortenWallet(connectedWallet)}`;
+els.connectWalletButton.textContent = `Disconnect ${shortenWallet(
+connectedWallet
+)}`;
 } else {
 els.connectWalletButton.textContent = "Connect Wallet";
 }
 }
 
 async function loadStatus({ showBannerOnMissing = false } = {}) {
-const wallet = cleanText(els.walletAddress?.value, 120);
+const wallet = cleanText(els.walletAddress?.value || state.wallet, 120);
 
 if (!wallet) {
-updateStatusUi({
-wallet: "",
-profile: null,
-status: "not_started",
-transactional_access: false,
-access_state: "required",
-access_reason: "Connect or paste a wallet address first.",
-builder_bucket: "silent",
-participant_bucket: "silent",
-compliance_bucket: "silent",
-blocking_signals: [],
-escalation_signals: [],
-});
+state.wallet = "";
+state.statusPayload = null;
+
+updateStatusUi(
+buildEmptyStatusPayload("Connect or paste a wallet address first.")
+);
 
 if (showBannerOnMissing) {
 setBanner("Connect or paste a wallet address first.", "warn");
 } else {
 clearBanner();
 }
-return;
+
+return null;
 }
-
-setLoadingState(true);
-
-try {
-const payload = await apiFetch(
-`/api/compliance/status?wallet=${encodeURIComponent(wallet)}&mode=${encodeURIComponent(
-state.mode
-)}&context=${encodeURIComponent(state.mode)}&surface=compliance`
-);
 
 state.wallet = wallet;
-updateStatusUi(payload);
-populateForm(payload.profile, payload);
-clearBanner();
-} catch (error) {
-setBanner(error?.message || "Failed to load compliance status.", "bad");
-} finally {
-setLoadingState(false);
-}
-}
+updateUrlState();
 
-async function startCompliance() {
-const wallet = cleanText(els.walletAddress?.value, 120);
-
-if (!wallet) {
-setBanner("Connect or paste a wallet address before starting verification.", "warn");
-return;
-}
-
+const requestId = ++state.statusRequestId;
 setLoadingState(true);
 
 try {
-const payload = await apiFetch("/api/compliance/start", {
-method: "POST",
-body: JSON.stringify({
+const query = new URLSearchParams({
 wallet,
+role: state.mode,
 mode: state.mode,
 context: state.mode,
-profile_type: cleanText(els.profileType?.value, 32) || "individual",
-}),
+surface: "compliance",
 });
 
-state.wallet = wallet;
+if (state.launchId) {
+query.set("launchId", String(state.launchId));
+}
+
+const payload = await apiFetch(`/api/compliance/status?${query.toString()}`);
+
+if (requestId !== state.statusRequestId) {
+return null;
+}
+
 updateStatusUi(payload);
-populateForm(payload.profile, payload);
-setBanner("Compliance onboarding started for this wallet.", "good");
+clearBanner();
+
+return payload;
 } catch (error) {
-setBanner(error?.message || "Failed to start compliance onboarding.", "bad");
+if (requestId !== state.statusRequestId) {
+return null;
+}
+
+setBanner(
+error?.message || "Failed to load Launcher acknowledgement status.",
+"bad"
+);
+
+updateStatusUi(
+buildEmptyStatusPayload(
+"Wallet status could not be loaded. Try checking the wallet again."
+)
+);
+
+return null;
 } finally {
+if (requestId === state.statusRequestId) {
 setLoadingState(false);
 }
 }
+}
 
-async function submitCompliance(event) {
-event.preventDefault();
+async function submitAcknowledgements(event) {
+event?.preventDefault();
 
-const payload = buildPayload();
-if (!payload.wallet) {
-setBanner("Wallet address is required before submitting the profile.", "warn");
+const wallet = cleanText(els.walletAddress?.value || state.wallet, 120);
+
+if (!wallet) {
+setBanner("Connect or paste a wallet address before continuing.", "warn");
+return;
+}
+
+state.wallet = wallet;
+
+if (isWalletBlocked(state.statusPayload)) {
+setBanner(
+"This wallet is currently unable to use Launcher transactions. Contact support if you believe this is an error.",
+"bad"
+);
+return;
+}
+
+let acknowledgements;
+
+try {
+acknowledgements = validateAcknowledgements();
+} catch (error) {
+setBanner(error?.message || "Accept the required acknowledgements.", "warn");
 return;
 }
 
 setLoadingState(true);
 
 try {
+const payload = {
+wallet,
+role: state.mode,
+mode: state.mode,
+context: state.mode,
+action:
+state.mode === BUILDER_ROLE
+? "builder_acknowledgement_submit"
+: "participant_acknowledgement_submit",
+acknowledgements,
+};
+
+if (state.launchId) {
+payload.launchId = state.launchId;
+}
+
 const response = await apiFetch("/api/compliance/submit", {
 method: "POST",
 body: JSON.stringify(payload),
 });
 
-state.wallet = payload.wallet;
+state.acknowledgementDrafts[state.mode] = {
+...acknowledgements,
+};
+
 updateStatusUi(response);
-populateForm(response.profile, response);
-setBanner("Compliance profile submitted successfully.", "good");
+updateUrlState();
+
+if (isWalletBlocked(response)) {
+setBanner(
+"Acknowledgements were recorded, but this wallet is currently unable to use Launcher transactions.",
+"bad"
+);
+return;
+}
+
+setBanner(
+state.mode === BUILDER_ROLE
+? "Builder Launcher acknowledgements recorded. Return to the launch creator to continue."
+: "Participant Launcher acknowledgements recorded. Return to the launch to continue.",
+"good"
+);
 } catch (error) {
-setBanner(error?.message || "Failed to submit compliance profile.", "bad");
+const payload = error?.payload || null;
+
+if (isWalletBlocked(payload)) {
+updateStatusUi(payload);
+
+setBanner(
+payload?.error ||
+"This wallet is currently unable to use Launcher transactions.",
+"bad"
+);
+
+return;
+}
+
+setBanner(
+error?.message || "Failed to save Launcher acknowledgements.",
+"bad"
+);
 } finally {
 setLoadingState(false);
 }
@@ -820,25 +1197,20 @@ const connectedWallet = cleanText(getConnectedPublicKey() || "", 120);
 if (connectedWallet) {
 try {
 await disconnectAnyWallet();
+
+state.wallet = "";
+state.statusPayload = null;
+state.statusRequestId += 1;
+
 if (els.walletAddress) {
 els.walletAddress.value = "";
 }
-state.wallet = "";
+
 syncWalletUi();
-updateStatusUi({
-wallet: "",
-profile: null,
-status: "not_started",
-transactional_access: false,
-access_state: "required",
-access_reason: "Wallet disconnected.",
-builder_bucket: "silent",
-participant_bucket: "silent",
-compliance_bucket: "silent",
-blocking_signals: [],
-escalation_signals: [],
-});
+updateUrlState();
+updateStatusUi(buildEmptyStatusPayload("Wallet disconnected."));
 setBanner("Wallet disconnected.", "warn");
+
 return;
 } catch (error) {
 setBanner(error?.message || "Failed to disconnect wallet.", "bad");
@@ -848,24 +1220,33 @@ return;
 
 try {
 const wallet = await connectAnyWallet();
-const address = cleanText(wallet?.publicKey || getConnectedPublicKey() || "", 120);
+const address = cleanText(
+wallet?.publicKey || getConnectedPublicKey() || "",
+120
+);
 
 if (!address) {
 throw new Error("Wallet connection did not return an address.");
 }
 
+state.wallet = address;
+
 if (els.walletAddress) {
 els.walletAddress.value = address;
 }
 
-state.wallet = address;
 syncWalletUi();
+updateUrlState();
 clearBanner();
+
 await loadStatus();
 } catch (error) {
 const message = error?.message || "Failed to connect wallet.";
+
 setBanner(
-message.includes("No supported wallet") ? getMobileWalletHelpText() : message,
+message.includes("No supported wallet")
+? getMobileWalletHelpText()
+: message,
 "bad"
 );
 }
@@ -875,57 +1256,80 @@ function bindModeButtons() {
 [els.modeParticipantButton, els.modeBuilderButton]
 .filter(Boolean)
 .forEach((button) => {
-button.addEventListener("click", async () => {
-const nextMode = cleanText(button.dataset.mode, 32).toLowerCase();
-if (!nextMode || nextMode === state.mode) return;
+if (button.dataset.bound === "1") return;
+button.dataset.bound = "1";
 
-state.mode = nextMode === "builder" ? "builder" : "participant";
+button.addEventListener("click", async () => {
+if (state.isSubmitting) return;
+
+captureAcknowledgementDraft();
+
+const requestedMode = normalizeRole(button.dataset.mode);
+
+if (requestedMode === state.mode) return;
+
+state.mode = requestedMode;
+state.statusPayload = null;
+
+updateUrlState();
 updateModeUi();
 
-if (cleanText(els.walletAddress?.value, 120)) {
+if (state.wallet || cleanText(els.walletAddress?.value, 120)) {
 await loadStatus();
 } else {
-updateStatusUi({
-wallet: "",
-profile: null,
-status: "not_started",
-transactional_access: false,
-access_state: "required",
-access_reason: "Connect or paste a wallet address first.",
-builder_bucket: "silent",
-participant_bucket: "silent",
-compliance_bucket: "silent",
-blocking_signals: [],
-escalation_signals: [],
-});
-}
-});
-});
-}
-
-function bindCollections() {
-els.addBeneficialOwnerButton?.addEventListener("click", () => {
-appendCollectionCard(els.beneficialOwnersCollection, els.beneficialOwnerTemplate);
-});
-
-els.addRepresentativeButton?.addEventListener("click", () => {
-appendCollectionCard(
-els.authorisedRepresentativesCollection,
-els.representativeTemplate
+updateStatusUi(
+buildEmptyStatusPayload("Connect a wallet to review Launcher access.")
 );
+}
+});
 });
 }
 
 function bindInputs() {
-els.profileType?.addEventListener("change", updateModeUi);
+if (els.loadStatusButton && els.loadStatusButton.dataset.bound !== "1") {
+els.loadStatusButton.dataset.bound = "1";
 
-els.loadStatusButton?.addEventListener("click", () =>
-loadStatus({ showBannerOnMissing: true })
+els.loadStatusButton.addEventListener("click", () => {
+void loadStatus({ showBannerOnMissing: true });
+});
+}
+
+if (els.complianceForm && els.complianceForm.dataset.bound !== "1") {
+els.complianceForm.dataset.bound = "1";
+els.complianceForm.addEventListener("submit", submitAcknowledgements);
+}
+
+if (
+els.connectWalletButton &&
+els.connectWalletButton.dataset.bound !== "1"
+) {
+els.connectWalletButton.dataset.bound = "1";
+els.connectWalletButton.addEventListener("click", handleConnectWallet);
+}
+
+if (els.walletAddress && els.walletAddress.dataset.bound !== "1") {
+els.walletAddress.dataset.bound = "1";
+
+els.walletAddress.addEventListener("input", () => {
+const nextWallet = cleanText(els.walletAddress?.value, 120);
+
+if (nextWallet === state.wallet) return;
+
+state.wallet = nextWallet;
+state.statusPayload = null;
+state.statusRequestId += 1;
+
+updateUrlState();
+
+updateStatusUi(
+buildEmptyStatusPayload(
+state.wallet
+? "Check wallet status, then accept the required Launcher acknowledgements."
+: "Connect a wallet to review Launcher access."
+)
 );
-
-els.startComplianceButton?.addEventListener("click", startCompliance);
-els.complianceForm?.addEventListener("submit", submitCompliance);
-els.connectWalletButton?.addEventListener("click", handleConnectWallet);
+});
+}
 }
 
 function bindWalletSync() {
@@ -933,61 +1337,81 @@ onWalletChange(async () => {
 syncWalletUi();
 
 const wallet = cleanText(getConnectedPublicKey() || "", 120);
+
 if (!wallet) {
+state.wallet = "";
+state.statusPayload = null;
+state.statusRequestId += 1;
+
+if (els.walletAddress) {
+els.walletAddress.value = "";
+}
+
+updateUrlState();
+updateStatusUi(buildEmptyStatusPayload("Wallet disconnected."));
 return;
 }
+
+state.wallet = wallet;
 
 if (els.walletAddress) {
 els.walletAddress.value = wallet;
 }
 
-state.wallet = wallet;
+updateUrlState();
 
 try {
 await loadStatus();
 } catch {
-// handled in loadStatus
+// loadStatus surfaces the user-facing status.
 }
 });
 }
 
 async function init() {
 state.mode = getUrlMode();
+state.launchId = getUrlLaunchId();
+
+rewriteLegacyPageCopy();
+suppressLegacyVerificationUi();
+ensureAcknowledgementPanel();
+
 updateModeUi();
 bindModeButtons();
-bindCollections();
 bindInputs();
 bindWalletSync();
 
 await restoreWalletIfTrusted().catch(() => {});
+
 syncWalletUi();
 
 const connectedWallet = cleanText(getConnectedPublicKey() || "", 120);
 const urlWallet = getUrlWallet();
 const initialWallet = urlWallet || connectedWallet;
 
-if (initialWallet && els.walletAddress) {
-els.walletAddress.value = initialWallet;
+if (initialWallet) {
 state.wallet = initialWallet;
+
+if (els.walletAddress) {
+els.walletAddress.value = initialWallet;
+}
+
+updateUrlState();
 await loadStatus();
 } else {
-updateStatusUi({
-wallet: "",
-profile: null,
-status: "not_started",
-transactional_access: false,
-access_state: "required",
-access_reason: "Connect a wallet to load or begin a compliance profile.",
-builder_bucket: "silent",
-participant_bucket: "silent",
-compliance_bucket: "silent",
-blocking_signals: [],
-escalation_signals: [],
-});
+updateStatusUi(
+buildEmptyStatusPayload(
+"Connect a wallet to review Launcher access and record the required acknowledgements."
+)
+);
 }
 }
 
 init().catch((error) => {
-console.error("Failed to initialize compliance page", error);
-setBanner(error?.message || "Failed to initialize compliance page.", "bad");
+console.error("Failed to initialize Launcher acknowledgement page", error);
+
+setBanner(
+error?.message || "Failed to initialize Launcher acknowledgement page.",
+"bad"
+);
 });

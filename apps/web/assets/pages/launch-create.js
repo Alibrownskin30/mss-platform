@@ -43,8 +43,19 @@ return new Promise((resolve) => window.setTimeout(resolve, ms));
 
 function toNumber(value, fallback = 0) {
 if (value === null || value === undefined || value === "") return fallback;
+
 const num = Number(value);
 return Number.isFinite(num) ? num : fallback;
+}
+
+function toBoolean(value) {
+if (value === true || value === 1) return true;
+
+const normalized = String(value ?? "")
+.trim()
+.toLowerCase();
+
+return ["true", "1", "yes", "y", "on", "accepted"].includes(normalized);
 }
 
 function normalizeSymbol(value) {
@@ -57,7 +68,7 @@ return String(value || "")
 function normalizeTemplateLabel(value) {
 return String(value || "")
 .replaceAll("_", " ")
-.replace(/\b\w/g, (m) => m.toUpperCase());
+.replace(/\b\w/g, (character) => character.toUpperCase());
 }
 
 function normalizeWallet(value) {
@@ -65,12 +76,15 @@ return String(value || "").trim();
 }
 
 function normalizeBuilderAlias(value, fallback = "") {
-return String(value || fallback || "").trim().slice(0, 60);
+return String(value || fallback || "")
+.trim()
+.slice(0, 60);
 }
 
 function formatSupply(value) {
 const num = Number(value);
 if (!Number.isFinite(num) || num <= 0) return "—";
+
 return num.toLocaleString("en-AU");
 }
 
@@ -97,27 +111,32 @@ maximumFractionDigits: maxDecimals,
 }
 
 function shortenWallet(wallet) {
-const w = String(wallet || "").trim();
-if (!w) return "—";
-if (w.length <= 12) return w;
-return `${w.slice(0, 4)}...${w.slice(-4)}`;
+const value = String(wallet || "").trim();
+
+if (!value) return "—";
+if (value.length <= 12) return value;
+
+return `${value.slice(0, 4)}...${value.slice(-4)}`;
 }
 
 function defaultBuilderAlias(wallet) {
-const w = String(wallet || "").trim();
-if (!w) return "New Builder";
-return `Builder ${w.slice(0, 4)}${w.slice(-4)}`;
+const value = String(wallet || "").trim();
+if (!value) return "New Builder";
+
+return `Builder ${value.slice(0, 4)}${value.slice(-4)}`;
 }
 
 function getBuilderAliasCandidates(wallet, preferredAlias = "") {
-const w = String(wallet || "").trim();
+const value = String(wallet || "").trim();
 const cleanedPreferred = normalizeBuilderAlias(preferredAlias);
 
-if (!w) return cleanedPreferred ? [cleanedPreferred] : ["New Builder"];
+if (!value) {
+return cleanedPreferred ? [cleanedPreferred] : ["New Builder"];
+}
 
-const first4 = w.slice(0, 4);
-const last4 = w.slice(-4);
-const first6 = w.slice(0, 6);
+const first4 = value.slice(0, 4);
+const last4 = value.slice(-4);
+const first6 = value.slice(0, 6);
 
 return Array.from(
 new Set(
@@ -128,7 +147,7 @@ cleanedPreferred,
 `Builder ${first6}`,
 defaultBuilderAlias(wallet),
 ]
-.map((value) => String(value || "").trim().slice(0, 60))
+.map((item) => String(item || "").trim().slice(0, 60))
 .filter(Boolean)
 )
 );
@@ -150,21 +169,24 @@ return String(str ?? "")
 }
 
 function setStatus(kind, message) {
-const el = $("createStatus");
-if (!el) return;
-el.className = `status show ${kind}`;
-el.textContent = message;
+const element = $("createStatus");
+if (!element) return;
+
+element.className = `status show ${kind}`;
+element.textContent = message;
 }
 
 function clearStatus() {
-const el = $("createStatus");
-if (!el) return;
-el.className = "status";
-el.textContent = "";
+const element = $("createStatus");
+if (!element) return;
+
+element.className = "status";
+element.textContent = "";
 }
 
 function isBuilderNotFoundMessage(message) {
 const text = String(message || "").toLowerCase();
+
 return (
 text.includes("builder not found") ||
 text.includes("builder profile not found")
@@ -198,15 +220,22 @@ candidates.find(
 
 function normalizeUrl(raw, typeKey = "") {
 const value = String(raw || "").trim();
+
 if (!value) return "";
 if (/^javascript:/i.test(value) || /^data:/i.test(value)) return "";
 
 let normalized = value;
-if (!/^https?:\/\//i.test(normalized)) normalized = `https://${normalized}`;
+
+if (!/^https?:\/\//i.test(normalized)) {
+normalized = `https://${normalized}`;
+}
 
 try {
 const url = new URL(normalized);
-if (!["http:", "https:"].includes(url.protocol)) return "";
+
+if (!["http:", "https:"].includes(url.protocol)) {
+return "";
+}
 
 const host = url.hostname.toLowerCase();
 
@@ -237,7 +266,43 @@ return "";
 }
 }
 
+class ApiRequestError extends Error {
+constructor(message, status = 500, payload = null) {
+super(message || "Request failed.");
+this.name = "ApiRequestError";
+this.status = Number(status || 500);
+this.payload = payload || null;
+this.code = String(payload?.code || "").trim();
+}
+}
+
+async function fetchJson(path, options = {}) {
+const apiBase = getApiBase();
+const response = await fetch(`${apiBase}${path}`, options);
+
+let data = null;
+
+try {
+data = await response.json();
+} catch {
+data = null;
+}
+
+if (!response.ok || !data?.ok) {
+throw new ApiRequestError(
+data?.error || `HTTP ${response.status}`,
+response.status,
+data
+);
+}
+
+return data;
+}
+
 const SOL_QUOTE_REFRESH_MS = 20000;
+const LAUNCH_FEE_PCT = 5;
+const BUILDER_BOND_SESSION_STORAGE_KEY = "__mss_pending_builder_bond_v1";
+
 const BUILDER_ALLOWED_HARD_CAPS = [250, 500, 750, 1000];
 const BUILDER_SOFT_CAP_BY_HARD_CAP = {
 250: 200,
@@ -245,6 +310,7 @@ const BUILDER_SOFT_CAP_BY_HARD_CAP = {
 750: 400,
 1000: 500,
 };
+
 const DEFAULT_BUILDER_HARD_CAP_SOL = 250;
 const MIN_LAUNCH_BOND_SOL = 3;
 const MAX_LAUNCH_BOND_SOL = 25;
@@ -323,76 +389,185 @@ priceId: "addOnCommunityDistributionPrice",
 },
 ];
 
+const LAUNCHER_ACKNOWLEDGEMENT_FIELDS = [
+{
+id: "ackLauncherTerms",
+key: "terms_accepted",
+message: "Accept the MSS Launcher Terms before continuing.",
+label: "I accept the MSS Launcher Terms for creating this launch.",
+},
+{
+id: "ackLaunchRiskDisclosure",
+key: "risk_disclosure_accepted",
+message: "Accept the launch risk disclosure before continuing.",
+label:
+"I understand crypto launches carry significant risk and outcomes are not guaranteed.",
+},
+{
+id: "ackLaunchRules",
+key: "launch_rules_accepted",
+message:
+"Accept the launch rules and transaction conditions before continuing.",
+label:
+"I accept the launch rules, allocation conditions, bond rules and transaction conditions.",
+},
+{
+id: "ackLaunchNoAdvice",
+key: "no_advice_accepted",
+message: "Accept the information-only acknowledgement before continuing.",
+label:
+"I understand MSS provides information and infrastructure only, not investment advice.",
+},
+{
+id: "ackProjectDisclosure",
+key: "project_disclosure_accepted",
+message: "Accept the project information disclosure before continuing.",
+label:
+"I confirm the project information and declared team wallets supplied are accurate.",
+},
+{
+id: "ackProhibitedConduct",
+key: "prohibited_conduct_accepted",
+message: "Accept the prohibited conduct acknowledgement before continuing.",
+label:
+"I agree not to engage in misleading conduct, undisclosed wallet activity or market manipulation.",
+},
+];
+
 let cachedBuilderBond = null;
 let currentLogoPreviewObjectUrl = "";
 let quoteRefreshIntervalId = null;
+
 let pricingState = {
 solUsd: null,
 fetchedAt: 0,
 isLoading: false,
 };
+
 let builderComplianceState = {
 wallet: "",
 payload: null,
 };
 
-function clearBuilderBondCache() {
-cachedBuilderBond = null;
+function safeSessionStorageGet(key) {
+try {
+return window.sessionStorage.getItem(key);
+} catch {
+return null;
+}
+}
+
+function safeSessionStorageSet(key, value) {
+try {
+window.sessionStorage.setItem(key, value);
+} catch {
+// Session storage is optional protection only.
+}
+}
+
+function safeSessionStorageRemove(key) {
+try {
+window.sessionStorage.removeItem(key);
+} catch {
+// Session storage is optional protection only.
+}
 }
 
 function getBuilderBondCacheKey(values) {
 return JSON.stringify({
-wallet: values.wallet || "",
-template: values.template || "",
-tokenName: values.tokenName || "",
-symbol: values.symbol || "",
-supply: Number(values.supply || 0),
-minRaiseSol: Number(values.minRaiseSol || 0),
-hardCapSol: Number(values.hardCapSol || 0),
-builderBond: Number(values.builderBond || 0),
-teamAllocation: Number(values.teamAllocation || 0),
-teamWalletCount: Number(values.teamWalletCount || 0),
-teamWallets: Array.isArray(values.teamWallets) ? values.teamWallets : [],
-teamWalletBreakdown: Array.isArray(values.teamWalletBreakdown)
-? values.teamWalletBreakdown
-: [],
+wallet: normalizeWallet(values?.wallet || ""),
+builderBond: Number(values?.builderBond || 0),
 });
 }
 
-function getCachedBuilderBondSignature(values) {
-if (!cachedBuilderBond) return "";
-if (cachedBuilderBond.key !== getBuilderBondCacheKey(values)) return "";
-return cachedBuilderBond.txSignature || "";
-}
+function readStoredBuilderBond() {
+const raw = safeSessionStorageGet(BUILDER_BOND_SESSION_STORAGE_KEY);
+if (!raw) return null;
 
-async function fetchJson(path, options = {}) {
-const apiBase = getApiBase();
-const res = await fetch(`${apiBase}${path}`, options);
-
-let data = null;
 try {
-data = await res.json();
+const parsed = JSON.parse(raw);
+
+if (
+!parsed ||
+typeof parsed !== "object" ||
+!parsed.key ||
+!parsed.txSignature
+) {
+return null;
+}
+
+return {
+key: String(parsed.key),
+txSignature: String(parsed.txSignature),
+wallet: normalizeWallet(parsed.wallet),
+builderBond: Number(parsed.builderBond || 0),
+confirmedAt: Number(parsed.confirmedAt || 0),
+};
 } catch {
-data = null;
+return null;
+}
 }
 
-if (!res.ok || !data?.ok) {
-throw new Error(data?.error || `HTTP ${res.status}`);
+function rememberConfirmedBuilderBond(values, txSignature) {
+const signature = String(txSignature || "").trim();
+if (!signature) return;
+
+cachedBuilderBond = {
+key: getBuilderBondCacheKey(values),
+txSignature: signature,
+wallet: normalizeWallet(values?.wallet),
+builderBond: Number(values?.builderBond || 0),
+confirmedAt: Date.now(),
+};
+
+safeSessionStorageSet(
+BUILDER_BOND_SESSION_STORAGE_KEY,
+JSON.stringify(cachedBuilderBond)
+);
 }
 
-return data;
+function clearBuilderBondCache({ forgetConfirmed = false } = {}) {
+cachedBuilderBond = null;
+
+if (forgetConfirmed) {
+safeSessionStorageRemove(BUILDER_BOND_SESSION_STORAGE_KEY);
+}
+}
+
+function getCachedBuilderBondSignature(values) {
+const key = getBuilderBondCacheKey(values);
+
+if (cachedBuilderBond?.key === key && cachedBuilderBond.txSignature) {
+return cachedBuilderBond.txSignature;
+}
+
+const stored = readStoredBuilderBond();
+
+if (stored?.key === key && stored.txSignature) {
+cachedBuilderBond = stored;
+return stored.txSignature;
+}
+
+return "";
+}
+
+function hasConfirmedBuilderBondForValues(values) {
+return Boolean(getCachedBuilderBondSignature(values));
 }
 
 function normalizeBuilderHardCap(raw) {
 const parsed = Number(raw);
+
 if (BUILDER_ALLOWED_HARD_CAPS.includes(parsed)) {
 return parsed;
 }
+
 return DEFAULT_BUILDER_HARD_CAP_SOL;
 }
 
 function normalizeBuilderMinRaise(_raw, hardCap) {
 const normalizedHardCap = normalizeBuilderHardCap(hardCap);
+
 return (
 BUILDER_SOFT_CAP_BY_HARD_CAP[normalizedHardCap] ||
 BUILDER_SOFT_CAP_BY_HARD_CAP[DEFAULT_BUILDER_HARD_CAP_SOL]
@@ -401,6 +576,7 @@ BUILDER_SOFT_CAP_BY_HARD_CAP[DEFAULT_BUILDER_HARD_CAP_SOL]
 
 function getRequiredLaunchBondSol({ minRaiseSol }) {
 const softCap = Number(minRaiseSol);
+
 if (!Number.isFinite(softCap) || softCap <= 0) {
 return MIN_LAUNCH_BOND_SOL;
 }
@@ -417,6 +593,7 @@ const builderMinRaiseInput = $("builderMinRaiseSol");
 
 if (!builderHardCapInput || !builderMinRaiseInput) {
 const fallbackHardCap = DEFAULT_BUILDER_HARD_CAP_SOL;
+
 return {
 hardCapSol: fallbackHardCap,
 minRaiseSol: BUILDER_SOFT_CAP_BY_HARD_CAP[fallbackHardCap],
@@ -430,6 +607,7 @@ const minRaiseSol = normalizeBuilderMinRaise(
 builderMinRaiseInput.value,
 hardCapSol
 );
+
 builderMinRaiseInput.min = String(minRaiseSol);
 builderMinRaiseInput.max = String(minRaiseSol);
 builderMinRaiseInput.value = String(minRaiseSol);
@@ -516,37 +694,37 @@ return getTeamWalletBreakdown()
 
 function getTeamAllocationTotalValue() {
 return getTeamWalletBreakdown().reduce((sum, row) => {
-const n = Number(row.pct || 0);
-return sum + (Number.isFinite(n) ? n : 0);
+const amount = Number(row.pct || 0);
+return sum + (Number.isFinite(amount) ? amount : 0);
 }, 0);
 }
 
 function updateTeamAllocationTotal() {
-const totalEl = $("teamAllocationTotal");
-if (!totalEl) return;
+const totalElement = $("teamAllocationTotal");
+if (!totalElement) return;
 
 const total = getTeamAllocationTotalValue();
 const limit = Math.min(Number($("teamAllocation")?.value || 0) || 0, 15);
 
-totalEl.textContent = `${total.toFixed(2)}%`;
-totalEl.classList.remove("good", "warn", "bad");
+totalElement.textContent = `${total.toFixed(2)}%`;
+totalElement.classList.remove("good", "warn", "bad");
 
 if (total <= 0) {
-totalEl.classList.add("good");
+totalElement.classList.add("good");
 return;
 }
 
 if (total > 15 || (limit > 0 && total > limit)) {
-totalEl.classList.add("bad");
+totalElement.classList.add("bad");
 return;
 }
 
 if (limit > 0 && total >= limit * 0.85) {
-totalEl.classList.add("warn");
+totalElement.classList.add("warn");
 return;
 }
 
-totalEl.classList.add("good");
+totalElement.classList.add("good");
 }
 
 function getSelectedVisibilityAddons() {
@@ -567,6 +745,7 @@ if (!wallet) {
 if (!userEdited && !current) {
 input.value = "";
 }
+
 return;
 }
 
@@ -576,17 +755,56 @@ input.dataset.userEdited = "0";
 }
 }
 
+function getCommercialAcknowledgements() {
+return {
+bondRequired: Boolean($("ackBondRequired")?.checked),
+visibilityImmediate: Boolean($("ackVisibilityImmediate")?.checked),
+launchFeeLive: Boolean($("ackLaunchFeeLive")?.checked),
+};
+}
+
+function getLauncherAcknowledgements() {
+const acknowledgements = {};
+
+for (const field of LAUNCHER_ACKNOWLEDGEMENT_FIELDS) {
+acknowledgements[field.key] = Boolean($(field.id)?.checked);
+}
+
+return acknowledgements;
+}
+
+function buildLauncherAcknowledgementPayload(values) {
+const acknowledgements = values?.launcherAcknowledgements || {};
+
+return {
+terms_accepted: Boolean(acknowledgements.terms_accepted),
+risk_disclosure_accepted: Boolean(
+acknowledgements.risk_disclosure_accepted
+),
+launch_rules_accepted: Boolean(acknowledgements.launch_rules_accepted),
+no_advice_accepted: Boolean(acknowledgements.no_advice_accepted),
+project_disclosure_accepted: Boolean(
+acknowledgements.project_disclosure_accepted
+),
+prohibited_conduct_accepted: Boolean(
+acknowledgements.prohibited_conduct_accepted
+),
+};
+}
+
 function getFormValues() {
-const tpl = getSelectedTemplate();
-const builderMode = tpl.key === "builder";
+const template = getSelectedTemplate();
+const builderMode = template.key === "builder";
 const wallet = getConnectedPublicKey() || "";
+
 const supplyValue = builderMode
-? Number($("supplyPreset")?.value || tpl.supply)
-: tpl.supply;
+? Number($("supplyPreset")?.value || template.supply)
+: template.supply;
 
 const teamWalletBreakdown = builderMode ? getTeamWalletBreakdown() : [];
 const teamWallets = builderMode ? getTeamWallets() : [];
 const teamAllocationTotal = builderMode ? getTeamAllocationTotalValue() : 0;
+
 const visibilityAddons = getSelectedVisibilityAddons().map((addon) => {
 const solEstimate =
 pricingState.solUsd && pricingState.solUsd > 0
@@ -603,7 +821,7 @@ sol_estimate: solEstimate,
 
 return {
 wallet,
-template: tpl.key,
+template: template.key,
 tokenName: $("tokenName")?.value.trim() || "",
 symbol: normalizeSymbol($("symbol")?.value || ""),
 builderAlias: normalizeBuilderAlias(
@@ -617,20 +835,21 @@ xUrl: $("xUrl")?.value.trim() || "",
 telegramUrl: $("telegramUrl")?.value.trim() || "",
 discordUrl: $("discordUrl")?.value.trim() || "",
 supply: supplyValue,
-minRaiseSol: tpl.minRaiseSol,
-hardCapSol: tpl.hardCapSol,
-builderBond: tpl.builderBond,
-teamWalletCount: builderMode ? Number($("teamWalletCount")?.value || 0) : 0,
-teamAllocation: builderMode ? Number($("teamAllocation")?.value || 0) : 0,
+minRaiseSol: template.minRaiseSol,
+hardCapSol: template.hardCapSol,
+builderBond: template.builderBond,
+teamWalletCount: builderMode
+? Number($("teamWalletCount")?.value || 0)
+: 0,
+teamAllocation: builderMode
+? Number($("teamAllocation")?.value || 0)
+: 0,
 teamWallets,
 teamWalletBreakdown,
 teamAllocationTotal,
 visibilityAddons,
-acknowledgements: {
-bondRequired: Boolean($("ackBondRequired")?.checked),
-visibilityImmediate: Boolean($("ackVisibilityImmediate")?.checked),
-launchFeeLive: Boolean($("ackLaunchFeeLive")?.checked),
-},
+commercialAcknowledgements: getCommercialAcknowledgements(),
+launcherAcknowledgements: getLauncherAcknowledgements(),
 };
 }
 
@@ -694,10 +913,15 @@ throw new Error(
 const normalizedWebsiteUrl = values.websiteUrl
 ? normalizeUrl(values.websiteUrl, "website_url")
 : "";
-const normalizedXUrl = values.xUrl ? normalizeUrl(values.xUrl, "x_url") : "";
+
+const normalizedXUrl = values.xUrl
+? normalizeUrl(values.xUrl, "x_url")
+: "";
+
 const normalizedTelegramUrl = values.telegramUrl
 ? normalizeUrl(values.telegramUrl, "telegram_url")
 : "";
+
 const normalizedDiscordUrl = values.discordUrl
 ? normalizeUrl(values.discordUrl, "discord_url")
 : "";
@@ -753,7 +977,9 @@ throw new Error("Team wallet count must be between 0 and 5.");
 }
 
 if (values.teamWalletBreakdown.length !== values.teamWalletCount) {
-throw new Error("Team wallet rows are not aligned with team wallet count.");
+throw new Error(
+"Team wallet rows are not aligned with team wallet count."
+);
 }
 
 const seenWallets = new Set();
@@ -773,12 +999,15 @@ throw new Error(
 );
 }
 
-if (seenWallets.has(row.wallet)) {
+const walletKey = row.wallet.toLowerCase();
+
+if (seenWallets.has(walletKey)) {
 throw new Error(
 `Team wallet ${row.index + 1} duplicates another team wallet.`
 );
 }
-seenWallets.add(row.wallet);
+
+seenWallets.add(walletKey);
 }
 
 if (values.teamAllocation === 0 && values.teamWalletCount > 0) {
@@ -815,6 +1044,7 @@ throw new Error(
 }
 
 const expectedLaunchBond = getRequiredLaunchBondSol(values);
+
 if (
 !Number.isFinite(values.builderBond) ||
 Number(values.builderBond) !== expectedLaunchBond
@@ -825,198 +1055,189 @@ throw new Error(
 }
 
 const logoFile = $("logoInput")?.files?.[0];
+
 if (logoFile) {
 const allowed = ["image/png", "image/jpeg", "image/webp", "image/gif"];
+
 if (!allowed.includes(logoFile.type)) {
 throw new Error("Logo file type must be PNG, JPG, WEBP, or GIF.");
 }
 
 const maxBytes = 5 * 1024 * 1024;
+
 if (logoFile.size > maxBytes) {
 throw new Error("Logo must be 5MB or smaller.");
 }
 }
 
-if (!values.acknowledgements.bondRequired) {
-throw new Error("Confirm the Builder Bond acknowledgement before continuing.");
+if (!values.commercialAcknowledgements.bondRequired) {
+throw new Error(
+"Confirm the Builder Bond acknowledgement before continuing."
+);
 }
 
-if (!values.acknowledgements.visibilityImmediate) {
+if (!values.commercialAcknowledgements.visibilityImmediate) {
 throw new Error(
 "Confirm the Launch Visibility acknowledgement before continuing."
 );
 }
 
-if (!values.acknowledgements.launchFeeLive) {
-throw new Error("Confirm the MSS Launch Fee acknowledgement before continuing.");
+if (!values.commercialAcknowledgements.launchFeeLive) {
+throw new Error(
+"Confirm the MSS Launch Fee acknowledgement before continuing."
+);
+}
+
+for (const field of LAUNCHER_ACKNOWLEDGEMENT_FIELDS) {
+if (!values.launcherAcknowledgements[field.key]) {
+throw new Error(field.message);
+}
 }
 }
 
-function buildCompliancePageUrl(wallet = "") {
-const params = new URLSearchParams();
-params.set("mode", "builder");
-if (wallet) {
-params.set("wallet", wallet);
+function bindLauncherAcknowledgementInputs() {
+for (const field of LAUNCHER_ACKNOWLEDGEMENT_FIELDS) {
+const input = $(field.id);
+
+if (!input || input.dataset.bound === "1") continue;
+
+input.dataset.bound = "1";
+
+input.addEventListener("change", () => {
+updatePreview();
+});
 }
-return `./compliance.html?${params.toString()}`;
 }
 
-function getBuilderCompliancePayload() {
+function ensureLauncherAcknowledgementUi() {
+const form = $("launchCreateForm");
+if (!form) return;
+
+const missingFields = LAUNCHER_ACKNOWLEDGEMENT_FIELDS.filter(
+(field) => !$(field.id)
+);
+
+if (!missingFields.length) {
+bindLauncherAcknowledgementInputs();
+return;
+}
+
+let wrapper = $("launcherAcknowledgementPanel");
+
+if (!wrapper) {
+wrapper = document.createElement("section");
+wrapper.id = "launcherAcknowledgementPanel";
+wrapper.className = "checkout-card launcher-acknowledgement-panel";
+
+wrapper.innerHTML = `
+<div class="checkout-section-head">
+<div>
+<div class="admin-kicker">Launcher Acknowledgements</div>
+<h3>Terms and risk acknowledgement</h3>
+<p>
+No ID verification or KYC is required for this launch flow. Before paying the Builder Bond,
+confirm the Launcher terms, risk disclosures and builder conduct requirements.
+</p>
+</div>
+</div>
+<div id="launcherAcknowledgementFields" class="launcher-acknowledgement-fields"></div>
+`;
+
+const createButton = $("createLaunchBtn");
+const insertionTarget =
+createButton?.closest(".form-actions") ||
+createButton?.parentElement ||
+null;
+
+if (insertionTarget?.parentNode) {
+insertionTarget.parentNode.insertBefore(wrapper, insertionTarget);
+} else {
+form.appendChild(wrapper);
+}
+}
+
+const fieldsContainer =
+$("launcherAcknowledgementFields") ||
+wrapper.querySelector(".launcher-acknowledgement-fields");
+
+if (!fieldsContainer) return;
+
+for (const field of missingFields) {
+const row = document.createElement("label");
+
+row.className = "checkout-check-row launcher-acknowledgement-row";
+row.innerHTML = `
+<input id="${field.id}" type="checkbox" />
+<span>${escapeHtmlText(field.label)}</span>
+`;
+
+fieldsContainer.appendChild(row);
+}
+
+bindLauncherAcknowledgementInputs();
+}
+
+function getBuilderStatusPayload() {
 return builderComplianceState?.payload || null;
 }
 
-function formatComplianceBucketLabel(value = "") {
-const normalized = String(value || "").trim().toLowerCase();
-if (normalized === "required") return "Required";
-if (normalized === "silent") return "Silent";
-if (normalized === "escalation") return "Escalation";
-if (normalized === "read_only") return "Read Only";
-if (normalized === "off") return "Off";
-return "Unknown";
-}
+function getBuilderLaunchAccess(payload = null) {
+const statusPayload = payload || getBuilderStatusPayload();
 
-function getBuilderComplianceAccess(payload = null) {
-const statusPayload = payload || getBuilderCompliancePayload();
-
-const approvalRequired = Boolean(
-statusPayload?.approval_required ??
-statusPayload?.builder_gate_enabled ??
-statusPayload?.requires_builder_approval
-);
-
-const status = String(statusPayload?.status || "").trim().toLowerCase();
-const bucket = String(
-statusPayload?.builder_bucket || statusPayload?.compliance_bucket || ""
-)
-.trim()
-.toLowerCase();
-
-const accessReason = String(statusPayload?.access_reason || "").trim();
-const manualReviewRequired = Boolean(
-statusPayload?.manual_review_required ||
-statusPayload?.profile?.manual_review_required
-);
-const restrictedJurisdiction = Boolean(statusPayload?.restricted_jurisdiction);
-const escalationRequired = Boolean(statusPayload?.escalation_required);
-const silentMonitoring = Boolean(statusPayload?.silent_monitoring);
-const escalationMonitoring = Boolean(statusPayload?.escalation_monitoring);
-const blockingSignals = Array.isArray(statusPayload?.blocking_signals)
-? statusPayload.blocking_signals
-: [];
-const escalationSignals = Array.isArray(statusPayload?.escalation_signals)
-? statusPayload.escalation_signals
-: [];
-
-const explicitTransactionalAccess = statusPayload?.transactional_access;
-const transactionalAccess =
-typeof explicitTransactionalAccess === "boolean"
-? explicitTransactionalAccess
-: approvalRequired
-? status === "approved" &&
-!manualReviewRequired &&
-!restrictedJurisdiction
-: true;
-
-let accessState = String(statusPayload?.access_state || "")
-.trim()
-.toLowerCase();
-
-if (!accessState) {
-if (!transactionalAccess) {
-accessState =
-status === "pending"
-? "pending"
-: approvalRequired
-? "required"
-: "blocked";
-} else if (bucket === "silent" || silentMonitoring) {
-accessState = "silent";
-} else if (bucket === "escalation" || escalationMonitoring) {
-accessState = escalationRequired ? "watch" : "open";
-} else if (approvalRequired && status === "approved") {
-accessState = "approved";
-} else {
-accessState = "open";
-}
-}
-
+if (!statusPayload) {
 return {
-payload: statusPayload,
-approvalRequired,
-transactionalAccess,
-accessState,
-accessReason,
-status,
-bucket,
-manualReviewRequired,
-restrictedJurisdiction,
-escalationRequired,
-silentMonitoring,
-escalationMonitoring,
-blockingSignals,
-escalationSignals,
+payload: null,
+blocked: false,
+acknowledgementAccepted: false,
+accessState: "unavailable",
+accessReason: "",
+canProceedToAcknowledgement: true,
 };
 }
 
-function isBuilderLaunchAccessAllowed(payload = null) {
-return Boolean(getBuilderComplianceAccess(payload).transactionalAccess);
+const blockingSignals = Array.isArray(statusPayload.blocking_signals)
+? statusPayload.blocking_signals
+: [];
+
+const blocked = Boolean(
+statusPayload.internal_intervention_active ||
+String(statusPayload.access_state || "").toLowerCase() === "blocked" ||
+blockingSignals.some((signal) => signal?.blocking === true)
+);
+
+const acknowledgementAccepted = Boolean(
+statusPayload.acknowledgement_accepted
+);
+
+return {
+payload: statusPayload,
+blocked,
+acknowledgementAccepted,
+accessState: String(statusPayload.access_state || "").toLowerCase(),
+accessReason: String(statusPayload.access_reason || "").trim(),
+canProceedToAcknowledgement: !blocked,
+};
 }
 
-function shouldRedirectToCompliance(payload = null) {
-const access = getBuilderComplianceAccess(payload);
+function getBuilderStatusMessage(payload = null) {
+const access = getBuilderLaunchAccess(payload);
 
-if (!access.payload) return false;
-if (access.transactionalAccess) return false;
+if (!access.payload) {
+return "Wallet status could not be loaded. No identity verification is required, but the transaction will still be checked before payment.";
+}
 
+if (access.blocked) {
 return (
-access.approvalRequired ||
-access.accessState === "blocked" ||
-access.accessState === "pending" ||
-access.accessState === "required" ||
-access.manualReviewRequired ||
-access.restrictedJurisdiction
+access.accessReason ||
+"This wallet is currently unable to create launches. Contact support if you believe this is an error."
 );
 }
 
-function getBuilderComplianceMessage(payload = null) {
-const access = getBuilderComplianceAccess(payload);
-
-if (!access.payload) {
-return "Builder monitoring status is currently unavailable.";
+if (access.acknowledgementAccepted) {
+return "Launcher terms have been acknowledged for this wallet. No identity verification is required.";
 }
 
-if (access.accessReason) {
-return access.accessReason;
-}
-
-if (!access.transactionalAccess) {
-if (access.accessState === "blocked") {
-return "Builder access is currently blocked.";
-}
-
-if (access.accessState === "pending") {
-return "Builder verification is still pending review.";
-}
-
-return "Builder verification is required before launch creation can proceed.";
-}
-
-if (access.accessState === "silent" || access.silentMonitoring) {
-return "Silent monitoring is active. Launch creation remains open unless explicit risk intervention is triggered.";
-}
-
-if (access.accessState === "watch" || access.escalationMonitoring) {
-if (access.escalationRequired) {
-return "Monitoring signals are elevated and should be reviewed, but launch creation remains open unless intervention is triggered.";
-}
-return "Escalation monitoring is active. Launch creation remains open unless triggered risk conditions require intervention.";
-}
-
-if (access.approvalRequired && access.status === "approved") {
-return "Builder profile approved. Launch creation is enabled.";
-}
-
-return "Builder launch access is open.";
+return "No identity verification is required. Accept the Launcher terms and risk acknowledgements below before creating your launch.";
 }
 
 function renderBuilderComplianceUi(payload = null) {
@@ -1026,11 +1247,10 @@ const copy = $("builderComplianceCopy");
 const action = $("builderComplianceAction");
 const meta = $("builderComplianceMeta");
 const connectedWallet = getConnectedPublicKey() || "";
-const actionLink = buildCompliancePageUrl(connectedWallet);
 
 if (!card || !pill || !copy || !action || !meta) return;
 
-const access = getBuilderComplianceAccess(payload);
+const access = getBuilderLaunchAccess(payload);
 
 if (!access.payload && !connectedWallet) {
 card.classList.remove("show");
@@ -1038,89 +1258,57 @@ return;
 }
 
 card.classList.add("show");
+action.style.display = "none";
 
 if (!access.payload) {
 pill.className = "status-pill warn";
-pill.textContent = "Check Unavailable";
-copy.textContent =
-"Builder monitoring status could not be loaded right now. You can still review the compliance profile manually.";
+pill.textContent = "Status Check Pending";
+copy.textContent = getBuilderStatusMessage(null);
 meta.textContent = connectedWallet
-? `Wallet: ${shortenWallet(connectedWallet)}`
-: "No wallet connected";
-action.style.display = "";
-action.href = actionLink;
-action.textContent = "Open Compliance";
+? `Wallet: ${shortenWallet(
+connectedWallet
+)} • Flow: Acknowledgement only`
+: "Connect a wallet to continue";
 return;
 }
 
-let pillText = "Builder Verification";
-let pillClass = "warn";
-
-if (!access.transactionalAccess) {
-if (access.accessState === "blocked") {
-pillText = "Access Blocked";
-pillClass = "bad";
-} else if (access.accessState === "pending") {
-pillText = "Pending Review";
-pillClass = "warn";
-} else {
-pillText = "Verification Required";
-pillClass = "warn";
-}
-} else if (access.accessState === "watch" && access.escalationRequired) {
-pillText = "Monitoring Watch";
-pillClass = "warn";
-} else if (access.accessState === "silent" || access.silentMonitoring) {
-pillText = "Silent Monitoring";
-pillClass = "good";
-} else if (access.accessState === "watch" || access.escalationMonitoring) {
-pillText = "Escalation Monitoring";
-pillClass = "good";
-} else if (access.approvalRequired && access.status === "approved") {
-pillText = "Approved";
-pillClass = "good";
-} else {
-pillText = "Access Open";
-pillClass = "good";
+if (access.blocked) {
+pill.className = "status-pill bad";
+pill.textContent = "Wallet Blocked";
+copy.textContent = getBuilderStatusMessage(access.payload);
+meta.textContent = `Wallet: ${shortenWallet(
+connectedWallet
+)} • Launcher transactions unavailable`;
+return;
 }
 
-pill.className = `status-pill ${pillClass}`;
-pill.textContent = pillText;
-copy.textContent = getBuilderComplianceMessage(access.payload);
-
-const country = String(access.payload?.profile?.country_code || "").toUpperCase();
-const risk = String(access.payload?.profile?.risk_rating || "low");
-const detailParts = [];
-
-detailParts.push(`Bucket: ${formatComplianceBucketLabel(access.bucket)}`);
-detailParts.push(`Access: ${normalizeTemplateLabel(access.accessState || "open")}`);
-
-if (country) detailParts.push(`Country: ${country}`);
-if (risk) detailParts.push(`Risk: ${risk}`);
-
-meta.textContent = detailParts.join(" • ");
-
-const showAction =
-!access.transactionalAccess || access.escalationRequired;
-
-if (!showAction) {
-action.style.display = "none";
-} else {
-action.style.display = "";
-action.href = actionLink;
-action.textContent = !access.transactionalAccess
-? "Complete Builder Verification"
-: "Review Compliance Signals";
-}
+if (access.acknowledgementAccepted) {
+pill.className = "status-pill good";
+pill.textContent = "Terms Recorded";
+copy.textContent = getBuilderStatusMessage(access.payload);
+meta.textContent = `Wallet: ${shortenWallet(
+connectedWallet
+)} • No ID / KYC required`;
+return;
 }
 
-async function fetchBuilderComplianceStatus(wallet, { silent = false } = {}) {
+pill.className = "status-pill good";
+pill.textContent = "No ID / KYC Required";
+copy.textContent = getBuilderStatusMessage(access.payload);
+meta.textContent = `Wallet: ${shortenWallet(
+connectedWallet
+)} • Terms acknowledgement required at checkout`;
+}
+
+async function fetchBuilderStatus(wallet, { silent = false } = {}) {
 const normalizedWallet = normalizeWallet(wallet);
+
 if (!normalizedWallet) {
 builderComplianceState = {
 wallet: "",
 payload: null,
 };
+
 renderBuilderComplianceUi(null);
 return null;
 }
@@ -1128,7 +1316,7 @@ return null;
 const data = await fetchJson(
 `/api/compliance/status?wallet=${encodeURIComponent(
 normalizedWallet
-)}&mode=builder&context=builder&surface=launch_create`
+)}&role=builder&mode=builder&context=builder&surface=launch_create`
 );
 
 builderComplianceState = {
@@ -1139,80 +1327,73 @@ payload: data,
 renderBuilderComplianceUi(data);
 
 if (!silent) {
-const access = getBuilderComplianceAccess(data);
-const kind = access.transactionalAccess
-? access.accessState === "watch" && access.escalationRequired
-? "warn"
-: "good"
-: access.accessState === "blocked"
-? "bad"
-: "warn";
+const access = getBuilderLaunchAccess(data);
 
-setStatus(kind, getBuilderComplianceMessage(data));
+setStatus(
+access.blocked ? "bad" : "good",
+getBuilderStatusMessage(data)
+);
 }
 
 return data;
 }
 
-async function refreshBuilderComplianceStatus({ silent = false } = {}) {
+async function refreshBuilderStatus({ silent = false } = {}) {
 const wallet = getConnectedPublicKey() || "";
+
 if (!wallet) {
 builderComplianceState = {
 wallet: "",
 payload: null,
 };
+
 renderBuilderComplianceUi(null);
 return null;
 }
 
 try {
-return await fetchBuilderComplianceStatus(wallet, { silent });
+return await fetchBuilderStatus(wallet, { silent });
 } catch (err) {
 builderComplianceState = {
 wallet,
 payload: null,
 };
+
 renderBuilderComplianceUi(null);
 
 if (!silent) {
-setStatus(
-"bad",
-err?.message || "Unable to load builder compliance status."
-);
+setStatus("bad", err?.message || "Unable to load wallet status.");
 }
 
 throw err;
 }
 }
 
-async function requireBuilderLaunchAccess(wallet, { redirect = false } = {}) {
+async function requireBuilderLaunchAccess(wallet) {
 const payload =
 builderComplianceState.wallet === wallet && builderComplianceState.payload
 ? builderComplianceState.payload
-: await fetchBuilderComplianceStatus(wallet, { silent: true });
+: await fetchBuilderStatus(wallet, { silent: true });
 
-if (isBuilderLaunchAccessAllowed(payload)) {
+const access = getBuilderLaunchAccess(payload);
+
+if (!access.blocked) {
 return payload;
 }
 
-const message = getBuilderComplianceMessage(payload);
-setStatus("warn", `${message} Open the compliance page to continue.`);
-
-if (redirect && shouldRedirectToCompliance(payload)) {
-window.location.href = buildCompliancePageUrl(wallet);
-}
-
-throw new Error(message);
+throw new ApiRequestError(getBuilderStatusMessage(payload), 403, payload);
 }
 
 function updateWalletUi() {
 const walletInput = $("wallet");
 const walletPill = $("walletPill");
-const connectBtn = $("connectWalletBtn");
-const disconnectBtn = $("disconnectWalletBtn");
+const connectButton = $("connectWalletBtn");
+const disconnectButton = $("disconnectWalletBtn");
 const walletHint = $("walletHint");
 
-if (!walletInput || !walletPill || !connectBtn || !disconnectBtn) return;
+if (!walletInput || !walletPill || !connectButton || !disconnectButton) {
+return;
+}
 
 const walletState = getConnectedWallet();
 
@@ -1220,19 +1401,21 @@ if (walletState.isConnected) {
 walletInput.value = walletState.publicKey || "";
 walletPill.textContent = `Connected: ${walletState.shortPublicKey}`;
 walletInput.readOnly = true;
-connectBtn.style.display = "none";
-disconnectBtn.style.display = "inline-flex";
+connectButton.style.display = "none";
+disconnectButton.style.display = "inline-flex";
+
 if (walletHint) {
 walletHint.textContent = `Connected via ${String(
 walletState.walletName || "wallet"
-).replace(/\b\w/g, (m) => m.toUpperCase())}.`;
+).replace(/\b\w/g, (character) => character.toUpperCase())}.`;
 }
 } else {
 walletInput.value = "";
 walletPill.textContent = "No wallet connected";
 walletInput.readOnly = true;
-connectBtn.style.display = "inline-flex";
-disconnectBtn.style.display = "none";
+connectButton.style.display = "inline-flex";
+disconnectButton.style.display = "none";
+
 if (walletHint) {
 walletHint.textContent =
 "Use Connect Wallet to choose Phantom, Solflare, or Backpack.";
@@ -1255,38 +1438,60 @@ const count = Number($("teamWalletCount")?.value || 0);
 const existing = getTeamWalletBreakdown();
 
 if (!container) return;
+
 container.innerHTML = "";
 
-for (let i = 0; i < count; i++) {
-const prev = existing[i] || { label: "Team", wallet: "", pct: 0 };
-const selectedLabel = TEAM_LABEL_OPTIONS.includes(prev.label)
-? prev.label
+for (let index = 0; index < count; index += 1) {
+const previous = existing[index] || {
+label: "Team",
+wallet: "",
+pct: 0,
+};
+
+const selectedLabel = TEAM_LABEL_OPTIONS.includes(previous.label)
+? previous.label
 : "Custom";
-const customLabel = selectedLabel === "Custom" ? prev.label : "";
+
+const customLabel = selectedLabel === "Custom" ? previous.label : "";
 
 const row = document.createElement("div");
 row.className = "team-wallet-row";
+
 row.innerHTML = `
 <div class="field">
 <label>Wallet Label</label>
 <select data-role="label-select">
 ${buildLabelOptionsHtml(selectedLabel)}
 </select>
-<input data-role="label-custom" type="text" placeholder="Custom label" value="${escapeHtmlAttr(
-customLabel
-)}" style="${selectedLabel === "Custom" ? "" : "display:none;"}" />
+<input
+data-role="label-custom"
+type="text"
+placeholder="Custom label"
+value="${escapeHtmlAttr(customLabel)}"
+style="${selectedLabel === "Custom" ? "" : "display:none;"}"
+/>
 </div>
 <div class="field">
 <label>Wallet Address</label>
-<input data-role="wallet" type="text" placeholder="Team wallet ${
-i + 1
-}" value="${escapeHtmlAttr(prev.wallet || "")}" autocomplete="off" />
+<input
+data-role="wallet"
+type="text"
+placeholder="Team wallet ${index + 1}"
+value="${escapeHtmlAttr(previous.wallet || "")}"
+autocomplete="off"
+/>
 </div>
 <div class="field">
 <label>Allocation %</label>
-<input data-role="allocation" type="number" min="0" max="15" step="0.1" placeholder="0.0" value="${
-Number(prev.pct || 0) || ""
-}" />
+<input
+data-role="allocation"
+type="number"
+min="0"
+max="15"
+step="0.1"
+placeholder="0.0"
+value="${Number(previous.pct || 0) || ""}"
+/>
 </div>
 `;
 
@@ -1297,17 +1502,17 @@ const allocationInput = row.querySelector('[data-role="allocation"]');
 
 labelSelect?.addEventListener("change", () => {
 const isCustom = labelSelect.value === "Custom";
+
 if (labelCustomInput) {
 labelCustomInput.style.display = isCustom ? "" : "none";
 }
-clearBuilderBondCache();
+
 updatePreview();
 updateTeamAllocationTotal();
 });
 
-[labelCustomInput, walletInput, allocationInput].forEach((el) => {
-el?.addEventListener("input", () => {
-clearBuilderBondCache();
+[labelCustomInput, walletInput, allocationInput].forEach((element) => {
+element?.addEventListener("input", () => {
 updatePreview();
 updateTeamAllocationTotal();
 });
@@ -1322,11 +1527,11 @@ updatePreview();
 
 function renderPreviewBuilderBlock(values) {
 const block = $("previewBuilderBlock");
-const allocationEl = $("previewTeamAllocation");
-const bondEl = $("previewBuilderBond");
+const allocationElement = $("previewTeamAllocation");
+const bondElement = $("previewBuilderBond");
 const list = $("previewBuilderList");
 
-if (!block || !allocationEl || !bondEl || !list) return;
+if (!block || !allocationElement || !bondElement || !list) return;
 
 if (values.template !== "builder") {
 block.classList.remove("show");
@@ -1335,25 +1540,29 @@ return;
 }
 
 block.classList.add("show");
-allocationEl.textContent = `${Number(values.teamAllocation || 0).toFixed(
+
+allocationElement.textContent = `${Number(values.teamAllocation || 0).toFixed(
 values.teamAllocation % 1 ? 1 : 0
 )}%`;
-bondEl.textContent = formatSol(values.builderBond);
+
+bondElement.textContent = formatSol(values.builderBond);
 
 const rows = values.teamWalletBreakdown.filter(
 (row) => row.wallet || row.label || row.pct
 );
 
 if (!rows.length) {
-list.innerHTML = `<div class="preview-builder-row"><span>No visible team wallets set</span><strong>—</strong></div>`;
+list.innerHTML =
+'<div class="preview-builder-row"><span>No visible team wallets set</span><strong>—</strong></div>';
 return;
 }
 
 list.innerHTML = rows
-.map((row, i) => {
-const label = row.label || `Wallet ${i + 1}`;
+.map((row, index) => {
+const label = row.label || `Wallet ${index + 1}`;
 const wallet = row.wallet ? shortenWallet(row.wallet) : "No wallet";
 const pct = Number(row.pct || 0).toFixed(row.pct % 1 ? 1 : 0);
+
 return `
 <div class="preview-builder-row">
 <span>${escapeHtmlText(label)} • ${escapeHtmlText(wallet)}</span>
@@ -1384,24 +1593,31 @@ function updateVisibilitySelectionCards() {
 VISIBILITY_ADDONS.forEach((addon) => {
 const card = $(addon.cardId);
 const checkbox = $(addon.checkboxId);
+
 if (!card || !checkbox) return;
+
 card.classList.toggle("is-selected", Boolean(checkbox.checked));
 });
 }
 
 function getSolEquivalentText(usdValue) {
 const solUsd = toNumber(pricingState.solUsd, 0);
+
 if (solUsd <= 0) return "— SOL";
+
 return formatSol(usdValue / solUsd, 3);
 }
 
 function updateAddonPriceLabels() {
 VISIBILITY_ADDONS.forEach((addon) => {
-const priceEl = $(addon.priceId);
-if (!priceEl) return;
-priceEl.textContent = `${formatUsd(addon.usd, 0)} • ${getSolEquivalentText(
-addon.usd
-)}`;
+const priceElement = $(addon.priceId);
+
+if (!priceElement) return;
+
+priceElement.textContent = `${formatUsd(
+addon.usd,
+0
+)} • ${getSolEquivalentText(addon.usd)}`;
 });
 }
 
@@ -1423,16 +1639,24 @@ const bondBadge = $("checkoutBuilderBondBadge");
 const quoteNote = $("checkoutQuoteRefreshNote");
 
 const visibilityAddons = values.visibilityAddons || [];
+
 const visibilityTotalUsd = visibilityAddons.reduce(
 (sum, addon) => sum + toNumber(addon.usd, 0),
 0
 );
+
 const solUsd = toNumber(pricingState.solUsd, 0);
 const bondUsdEstimate = solUsd > 0 ? values.builderBond * solUsd : 0;
 const visibilitySolEstimate = solUsd > 0 ? visibilityTotalUsd / solUsd : 0;
-const dueNowUsdEstimate = solUsd > 0 ? bondUsdEstimate + visibilityTotalUsd : 0;
+
+const dueNowUsdEstimate =
+solUsd > 0 ? bondUsdEstimate + visibilityTotalUsd : 0;
+
 const dueNowSolEstimate = values.builderBond + visibilitySolEstimate;
-const maxLaunchFeeSol = toNumber(values.hardCapSol, 0) * 0.03;
+
+const maxLaunchFeeSol =
+toNumber(values.hardCapSol, 0) * (LAUNCH_FEE_PCT / 100);
+
 const maxLaunchFeeUsd = solUsd > 0 ? maxLaunchFeeSol * solUsd : 0;
 
 if (launchName) {
@@ -1455,7 +1679,9 @@ bondPrimary.textContent = formatSol(values.builderBond, 3);
 
 if (bondSecondary) {
 bondSecondary.textContent =
-solUsd > 0 ? `≈ ${formatUsd(bondUsdEstimate, 2)}` : "USD estimate pending";
+solUsd > 0
+? `≈ ${formatUsd(bondUsdEstimate, 2)}`
+: "USD estimate pending";
 }
 
 if (visibilityTotalPrimary) {
@@ -1483,7 +1709,9 @@ visibilityItems.innerHTML = `
 } else {
 visibilityItems.innerHTML = visibilityAddons
 .map((addon) => {
-const solText = solUsd > 0 ? formatSol(addon.usd / solUsd, 3) : "— SOL";
+const solText =
+solUsd > 0 ? formatSol(addon.usd / solUsd, 3) : "— SOL";
+
 return `
 <div class="checkout-list-item">
 <span>${escapeHtmlText(addon.label)}</span>
@@ -1501,7 +1729,10 @@ if (dueNowPrimary) {
 if (solUsd > 0) {
 dueNowPrimary.textContent = formatUsd(dueNowUsdEstimate, 2);
 } else if (visibilityTotalUsd > 0) {
-dueNowPrimary.textContent = `${formatUsd(visibilityTotalUsd, 0)} + bond quote pending`;
+dueNowPrimary.textContent = `${formatUsd(
+visibilityTotalUsd,
+0
+)} + bond quote pending`;
 } else {
 dueNowPrimary.textContent = formatSol(values.builderBond, 3);
 }
@@ -1511,11 +1742,14 @@ if (dueNowSecondary) {
 dueNowSecondary.textContent =
 solUsd > 0
 ? `${formatSol(dueNowSolEstimate, 3)} total due now`
-: `${formatSol(values.builderBond, 3)} builder bond • SOL refresh pending for add-ons`;
+: `${formatSol(
+values.builderBond,
+3
+)} builder bond • SOL refresh pending for add-ons`;
 }
 
 if (launchFeePrimary) {
-launchFeePrimary.textContent = "3% of final committed SOL";
+launchFeePrimary.textContent = `${LAUNCH_FEE_PCT}% of final committed SOL`;
 }
 
 if (launchFeeSecondary) {
@@ -1531,7 +1765,7 @@ maxLaunchFeeUsd,
 }
 
 if (dueIfLivePrimary) {
-dueIfLivePrimary.textContent = "3% of final committed SOL";
+dueIfLivePrimary.textContent = `${LAUNCH_FEE_PCT}% of final committed SOL`;
 }
 
 if (dueIfLiveSecondary) {
@@ -1551,10 +1785,13 @@ if (solUsd > 0 && pricingState.fetchedAt) {
 quoteNote.textContent = `USD prices are fixed. SOL equivalents refresh automatically every 20 seconds with market price. Current SOL/USD: ${formatUsd(
 solUsd,
 2
-)}. Last updated ${new Date(pricingState.fetchedAt).toLocaleTimeString([], {
+)}. Last updated ${new Date(pricingState.fetchedAt).toLocaleTimeString(
+[],
+{
 hour: "2-digit",
 minute: "2-digit",
-})}.`;
+}
+)}.`;
 } else {
 quoteNote.textContent =
 "USD prices are fixed. SOL equivalents refresh automatically every 20 seconds when quote data is available.";
@@ -1574,27 +1811,46 @@ const previewWallet = $("previewWallet");
 const previewDesc = $("previewDesc");
 const previewBadge = $("previewBadge");
 
-if (previewName) previewName.textContent = values.tokenName || "Untitled Launch";
-if (previewSub) {
-previewSub.textContent = `${values.symbol || "TICK"} • ${normalizeTemplateLabel(
-values.template
-)}`;
+if (previewName) {
+previewName.textContent = values.tokenName || "Untitled Launch";
 }
-if (previewMinRaise) previewMinRaise.textContent = formatSol(values.minRaiseSol);
-if (previewHardCap) previewHardCap.textContent = formatSol(values.hardCapSol);
-if (previewSupply) previewSupply.textContent = formatSupply(values.supply);
+
+if (previewSub) {
+previewSub.textContent = `${
+values.symbol || "TICK"
+} • ${normalizeTemplateLabel(values.template)}`;
+}
+
+if (previewMinRaise) {
+previewMinRaise.textContent = formatSol(values.minRaiseSol);
+}
+
+if (previewHardCap) {
+previewHardCap.textContent = formatSol(values.hardCapSol);
+}
+
+if (previewSupply) {
+previewSupply.textContent = formatSupply(values.supply);
+}
+
 if (previewWallet) {
 previewWallet.textContent = values.builderAlias
-? `${values.builderAlias}${values.wallet ? ` • ${shortenWallet(values.wallet)}` : ""}`
+? `${values.builderAlias}${
+values.wallet ? ` • ${shortenWallet(values.wallet)}` : ""
+}`
 : values.wallet
 ? shortenWallet(values.wallet)
 : "—";
 }
+
 if (previewDesc) {
 previewDesc.textContent =
 values.description || "Launch description preview will appear here.";
 }
-if (previewBadge) previewBadge.textContent = "Commit";
+
+if (previewBadge) {
+previewBadge.textContent = "Commit";
+}
 
 const flowChip = $("previewFlowChip");
 const templateChip = $("previewTemplateChip");
@@ -1625,16 +1881,17 @@ renderCheckoutSummary(values);
 
 const file = $("logoInput")?.files?.[0];
 const existingUrl = values.imageUrl;
-const img = $("logoPreviewImg");
+const image = $("logoPreviewImg");
 const placeholder = $("logoPreviewPlaceholder");
 
-if (!img || !placeholder) return;
+if (!image || !placeholder) return;
 
 if (file) {
 clearLogoPreviewObjectUrl();
+
 currentLogoPreviewObjectUrl = URL.createObjectURL(file);
-img.src = currentLogoPreviewObjectUrl;
-img.style.display = "block";
+image.src = currentLogoPreviewObjectUrl;
+image.style.display = "block";
 placeholder.style.display = "none";
 return;
 }
@@ -1642,20 +1899,20 @@ return;
 clearLogoPreviewObjectUrl();
 
 if (existingUrl) {
-img.src = existingUrl;
-img.style.display = "block";
+image.src = existingUrl;
+image.style.display = "block";
 placeholder.style.display = "none";
 return;
 }
 
-img.removeAttribute("src");
-img.style.display = "none";
+image.removeAttribute("src");
+image.style.display = "none";
 placeholder.style.display = "grid";
 }
 
 function applyTemplateValues() {
-const tpl = getSelectedTemplate();
-const builderMode = tpl.key === "builder";
+const template = getSelectedTemplate();
+const builderMode = template.key === "builder";
 
 const supplyInput = $("supply");
 const supplyPreset = $("supplyPreset");
@@ -1667,8 +1924,11 @@ const builderExtras = $("builderExtras");
 const builderHighlight = $("builderModeHighlight");
 
 if (builderMode) {
-const builderSupply = Number(supplyPreset?.value || tpl.supply);
-if (supplyInput) supplyInput.value = String(builderSupply);
+const builderSupply = Number(supplyPreset?.value || template.supply);
+
+if (supplyInput) {
+supplyInput.value = String(builderSupply);
+}
 
 if (fixedSupplyField) fixedSupplyField.style.display = "none";
 if (builderSupplyField) builderSupplyField.classList.add("show");
@@ -1677,7 +1937,9 @@ if (builderMinRaiseField) builderMinRaiseField.classList.add("show");
 if (builderExtras) builderExtras.classList.add("show");
 if (builderHighlight) builderHighlight.classList.add("show");
 } else {
-if (supplyInput) supplyInput.value = String(tpl.supply);
+if (supplyInput) {
+supplyInput.value = String(template.supply);
+}
 
 if (fixedSupplyField) fixedSupplyField.style.display = "grid";
 if (builderSupplyField) builderSupplyField.classList.remove("show");
@@ -1687,26 +1949,35 @@ if (builderExtras) builderExtras.classList.remove("show");
 if (builderHighlight) builderHighlight.classList.remove("show");
 }
 
-if ($("minRaiseSol")) $("minRaiseSol").value = String(tpl.minRaiseSol);
-if ($("hardCapSol")) $("hardCapSol").value = String(tpl.hardCapSol);
+if ($("minRaiseSol")) {
+$("minRaiseSol").value = String(template.minRaiseSol);
+}
+
+if ($("hardCapSol")) {
+$("hardCapSol").value = String(template.hardCapSol);
+}
 
 if ($("launchFeeDisplay")) {
-$("launchFeeDisplay").value = "3% of final committed SOL • only if live";
+$("launchFeeDisplay").value =
+`${LAUNCH_FEE_PCT}% of final committed SOL • only if live`;
 }
+
 if ($("launchFeeRuleDisplay")) {
-$("launchFeeRuleDisplay").value = "3% of final committed SOL";
+$("launchFeeRuleDisplay").value =
+`${LAUNCH_FEE_PCT}% of final committed SOL`;
 }
+
 if ($("launchFeeSplitDisplay")) {
 $("launchFeeSplitDisplay").value =
 "60% Core Team Development • 40% MSS Ecosystem Support";
 }
+
 if ($("cassieIncludedDisplay")) {
-$("cassieIncludedDisplay").value =
-"Included standard on every launch";
+$("cassieIncludedDisplay").value = "Included standard on every launch";
 }
 
-syncLaunchBondField(tpl);
-updateTemplateSelectionCards(tpl.key);
+syncLaunchBondField(template);
+updateTemplateSelectionCards(template.key);
 updateTeamAllocationTotal();
 updatePreview();
 }
@@ -1714,34 +1985,33 @@ updatePreview();
 async function connectWallet() {
 try {
 const wallet = await connectAnyWallet();
+
 updateWalletUi();
 updatePreview();
 
 if (wallet?.isConnected) {
-await refreshBuilderComplianceStatus({ silent: true });
+await refreshBuilderStatus({ silent: true });
 
-const compliancePayload = getBuilderCompliancePayload();
-const access = getBuilderComplianceAccess(compliancePayload);
+const payload = getBuilderStatusPayload();
+const access = getBuilderLaunchAccess(payload);
 
-if (access.transactionalAccess) {
 setStatus(
-access.accessState === "watch" && access.escalationRequired
-? "warn"
-: "good",
-getBuilderComplianceMessage(compliancePayload)
+access.blocked ? "bad" : "good",
+getBuilderStatusMessage(payload)
 );
-} else {
-setStatus("warn", getBuilderComplianceMessage(compliancePayload));
-}
+
 return;
 }
 
 setStatus("warn", "Wallet connection cancelled.");
 } catch (err) {
-const msg = err?.message || "Wallet connection failed.";
+const message = err?.message || "Wallet connection failed.";
+
 setStatus(
 "bad",
-msg.includes("No supported wallet") ? getMobileWalletHelpText() : msg
+message.includes("No supported wallet")
+? getMobileWalletHelpText()
+: message
 );
 }
 }
@@ -1750,18 +2020,24 @@ async function disconnectWallet() {
 try {
 await disconnectAnyWallet();
 } catch {
-// ignore
+// Ignore wallet adapter disconnect failures.
 }
 
-clearBuilderBondCache();
+cachedBuilderBond = null;
+
 builderComplianceState = {
 wallet: "",
 payload: null,
 };
+
 renderBuilderComplianceUi(null);
 updateWalletUi();
 updatePreview();
-setStatus("warn", "Wallet disconnected.");
+
+setStatus(
+"warn",
+"Wallet disconnected. Any already confirmed Builder Bond remains recoverable when the same wallet is reconnected."
+);
 }
 
 async function uploadLogo() {
@@ -1772,24 +2048,34 @@ const formData = new FormData();
 formData.append("logo", file);
 
 const apiBase = getApiBase();
-const res = await fetch(`${apiBase}/api/upload/launch-logo`, {
+
+const response = await fetch(`${apiBase}/api/upload/launch-logo`, {
 method: "POST",
 body: formData,
 });
 
 let data = null;
+
 try {
-data = await res.json();
+data = await response.json();
 } catch {
 data = null;
 }
 
-if (!res.ok || !data?.ok || !data?.url) {
-throw new Error(data?.error || "Logo upload failed.");
+if (!response.ok || !data?.ok || !data?.url) {
+throw new ApiRequestError(
+data?.error || "Logo upload failed.",
+response.status,
+data
+);
 }
 
 const url = String(data.url);
-if (url.startsWith("http://") || url.startsWith("https://")) return url;
+
+if (url.startsWith("http://") || url.startsWith("https://")) {
+return url;
+}
+
 return `${apiBase}${url}`;
 }
 
@@ -1798,9 +2084,13 @@ try {
 const data = await fetchJson(`/api/builders/${encodeURIComponent(wallet)}`);
 return data.builder || null;
 } catch (err) {
-if (String(err?.message || "").includes("HTTP 404")) {
+if (
+Number(err?.status) === 404 ||
+String(err?.message || "").includes("HTTP 404")
+) {
 return null;
 }
+
 throw err;
 }
 }
@@ -1811,7 +2101,7 @@ let lastError = null;
 
 for (const alias of aliases) {
 try {
-const data = await fetchJson(`/api/builders/create`, {
+const data = await fetchJson("/api/builders/create", {
 method: "POST",
 headers: {
 "Content-Type": "application/json",
@@ -1824,17 +2114,15 @@ alias,
 
 return data.builder || null;
 } catch (err) {
-const message = String(err?.message || "");
+const message = String(err?.message || "").toLowerCase();
 
-if (
-message.toLowerCase().includes("already exists") ||
-message.toLowerCase().includes("duplicate")
-) {
+if (message.includes("already exists") || message.includes("duplicate")) {
 const existing = await getBuilderByWallet(wallet);
+
 if (existing) return existing;
 }
 
-if (message.toLowerCase().includes("alias is already taken")) {
+if (message.includes("alias is already taken")) {
 lastError = err;
 continue;
 }
@@ -1850,17 +2138,23 @@ throw lastError;
 throw new Error("Builder profile could not be created automatically.");
 }
 
-async function ensureBuilderProfile(wallet, preferredAlias = "", { forceCreate = false } = {}) {
+async function ensureBuilderProfile(
+wallet,
+preferredAlias = "",
+{ forceCreate = false } = {}
+) {
 if (!wallet) {
 throw new Error("Builder wallet is required.");
 }
 
 if (!forceCreate) {
 const existing = await getBuilderByWallet(wallet);
+
 if (existing) return existing;
 }
 
 setStatus("warn", "No builder profile found. Creating one automatically...");
+
 const created = await createBuilderProfile(wallet, preferredAlias);
 
 if (created) {
@@ -1870,21 +2164,20 @@ return created;
 await sleep(250);
 
 const retry = await getBuilderByWallet(wallet);
+
 if (retry) return retry;
 
 throw new Error("Builder profile could not be created automatically.");
 }
 
 async function createLaunch(payload) {
-const data = await fetchJson(`/api/launcher/create`, {
+return fetchJson("/api/launcher/create", {
 method: "POST",
 headers: {
 "Content-Type": "application/json",
 },
 body: JSON.stringify(payload),
 });
-
-return data;
 }
 
 async function createLaunchWithBuilderFallback(payload) {
@@ -1899,11 +2192,273 @@ setStatus(
 "warn",
 "Builder profile was missing during launch creation. Rebuilding profile and retrying..."
 );
-await ensureBuilderProfile(payload.wallet, payload.builder_alias, { forceCreate: true });
+
+await ensureBuilderProfile(payload.wallet, payload.builder_alias, {
+forceCreate: true,
+});
+
 await sleep(300);
 
 return createLaunch(payload);
 }
+}
+
+function getRefundPayloadData(payload = null) {
+const source =
+payload?.builderBondRefund ||
+payload?.builder_bond_refund ||
+payload?.bondRefund ||
+payload?.bond_refund ||
+payload?.refund ||
+payload ||
+{};
+
+const refundedSol = toNumber(
+source.refundedSol ??
+source.refunded_sol ??
+source.builderBondRefundedSol ??
+source.builder_bond_refunded_sol ??
+source.builderBondRefundSol ??
+source.builder_bond_refund_sol ??
+source.refundSol ??
+source.refund_sol,
+0
+);
+
+const refundConfirmed = Boolean(
+refundedSol > 0 ||
+toBoolean(
+source.builderBondRefunded ??
+source.builder_bond_refunded ??
+source.refundConfirmed ??
+source.refund_confirmed ??
+source.refunded
+) ||
+String(source.refundStatus ?? source.refund_status ?? "")
+.trim()
+.toLowerCase() === "refunded"
+);
+
+const refundQueued = toBoolean(
+source.refundQueued ??
+source.refund_queued ??
+source.builderBondRefundQueued ??
+source.builder_bond_refund_queued ??
+source.queued
+);
+
+const refundReviewRequired = toBoolean(
+source.refundReviewRequired ??
+source.refund_review_required ??
+source.builderBondRefundReviewRequired ??
+source.builder_bond_refund_review_required ??
+source.reviewRequired ??
+source.review_required
+);
+
+const refundStatus = String(
+source.refundStatus ??
+source.refund_status ??
+source.builderBondRefundStatus ??
+source.builder_bond_refund_status ??
+""
+).trim();
+
+const refundTxSignature = String(
+source.refundTxSignature ??
+source.refund_tx_signature ??
+source.builderBondRefundTxSignature ??
+source.builder_bond_refund_tx_signature ??
+""
+).trim();
+
+const refundError = String(
+source.refundError ??
+source.refund_error ??
+source.builderBondRefundError ??
+source.builder_bond_refund_error ??
+""
+).trim();
+
+const refundLedgerId =
+source.refundLedgerId ??
+source.refund_ledger_id ??
+source.builderBondRefundLedgerId ??
+source.builder_bond_refund_ledger_id ??
+null;
+
+const refundProgramReference = String(
+source.refundProgramReference ??
+source.refund_program_reference ??
+source.builderBondRefundProgramReference ??
+source.builder_bond_refund_program_reference ??
+""
+).trim();
+
+const escrowModel = String(
+source.escrowModel ??
+source.escrow_model ??
+source.builderBondEscrowModel ??
+source.builder_bond_escrow_model ??
+""
+).trim();
+
+const normalizedRefundStatus = refundStatus.toLowerCase();
+
+return {
+refundedSol,
+refundConfirmed,
+refundQueued,
+refundReviewRequired:
+refundReviewRequired ||
+normalizedRefundStatus === "review_required" ||
+normalizedRefundStatus === "pending_review",
+refundStatus,
+refundTxSignature,
+refundError,
+refundLedgerId,
+refundProgramReference,
+escrowModel,
+};
+}
+
+function isBlockedBuilderPayload(payload = null) {
+const code = String(payload?.code || "").toLowerCase();
+const message = String(payload?.error || "").toLowerCase();
+const accessState = String(payload?.access_state || "").toLowerCase();
+
+return Boolean(
+payload?.internal_intervention_active ||
+accessState === "blocked" ||
+code.includes("builder_blocked") ||
+code.includes("wallet_blocked") ||
+code.includes("intervention") ||
+(code.includes("builder") && code.includes("blocked")) ||
+message.includes("wallet is currently unable") ||
+message.includes("builder access is blocked") ||
+message.includes("builder is blocked") ||
+message.includes("launch creation blocked") ||
+message.includes("internal intervention")
+);
+}
+
+function buildBlockedBuilderOutcome(
+err,
+values,
+confirmedBuilderBondTxSignature = ""
+) {
+const payload = err?.payload || null;
+
+if (!isBlockedBuilderPayload(payload)) {
+return null;
+}
+
+const cachedSignature = getCachedBuilderBondSignature(values);
+
+const bondWasTransferred = Boolean(
+String(confirmedBuilderBondTxSignature || "").trim() || cachedSignature
+);
+
+const refund = getRefundPayloadData(payload);
+const bondAmount = Number(values?.builderBond || 0);
+
+if (!bondWasTransferred) {
+return {
+kind: "bad",
+message:
+payload?.error ||
+"This wallet is currently unable to create launches. No Builder Bond transfer was made.",
+};
+}
+
+if (refund.refundConfirmed) {
+clearBuilderBondCache({ forgetConfirmed: true });
+
+const refundedAmount =
+refund.refundedSol > 0 ? refund.refundedSol : bondAmount;
+
+return {
+kind: "warn",
+message: `Launch creation was blocked before activation. Your ${formatSol(
+refundedAmount,
+3
+)} Builder Bond has been refunded${
+refund.refundTxSignature
+? `. Refund transaction: ${refund.refundTxSignature}`
+: "."
+}`,
+};
+}
+
+if (refund.refundQueued) {
+clearBuilderBondCache({ forgetConfirmed: true });
+
+const queueDetail = refund.refundStatus
+? ` Status: ${refund.refundStatus}.`
+: "";
+
+const ledgerDetail = refund.refundLedgerId
+? ` Refund reference: ${refund.refundLedgerId}.`
+: "";
+
+return {
+kind: "warn",
+message: `Launch creation was blocked before activation. Your ${formatSol(
+bondAmount,
+3
+)} Builder Bond refund has been queued.${queueDetail}${ledgerDetail}`,
+};
+}
+
+if (refund.refundReviewRequired) {
+clearBuilderBondCache({ forgetConfirmed: true });
+
+const referenceDetail = refund.refundProgramReference
+? ` Reference: ${refund.refundProgramReference}.`
+: "";
+
+return {
+kind: "warn",
+message: `Launch creation was blocked after the Builder Bond was confirmed. The ${formatSol(
+bondAmount,
+3
+)} refund requires processing or review before another launch attempt.${referenceDetail}`,
+};
+}
+
+if (refund.refundError) {
+return {
+kind: "bad",
+message: `Launch creation was blocked after the Builder Bond transaction. Automatic refund could not be confirmed: ${refund.refundError}. Contact support before retrying.`,
+};
+}
+
+return {
+kind: "bad",
+message: `Launch creation was blocked after the ${formatSol(
+bondAmount,
+3
+)} Builder Bond transaction. No confirmed refund status was returned. Contact support before attempting another launch.`,
+};
+}
+
+function buildPostBondFailureMessage(
+err,
+values,
+confirmedBuilderBondTxSignature = ""
+) {
+const cachedSignature = getCachedBuilderBondSignature(values);
+
+const signature =
+String(confirmedBuilderBondTxSignature || "").trim() || cachedSignature;
+
+if (!signature) {
+return err?.message || "Unable to create launch.";
+}
+
+return `Your Builder Bond transaction was confirmed, but launch creation did not complete: ${
+err?.message || "Unknown launch creation error."
+} Do not approve another Builder Bond payment. Retry with the same wallet and bond amount, or contact support if the issue continues. Transaction: ${signature}`;
 }
 
 async function collectLaunchBond(values) {
@@ -1912,11 +2467,18 @@ return "";
 }
 
 const cachedSignature = getCachedBuilderBondSignature(values);
+
 if (cachedSignature) {
+setStatus(
+"warn",
+`Reusing previously confirmed ${getLaunchBondLabel().toLowerCase()} transaction. No new bond approval is required.`
+);
+
 return cachedSignature;
 }
 
 const provider = getInjectedWalletProvider();
+
 if (!provider?.signTransaction) {
 throw new Error(
 `${getLaunchBondLabel()} signing is not available for this wallet session.`
@@ -1927,9 +2489,14 @@ if (!window.solanaWeb3?.Transaction?.from) {
 throw new Error("solanaWeb3 is not available on this page.");
 }
 
-setStatus("warn", `Preparing ${getLaunchBondLabel().toLowerCase()} approval...`);
+const acknowledgementPayload = buildLauncherAcknowledgementPayload(values);
 
-const prepare = await fetchJson(`/api/launcher/prepare-builder-bond`, {
+setStatus(
+"warn",
+`Preparing ${getLaunchBondLabel().toLowerCase()} approval...`
+);
+
+const prepare = await fetchJson("/api/launcher/prepare-builder-bond", {
 method: "POST",
 headers: {
 "Content-Type": "application/json",
@@ -1937,6 +2504,9 @@ headers: {
 body: JSON.stringify({
 wallet: values.wallet,
 builderBondSol: Number(values.builderBond),
+role: "builder",
+acknowledgements: acknowledgementPayload,
+...acknowledgementPayload,
 }),
 });
 
@@ -1949,18 +2519,26 @@ throw new Error(
 );
 }
 
-const txBytes = Uint8Array.from(atob(transactionBase64), (c) =>
-c.charCodeAt(0)
+const transactionBytes = Uint8Array.from(atob(transactionBase64), (char) =>
+char.charCodeAt(0)
 );
-const transaction = window.solanaWeb3.Transaction.from(txBytes);
 
-setStatus("warn", `Awaiting ${getLaunchBondLabel().toLowerCase()} wallet approval...`);
+const transaction = window.solanaWeb3.Transaction.from(transactionBytes);
+
+setStatus(
+"warn",
+`Awaiting ${getLaunchBondLabel().toLowerCase()} wallet approval...`
+);
+
 const signedTransaction = await provider.signTransaction(transaction);
 
-const signedBase64 = btoa(String.fromCharCode(...signedTransaction.serialize()));
+const signedBase64 = btoa(
+String.fromCharCode(...signedTransaction.serialize())
+);
 
 setStatus("warn", `Confirming ${getLaunchBondLabel().toLowerCase()}...`);
-const confirm = await fetchJson(`/api/launcher/confirm-builder-bond`, {
+
+const confirm = await fetchJson("/api/launcher/confirm-builder-bond", {
 method: "POST",
 headers: {
 "Content-Type": "application/json",
@@ -1969,22 +2547,30 @@ body: JSON.stringify({
 wallet: values.wallet,
 builderBondSol: Number(values.builderBond),
 signedTransaction: signedBase64,
+role: "builder",
+acknowledgements: acknowledgementPayload,
+...acknowledgementPayload,
 }),
 });
 
-cachedBuilderBond = {
-key: getBuilderBondCacheKey(values),
-txSignature: confirm.txSignature,
-};
+if (!confirm.txSignature) {
+throw new Error(
+"Builder Bond was processed but no confirmed transaction signature was returned."
+);
+}
+
+rememberConfirmedBuilderBond(values, confirm.txSignature);
 
 return confirm.txSignature;
 }
 
 async function fetchOptionalJson(url) {
 try {
-const res = await fetch(url, { credentials: "include" });
-if (!res.ok) return null;
-return await res.json().catch(() => null);
+const response = await fetch(url, { credentials: "include" });
+
+if (!response.ok) return null;
+
+return await response.json().catch(() => null);
 } catch {
 return null;
 }
@@ -2012,12 +2598,14 @@ payload.market?.sol_usd,
 
 for (const candidate of candidates) {
 const num = Number(candidate);
+
 if (Number.isFinite(num) && num > 0) {
 return num;
 }
 }
 
 const globalQuote = Number(window.__MSS_SOL_USD__ || 0);
+
 if (Number.isFinite(globalQuote) && globalQuote > 0) {
 return globalQuote;
 }
@@ -2027,6 +2615,7 @@ return null;
 
 async function fetchSolUsdQuote() {
 const apiBase = getApiBase();
+
 const endpoints = [
 `${apiBase}/api/launcher/checkout-quote`,
 `${apiBase}/api/pricing/sol-usd`,
@@ -2038,6 +2627,7 @@ const endpoints = [
 for (const url of endpoints) {
 const payload = await fetchOptionalJson(url);
 const solUsd = extractSolUsdFromPayload(payload);
+
 if (solUsd) {
 return solUsd;
 }
@@ -2048,21 +2638,27 @@ return null;
 
 async function refreshPricingQuote({ silent = false } = {}) {
 if (pricingState.isLoading) return pricingState.solUsd;
+
 pricingState.isLoading = true;
 
 try {
 const solUsd = await fetchSolUsdQuote();
+
 if (solUsd && Number.isFinite(solUsd) && solUsd > 0) {
 pricingState.solUsd = solUsd;
 pricingState.fetchedAt = Date.now();
 }
+
 updatePreview();
+
 return pricingState.solUsd;
 } catch (err) {
 if (!silent) {
 console.error("pricing quote refresh failed:", err);
 }
+
 updatePreview();
+
 return pricingState.solUsd;
 } finally {
 pricingState.isLoading = false;
@@ -2087,19 +2683,22 @@ quoteRefreshIntervalId = null;
 }
 }
 
-async function onSubmit(e) {
-e.preventDefault();
+async function onSubmit(event) {
+event.preventDefault();
 clearStatus();
 
-const btn = $("createLaunchBtn");
+const button = $("createLaunchBtn");
+
+let values = null;
+let builderBondTxSignature = "";
 
 try {
-const values = getFormValues();
+values = getFormValues();
 validateForm(values);
 
-if (btn) {
-btn.disabled = true;
-btn.textContent = "Creating Launch...";
+if (button) {
+button.disabled = true;
+button.textContent = "Creating Launch...";
 }
 
 await requireBuilderLaunchAccess(values.wallet);
@@ -2107,28 +2706,47 @@ await requireBuilderLaunchAccess(values.wallet);
 setStatus("warn", "Preparing builder profile...");
 await ensureBuilderProfile(values.wallet, values.builderAlias);
 
-let builderBondTxSignature = "";
-if (Number(values.builderBond) > 0) {
-builderBondTxSignature = await collectLaunchBond(values);
-}
-
-setStatus("warn", "Uploading logo and creating launch...");
-
+/*
+Complete non-financial work before collecting the Builder Bond.
+This prevents a logo upload failure from leaving a paid bond without
+an attempted launch creation.
+*/
+setStatus("warn", "Uploading launch media...");
 let finalImageUrl = values.imageUrl || "";
+
 const uploadedLogoUrl = await uploadLogo();
+
 if (uploadedLogoUrl) {
 finalImageUrl = uploadedLogoUrl;
 }
 
+/*
+Re-check immediately before the on-chain Builder Bond transaction.
+A blocked wallet must not be asked to pay.
+*/
+await requireBuilderLaunchAccess(values.wallet);
+
+if (Number(values.builderBond) > 0) {
+builderBondTxSignature = await collectLaunchBond(values);
+}
+
+setStatus("warn", "Creating launch and recording lifecycle state...");
+
+const launcherAcknowledgements =
+buildLauncherAcknowledgementPayload(values);
+
 const payload = {
 wallet: values.wallet,
+role: "builder",
 template: values.template,
 token_name: values.tokenName,
 symbol: values.symbol,
 builder_alias: values.builderAlias,
 description: values.description,
 image_url: finalImageUrl,
-website_url: values.websiteUrl ? normalizeUrl(values.websiteUrl, "website_url") : "",
+website_url: values.websiteUrl
+? normalizeUrl(values.websiteUrl, "website_url")
+: "",
 x_url: values.xUrl ? normalizeUrl(values.xUrl, "x_url") : "",
 telegram_url: values.telegramUrl
 ? normalizeUrl(values.telegramUrl, "telegram_url")
@@ -2146,7 +2764,7 @@ team_wallet_breakdown:
 values.template === "builder" ? values.teamWalletBreakdown : [],
 builder_bond_sol: Number(values.builderBond),
 builder_bond_tx_signature: builderBondTxSignature,
-launch_fee_pct: 3,
+launch_fee_pct: LAUNCH_FEE_PCT,
 launch_fee_split: {
 core_team_development_pct: 60,
 mss_ecosystem_support_pct: 40,
@@ -2162,7 +2780,9 @@ pricing_quote: {
 sol_usd: toNumber(pricingState.solUsd, 0),
 quoted_at: pricingState.fetchedAt || null,
 },
-acknowledgements: values.acknowledgements,
+acknowledgements: launcherAcknowledgements,
+...launcherAcknowledgements,
+commercial_acknowledgements: values.commercialAcknowledgements,
 };
 
 const result = await createLaunchWithBuilderFallback(payload);
@@ -2188,14 +2808,12 @@ const mintNotice = mintReservation?.reservedMintAddress
 ? ` Reserved mint: ${mintReservation.reservedMintAddress}.`
 : "";
 
+clearBuilderBondCache({ forgetConfirmed: true });
+
 setStatus(
 "good",
-`Launch created successfully. Redirecting to launch #${
-launch.id
-}...${launchBondNotice}${visibilityNotice}${mintNotice}`
+`Launch created successfully. Redirecting to launch #${launch.id}...${launchBondNotice}${visibilityNotice}${mintNotice}`
 );
-
-clearBuilderBondCache();
 
 window.setTimeout(() => {
 window.location.href = `./launch-detail.html?id=${encodeURIComponent(
@@ -2203,22 +2821,37 @@ launch.id
 )}`;
 }, 700);
 } catch (err) {
-const values = getFormValues();
-const compliancePayload = getBuilderCompliancePayload();
-const shouldRouteToCompliance =
-values.wallet && shouldRedirectToCompliance(compliancePayload);
+const safeValues = values || getFormValues();
 
+const blockedOutcome = buildBlockedBuilderOutcome(
+err,
+safeValues,
+builderBondTxSignature
+);
+
+if (blockedOutcome) {
+setStatus(blockedOutcome.kind, blockedOutcome.message);
+
+try {
+await refreshBuilderStatus({ silent: true });
+} catch {
+// Keep the confirmed block/refund outcome visible.
+}
+} else if (
+builderBondTxSignature ||
+hasConfirmedBuilderBondForValues(safeValues)
+) {
+setStatus(
+"warn",
+buildPostBondFailureMessage(err, safeValues, builderBondTxSignature)
+);
+} else {
 setStatus("bad", err?.message || "Unable to create launch.");
-
-if (shouldRouteToCompliance) {
-window.setTimeout(() => {
-window.location.href = buildCompliancePageUrl(values.wallet);
-}, 800);
 }
 } finally {
-if (btn) {
-btn.disabled = false;
-btn.textContent = "Create Launch";
+if (button) {
+button.disabled = false;
+button.textContent = "Create Launch";
 }
 }
 }
@@ -2236,17 +2869,6 @@ applyTemplateValues();
 
 if (sourceId === "teamWalletCount") {
 renderTeamWalletInputs();
-}
-
-if (
-sourceId === "template" ||
-sourceId === "builderHardCapSol" ||
-sourceId === "builderMinRaiseSol" ||
-sourceId === "builderBond" ||
-sourceId === "teamWalletCount" ||
-sourceId === "teamAllocation"
-) {
-clearBuilderBondCache();
 }
 
 updatePreview();
@@ -2279,41 +2901,53 @@ const ids = [
 ];
 
 for (const id of ids) {
-const el = $(id);
-if (!el) continue;
+const element = $(id);
+
+if (!element) continue;
 
 const handler = handleTemplateLinkedChange(id);
-el.addEventListener("input", handler);
-el.addEventListener("change", handler);
+
+element.addEventListener("input", handler);
+element.addEventListener("change", handler);
 }
 
 const builderAliasInput = $("builderAlias");
+
 if (builderAliasInput) {
 builderAliasInput.addEventListener("input", () => {
-builderAliasInput.dataset.userEdited = builderAliasInput.value.trim() ? "1" : "0";
+builderAliasInput.dataset.userEdited = builderAliasInput.value.trim()
+? "1"
+: "0";
 });
 }
 
 VISIBILITY_ADDONS.forEach((addon) => {
 const checkbox = $(addon.checkboxId);
+
 if (!checkbox) return;
+
 const handler = () => updatePreview();
+
 checkbox.addEventListener("change", handler);
 checkbox.addEventListener("input", handler);
 });
+
+bindLauncherAcknowledgementInputs();
 }
 
 function bindTemplateCards() {
 document.querySelectorAll("[data-template-card]").forEach((card) => {
 if (card.dataset.bound === "1") return;
+
 card.dataset.bound = "1";
 
 card.addEventListener("click", () => {
 const key = card.getAttribute("data-template-card") || "";
 const select = $("template");
+
 if (!select || !key) return;
+
 select.value = key;
-clearBuilderBondCache();
 applyTemplateValues();
 });
 });
@@ -2333,7 +2967,7 @@ window.location.reload();
 },
 });
 } catch {
-// ignore
+// The launch creator remains wallet-accessible if account UI is absent.
 }
 }
 
@@ -2341,25 +2975,22 @@ function bindWalletEvents() {
 $("connectWalletBtn")?.addEventListener("click", connectWallet);
 $("disconnectWalletBtn")?.addEventListener("click", disconnectWallet);
 
-$("builderComplianceAction")?.addEventListener("click", (event) => {
-const wallet = getConnectedPublicKey() || "";
-event.currentTarget.href = buildCompliancePageUrl(wallet);
-});
-
 onWalletChange(async () => {
-clearBuilderBondCache();
+cachedBuilderBond = null;
+
 updateWalletUi();
 updatePreview();
 
 try {
-await refreshBuilderComplianceStatus({ silent: true });
+await refreshBuilderStatus({ silent: true });
 } catch {
-// ignore on passive wallet state changes
+// Passive wallet refresh must not interrupt the form.
 }
 });
 }
 
 async function init() {
+ensureLauncherAcknowledgementUi();
 initSessionUi();
 applyTemplateValues();
 updateWalletUi();
@@ -2372,24 +3003,27 @@ updateTeamAllocationTotal();
 renderBuilderComplianceUi(null);
 
 await restoreWalletIfTrusted();
+
 updateWalletUi();
 updatePreview();
 
 try {
-await refreshBuilderComplianceStatus({ silent: true });
+await refreshBuilderStatus({ silent: true });
 } catch {
-// ignore on initial passive load
+// Initial status load is non-blocking until a transaction is attempted.
 }
 
 await refreshPricingQuote({ silent: true });
 startPricingQuoteLoop();
 
 const form = $("launchCreateForm");
+
 if (form) {
 form.addEventListener("submit", onSubmit);
 }
 
 const symbolInput = $("symbol");
+
 if (symbolInput) {
 symbolInput.addEventListener("input", () => {
 symbolInput.value = normalizeSymbol(symbolInput.value);

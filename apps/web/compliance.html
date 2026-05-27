@@ -3,10 +3,11 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>MSS Protocol — Compliance</title>
+
+<title>MSS Protocol — Launcher Access</title>
 <meta
 name="description"
-content="Complete MSS Protocol access verification for builder and participant workflows."
+content="Record MSS Protocol Launcher terms and risk acknowledgements for builder and participant workflows."
 />
 
 <link rel="stylesheet" href="/assets/app.css?v=20260514-shell-v3" />
@@ -15,12 +16,13 @@ content="Complete MSS Protocol access verification for builder and participant w
 :root {
 --bg: #030711;
 --panel: rgba(8, 14, 27, 0.92);
---panel-2: rgba(5, 9, 20, 0.94);
+--panel-2: rgba(5, 9, 20, 0.95);
+--panel-soft: rgba(255, 255, 255, 0.035);
 --border: rgba(115, 185, 255, 0.14);
 --border-strong: rgba(115, 185, 255, 0.26);
 --text: #eef6ff;
---muted: rgba(198, 211, 226, 0.66);
---muted-2: rgba(198, 211, 226, 0.48);
+--muted: rgba(198, 211, 226, 0.68);
+--muted-2: rgba(198, 211, 226, 0.47);
 --accent: #4fc3ff;
 --accent-2: #8fe3ff;
 --gold: #ebd7ab;
@@ -51,14 +53,31 @@ BlinkMacSystemFont,
 "Segoe UI",
 sans-serif;
 background:
-radial-gradient(980px 280px at 15% 0%, rgba(79, 195, 255, 0.11), transparent 42%),
-radial-gradient(760px 240px at 90% 0%, rgba(235, 215, 171, 0.045), transparent 44%),
+radial-gradient(
+980px 280px at 15% 0%,
+rgba(79, 195, 255, 0.11),
+transparent 42%
+),
+radial-gradient(
+760px 240px at 90% 0%,
+rgba(235, 215, 171, 0.045),
+transparent 44%
+),
 linear-gradient(180deg, #030711 0%, #02050c 100%);
+}
+
+body {
+min-height: 100vh;
 }
 
 a {
 color: inherit;
 text-decoration: none;
+}
+
+button,
+input {
+font: inherit;
 }
 
 .page {
@@ -70,8 +89,16 @@ width: min(var(--max), calc(100% - 32px));
 margin: 0 auto;
 }
 
+.hidden {
+display: none !important;
+}
+
 .button {
 appearance: none;
+display: inline-flex;
+align-items: center;
+justify-content: center;
+gap: 8px;
 border: 0;
 cursor: pointer;
 min-height: 46px;
@@ -108,6 +135,11 @@ background: rgba(255, 255, 255, 0.045);
 border: 1px solid var(--border);
 }
 
+.button-secondary:hover:not(:disabled) {
+border-color: var(--border-strong);
+background: rgba(255, 255, 255, 0.065);
+}
+
 .chip {
 display: inline-flex;
 align-items: center;
@@ -141,8 +173,16 @@ gap: 18px;
 position: relative;
 overflow: hidden;
 background:
-radial-gradient(780px 220px at 0% 0%, rgba(79, 195, 255, 0.1), transparent 44%),
-radial-gradient(520px 180px at 100% 0%, rgba(235, 215, 171, 0.04), transparent 42%),
+radial-gradient(
+780px 220px at 0% 0%,
+rgba(79, 195, 255, 0.1),
+transparent 44%
+),
+radial-gradient(
+520px 180px at 100% 0%,
+rgba(235, 215, 171, 0.04),
+transparent 42%
+),
 linear-gradient(180deg, var(--panel), var(--panel-2));
 border: 1px solid var(--border);
 border-radius: var(--radius);
@@ -202,11 +242,10 @@ letter-spacing: -0.045em;
 
 .hero p,
 .section-copy,
-.subsection p,
-.hint,
-.checklist-copy,
 .summary-copy,
-.signal-empty {
+.checklist-copy,
+.acknowledgement-copy,
+.support-copy {
 color: var(--muted);
 line-height: 1.65;
 }
@@ -228,9 +267,8 @@ gap: 12px;
 .status-meta-card,
 .summary-card,
 .checklist-item,
-.signal-item,
-.collection-card,
-.checkbox {
+.acknowledgement-feature,
+.support-card {
 border: 1px solid rgba(115, 185, 255, 0.09);
 background: rgba(255, 255, 255, 0.035);
 border-radius: 16px;
@@ -243,7 +281,8 @@ padding: 14px;
 
 .hero-point-label,
 .status-meta-label,
-.summary-label {
+.summary-label,
+.support-label {
 color: var(--muted-2);
 font-size: 10px;
 text-transform: uppercase;
@@ -253,7 +292,8 @@ font-weight: 900;
 
 .hero-point-value,
 .status-meta-value,
-.summary-value {
+.summary-value,
+.support-value {
 margin-top: 8px;
 color: var(--text);
 font-size: 14px;
@@ -304,7 +344,7 @@ background: rgba(2, 6, 14, 0.52);
 
 .status-row {
 display: flex;
-align-items: center;
+align-items: flex-start;
 justify-content: space-between;
 gap: 12px;
 }
@@ -400,17 +440,7 @@ background: linear-gradient(135deg, var(--accent-2), var(--accent));
 display: grid;
 grid-template-columns: minmax(0, 1fr) auto;
 gap: 10px;
-margin-bottom: 18px;
-}
-
-.field-grid {
-display: grid;
-grid-template-columns: repeat(2, minmax(0, 1fr));
-gap: 14px;
-}
-
-.field-grid.single {
-grid-template-columns: minmax(0, 1fr);
+margin-bottom: 20px;
 }
 
 .field {
@@ -427,10 +457,10 @@ letter-spacing: 0.1em;
 text-transform: uppercase;
 }
 
-.input,
-.select,
-.textarea {
+.input {
 width: 100%;
+min-height: 48px;
+padding: 0 14px;
 border: 1px solid rgba(115, 185, 255, 0.13);
 background: rgba(2, 6, 14, 0.72);
 color: var(--text);
@@ -442,198 +472,17 @@ box-shadow 0.16s ease,
 background 0.16s ease;
 }
 
-.input,
-.select {
-min-height: 48px;
-padding: 0 14px;
-}
-
-.textarea {
-min-height: 112px;
-resize: vertical;
-padding: 14px;
-}
-
-.input:focus,
-.select:focus,
-.textarea:focus {
+.input:focus {
 border-color: rgba(79, 195, 255, 0.42);
 box-shadow: 0 0 0 4px rgba(79, 195, 255, 0.08);
 background: rgba(2, 6, 14, 0.88);
 }
 
-.checkbox-row {
-display: grid;
-gap: 10px;
-margin-top: 4px;
-}
-
-.checkbox {
-display: flex;
-align-items: flex-start;
-gap: 10px;
-padding: 13px 14px;
-}
-
-.checkbox input {
-margin-top: 2px;
-}
-
-.subsection {
-margin-top: 22px;
-padding-top: 22px;
-border-top: 1px solid rgba(115, 185, 255, 0.08);
-}
-
-.subsection h3 {
-margin: 0 0 8px;
-font-size: 16px;
-letter-spacing: -0.02em;
-}
-
-.subsection p {
-margin: 0 0 16px;
-font-size: 14px;
-}
-
-.collection {
-display: grid;
-gap: 12px;
-}
-
-.collection-card {
-padding: 16px;
-}
-
-.collection-header {
-display: flex;
-align-items: center;
-justify-content: space-between;
-gap: 10px;
-margin-bottom: 14px;
-}
-
-.collection-title {
-font-size: 14px;
-font-weight: 850;
-}
-
-.collection-remove {
-min-height: 34px;
-padding: 0 12px;
-border-radius: 12px;
-border: 1px solid rgba(255, 135, 135, 0.22);
-background: rgba(42, 14, 14, 0.72);
-color: #ffd5d5;
-font-weight: 850;
-cursor: pointer;
-}
-
-.toolbar {
-display: flex;
-flex-wrap: wrap;
-gap: 10px;
-margin-top: 18px;
-}
-
 .hint {
-margin-top: 8px;
+margin-top: 2px;
+color: var(--muted);
 font-size: 12px;
-}
-
-.sidebar-stack {
-display: grid;
-gap: 18px;
-}
-
-.checklist {
-display: grid;
-gap: 10px;
-margin-top: 12px;
-}
-
-.checklist-item {
-display: flex;
-gap: 10px;
-padding: 12px 13px;
-}
-
-.checklist-index {
-width: 22px;
-height: 22px;
-flex: 0 0 22px;
-border-radius: 999px;
-display: inline-flex;
-align-items: center;
-justify-content: center;
-border: 1px solid rgba(115, 185, 255, 0.2);
-background: rgba(79, 195, 255, 0.06);
-color: var(--accent-2);
-font-size: 10px;
-font-weight: 900;
-}
-
-.checklist-copy {
-font-size: 13px;
-}
-
-.summary-grid {
-display: grid;
-gap: 12px;
-}
-
-.summary-copy {
-margin-top: 8px;
-font-size: 13px;
-}
-
-.signal-stack {
-display: grid;
-gap: 10px;
-margin-top: 14px;
-}
-
-.signal-item {
-padding: 12px 13px;
-}
-
-.signal-item.severity-critical,
-.signal-item.severity-high {
-border-color: rgba(255, 135, 135, 0.2);
-}
-
-.signal-item.severity-medium {
-border-color: rgba(255, 207, 102, 0.2);
-}
-
-.signal-item.severity-low {
-border-color: rgba(115, 185, 255, 0.14);
-}
-
-.signal-item-top {
-display: flex;
-align-items: center;
-justify-content: space-between;
-gap: 10px;
-margin-bottom: 8px;
-font-size: 10px;
-text-transform: uppercase;
-letter-spacing: 0.12em;
-color: var(--muted-2);
-}
-
-.signal-item-copy {
-font-size: 13px;
 line-height: 1.6;
-color: var(--text);
-}
-
-.signal-empty {
-padding: 12px 13px;
-border-radius: 16px;
-border: 1px dashed rgba(115, 185, 255, 0.14);
-background: rgba(255, 255, 255, 0.025);
-font-size: 13px;
 }
 
 .banner {
@@ -666,15 +515,234 @@ color: var(--bad);
 border-color: rgba(255, 135, 135, 0.22);
 }
 
+.acknowledgement-panel {
+position: relative;
+overflow: hidden;
+margin-top: 8px;
+padding: 22px;
+border-radius: 18px;
+border: 1px solid rgba(115, 185, 255, 0.13);
+background:
+radial-gradient(
+620px 180px at 0% 0%,
+rgba(79, 195, 255, 0.07),
+transparent 48%
+),
+rgba(2, 6, 14, 0.5);
+}
+
+.acknowledgement-panel::before {
+content: "";
+position: absolute;
+inset: 0 0 auto 0;
+height: 1px;
+background: linear-gradient(
+90deg,
+transparent,
+rgba(79, 195, 255, 0.3),
+transparent
+);
+}
+
+.admin-kicker {
+margin-bottom: 8px;
+color: var(--accent-2);
+font-size: 10px;
+font-weight: 900;
+text-transform: uppercase;
+letter-spacing: 0.14em;
+}
+
+.acknowledgement-panel h3 {
+margin: 0 0 8px;
+font-size: 20px;
+letter-spacing: -0.03em;
+}
+
+.acknowledgement-copy {
+margin: 0;
+font-size: 14px;
+}
+
+.acknowledgement-features {
+margin-top: 18px;
+display: grid;
+grid-template-columns: repeat(3, minmax(0, 1fr));
+gap: 10px;
+}
+
+.acknowledgement-feature {
+padding: 12px;
+}
+
+.acknowledgement-feature strong {
+display: block;
+margin-bottom: 5px;
+color: var(--text);
+font-size: 12px;
+}
+
+.acknowledgement-feature span {
+color: var(--muted);
+font-size: 12px;
+line-height: 1.5;
+}
+
+.launcher-acknowledgement-fields {
+display: grid;
+gap: 10px;
+margin-top: 20px;
+}
+
+.checkout-check-row,
+.launcher-acknowledgement-row {
+display: flex;
+align-items: flex-start;
+gap: 11px;
+padding: 13px 14px;
+border-radius: 14px;
+border: 1px solid rgba(115, 185, 255, 0.09);
+background: rgba(255, 255, 255, 0.035);
+color: var(--text);
+cursor: pointer;
+transition:
+border-color 0.16s ease,
+background 0.16s ease;
+}
+
+.checkout-check-row:hover,
+.launcher-acknowledgement-row:hover {
+border-color: rgba(115, 185, 255, 0.19);
+background: rgba(255, 255, 255, 0.05);
+}
+
+.checkout-check-row input,
+.launcher-acknowledgement-row input {
+width: 17px;
+height: 17px;
+flex: 0 0 17px;
+margin: 2px 0 0;
+accent-color: var(--accent);
+}
+
+.checkout-check-row span,
+.launcher-acknowledgement-row span {
+color: var(--text);
+font-size: 13px;
+line-height: 1.58;
+}
+
+.status {
+display: none;
+margin-top: 16px;
+padding: 13px 14px;
+border-radius: 14px;
+border: 1px solid rgba(115, 185, 255, 0.14);
+background: rgba(255, 255, 255, 0.035);
+font-size: 13px;
+line-height: 1.55;
+}
+
+.status.show {
+display: block;
+}
+
+.status.good {
+color: var(--good);
+border-color: rgba(123, 255, 177, 0.22);
+}
+
+.status.warn {
+color: var(--warn);
+border-color: rgba(255, 207, 102, 0.22);
+}
+
+.status.bad {
+color: var(--bad);
+border-color: rgba(255, 135, 135, 0.22);
+}
+
 .footer-actions {
 display: flex;
 flex-wrap: wrap;
+align-items: center;
 gap: 10px;
-margin-top: 24px;
+margin-top: 22px;
 }
 
-.hidden {
-display: none !important;
+#launcherAcknowledgementReturnAction {
+margin-top: 16px;
+}
+
+.sidebar-stack {
+display: grid;
+gap: 18px;
+}
+
+.summary-grid {
+display: grid;
+gap: 12px;
+}
+
+.summary-copy {
+margin-top: 8px;
+font-size: 13px;
+}
+
+.checklist {
+display: grid;
+gap: 10px;
+margin-top: 14px;
+}
+
+.checklist-item {
+display: flex;
+gap: 10px;
+padding: 12px 13px;
+}
+
+.checklist-index {
+width: 22px;
+height: 22px;
+flex: 0 0 22px;
+border-radius: 999px;
+display: inline-flex;
+align-items: center;
+justify-content: center;
+border: 1px solid rgba(115, 185, 255, 0.2);
+background: rgba(79, 195, 255, 0.06);
+color: var(--accent-2);
+font-size: 10px;
+font-weight: 900;
+}
+
+.checklist-copy {
+font-size: 13px;
+}
+
+.support-card {
+margin-top: 14px;
+padding: 14px;
+}
+
+.support-copy {
+margin-top: 8px;
+font-size: 13px;
+}
+
+.protection-note {
+margin-top: 16px;
+padding: 14px;
+border-radius: 16px;
+border: 1px solid rgba(255, 207, 102, 0.16);
+background: rgba(255, 207, 102, 0.045);
+color: var(--muted);
+font-size: 13px;
+line-height: 1.65;
+}
+
+.protection-note strong {
+color: var(--warn);
 }
 
 @media (max-width: 1040px) {
@@ -709,8 +777,8 @@ font-size: clamp(30px, 11vw, 44px);
 }
 
 .hero-points,
-.field-grid,
-.status-meta {
+.status-meta,
+.acknowledgement-features {
 grid-template-columns: 1fr;
 }
 
@@ -719,13 +787,28 @@ grid-template-columns: 1fr;
 }
 
 .form-header,
-.status-row {
+.status-row,
+.status-actions {
 flex-direction: column;
 align-items: flex-start;
 }
 
-.status-actions {
-align-items: flex-start;
+.mode-switch {
+width: 100%;
+}
+
+.mode-switch button {
+width: 100%;
+}
+
+.footer-actions {
+flex-direction: column;
+align-items: stretch;
+}
+
+.footer-actions .button,
+#launcherAcknowledgementReturnAction {
+width: 100%;
 }
 }
 </style>
@@ -743,24 +826,36 @@ data-active-nav="launchpad"
 <section class="hero">
 <div class="hero-grid">
 <section class="hero-panel">
-<div class="eyebrow">Access Verification</div>
-<h1>Compliance profile and wallet-linked access control.</h1>
+<div class="eyebrow">Launcher Access</div>
+
+<h1>Review the terms. Acknowledge the risk. Continue with clarity.</h1>
+
 <p>
-Complete the profile used for builder and participant workflows. Public discovery can stay open while transaction-sensitive actions are checked, monitored, restricted, or escalated behind the access state.
+MSS Launcher access uses wallet-linked acknowledgements for builder
+and participant transactions. No identity verification, document
+upload, KYC or KYB is required for this flow.
 </p>
 
 <div class="hero-points">
 <div class="hero-point">
 <div class="hero-point-label">Access Scope</div>
-<div class="hero-point-value" id="heroAccessScope">Participant access review</div>
+<div class="hero-point-value" id="heroAccessScope">
+Participant Launcher acknowledgements
 </div>
+</div>
+
 <div class="hero-point">
 <div class="hero-point-label">Model</div>
-<div class="hero-point-value">Wallet-linked profile</div>
+<div class="hero-point-value">
+Acknowledgement only
 </div>
+</div>
+
 <div class="hero-point">
 <div class="hero-point-label">Stage</div>
-<div class="hero-point-value" id="heroCurrentStage">Not started</div>
+<div class="hero-point-value" id="heroCurrentStage">
+Connect Wallet
+</div>
 </div>
 </div>
 </section>
@@ -770,7 +865,8 @@ Complete the profile used for builder and participant workflows. Public discover
 <div>
 <h2 class="section-title">Current access state</h2>
 <p class="section-copy">
-Wallet, jurisdiction, profile, and risk status for the active compliance mode.
+Wallet transaction eligibility and recorded acknowledgement
+state for the selected Launcher role.
 </p>
 </div>
 
@@ -779,7 +875,12 @@ Wallet, jurisdiction, profile, and risk status for the active compliance mode.
 <span>Mode</span>
 <strong id="complianceModeChip">Participant</strong>
 </div>
-<button id="connectWalletButton" class="button button-secondary" type="button">
+
+<button
+id="connectWalletButton"
+class="button button-secondary"
+type="button"
+>
 Connect Wallet
 </button>
 </div>
@@ -788,58 +889,86 @@ Connect Wallet
 <div class="status-card">
 <div class="status-row">
 <div>
-<div class="section-title" style="margin-bottom: 4px;">Wallet status</div>
+<div class="section-title" style="margin-bottom: 4px;">
+Wallet status
+</div>
+
 <p class="section-copy" id="walletStatusCopy">
-Connect a wallet to load or begin a profile.
+Connect a wallet to review Launcher access and record the
+required acknowledgements.
 </p>
 </div>
-<div id="statusPill" class="status-pill warn">Not Started</div>
+
+<div id="statusPill" class="status-pill warn">
+Connect Wallet
+</div>
 </div>
 
 <div class="status-meta">
 <div class="status-meta-card">
 <div class="status-meta-label">Wallet</div>
-<div class="status-meta-value" id="walletValue">Not connected</div>
+<div class="status-meta-value" id="walletValue">
+Not connected
 </div>
-<div class="status-meta-card">
-<div class="status-meta-label">Jurisdiction</div>
-<div class="status-meta-value" id="countryValue">Unknown</div>
 </div>
+
 <div class="status-meta-card">
-<div class="status-meta-label">Risk Rating</div>
-<div class="status-meta-value" id="riskValue">Low</div>
+<div class="status-meta-label">Identity Verification</div>
+<div class="status-meta-value" id="countryValue">
+Not Required
 </div>
+</div>
+
 <div class="status-meta-card">
-<div class="status-meta-label">Access State</div>
-<div class="status-meta-value" id="accessValue">Blocked</div>
+<div class="status-meta-label">KYC / KYB</div>
+<div class="status-meta-value" id="riskValue">
+Not Required
+</div>
+</div>
+
+<div class="status-meta-card">
+<div class="status-meta-label">Transaction Access</div>
+<div class="status-meta-value" id="accessValue">
+Connect Wallet
+</div>
 </div>
 </div>
 </div>
 
 <div class="summary-grid">
 <div class="summary-card">
-<div class="summary-label">Reason</div>
-<div class="summary-value" id="accessReasonValue">Waiting for wallet or profile.</div>
+<div class="summary-label">Access Reason</div>
+<div class="summary-value" id="accessReasonValue">
+Waiting for wallet connection.
+</div>
 </div>
 
 <div class="summary-card">
-<div class="summary-label">Mode Bucket</div>
-<div class="summary-value" id="modeBucketValue">Unknown</div>
+<div class="summary-label">Access Model</div>
+<div class="summary-value" id="modeBucketValue">
+Acknowledgement Only
+</div>
 </div>
 
 <div class="summary-card">
-<div class="summary-label">Builder Bucket</div>
-<div class="summary-value" id="builderBucketValue">Unknown</div>
+<div class="summary-label">Builder Flow</div>
+<div class="summary-value" id="builderBucketValue">
+No KYC
+</div>
 </div>
 
 <div class="summary-card">
-<div class="summary-label">Participant Bucket</div>
-<div class="summary-value" id="participantBucketValue">Unknown</div>
+<div class="summary-label">Participant Flow</div>
+<div class="summary-value" id="participantBucketValue">
+No KYC
+</div>
 </div>
 
 <div class="summary-card">
-<div class="summary-label">Jurisdiction Bucket</div>
-<div class="summary-value" id="jurisdictionBucketValue">Unknown</div>
+<div class="summary-label">Identity Data Collection</div>
+<div class="summary-value" id="jurisdictionBucketValue">
+Not Collected
+</div>
 </div>
 </div>
 </aside>
@@ -849,29 +978,35 @@ Connect a wallet to load or begin a profile.
 <section class="main">
 <div class="main-grid">
 <section class="panel">
-<div id="banner" class="banner"></div>
+<div id="banner" class="banner" role="status" aria-live="polite"></div>
 
 <div class="form-header">
 <div>
-<h2 class="section-title">Compliance profile</h2>
+<h2 class="section-title">Launcher acknowledgements</h2>
 <p class="section-copy">
-Switch between participant and builder mode. One wallet can keep one profile while policy decides the live access result.
+Choose the workflow you are using. Builder and participant
+transactions record separate acknowledgement requirements.
 </p>
 </div>
 
-<div class="mode-switch" role="tablist" aria-label="Compliance mode">
+<div class="mode-switch" role="tablist" aria-label="Launcher role">
 <button
 id="modeParticipantButton"
 class="active"
 type="button"
 data-mode="participant"
+role="tab"
+aria-selected="true"
 >
 Participant
 </button>
+
 <button
 id="modeBuilderButton"
 type="button"
 data-mode="builder"
+role="tab"
+aria-selected="false"
 >
 Builder
 </button>
@@ -881,6 +1016,7 @@ Builder
 <div class="wallet-row">
 <div class="field">
 <label for="walletAddress">Wallet Address</label>
+
 <input
 id="walletAddress"
 class="input"
@@ -888,271 +1024,139 @@ type="text"
 placeholder="Connect wallet or paste address"
 autocomplete="off"
 />
+
 <div class="hint">
-Used to evaluate launcher creation, commit access, and other transaction-sensitive actions.
+Used only to record acknowledgements against the wallet taking
+the Launcher action and to apply any existing internal
+intervention block.
 </div>
 </div>
+
 <div style="display:flex; align-items:flex-end;">
-<button id="loadStatusButton" class="button button-secondary" type="button">
-Load Status
+<button
+id="loadStatusButton"
+class="button button-secondary"
+type="button"
+>
+Check Wallet Status
 </button>
 </div>
 </div>
 
 <form id="complianceForm" novalidate>
-<div class="field-grid">
-<div class="field">
-<label for="profileType">Profile Type</label>
-<select id="profileType" class="select">
-<option value="individual">Individual</option>
-<option value="entity">Entity</option>
-</select>
-</div>
-
-<div class="field">
-<label for="countryCode">Country Code</label>
-<input
-id="countryCode"
-class="input"
-type="text"
-maxlength="8"
-placeholder="AU"
-autocomplete="country"
-/>
-</div>
-</div>
-
-<div class="field-grid" style="margin-top: 14px;">
-<div class="field">
-<label for="legalName">Legal Name</label>
-<input
-id="legalName"
-class="input"
-type="text"
-placeholder="Full legal name"
-autocomplete="name"
-/>
-</div>
-
-<div class="field">
-<label for="displayName">Display Name</label>
-<input
-id="displayName"
-class="input"
-type="text"
-placeholder="Public or preferred name"
-autocomplete="nickname"
-/>
-</div>
-</div>
-
-<div id="entityFields" class="subsection hidden">
-<h3>Entity details</h3>
-<p>
-Required when the wallet is being reviewed for a company, trust, or other entity-led builder relationship.
-</p>
-
-<div class="field-grid">
-<div class="field">
-<label for="entityName">Entity Name</label>
-<input
-id="entityName"
-class="input"
-type="text"
-placeholder="Registered entity name"
-autocomplete="organization"
-/>
-</div>
-
-<div class="field">
-<label for="entityType">Entity Type</label>
-<input
-id="entityType"
-class="input"
-type="text"
-placeholder="Company, trust, partnership"
-autocomplete="organization-title"
-/>
-</div>
-</div>
-
-<div class="field-grid" style="margin-top: 14px;">
-<div class="field">
-<label for="entityRegistrationNumber">Registration Number</label>
-<input
-id="entityRegistrationNumber"
-class="input"
-type="text"
-placeholder="ABN / company number / registry id"
-autocomplete="off"
-/>
-</div>
-</div>
-</div>
-
-<div class="subsection">
-<h3>Contact and review context</h3>
-<p>
-Used for profile review, escalation, and builder onboarding context.
-</p>
-
-<div class="field-grid">
-<div class="field">
-<label for="email">Email</label>
-<input
-id="email"
-class="input"
-type="email"
-placeholder="name@example.com"
-autocomplete="email"
-/>
-</div>
-
-<div class="field">
-<label for="phone">Phone</label>
-<input
-id="phone"
-class="input"
-type="text"
-placeholder="+61 ..."
-autocomplete="tel"
-/>
-</div>
-</div>
-
-<div class="field-grid" style="margin-top: 14px;">
-<div class="field">
-<label for="dateOfBirth">Date of Birth</label>
-<input
-id="dateOfBirth"
-class="input"
-type="text"
-placeholder="YYYY-MM-DD"
-autocomplete="bday"
-/>
-</div>
-
-<div class="field">
-<label for="riskRating">Requested Risk Rating</label>
-<select id="riskRating" class="select">
-<option value="low">Low</option>
-<option value="medium">Medium</option>
-<option value="high">High</option>
-<option value="critical">Critical</option>
-</select>
-</div>
-</div>
-
-<div class="checkbox-row" style="margin-top: 14px;">
-<label class="checkbox">
-<input id="pepStatus" type="checkbox" />
-<span>Mark for politically exposed person screening review.</span>
-</label>
-
-<label class="checkbox">
-<input id="sanctionsStatus" type="checkbox" />
-<span>Mark for sanctions-related review or pre-existing escalation.</span>
-</label>
-
-<label class="checkbox">
-<input id="manualReviewRequired" type="checkbox" />
-<span>Force manual review before transactional access can be enabled.</span>
-</label>
-</div>
-
-<div class="field single" style="margin-top: 14px;">
-<label for="manualReviewReason">Manual Review Reason</label>
-<textarea
-id="manualReviewReason"
-class="textarea"
-placeholder="Explain why this wallet or profile should remain in review."
-></textarea>
-</div>
-</div>
-
-<div class="subsection">
-<h3>Source context</h3>
-<p>
-Summarize funding and operating context where relevant to launcher activity.
-</p>
-
-<div class="field-grid single">
-<div class="field">
-<label for="sourceOfFundsSummary">Source of Funds Summary</label>
-<textarea
-id="sourceOfFundsSummary"
-class="textarea"
-placeholder="Describe how funds entering this wallet or entity are sourced."
-></textarea>
-</div>
-
-<div class="field">
-<label for="sourceOfWealthSummary">Source of Wealth Summary</label>
-<textarea
-id="sourceOfWealthSummary"
-class="textarea"
-placeholder="Describe broader business or personal wealth context, where relevant."
-></textarea>
-</div>
-</div>
-</div>
-
-<div id="beneficialOwnersSection" class="subsection hidden">
-<div class="collection-header">
+<section
+id="launcherAcknowledgementPanel"
+class="acknowledgement-panel launcher-acknowledgement-panel"
+>
+<div class="checkout-section-head">
 <div>
-<h3>Beneficial owners</h3>
-<p style="margin:8px 0 0; color:var(--muted); font-size:14px; line-height:1.6;">
-Add controlling persons tied to the entity profile.
+<div class="admin-kicker">Launcher Acknowledgements</div>
+
+<h3 id="launcherAcknowledgementTitle">
+Participant terms and risk acknowledgement
+</h3>
+
+<p
+id="launcherAcknowledgementCopy"
+class="acknowledgement-copy"
+>
+No identity verification or KYC is required for this flow.
+Confirm the Launcher terms and risk disclosures before
+committing to a launch.
 </p>
 </div>
-<button id="addBeneficialOwnerButton" class="button button-secondary" type="button">
-Add Owner
-</button>
 </div>
 
-<div id="beneficialOwnersCollection" class="collection"></div>
+<div class="acknowledgement-features">
+<div class="acknowledgement-feature">
+<strong>No identity check</strong>
+<span>No legal name, ID document or date of birth is required.</span>
 </div>
 
-<div id="authorisedRepresentativesSection" class="subsection hidden">
-<div class="collection-header">
-<div>
-<h3>Authorised representatives</h3>
-<p style="margin:8px 0 0; color:var(--muted); font-size:14px; line-height:1.6;">
-Add people acting on behalf of the entity for launch creation or profile approval.
-</p>
-</div>
-<button id="addRepresentativeButton" class="button button-secondary" type="button">
-Add Representative
-</button>
+<div class="acknowledgement-feature">
+<strong>Wallet recorded</strong>
+<span>Acknowledgements are recorded against the wallet taking the action.</span>
 </div>
 
-<div id="authorisedRepresentativesCollection" class="collection"></div>
+<div class="acknowledgement-feature">
+<strong>Risk acknowledged</strong>
+<span>Transactions continue only after required terms are accepted.</span>
+</div>
 </div>
 
-<div class="subsection">
-<h3>Internal notes</h3>
-<p>
-Internal context for review, escalation, builder posture, or access decisions.
-</p>
+<div
+id="launcherAcknowledgementFields"
+class="launcher-acknowledgement-fields"
+>
+<label class="checkout-check-row launcher-acknowledgement-row">
+<input
+id="ackLauncherTerms"
+data-acknowledgement-key="terms_accepted"
+type="checkbox"
+/>
+<span>
+I accept the MSS Launcher Terms for participating in this launch.
+</span>
+</label>
 
-<div class="field-grid single">
-<div class="field">
-<label for="notes">Notes</label>
-<textarea
-id="notes"
-class="textarea"
-placeholder="Internal context, builder narrative, risk notes, or reviewer comments."
-></textarea>
+<label class="checkout-check-row launcher-acknowledgement-row">
+<input
+id="ackLaunchRiskDisclosure"
+data-acknowledgement-key="risk_disclosure_accepted"
+type="checkbox"
+/>
+<span>
+I understand crypto launches carry significant risk and outcomes are not guaranteed.
+</span>
+</label>
+
+<label class="checkout-check-row launcher-acknowledgement-row">
+<input
+id="ackLaunchRules"
+data-acknowledgement-key="launch_rules_accepted"
+type="checkbox"
+/>
+<span>
+I accept the launch rules, allocation conditions and transaction conditions.
+</span>
+</label>
+
+<label class="checkout-check-row launcher-acknowledgement-row">
+<input
+id="ackLaunchNoAdvice"
+data-acknowledgement-key="no_advice_accepted"
+type="checkbox"
+/>
+<span>
+I understand MSS provides information and infrastructure only, not investment advice.
+</span>
+</label>
 </div>
-</div>
-</div>
+
+<div
+id="launcherAcknowledgementAcceptedNote"
+class="status hidden"
+role="status"
+aria-live="polite"
+></div>
+
+<a
+id="launcherAcknowledgementReturnAction"
+class="button button-secondary hidden"
+href="./launchpad.html"
+>
+Return to Launchpad
+</a>
+</section>
 
 <div class="footer-actions">
-<button id="startComplianceButton" class="button button-secondary" type="button">
-Start Verification
-</button>
-<button id="submitComplianceButton" class="button button-primary" type="submit">
-Submit Profile
+<button
+id="submitComplianceButton"
+class="button button-primary"
+type="submit"
+disabled
+>
+Record Participant Acknowledgements
 </button>
 </div>
 </form>
@@ -1160,86 +1164,120 @@ Submit Profile
 
 <aside class="sidebar-stack">
 <section class="panel">
-<h2 class="section-title">Bucket routing</h2>
+<h2 class="section-title">Transaction access</h2>
+
 <p class="section-copy">
-Access can remain smooth by default and only intervene when policy or risk conditions require it.
+Access remains open by default once the required acknowledgements
+are recorded. MSS does not require identity verification for this
+Launcher flow.
 </p>
 
 <div class="summary-grid" style="margin-top: 14px;">
 <div class="summary-card">
-<div class="summary-label">Mode Routing</div>
-<div class="summary-value" id="summaryModeValue">Participant</div>
-<div class="summary-copy">The selected surface being evaluated.</div>
+<div class="summary-label">Selected Workflow</div>
+<div class="summary-value" id="summaryModeValue">
+Participant
+</div>
+
+<div class="summary-copy">
+The role whose acknowledgement requirements are being
+recorded.
+</div>
 </div>
 
 <div class="summary-card">
-<div class="summary-label">Review Outcome</div>
-<div class="summary-value" id="summaryOutcomeValue">Pending</div>
-<div class="summary-copy">Current result returned by the active policy.</div>
+<div class="summary-label">Current Outcome</div>
+<div class="summary-value" id="summaryOutcomeValue">
+Connect Wallet
+</div>
+
+<div class="summary-copy">
+Transaction access opens once the required terms are
+acknowledged unless an internal intervention block already
+exists.
 </div>
 </div>
-</section>
-
-<section id="blockingSignalsSection" class="panel hidden">
-<h2 class="section-title">Blocking signals</h2>
-<p class="section-copy">
-Conditions actively stopping transactional access.
-</p>
-<div id="blockingSignalsList" class="signal-stack"></div>
-</section>
-
-<section id="escalationSignalsSection" class="panel hidden">
-<h2 class="section-title">Escalation signals</h2>
-<p class="section-copy">
-Conditions that may require review without automatically closing access.
-</p>
-<div id="escalationSignalsList" class="signal-stack"></div>
+</div>
 </section>
 
 <section class="panel">
-<h2 class="section-title">Review checkpoints</h2>
+<h2 class="section-title">What is required</h2>
+
 <p class="section-copy">
-Practical access criteria for gated launcher flows.
+The Launcher flow is based on transparent terms and wallet-linked
+acknowledgement rather than identity verification.
 </p>
 
 <div class="checklist">
 <div class="checklist-item">
 <div class="checklist-index">1</div>
-<div class="checklist-copy">Wallet-linked profile captured and mode assigned.</div>
+<div class="checklist-copy">
+Connect or enter the wallet performing the Launcher action.
 </div>
+</div>
+
 <div class="checklist-item">
 <div class="checklist-index">2</div>
-<div class="checklist-copy">Jurisdiction, profile type, and contact context recorded.</div>
+<div class="checklist-copy">
+Select participant or builder mode for the correct terms.
 </div>
+</div>
+
 <div class="checklist-item">
 <div class="checklist-index">3</div>
-<div class="checklist-copy">Entity controllers or representatives added where required.</div>
+<div class="checklist-copy">
+Read and accept the relevant Launcher terms and risk
+acknowledgements.
 </div>
+</div>
+
 <div class="checklist-item">
 <div class="checklist-index">4</div>
-<div class="checklist-copy">Manual review and escalation signals resolved where policy requires it.</div>
+<div class="checklist-copy">
+Return to the launch or launch creator to continue the
+transaction.
+</div>
 </div>
 </div>
 </section>
 
 <section class="panel">
-<h2 class="section-title">Operational note</h2>
+<h2 class="section-title">Operational protection</h2>
+
 <p class="section-copy">
-Public discovery can remain live while builder creation, commit access, and transaction-sensitive actions are gated or monitored behind this profile state.
+Wallets can still be prevented from using transaction-sensitive
+Launcher actions where an internal intervention block has already
+been applied.
 </p>
 
-<div class="summary-grid" style="margin-top: 14px;">
-<div class="summary-card">
-<div class="summary-label">Builder Gate</div>
-<div class="summary-value" id="builderGateValue">Loading</div>
-<div class="summary-copy">Builder creation can be required, monitored, or escalated.</div>
+<div class="support-card">
+<div class="support-label">Builder Flow</div>
+<div class="support-value" id="builderGateValue">
+Acknowledgement Only
+</div>
+<div class="support-copy">
+Builders accept project accuracy and prohibited conduct terms
+before launch creation.
+</div>
 </div>
 
-<div class="summary-card">
-<div class="summary-label">Participant Gate</div>
-<div class="summary-value" id="participantGateValue">Loading</div>
-<div class="summary-copy">Participant commit access can follow a separate bucket.</div>
+<div class="support-card">
+<div class="support-label">Participant Flow</div>
+<div class="support-value" id="participantGateValue">
+Acknowledgement Only
 </div>
+<div class="support-copy">
+Participants accept launch risk and transaction conditions before
+committing.
+</div>
+</div>
+
+<div class="protection-note">
+<strong>No ID verification required.</strong>
+A blocked wallet cannot complete Launcher transactions. Where a
+builder has already paid a Builder Bond before an internal block
+prevents launch creation, the Builder Bond refund result is surfaced
+through the launch creation transaction flow.
 </div>
 </section>
 </aside>
@@ -1248,127 +1286,7 @@ Public discovery can remain live while builder creation, commit access, and tran
 </main>
 </div>
 
-<template id="beneficialOwnerTemplate">
-<section class="collection-card" data-item-type="beneficial-owner">
-<div class="collection-header">
-<div class="collection-title">Beneficial Owner</div>
-<button class="collection-remove" type="button" data-remove-item>
-Remove
-</button>
-</div>
-
-<div class="field-grid">
-<div class="field">
-<label>Full Name</label>
-<input class="input" type="text" data-field="full_name" placeholder="Full legal name" />
-</div>
-<div class="field">
-<label>Country Code</label>
-<input class="input" type="text" data-field="country_code" maxlength="8" placeholder="AU" />
-</div>
-</div>
-
-<div class="field-grid" style="margin-top: 14px;">
-<div class="field">
-<label>Date of Birth</label>
-<input class="input" type="text" data-field="date_of_birth" placeholder="YYYY-MM-DD" />
-</div>
-<div class="field">
-<label>Ownership %</label>
-<input class="input" type="number" step="0.01" data-field="ownership_pct" placeholder="25" />
-</div>
-</div>
-
-<div class="field-grid" style="margin-top: 14px;">
-<div class="field">
-<label>Control Basis</label>
-<input class="input" type="text" data-field="control_basis" placeholder="Shares, control, trustee, director" />
-</div>
-<div class="field">
-<label>Verified At</label>
-<input class="input" type="text" data-field="verified_at" placeholder="YYYY-MM-DDTHH:mm:ssZ" />
-</div>
-</div>
-
-<div class="checkbox-row" style="margin-top: 14px;">
-<label class="checkbox">
-<input type="checkbox" data-field="pep_status" />
-<span>PEP review required</span>
-</label>
-<label class="checkbox">
-<input type="checkbox" data-field="sanctions_status" />
-<span>Sanctions review required</span>
-</label>
-</div>
-
-<div class="field" style="margin-top: 14px;">
-<label>Notes</label>
-<textarea class="textarea" data-field="notes" placeholder="Owner-specific review notes"></textarea>
-</div>
-</section>
-</template>
-
-<template id="representativeTemplate">
-<section class="collection-card" data-item-type="representative">
-<div class="collection-header">
-<div class="collection-title">Authorised Representative</div>
-<button class="collection-remove" type="button" data-remove-item>
-Remove
-</button>
-</div>
-
-<div class="field-grid">
-<div class="field">
-<label>Full Name</label>
-<input class="input" type="text" data-field="full_name" placeholder="Representative full name" />
-</div>
-<div class="field">
-<label>Role Title</label>
-<input class="input" type="text" data-field="role_title" placeholder="Director, officer, authorised rep" />
-</div>
-</div>
-
-<div class="field-grid" style="margin-top: 14px;">
-<div class="field">
-<label>Authority Type</label>
-<input class="input" type="text" data-field="authority_type" placeholder="Board authority, delegate, mandate" />
-</div>
-<div class="field">
-<label>Authority Doc Ref</label>
-<input class="input" type="text" data-field="authority_doc_ref" placeholder="Resolution or document reference" />
-</div>
-</div>
-
-<div class="field-grid" style="margin-top: 14px;">
-<div class="field">
-<label>Email</label>
-<input class="input" type="email" data-field="email" placeholder="name@example.com" />
-</div>
-<div class="field">
-<label>Phone</label>
-<input class="input" type="text" data-field="phone" placeholder="+61 ..." />
-</div>
-</div>
-
-<div class="field-grid" style="margin-top: 14px;">
-<div class="field">
-<label>Country Code</label>
-<input class="input" type="text" data-field="country_code" maxlength="8" placeholder="AU" />
-</div>
-<div class="field">
-<label>Verified At</label>
-<input class="input" type="text" data-field="verified_at" placeholder="YYYY-MM-DDTHH:mm:ssZ" />
-</div>
-</div>
-
-<div class="field" style="margin-top: 14px;">
-<label>Notes</label>
-<textarea class="textarea" data-field="notes" placeholder="Representative-specific review notes"></textarea>
-</div>
-</section>
-</template>
-
 <script type="module" src="/assets/layout-shell.js?v=20260524-shell-v4"></script>
-<script type="module" src="/assets/pages/compliance.js?v=20260514-shell-v3"></script>
+<script type="module" src="/assets/pages/compliance.js?v=20260527-ack-v2"></script>
 </body>
 </html>

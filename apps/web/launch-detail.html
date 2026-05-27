@@ -6,13 +6,13 @@
 <title>MSS Protocol — Launch Terminal</title>
 <meta
 name="description"
-content="MSS Protocol Launch Terminal — builder identity, protected phase truth, structured commit flow, countdown integrity, participant verification and access controls, external Raydium live routing, and lifecycle / graduation telemetry."
+content="MSS Protocol Launch Terminal — builder identity, protected phase truth, structured commit flow, wallet-linked Launcher acknowledgements, external Raydium live routing, and lifecycle / graduation telemetry."
 />
 
 <link rel="stylesheet" href="./assets/app.css?v=7" />
 <link rel="stylesheet" href="./assets/chart.css?v=7" />
 <link rel="modulepreload" href="./assets/layout-shell.js?v=20260524-shell-v4" />
-<link rel="modulepreload" href="./assets/pages/launch.js?v=9" />
+<link rel="modulepreload" href="./assets/pages/launch.js?v=20260527-ack-v1" />
 
 <style>
 #layoutShellHeader{
@@ -867,6 +867,23 @@ gap:8px;
 flex-wrap:wrap;
 }
 
+.launch-detail-page .participant-access-card{
+border-color:rgba(74,165,255,.17);
+background:
+radial-gradient(circle at 0% 0%, rgba(21,156,255,.08), transparent 42%),
+linear-gradient(180deg, rgba(21,156,255,.045), rgba(255,255,255,.022));
+}
+
+.launch-detail-page .participant-access-note{
+padding:11px 12px;
+border-radius:13px;
+border:1px solid rgba(255,255,255,.08);
+background:rgba(255,255,255,.028);
+color:rgba(220,230,245,.68);
+font-size:12px;
+line-height:1.58;
+}
+
 .launch-detail-page .desc{
 margin-top:14px;
 color:rgba(220,230,245,.74);
@@ -1122,9 +1139,10 @@ data-shell-subtitle="Launch Terminal"
 <span class="page-pill-dot warn"></span>
 <span id="launchTerminalPhaseLabel">Launch Lifecycle</span>
 </span>
+
 <span class="page-pill">
 <span class="page-pill-dot good"></span>
-<span id="launchTerminalModeLabel">Protected Truth + External Raydium Route + Access Controls</span>
+<span id="launchTerminalModeLabel">Protected Truth + External Raydium Route + Wallet Acknowledgements</span>
 </span>
 </div>
 </div>
@@ -1136,8 +1154,9 @@ data-shell-subtitle="Launch Terminal"
 <div>
 <div class="launch-command-kicker">Market Command Surface</div>
 <h1 id="launchCommandTitle" class="launch-command-title">Pending Launch</h1>
+
 <div id="launchCommandText" class="launch-command-text">
-Launch data is loading. Lifecycle, access posture, wallet limits, participant verification state, protected contract reveal, and external Raydium route status will populate from backend truth.
+Launch data is loading. Lifecycle, wallet acknowledgement posture, wallet limits, protected contract reveal, and external Raydium route status will populate from backend truth.
 </div>
 </div>
 
@@ -1180,11 +1199,12 @@ Launch data is loading. Lifecycle, access posture, wallet limits, participant ve
 <div class="launch-status-board-title">Operational Snapshot</div>
 <div id="launchStatusBoardValue" class="launch-status-board-value">Pending</div>
 </div>
+
 <div id="phasePillMirror" class="status-pill commit">Pending</div>
 </div>
 
 <div id="launchStatusBoardNote" class="launch-status-board-note">
-Launch lifecycle, access posture, wallet cap state, participant verification, contract reveal, and external route readiness are reflected here as backend truth updates.
+Launch lifecycle, wallet acknowledgement posture, wallet cap state, contract reveal, and external route readiness are reflected here as backend truth updates.
 </div>
 
 <div class="launch-status-board-grid">
@@ -1229,6 +1249,7 @@ Launch lifecycle, access posture, wallet cap state, participant verification, co
 <div class="launch-token-title-row">
 <div class="launch-token-title-stack">
 <div id="launchTokenName" class="launch-token-name">Pending Launch</div>
+
 <div class="launch-token-subrow">
 <span id="launchTokenSymbol" class="launch-token-symbol">PENDING</span>
 <span class="launch-token-divider">•</span>
@@ -1250,14 +1271,17 @@ Launch lifecycle, access posture, wallet cap state, participant verification, co
 <span class="launch-meta-pill-label">Status</span>
 <span id="launchStatusText2" class="launch-meta-pill-value">Pending</span>
 </div>
+
 <div class="launch-meta-pill">
 <span class="launch-meta-pill-label">Market</span>
 <span id="launchMarketModeText" class="launch-meta-pill-value">Pre-Live</span>
 </div>
+
 <div class="launch-meta-pill">
 <span class="launch-meta-pill-label">Access</span>
 <span id="launchAccessModeText" class="launch-meta-pill-value">Pre-Live</span>
 </div>
+
 <div class="launch-meta-pill">
 <span class="launch-meta-pill-label">Builder Tier</span>
 <span id="launchBuilderTierText" class="launch-meta-pill-value">Pending</span>
@@ -1288,6 +1312,7 @@ Wallet:
 
 <button id="launchCaCopyBtn" class="launch-ca-pill" type="button">
 <span id="launchCaText">Pending</span>
+
 <span class="launch-ca-copy-wrap">
 <span class="launch-ca-copy-icon">⧉</span>
 <span class="launch-ca-copy">Copy</span>
@@ -1306,6 +1331,7 @@ Wallet:
 <div class="launch-builder-intel-main">
 <div class="launch-builder-alias-wrap">
 <div id="launchBuilderAliasText" class="launch-builder-alias">Builder Profile</div>
+
 <div id="launchBuilderIntelSub" class="launch-builder-sub cassie-note">
 Public builder identity, trust posture, badges, and launch history.
 </div>
@@ -1348,6 +1374,7 @@ Public builder identity, trust posture, badges, and launch history.
 <div class="launch-links-card">
 <div class="launch-links-card-top">
 <div class="launch-links-title">External Links</div>
+
 <button id="manageLaunchLinksBtn" class="launch-manage-links-btn hidden" type="button">
 Manage Links
 </button>
@@ -1388,6 +1415,7 @@ Manage Links
 <span class="chart-ca-chip-label">CA</span>
 <span id="chartCaChipText">Pending</span>
 </span>
+
 <span class="chart-ca-chip-copy">Copy</span>
 </button>
 </div>
@@ -1416,6 +1444,7 @@ Manage Links
 <div class="market-overlay-inner">
 <div id="marketOverlayEyebrow" class="market-overlay-eyebrow">COMMIT PHASE</div>
 <div id="marketOverlayTitle" class="market-overlay-title">Commit Phase In Progress</div>
+
 <div id="marketOverlayText" class="market-overlay-text">
 Trading is not open yet. Commitments are being collected before market activation.
 </div>
@@ -1428,6 +1457,7 @@ Trading is not open yet. Commitments are being collected before market activatio
 <div id="marketCountdownBox" class="market-countdown-box hidden">
 <div class="market-countdown-label">Trading Opens In</div>
 <div id="marketCountdownValue" class="market-countdown-value">05:00</div>
+
 <div class="market-countdown-subtext">
 Commit phase closed. Market activation is imminent.
 </div>
@@ -1476,10 +1506,12 @@ Commit phase closed. Market activation is imminent.
 <div class="market-wallet-chip-label">Token Balance</div>
 <div id="walletTokenBalanceValue" class="market-wallet-chip-value">—</div>
 </div>
+
 <div class="market-wallet-chip">
 <div class="market-wallet-chip-label">Position Value</div>
 <div id="walletPositionValueValue" class="market-wallet-chip-value">—</div>
 </div>
+
 <div class="market-wallet-chip">
 <div class="market-wallet-chip-label">SOL Balance</div>
 <div id="walletSolBalanceValue" class="market-wallet-chip-value">—</div>
@@ -1492,6 +1524,7 @@ Commit phase closed. Market activation is imminent.
 <div class="market-access-kicker">Market Access</div>
 <div id="marketAccessTierLabel" class="market-access-title">Controlled Access</div>
 </div>
+
 <div id="marketAccessStatePill" class="market-access-state-pill">Restricted</div>
 </div>
 
@@ -1500,30 +1533,39 @@ Commit phase closed. Market activation is imminent.
 <div class="market-access-metric-label">Allocation Limit</div>
 <div id="marketAccessLimitValue" class="market-access-metric-value">—</div>
 </div>
+
 <div class="market-access-metric">
 <div class="market-access-metric-label">Your Holding</div>
 <div id="marketAccessHoldingValue" class="market-access-metric-value">—</div>
 </div>
+
 <div class="market-access-metric">
 <div class="market-access-metric-label">Remaining Capacity</div>
 <div id="marketAccessRemainingValue" class="market-access-metric-value">—</div>
 </div>
+
 <div class="market-access-metric">
 <div class="market-access-metric-label">Total Supply</div>
 <div id="marketTotalSupplyValue" class="market-access-metric-value">—</div>
 </div>
 </div>
 
-<div id="marketAccessSchedule" class="market-access-note">External route opens once the launch is live and any required participant verification is satisfied.</div>
+<div id="marketAccessSchedule" class="market-access-note">
+External route opens once the launch is live, required participant acknowledgements are recorded, and no internal intervention block is active.
+</div>
 
 <div id="marketComplianceCard" class="market-access-note hidden">
-<div style="font-weight:850;margin-bottom:8px;color:#fff;">Participant Verification</div>
-<div id="marketComplianceStatusText">Verification status pending</div>
+<div style="font-weight:850;margin-bottom:8px;color:#fff;">
+Participant Launcher Access
+</div>
+
+<div id="marketComplianceStatusText">Acknowledgement status pending</div>
+
 <div
 id="marketComplianceSummary"
 style="margin-top:6px;font-size:12px;color:rgba(220,230,245,.68);line-height:1.5;"
 >
-Participant verification state appears here when access gating is enabled, so the live route posture is visible before any external execution attempt.
+Participant acknowledgement state appears here when the connected wallet is preparing to commit. No identity verification or KYC is required for this Launcher flow.
 </div>
 </div>
 </section>
@@ -1541,6 +1583,7 @@ Participant verification state appears here when access gating is enabled, so th
 <div id="launchTokenNameMirror" class="overview-card-title">Pending Launch</div>
 <div id="launchSubline" class="overview-card-subline">—</div>
 </div>
+
 <div id="launchStatusBadge" class="status-pill commit">Pending</div>
 </div>
 
@@ -1557,7 +1600,11 @@ Participant verification state appears here when access gating is enabled, so th
 
 <div class="compact-note" style="margin-top:12px;">
 <div style="font-weight:850;margin-bottom:8px;color:#fff;">Lifecycle Summary</div>
-<div id="launchLifecycleSummaryText">Commit → Countdown → Building → Live → Graduated / Failed</div>
+
+<div id="launchLifecycleSummaryText">
+Commit → Countdown → Building → Live → Graduated / Failed
+</div>
+
 <div id="launchOverviewCopy" style="margin-top:8px;font-size:12px;color:rgba(220,230,245,.68);line-height:1.55;">
 Awaiting launch overview state.
 </div>
@@ -1613,8 +1660,10 @@ Awaiting launch overview state.
 <div class="phase-label">Launch Phase</div>
 <div id="phaseHeadline" class="phase-value">—</div>
 </div>
+
 <div id="launchStatusPill" class="status-pill commit">Commit</div>
 </div>
+
 <div id="phaseSummary" class="phase-note">Loading launch state…</div>
 </div>
 
@@ -1627,11 +1676,13 @@ Awaiting launch overview state.
 <div class="progress-card-top">
 <div style="min-width:0;">
 <div class="progress-card-title"><span id="totalCommittedStat">0 SOL</span> committed</div>
+
 <div class="progress-card-sub">
 <div><span id="progressCountdownLabel">Commit ends in</span>: <span id="progressCountdownValue">—</span></div>
 <div><span id="phaseMetaLabel">Fill duration</span>: <span id="phaseMetaValue">—</span></div>
 </div>
 </div>
+
 <div id="phaseBadge" class="status-pill commit">Commit</div>
 </div>
 
@@ -1641,6 +1692,7 @@ Awaiting launch overview state.
 <span id="remainingToHardCapStat">0 SOL to hard cap</span>
 <strong id="progressPercentStat">0%</strong>
 </div>
+
 <div class="progress">
 <div id="launchProgressFill" class="progress-fill"></div>
 </div>
@@ -1651,14 +1703,17 @@ Awaiting launch overview state.
 <div class="k">Participants</div>
 <div class="v" id="participantsStat">0</div>
 </div>
+
 <div class="commit-kpi">
 <div class="k">Minimum Raise</div>
 <div class="v" id="minRaiseStat">0 SOL</div>
 </div>
+
 <div class="commit-kpi">
 <div class="k">Hard Cap</div>
 <div class="v" id="hardCapStat">0 SOL</div>
 </div>
+
 <div class="commit-kpi">
 <div class="k">Countdown / Live</div>
 <div class="v" id="countdownValue">—</div>
@@ -1671,7 +1726,10 @@ Awaiting launch overview state.
 <div class="terminal-section-header">
 <div>
 <div class="terminal-section-title">Allocation Structure</div>
-<div class="terminal-section-sub">Launch distribution, non-circulating supply treatment, and builder / team controls.</div>
+
+<div class="terminal-section-sub">
+Launch distribution, non-circulating supply treatment, and builder / team controls.
+</div>
 </div>
 </div>
 
@@ -1680,14 +1738,17 @@ Awaiting launch overview state.
 <div class="k">Participants</div>
 <div class="v" id="participantAllocationPctStat">—</div>
 </div>
+
 <div class="stat">
 <div class="k">Liquidity</div>
 <div class="v" id="liquidityAllocationPctStat">—</div>
 </div>
+
 <div class="stat">
 <div class="k">Supply Control</div>
 <div class="v" id="reserveAllocationPctStat">—</div>
 </div>
+
 <div id="builderAllocationStatWrap" class="stat">
 <div class="k">Builder</div>
 <div class="v" id="builderAllocationPctStat">—</div>
@@ -1699,7 +1760,7 @@ Awaiting launch overview state.
 <div class="terminal-section-header">
 <div>
 <div class="terminal-section-title">Builder Launch Controls</div>
-<div class="terminal-section-sub">Team allocation and launch bond visibility.</div>
+<div class="terminal-section-sub">Team allocation and Builder Bond visibility.</div>
 </div>
 </div>
 
@@ -1708,6 +1769,7 @@ Awaiting launch overview state.
 <div class="k">Team Allocation</div>
 <div class="v" id="teamAllocationPctStat">—</div>
 </div>
+
 <div class="stat">
 <div class="k">Builder Bond</div>
 <div class="v" id="builderBondStat">—</div>
@@ -1727,6 +1789,7 @@ Awaiting launch overview state.
 <div class="terminal-section-title">Liquidity Lifecycle</div>
 <div class="terminal-section-sub">External LP route posture, custody / lock proof, migration telemetry, and builder vesting.</div>
 </div>
+
 <div class="lifecycle-action-row" style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
 <div id="lifecycleStatusPill" class="status-pill commit">pending</div>
 <button id="graduateDevnetBtn" class="btn primary hidden" type="button">Graduate Devnet</button>
@@ -1738,22 +1801,27 @@ Awaiting launch overview state.
 <div class="k">Lifecycle Status</div>
 <div class="v" id="lifecycleStatusValue">—</div>
 </div>
+
 <div class="stat">
 <div class="k">LP Snapshot</div>
 <div class="v" id="lifecycleReservesValue">—</div>
 </div>
+
 <div class="stat">
 <div class="k">Migration Plan</div>
 <div class="v" id="lifecycleSplitValue">—</div>
 </div>
+
 <div class="stat">
 <div class="k">Builder Vesting</div>
 <div class="v" id="builderVestValue">—</div>
 </div>
+
 <div class="stat">
 <div class="k">Raydium Route</div>
 <div class="v" id="lifecycleRaydiumValue">—</div>
 </div>
+
 <div class="stat">
 <div class="k">Custody / Lock</div>
 <div class="v" id="lifecycleLockValue">—</div>
@@ -1762,7 +1830,9 @@ Awaiting launch overview state.
 
 <div class="compact-note">
 <div style="font-weight:850;margin-bottom:8px;color:#fff;">Graduation Readiness</div>
+
 <div id="graduationReadinessValue" style="font-size:22px;font-weight:950;color:#fff;">—</div>
+
 <div id="graduationReadinessNote" style="margin-top:6px;font-size:12px;color:rgba(220,230,245,.70);line-height:1.5;">
 Graduation conditions are still being evaluated.
 </div>
@@ -1773,14 +1843,17 @@ Graduation conditions are still being evaluated.
 <div class="k">Current LP State</div>
 <div class="v" id="launchLpInternalText">—</div>
 </div>
+
 <div class="stat">
 <div class="k">Graduation Readiness</div>
 <div class="v" id="launchGraduationReadinessText">Pending</div>
 </div>
+
 <div class="stat">
 <div class="k">Lock State</div>
 <div class="v" id="launchLockedLpText">Pending</div>
 </div>
+
 <div class="stat">
 <div class="k">Route State</div>
 <div class="v" id="launchMigrationStateText">Not Started</div>
@@ -1800,6 +1873,7 @@ Graduation conditions are still being evaluated.
 <div class="terminal-section-sub">Latest wallet commitments into this launch.</div>
 </div>
 </div>
+
 <div id="recentList" class="recent"></div>
 </section>
 
@@ -1807,7 +1881,10 @@ Graduation conditions are still being evaluated.
 <div class="terminal-section-header">
 <div>
 <div class="terminal-section-title">Launch Notes</div>
-<div class="terminal-section-sub">Lifecycle logic, current launch rules, access controls, and external execution protections.</div>
+
+<div class="terminal-section-sub">
+Lifecycle logic, current launch rules, wallet-linked acknowledgements, and external execution protections.
+</div>
 </div>
 </div>
 
@@ -1816,8 +1893,8 @@ MSS launches run through commit → countdown → building → live → graduate
 Participant allocations are fully unlocked once the launch goes live.
 Protected wallet caps start at 0.5% and increase by 0.5% daily for 5 days.
 Builder allocation remains 5% total supply, unlocking 0.5% of total supply per day until fully unlocked after 10 days.
-Builder bond and team controls remain visible on builder launches, while contract address and live market data stay protected until true live state.
-Where participant verification gating is enabled, wallets must pass access checks before the external route opens from this terminal.
+Builder Bond and team controls remain visible on builder launches, while contract address and live market data stay protected until true live state.
+Participant commit access requires the connected wallet to record the required Launcher acknowledgements; no identity verification, KYC or document upload is required for that flow.
 Live execution routes externally through Raydium and MSS does not execute internal buys or sells inside this terminal.
 </div>
 
@@ -1826,14 +1903,17 @@ Live execution routes externally through Raydium and MSS does not execute intern
 <div class="k">CassIE Verdict</div>
 <div class="v" id="launchCassieVerdictText">Pending</div>
 </div>
+
 <div class="stat">
 <div class="k">Wallet Position</div>
 <div class="v" id="launchWalletPositionText">Pending</div>
 </div>
+
 <div class="stat">
 <div class="k">Wallet Limit</div>
 <div class="v" id="launchWalletLimitText">Pending</div>
 </div>
+
 <div class="stat">
 <div class="k">Overview Access</div>
 <div class="v" id="launchOverviewAccessText">Pre-Live</div>
@@ -1842,7 +1922,9 @@ Live execution routes externally through Raydium and MSS does not execute intern
 
 <div class="compact-note">
 <div style="font-weight:850;margin-bottom:8px;color:#fff;">CassIE Primary</div>
+
 <div id="launchCassiePrimaryText">Awaiting intelligence.</div>
+
 <div id="launchCassiePatternText" style="margin-top:8px;font-size:12px;color:rgba(220,230,245,.68);line-height:1.55;">
 Pattern monitoring inactive.
 </div>
@@ -1858,7 +1940,7 @@ Pattern monitoring inactive.
 </div>
 
 <div class="action-panel-topline">
-Commit and refund controls remain available through the launch flow. Once true live state is reached, this terminal shows live price, participant verification posture, wallet limits, contract reveal, and external Raydium route readiness while execution itself remains external.
+Commit and refund controls remain available through the launch flow. Participant commit actions require wallet-linked Launcher acknowledgements, not identity verification. Once true live state is reached, this terminal shows live price, wallet limits, contract reveal, and external Raydium route readiness while execution itself remains external.
 </div>
 
 <div class="terminal-wallet-block">
@@ -1867,6 +1949,7 @@ Commit and refund controls remain available through the launch flow. Once true l
 <div class="terminal-card-kicker">Wallet Session</div>
 <div class="terminal-card-title">Connected Wallet</div>
 </div>
+
 <div
 id="terminalWalletBadge"
 class="terminal-wallet-badge is-disconnected"
@@ -1887,14 +1970,19 @@ id="connectWalletBtnMirror"
 class="btn primary"
 type="button"
 data-role="wallet-connect"
->Connect Wallet</button>
+>
+Connect Wallet
+</button>
+
 <button
 id="disconnectWalletBtnMirror"
 class="btn"
 type="button"
 style="display:none;"
 data-role="wallet-disconnect"
->Disconnect</button>
+>
+Disconnect
+</button>
 </div>
 
 <div
@@ -1907,27 +1995,32 @@ Use Connect Wallet to choose Phantom, Solflare, or Backpack.
 </div>
 </div>
 
-<div id="participantComplianceCard" class="terminal-wallet-block hidden">
+<div id="participantComplianceCard" class="terminal-wallet-block participant-access-card hidden">
 <div class="terminal-wallet-top">
 <div>
-<div class="terminal-card-kicker">Participant Access</div>
-<div class="terminal-card-title">Verification Status</div>
+<div class="terminal-card-kicker">Participant Launcher Access</div>
+<div class="terminal-card-title">Acknowledgement Status</div>
 </div>
+
 <div id="participantCompliancePill" class="status-pill commit">Pending</div>
 </div>
 
 <div class="terminal-wallet-row">
 <div id="participantComplianceStatusText" class="wallet-pill">
-Connect wallet to resolve participant access state
+Connect wallet to resolve participant acknowledgement state
 </div>
 </div>
 
 <div
 id="participantComplianceSummary"
 class="desc"
-style="margin-top:0;font-size:12px;color:rgba(220,230,245,.52);"
+style="margin-top:0;font-size:12px;color:rgba(220,230,245,.62);"
 >
-Participant verification state is shown here for visibility when access gating is enabled on this launch. External route access stays blocked until approval is satisfied.
+No identity verification or KYC is required. The connected participant wallet records Launcher terms and risk acknowledgements before committing.
+</div>
+
+<div class="participant-access-note">
+Wallets already subject to an internal intervention block cannot complete Launcher transactions. Otherwise, access remains acknowledgement-only.
 </div>
 
 <div class="terminal-wallet-actions">
@@ -1936,13 +2029,16 @@ id="participantComplianceAction"
 class="btn primary"
 href="./compliance.html?mode=participant"
 style="display:none;"
->Complete Participant Verification</a>
+>
+Review Launcher Access
+</a>
 </div>
 </div>
 
 <form id="commitForm" class="commit-form">
 <div class="field">
 <label>Connected Wallet</label>
+
 <input
 id="commitWallet"
 type="text"
@@ -1983,6 +2079,7 @@ data-role="wallet-input"
 <div class="trade-panel-kicker">Market Route</div>
 <div class="trade-panel-title">External Trade Route</div>
 </div>
+
 <div id="tradePanelPhasePill" class="trade-panel-phase-pill phase-commit">Route Pending</div>
 </div>
 
@@ -1993,11 +2090,12 @@ data-role="wallet-input"
 
 <div class="trade-panel-body">
 <div class="compact-note" style="padding:12px 14px;font-size:13px;">
-MSS shows live price, route state, access posture, participant verification status, and lifecycle truth here. Trading execution happens on Raydium once the market is active, the contract is revealed, and access requirements are satisfied.
+MSS shows live price, route state, wallet access posture, acknowledgement state, and lifecycle truth here. Trading execution happens on Raydium once the market is active and the contract address has been publicly revealed.
 </div>
 
 <div class="trade-panel-field">
 <label id="tradeAmountLabel" for="tradeAmountInput">Execution Venue</label>
+
 <input
 id="tradeAmountInput"
 class="trade-panel-input"
@@ -2027,14 +2125,17 @@ disabled
 <span id="tradeQuotePrimaryLabel">Route</span>
 <span id="tradeQuotePrimaryValue">—</span>
 </div>
+
 <div class="trade-quote-row">
 <span id="tradeQuotePriceLabel">Live Price</span>
 <span id="tradeQuotePriceValue">—</span>
 </div>
+
 <div class="trade-quote-row">
 <span id="tradeQuoteFeeLabel">Pool / Venue</span>
 <span id="tradeQuoteFeeValue">—</span>
 </div>
+
 <div class="trade-quote-row">
 <span id="tradeQuoteWalletLimitLabel">Contract</span>
 <span id="tradeQuoteWalletLimitValue">—</span>
@@ -2053,6 +2154,7 @@ disabled
 <div class="recent-trades-title">Recent Trades</div>
 </div>
 </div>
+
 <div id="recentTradesList" class="recent-trades-list">
 <div class="recent-trades-empty">No live trades yet.</div>
 </div>
@@ -2148,6 +2250,7 @@ disabled
 <div class="launch-links-modal-kicker">Builder Controls</div>
 <h3>Manage External Links</h3>
 </div>
+
 <button id="closeLaunchLinksModalBtn" class="launch-links-close-btn" type="button">×</button>
 </div>
 
@@ -2209,6 +2312,6 @@ console.error("Shared shell mount failed:", err);
 await mountSharedShell();
 </script>
 
-<script type="module" src="./assets/pages/launch.js?v=9"></script>
+<script type="module" src="./assets/pages/launch.js?v=20260527-ack-v1"></script>
 </body>
 </html>

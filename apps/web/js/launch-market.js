@@ -26,6 +26,9 @@ const EXTERNAL_LINK_TYPES = [
 { key: "discord_url", label: "Discord", icon: "◎" },
 ];
 
+const PARTICIPANT_ACCESS_MODEL = "acknowledgement_only";
+const PARTICIPANT_ROLE = "participant";
+
 const BASE_MAX_WALLET_PERCENT = 0.5;
 const DAILY_INCREASE_PERCENT = 0.5;
 const BUILDER_MAX_WALLET_PERCENT = 5;
@@ -117,76 +120,126 @@ return String(value ?? "")
 
 function toTruthyBoolean(value) {
 if (value === true || value === 1) return true;
+
 const raw = cleanString(value, 40).toLowerCase();
-return raw === "true" || raw === "1" || raw === "yes";
+
+return (
+raw === "true" ||
+raw === "1" ||
+raw === "yes" ||
+raw === "y" ||
+raw === "on" ||
+raw === "accepted"
+);
+}
+
+function hasBlockingSignal(payload = null) {
+const signals = Array.isArray(payload?.blocking_signals)
+? payload.blocking_signals
+: Array.isArray(payload?.blockingSignals)
+? payload.blockingSignals
+: [];
+
+return signals.some((signal) => {
+if (!signal || typeof signal !== "object") return false;
+
+return Boolean(
+signal.blocking === true ||
+signal.is_blocking === true ||
+signal.isBlocking === true ||
+cleanString(signal.effect, 40).toLowerCase() === "block"
+);
+});
+}
+
+function hasRecordedParticipantAcknowledgement(acknowledgement = {}) {
+if (!acknowledgement || typeof acknowledgement !== "object") return false;
+
+return Boolean(
+acknowledgement.accepted_terms_at &&
+acknowledgement.accepted_risk_disclosure_at &&
+acknowledgement.accepted_launch_rules_at &&
+acknowledgement.accepted_no_advice_at
+);
 }
 
 function normalizeComplianceStatusPayload(raw = null) {
 if (!raw || typeof raw !== "object") return null;
 
-const profile =
-raw.profile && typeof raw.profile === "object" ? raw.profile : {};
+const acknowledgement =
+raw.acknowledgement && typeof raw.acknowledgement === "object"
+? raw.acknowledgement
+: {};
 
-const status =
-cleanString(raw.status ?? raw.profile_status ?? profile.status, 40).toLowerCase() ||
-"not_started";
+const rawAccessState = cleanString(
+raw.access_state ?? raw.accessState,
+40
+).toLowerCase();
 
-const participantGateEnabled = toTruthyBoolean(
-raw.participant_gate_enabled ??
-raw.participantGateEnabled ??
-raw.requires_participant_approval ??
-raw.requiresParticipantApproval
+const internalInterventionActive = toTruthyBoolean(
+raw.internal_intervention_active ?? raw.internalInterventionActive
 );
 
-const restrictedJurisdiction = toTruthyBoolean(
-raw.restricted_jurisdiction ?? raw.restrictedJurisdiction
+const blocked = Boolean(
+internalInterventionActive ||
+rawAccessState === "blocked" ||
+hasBlockingSignal(raw)
 );
 
-const manualReviewRequired = toTruthyBoolean(
-profile.manual_review_required ??
-profile.manualReviewRequired ??
-raw.manual_review_required ??
-raw.manualReviewRequired
+const explicitAcknowledgementAccepted =
+raw.acknowledgement_accepted !== undefined ||
+raw.acknowledgementAccepted !== undefined
+? toTruthyBoolean(
+raw.acknowledgement_accepted ?? raw.acknowledgementAccepted
+)
+: null;
+
+const acknowledgementAccepted = blocked
+? false
+: explicitAcknowledgementAccepted !== null
+? explicitAcknowledgementAccepted
+: rawAccessState === "acknowledged" ||
+rawAccessState === "approved" ||
+hasRecordedParticipantAcknowledgement(acknowledgement);
+
+const acknowledgementRequired =
+raw.acknowledgement_required !== undefined ||
+raw.acknowledgementRequired !== undefined
+? toTruthyBoolean(
+raw.acknowledgement_required ?? raw.acknowledgementRequired
+)
+: !acknowledgementAccepted;
+
+const accessState = blocked
+? "blocked"
+: acknowledgementAccepted
+? "acknowledged"
+: "acknowledgement_required";
+
+const transactionalAccess = Boolean(
+!blocked && acknowledgementAccepted && !acknowledgementRequired
 );
-
-const manualReviewReason = cleanString(
-profile.manual_review_reason ??
-profile.manualReviewReason ??
-raw.manual_review_reason ??
-raw.manualReviewReason,
-500
-);
-
-const transactionalAccess = toTruthyBoolean(
-raw.transactional_access ??
-raw.transactionalAccess ??
-raw.allowed ??
-raw.is_allowed ??
-raw.can_trade ??
-raw.canTrade
-);
-
-let allowed = !participantGateEnabled;
-
-if (participantGateEnabled) {
-allowed =
-!restrictedJurisdiction &&
-!manualReviewRequired &&
-(transactionalAccess ||
-status === "approved" ||
-toTruthyBoolean(raw.allowed ?? raw.is_allowed));
-}
 
 return {
 ...raw,
-profile,
-status,
-participant_gate_enabled: participantGateEnabled,
-restricted_jurisdiction: restrictedJurisdiction,
-manual_review_required: manualReviewRequired,
-manual_review_reason: manualReviewReason,
+role: PARTICIPANT_ROLE,
+mode: PARTICIPANT_ROLE,
+compliance_model:
+cleanString(raw.compliance_model ?? raw.complianceModel, 80) ||
+PARTICIPANT_ACCESS_MODEL,
+identity_verification_required: false,
+kyc_required: false,
+kyb_required: false,
+acknowledgement,
+acknowledgement_required: acknowledgementRequired,
+acknowledgement_accepted: acknowledgementAccepted,
+internal_intervention_active: internalInterventionActive,
+access_state: accessState,
 transactional_access: transactionalAccess,
-allowed,
+allowed: transactionalAccess,
+blocking_signals: Array.isArray(raw.blocking_signals)
+? raw.blocking_signals
+: [],
 };
 }
 
@@ -194,71 +247,39 @@ function isParticipantComplianceBlocked(payload = null, connectedWallet = "") {
 if (!payload) return false;
 if (!cleanString(connectedWallet, 200)) return false;
 
-const gateEnabled = Boolean(
-payload.participant_gate_enabled || payload.requires_participant_approval
+return Boolean(
+payload.internal_intervention_active ||
+cleanString(payload.access_state, 40).toLowerCase() === "blocked" ||
+hasBlockingSignal(payload)
 );
-
-if (!gateEnabled) return false;
-if (payload.restricted_jurisdiction) return true;
-if (payload.manual_review_required || payload.profile?.manual_review_required) {
-return true;
 }
 
-if (payload.allowed === false || payload.transactional_access === false) {
-return true;
-}
+function isParticipantAcknowledgementAccepted(payload = null) {
+if (!payload) return false;
 
-return !(
-cleanString(payload.status, 40).toLowerCase() === "approved" ||
-payload.allowed ||
-payload.transactional_access
+return Boolean(
+payload.acknowledgement_accepted ||
+cleanString(payload.access_state, 40).toLowerCase() === "acknowledged"
 );
 }
 
 function getParticipantComplianceMessage(payload = null) {
 if (!payload) {
-return "Participant verification is required before live market access can proceed.";
+return "No identity verification or KYC is required. Connect your wallet and record the required Launcher acknowledgements before committing.";
 }
 
-const gateEnabled = Boolean(
-payload.participant_gate_enabled || payload.requires_participant_approval
-);
-
-if (!gateEnabled) {
-return "Participant verification gate is currently disabled.";
-}
-
-if (payload.restricted_jurisdiction) {
-return "Participant access is restricted for the current jurisdiction.";
-}
-
-if (payload.manual_review_required || payload.profile?.manual_review_required) {
+if (isParticipantComplianceBlocked(payload, "connected")) {
 return (
-payload.manual_review_reason ||
-payload.profile?.manual_review_reason ||
-"Participant verification is in manual review."
+cleanString(payload.access_reason, 500) ||
+"This wallet is currently unable to use Launcher transactions. Contact support if you believe this is an error."
 );
 }
 
-const status = cleanString(payload.status, 40).toLowerCase();
-
-if (status === "approved") {
-return "Participant verification approved.";
+if (isParticipantAcknowledgementAccepted(payload)) {
+return "Participant Launcher acknowledgements have been recorded for this wallet.";
 }
 
-if (status === "pending") {
-return "Participant verification is pending review before market access can proceed.";
-}
-
-if (status === "rejected") {
-return "Participant verification was rejected. Review the compliance profile before trying again.";
-}
-
-if (status === "restricted") {
-return "Participant profile is currently restricted from live market access.";
-}
-
-return "Complete participant verification before using live market actions.";
+return "No identity verification or KYC is required. Record the required Launcher terms and risk acknowledgements before committing.";
 }
 
 function getParticipantComplianceAccessState(payload = null, connectedWallet = "") {
@@ -268,39 +289,51 @@ const walletConnected = Boolean(wallet);
 if (!walletConnected) {
 return {
 walletConnected: false,
-gateEnabled: Boolean(
-payload?.participant_gate_enabled || payload?.requires_participant_approval
-),
+acknowledgementRequired: true,
+acknowledgementAccepted: false,
 blocked: false,
 approved: false,
+accessOpen: false,
 message: "Connect wallet to continue.",
 };
 }
 
-const gateEnabled = Boolean(
-payload?.participant_gate_enabled || payload?.requires_participant_approval
-);
+const normalized = normalizeComplianceStatusPayload(payload || {});
+const blocked = isParticipantComplianceBlocked(normalized, wallet);
+const acknowledgementAccepted = isParticipantAcknowledgementAccepted(normalized);
 
-if (!gateEnabled) {
+if (blocked) {
 return {
 walletConnected: true,
-gateEnabled: false,
-blocked: false,
-approved: true,
-message: "Participant verification gate is currently disabled.",
+acknowledgementRequired: false,
+acknowledgementAccepted: false,
+blocked: true,
+approved: false,
+accessOpen: false,
+message: getParticipantComplianceMessage(normalized),
 };
 }
 
-const blocked = isParticipantComplianceBlocked(payload, wallet);
+if (!acknowledgementAccepted) {
+return {
+walletConnected: true,
+acknowledgementRequired: true,
+acknowledgementAccepted: false,
+blocked: false,
+approved: false,
+accessOpen: false,
+message: getParticipantComplianceMessage(normalized),
+};
+}
 
 return {
 walletConnected: true,
-gateEnabled: true,
-blocked,
-approved: !blocked,
-message: blocked
-? getParticipantComplianceMessage(payload)
-: "Participant verification approved.",
+acknowledgementRequired: false,
+acknowledgementAccepted: true,
+blocked: false,
+approved: true,
+accessOpen: true,
+message: "Participant Launcher acknowledgements recorded.",
 };
 }
 
@@ -326,6 +359,7 @@ return `${formatNumber(num, { maximumFractionDigits })} SOL`;
 
 function formatUsd(value, maximumFractionDigits = 2) {
 const num = toNumber(value, 0);
+
 return new Intl.NumberFormat(undefined, {
 style: "currency",
 currency: "USD",
@@ -349,6 +383,7 @@ maximumFractionDigits,
 
 function formatPriceSol(value) {
 const num = toNumber(value, 0);
+
 if (num <= 0) return "—";
 if (num >= 1) return formatNumber(num, { maximumFractionDigits: 4 });
 if (num >= 0.01) return formatNumber(num, { maximumFractionDigits: 6 });
@@ -357,6 +392,7 @@ return formatNumber(num, { maximumFractionDigits: 10 });
 
 function formatPriceUsd(value) {
 const num = toNumber(value, 0);
+
 if (num <= 0) return "—";
 if (num >= 1) return formatUsd(num, 4);
 if (num >= 0.01) return formatUsd(num, 6);
@@ -436,10 +472,14 @@ if (!value) return "";
 if (/^javascript:/i.test(value) || /^data:/i.test(value)) return "";
 
 let normalized = value;
-if (!/^https?:\/\//i.test(normalized)) normalized = `https://${normalized}`;
+
+if (!/^https?:\/\//i.test(normalized)) {
+normalized = `https://${normalized}`;
+}
 
 try {
 const url = new URL(normalized);
+
 if (!["http:", "https:"].includes(url.protocol)) return "";
 
 const host = url.hostname.toLowerCase();
@@ -487,7 +527,9 @@ return "";
 function firstFinite(...values) {
 for (const value of values) {
 if (value === null || value === undefined || value === "") continue;
+
 const num = Number(value);
+
 if (Number.isFinite(num)) return num;
 }
 
@@ -497,7 +539,9 @@ return null;
 function firstPositive(...values) {
 for (const value of values) {
 if (value === null || value === undefined || value === "") continue;
+
 const num = Number(value);
+
 if (Number.isFinite(num) && num > 0) return num;
 }
 
@@ -508,12 +552,23 @@ function normalizeLaunchStatusValue(value) {
 const normalized = cleanString(value, 80).toLowerCase();
 
 if (!normalized) return "";
-if (normalized === "graduated" || normalized === "surged" || normalized === "surge") {
+
+if (
+normalized === "graduated" ||
+normalized === "surged" ||
+normalized === "surge"
+) {
 return "graduated";
 }
-if (normalized === "live" || normalized === "trading" || normalized === "market_live") {
+
+if (
+normalized === "live" ||
+normalized === "trading" ||
+normalized === "market_live"
+) {
 return "live";
 }
+
 if (
 normalized === "building" ||
 normalized === "bootstrap" ||
@@ -524,12 +579,19 @@ normalized === "finalising"
 ) {
 return "building";
 }
-if (normalized === "countdown" || normalized === "pre_live" || normalized === "prelive") {
+
+if (
+normalized === "countdown" ||
+normalized === "pre_live" ||
+normalized === "prelive"
+) {
 return "countdown";
 }
+
 if (normalized === "failed_refunded" || normalized === "refunded") {
 return "failed_refunded";
 }
+
 if (
 normalized === "failed" ||
 normalized === "cancelled" ||
@@ -538,6 +600,7 @@ normalized === "expired"
 ) {
 return "failed";
 }
+
 if (
 normalized === "commit" ||
 normalized === "committing" ||
@@ -548,6 +611,7 @@ normalized === "draft"
 ) {
 return "commit";
 }
+
 return normalized;
 }
 
@@ -582,7 +646,10 @@ const cleaned = text.replace(/[^a-zA-Z0-9 ]/g, " ").trim();
 if (!cleaned) return "M";
 
 const parts = cleaned.split(/\s+/).filter(Boolean);
-if (parts.length >= 2) return `${parts[0][0]}${parts[1][0]}`.toUpperCase();
+
+if (parts.length >= 2) {
+return `${parts[0][0]}${parts[1][0]}`.toUpperCase();
+}
 
 return cleaned.slice(0, 2).toUpperCase();
 }
@@ -596,10 +663,9 @@ const usd = toNumber(usdValue, 0);
 const sol = toNumber(solValue, 0);
 
 if (usd > 0 && sol > 0) {
-return `${compactUsd ? formatUsdCompact(usd, 2) : formatUsd(usd, 4)} • ${formatSol(
-sol,
-solDecimals
-)}`;
+return `${
+compactUsd ? formatUsdCompact(usd, 2) : formatUsd(usd, 4)
+} • ${formatSol(sol, solDecimals)}`;
 }
 
 if (usd > 0) {
@@ -635,10 +701,14 @@ raw.thresholds.minHolders ?? raw.thresholds.min_holders,
 0
 ),
 minLiveMinutes: toInt(
-raw.thresholds.minLiveMinutes ?? raw.thresholds.min_live_minutes,
+raw.thresholds.minLiveMinutes ??
+raw.thresholds.min_live_minutes,
 0
 ),
-lockDays: toInt(raw.thresholds.lockDays ?? raw.thresholds.lock_days, 0),
+lockDays: toInt(
+raw.thresholds.lockDays ?? raw.thresholds.lock_days,
+0
+),
 }
 : null,
 metrics:
@@ -660,12 +730,18 @@ liveMinutes: toInt(
 raw.metrics.liveMinutes ?? raw.metrics.live_minutes,
 0
 ),
-solReserve: toNumber(raw.metrics.solReserve ?? raw.metrics.sol_reserve, 0),
+solReserve: toNumber(
+raw.metrics.solReserve ?? raw.metrics.sol_reserve,
+0
+),
 tokenReserve: toInt(
 raw.metrics.tokenReserve ?? raw.metrics.token_reserve,
 0
 ),
-priceSol: toNumber(raw.metrics.priceSol ?? raw.metrics.price_sol, 0),
+priceSol: toNumber(
+raw.metrics.priceSol ?? raw.metrics.price_sol,
+0
+),
 totalSupply: toInt(
 raw.metrics.totalSupply ?? raw.metrics.total_supply,
 0
@@ -675,7 +751,9 @@ raw.metrics.totalSupply ?? raw.metrics.total_supply,
 checks:
 raw.checks && typeof raw.checks === "object"
 ? {
-liveStatus: Boolean(raw.checks.liveStatus ?? raw.checks.live_status),
+liveStatus: Boolean(
+raw.checks.liveStatus ?? raw.checks.live_status
+),
 marketcapReached: Boolean(
 raw.checks.marketcapReached ?? raw.checks.marketcap_reached
 ),
@@ -689,7 +767,9 @@ minimumLiveWindowReached: Boolean(
 raw.checks.minimumLiveWindowReached ??
 raw.checks.minimum_live_window_reached
 ),
-hasReserves: Boolean(raw.checks.hasReserves ?? raw.checks.has_reserves),
+hasReserves: Boolean(
+raw.checks.hasReserves ?? raw.checks.has_reserves
+),
 alreadyGraduated: Boolean(
 raw.checks.alreadyGraduated ?? raw.checks.already_graduated
 ),
@@ -719,7 +799,10 @@ rule: BUILDER_VESTING_RULE,
 }
 
 return {
-builderWallet: choosePreferredNonEmpty(raw.builderWallet, raw.builder_wallet),
+builderWallet: choosePreferredNonEmpty(
+raw.builderWallet,
+raw.builder_wallet
+),
 totalAllocation: toInt(raw.totalAllocation ?? raw.total_allocation, 0),
 dailyUnlock: toInt(raw.dailyUnlock ?? raw.daily_unlock, 0),
 unlockedAmount: toInt(raw.unlockedAmount ?? raw.unlocked_amount, 0),
@@ -728,7 +811,10 @@ vestingStartAt: raw.vestingStartAt ?? raw.vesting_start_at ?? null,
 createdAt: raw.createdAt ?? raw.created_at ?? null,
 updatedAt: raw.updatedAt ?? raw.updated_at ?? null,
 vestedDays: toInt(raw.vestedDays ?? raw.vested_days, 0),
-unlockDays: toInt(raw.unlockDays ?? raw.unlock_days, BUILDER_UNLOCK_DAYS),
+unlockDays: toInt(
+raw.unlockDays ?? raw.unlock_days,
+BUILDER_UNLOCK_DAYS
+),
 cliffDays: toInt(raw.cliffDays ?? raw.cliff_days, BUILDER_CLIFF_DAYS),
 dailyUnlockPct: toNumber(
 raw.dailyUnlockPct ?? raw.daily_unlock_pct,
@@ -806,12 +892,17 @@ raw.protocolReserveHeldPct ?? raw.protocol_reserve_held_pct,
 PROTOCOL_RESERVE_HELD_PCT
 ),
 formerReserveBurned:
-raw.formerReserveBurned ?? raw.former_reserve_burned ?? FORMER_RESERVE_BURNED,
+raw.formerReserveBurned ??
+raw.former_reserve_burned ??
+FORMER_RESERVE_BURNED,
 unusedParticipantAllocationBurned:
 raw.unusedParticipantAllocationBurned ??
 raw.unused_participant_allocation_burned ??
 UNUSED_PARTICIPANT_ALLOCATION_BURNED,
-raydiumPoolId: cleanString(raw.raydiumPoolId ?? raw.raydium_pool_id, 240),
+raydiumPoolId: cleanString(
+raw.raydiumPoolId ?? raw.raydium_pool_id,
+240
+),
 raydiumSolMigrated: toNumber(
 raw.raydiumSolMigrated ?? raw.raydium_sol_migrated,
 0
@@ -820,7 +911,10 @@ raydiumTokenMigrated: toInt(
 raw.raydiumTokenMigrated ?? raw.raydium_token_migrated,
 0
 ),
-raydiumLpTokens: cleanString(raw.raydiumLpTokens ?? raw.raydium_lp_tokens, 240),
+raydiumLpTokens: cleanString(
+raw.raydiumLpTokens ?? raw.raydium_lp_tokens,
+240
+),
 raydiumMigrationTx: cleanString(
 raw.raydiumMigrationTx ?? raw.raydium_migration_tx,
 240
@@ -831,7 +925,8 @@ mssLockedLpAmount: cleanString(
 raw.mssLockedLpAmount ?? raw.mss_locked_lp_amount,
 240
 ),
-lockStatus: cleanString(raw.lockStatus ?? raw.lock_status, 120) || "not_locked",
+lockStatus:
+cleanString(raw.lockStatus ?? raw.lock_status, 120) || "not_locked",
 lockTx: cleanString(raw.lockTx ?? raw.lock_tx, 240),
 lockExpiresAt: raw.lockExpiresAt ?? raw.lock_expires_at ?? null,
 updatedAt: raw.updatedAt ?? raw.updated_at ?? null,
@@ -844,8 +939,10 @@ raw.lpFeeBeneficiaryWallet ?? raw.lp_fee_beneficiary_wallet,
 240
 ),
 lpFeeBeneficiaryType:
-cleanString(raw.lpFeeBeneficiaryType ?? raw.lp_fee_beneficiary_type, 120) ||
-LP_FEE_BENEFICIARY_TYPE_DEFAULT,
+cleanString(
+raw.lpFeeBeneficiaryType ?? raw.lp_fee_beneficiary_type,
+120
+) || LP_FEE_BENEFICIARY_TYPE_DEFAULT,
 lpFeeControllerType:
 cleanString(raw.lpFeeControllerType ?? raw.lp_fee_controller_type, 120) ||
 LP_FEE_CONTROLLER_TYPE_DEFAULT,
@@ -853,8 +950,10 @@ lpFeeControlMode:
 cleanString(raw.lpFeeControlMode ?? raw.lp_fee_control_mode, 120) ||
 LP_FEE_CONTROL_MODE_DEFAULT,
 lpFeeDistributionModel:
-cleanString(raw.lpFeeDistributionModel ?? raw.lp_fee_distribution_model, 160) ||
-LP_FEE_DISTRIBUTION_MODEL_DEFAULT,
+cleanString(
+raw.lpFeeDistributionModel ?? raw.lp_fee_distribution_model,
+160
+) || LP_FEE_DISTRIBUTION_MODEL_DEFAULT,
 lpFeeSource: cleanString(raw.lpFeeSource ?? raw.lp_fee_source, 120),
 lpFeeDistributorEnabled: toTruthyBoolean(
 raw.lpFeeDistributorEnabled ?? raw.lp_fee_distributor_enabled
@@ -928,15 +1027,11 @@ chartIsSynthetic: false,
 
 return {
 externalMarketVenue:
-cleanString(
-raw.externalMarketVenue ?? raw.external_market_venue,
-120
-) || EXTERNAL_MARKET.venue,
+cleanString(raw.externalMarketVenue ?? raw.external_market_venue, 120) ||
+EXTERNAL_MARKET.venue,
 externalMarketMode:
-cleanString(
-raw.externalMarketMode ?? raw.external_market_mode,
-120
-) || EXTERNAL_MARKET.mode,
+cleanString(raw.externalMarketMode ?? raw.external_market_mode, 120) ||
+EXTERNAL_MARKET.mode,
 chartSource:
 cleanString(raw.chartSource ?? raw.chart_source, 120) ||
 MARKET_SOURCE_UNAVAILABLE,
@@ -959,7 +1054,9 @@ marketSyncWarning:
 cleanString(raw.marketSyncWarning ?? raw.market_sync_warning, 500) || "",
 lastTradeAt: raw.lastTradeAt ?? raw.last_trade_at ?? null,
 lastCandleAt: raw.lastCandleAt ?? raw.last_candle_at ?? null,
-chartIsSynthetic: Boolean(raw.chartIsSynthetic ?? raw.chart_is_synthetic),
+chartIsSynthetic: Boolean(
+raw.chartIsSynthetic ?? raw.chart_is_synthetic
+),
 };
 }
 
@@ -967,7 +1064,10 @@ function lifecycleShowsGraduated(lifecycle = null) {
 const normalized = normalizeLifecyclePayload(lifecycle || null);
 if (!normalized) return false;
 if (normalized.graduated === true) return true;
-return normalizeLaunchStatusValue(normalized.graduationStatus) === "graduated";
+
+return (
+normalizeLaunchStatusValue(normalized.graduationStatus) === "graduated"
+);
 }
 
 function normalizeGraduationPlanPayload(raw = {}) {
@@ -975,7 +1075,10 @@ if (!raw || typeof raw !== "object") return null;
 
 return {
 totalSolReserve: toNumber(raw.totalSolReserve ?? raw.total_sol_reserve, 0),
-totalTokenReserve: toInt(raw.totalTokenReserve ?? raw.total_token_reserve, 0),
+totalTokenReserve: toInt(
+raw.totalTokenReserve ?? raw.total_token_reserve,
+0
+),
 raydiumSol: toNumber(raw.raydiumSol ?? raw.raydium_sol, 0),
 raydiumToken: toInt(raw.raydiumToken ?? raw.raydium_token, 0),
 mssLockedSol: toNumber(raw.mssLockedSol ?? raw.mss_locked_sol, 0),
@@ -1003,7 +1106,9 @@ raw.protocolReserveHeldPct ?? raw.protocol_reserve_held_pct,
 PROTOCOL_RESERVE_HELD_PCT
 ),
 formerReserveBurned:
-raw.formerReserveBurned ?? raw.former_reserve_burned ?? FORMER_RESERVE_BURNED,
+raw.formerReserveBurned ??
+raw.former_reserve_burned ??
+FORMER_RESERVE_BURNED,
 unusedParticipantAllocationBurned:
 raw.unusedParticipantAllocationBurned ??
 raw.unused_participant_allocation_burned ??
@@ -1017,7 +1122,10 @@ raw.volume24hThresholdSol ?? raw.volume24h_threshold_sol,
 0
 ),
 minHolders: toInt(raw.minHolders ?? raw.min_holders, 0),
-minLiveMinutes: toInt(raw.minLiveMinutes ?? raw.min_live_minutes, 0),
+minLiveMinutes: toInt(
+raw.minLiveMinutes ?? raw.min_live_minutes,
+0
+),
 lockDays: toInt(raw.lockDays ?? raw.lock_days, 0),
 };
 }
@@ -1061,7 +1169,10 @@ discord_url: cleanString(raw?.discord_url, 500),
 description: cleanString(raw?.description, 4000),
 image_url: cleanString(raw?.image_url, 2000),
 committed_sol: toNumber(raw?.committed_sol, 0),
-participants_count: toNumber(raw?.participants_count ?? raw?.participant_count, 0),
+participants_count: toNumber(
+raw?.participants_count ?? raw?.participant_count,
+0
+),
 hard_cap_sol: toNumber(raw?.hard_cap_sol, 0),
 min_raise_sol: toNumber(raw?.min_raise_sol, 0),
 price: toNumber(raw?.price_sol ?? raw?.price, 0),
@@ -1079,8 +1190,16 @@ const stats = tokenPayload?.stats || {};
 const lifecycle = tokenPayload?.lifecycle || null;
 
 return normalizeLaunchTruth({
-token_name: choosePreferredNonEmpty(launch?.token_name, launch?.name, token?.name),
-symbol: choosePreferredNonEmpty(launch?.symbol, token?.symbol, token?.ticker),
+token_name: choosePreferredNonEmpty(
+launch?.token_name,
+launch?.name,
+token?.name
+),
+symbol: choosePreferredNonEmpty(
+launch?.symbol,
+token?.symbol,
+token?.ticker
+),
 builder_wallet: choosePreferredNonEmpty(launch?.builder_wallet),
 builder_alias: choosePreferredNonEmpty(launch?.builder_alias),
 builder_score: firstPositive(launch?.builder_score, stats?.builder_score) ?? 0,
@@ -1129,17 +1248,33 @@ tokenPayload?.mint_address,
 tokenPayload?.mint,
 launch?.mint_address
 ),
-token_mint: choosePreferredNonEmpty(token?.token_mint, launch?.token_mint),
-mint_reservation_status: choosePreferredNonEmpty(launch?.mint_reservation_status),
+token_mint: choosePreferredNonEmpty(
+token?.token_mint,
+launch?.token_mint
+),
+mint_reservation_status: choosePreferredNonEmpty(
+launch?.mint_reservation_status
+),
 mint_finalized_at: choosePreferredNonEmpty(launch?.mint_finalized_at),
 price: firstPositive(launch?.price, stats?.price, stats?.price_sol) ?? 0,
 market_cap:
-firstPositive(launch?.market_cap, stats?.market_cap, stats?.market_cap_sol) ?? 0,
+firstPositive(
+launch?.market_cap,
+stats?.market_cap,
+stats?.market_cap_sol
+) ?? 0,
 liquidity:
-firstPositive(launch?.liquidity, stats?.liquidity, stats?.liquidity_sol) ?? 0,
+firstPositive(
+launch?.liquidity,
+stats?.liquidity,
+stats?.liquidity_sol
+) ?? 0,
 volume_24h:
-firstPositive(launch?.volume_24h, stats?.volume_24h, stats?.volume_24h_sol) ??
-0,
+firstPositive(
+launch?.volume_24h,
+stats?.volume_24h,
+stats?.volume_24h_sol
+) ?? 0,
 status: choosePreferredNonEmpty(
 launch?.status,
 tokenPayload?.phase?.status,
@@ -1153,7 +1288,9 @@ launch?.market_bootstrapped ??
 lifecycle?.market_bootstrapped ??
 lifecycle?.marketBootstrapped,
 live_at: choosePreferredNonEmpty(launch?.live_at),
-countdown_started_at: choosePreferredNonEmpty(launch?.countdown_started_at),
+countdown_started_at: choosePreferredNonEmpty(
+launch?.countdown_started_at
+),
 countdown_ends_at: choosePreferredNonEmpty(launch?.countdown_ends_at),
 commit_started_at: choosePreferredNonEmpty(launch?.commit_started_at),
 commit_ends_at: choosePreferredNonEmpty(launch?.commit_ends_at),
@@ -1165,15 +1302,25 @@ function buildLaunchPatchFromCommitStats(commitStats = {}) {
 return normalizeLaunchTruth({
 status: choosePreferredNonEmpty(commitStats?.status),
 committed_sol:
-firstFinite(commitStats?.totalCommitted, commitStats?.committed_sol) ?? 0,
+firstFinite(commitStats?.totalCommitted, commitStats?.committed_sol) ??
+0,
 participants_count:
-firstFinite(commitStats?.participants, commitStats?.participants_count) ?? 0,
+firstFinite(
+commitStats?.participants,
+commitStats?.participants_count
+) ?? 0,
 hard_cap_sol:
-firstFinite(commitStats?.hardCap, commitStats?.hard_cap_sol, commitStats?.hard_cap) ??
-0,
+firstFinite(
+commitStats?.hardCap,
+commitStats?.hard_cap_sol,
+commitStats?.hard_cap
+) ?? 0,
 min_raise_sol:
-firstFinite(commitStats?.minRaise, commitStats?.min_raise_sol, commitStats?.min_raise) ??
-0,
+firstFinite(
+commitStats?.minRaise,
+commitStats?.min_raise_sol,
+commitStats?.min_raise
+) ?? 0,
 commit_started_at: choosePreferredNonEmpty(
 commitStats?.commitStartedAt,
 commitStats?.commit_started_at
@@ -1206,13 +1353,19 @@ commitStats?.builder_alias
 ),
 builder_score:
 firstFinite(commitStats?.builderScore, commitStats?.builder_score) ?? 0,
-website_url: choosePreferredNonEmpty(commitStats?.websiteUrl, commitStats?.website_url),
+website_url: choosePreferredNonEmpty(
+commitStats?.websiteUrl,
+commitStats?.website_url
+),
 x_url: choosePreferredNonEmpty(commitStats?.xUrl, commitStats?.x_url),
 telegram_url: choosePreferredNonEmpty(
 commitStats?.telegramUrl,
 commitStats?.telegram_url
 ),
-discord_url: choosePreferredNonEmpty(commitStats?.discordUrl, commitStats?.discord_url),
+discord_url: choosePreferredNonEmpty(
+commitStats?.discordUrl,
+commitStats?.discord_url
+),
 });
 }
 
@@ -1222,6 +1375,7 @@ return normalizeLaunchTruth({});
 }
 
 const normalizedLifecycle = normalizeLifecyclePayload(lifecycle);
+
 if (!normalizedLifecycle) {
 return normalizeLaunchTruth({});
 }
@@ -1260,12 +1414,14 @@ prev.mint_address,
 prev.token_mint,
 prev.mint
 );
+
 const nextContract = choosePreferredNonEmpty(
 next.contract_address,
 next.mint_address,
 next.token_mint,
 next.mint
 );
+
 const strongestContract = choosePreferredNonEmpty(nextContract, prevContract);
 
 const merged = {
@@ -1276,17 +1432,39 @@ const merged = {
 merged.status = choosePreferredNonEmpty(next.status, prev.status);
 merged.raw_status = choosePreferredNonEmpty(next.raw_status, prev.raw_status);
 merged.token_name = choosePreferredNonEmpty(next.token_name, prev.token_name);
-merged.name = choosePreferredNonEmpty(next.name, prev.name, merged.token_name);
+merged.name = choosePreferredNonEmpty(
+next.name,
+prev.name,
+merged.token_name
+);
 merged.symbol = choosePreferredNonEmpty(next.symbol, prev.symbol);
-merged.builder_wallet = choosePreferredNonEmpty(next.builder_wallet, prev.builder_wallet);
-merged.builder_alias = choosePreferredNonEmpty(next.builder_alias, prev.builder_alias);
+merged.builder_wallet = choosePreferredNonEmpty(
+next.builder_wallet,
+prev.builder_wallet
+);
+merged.builder_alias = choosePreferredNonEmpty(
+next.builder_alias,
+prev.builder_alias
+);
 merged.template = choosePreferredNonEmpty(next.template, prev.template);
-merged.description = choosePreferredNonEmpty(next.description, prev.description);
+merged.description = choosePreferredNonEmpty(
+next.description,
+prev.description
+);
 merged.image_url = choosePreferredNonEmpty(next.image_url, prev.image_url);
-merged.website_url = choosePreferredNonEmpty(next.website_url, prev.website_url);
+merged.website_url = choosePreferredNonEmpty(
+next.website_url,
+prev.website_url
+);
 merged.x_url = choosePreferredNonEmpty(next.x_url, prev.x_url);
-merged.telegram_url = choosePreferredNonEmpty(next.telegram_url, prev.telegram_url);
-merged.discord_url = choosePreferredNonEmpty(next.discord_url, prev.discord_url);
+merged.telegram_url = choosePreferredNonEmpty(
+next.telegram_url,
+prev.telegram_url
+);
+merged.discord_url = choosePreferredNonEmpty(
+next.discord_url,
+prev.discord_url
+);
 merged.final_supply = choosePreferredNonEmpty(
 next.final_supply,
 prev.final_supply,
@@ -1308,25 +1486,38 @@ prev.final_supply
 );
 
 merged.commit_started_at =
-choosePreferredNonEmpty(next.commit_started_at, prev.commit_started_at) || null;
+choosePreferredNonEmpty(next.commit_started_at, prev.commit_started_at) ||
+null;
 merged.commit_ends_at =
 choosePreferredNonEmpty(next.commit_ends_at, prev.commit_ends_at) || null;
 merged.countdown_started_at =
-choosePreferredNonEmpty(next.countdown_started_at, prev.countdown_started_at) ||
-null;
+choosePreferredNonEmpty(
+next.countdown_started_at,
+prev.countdown_started_at
+) || null;
 merged.countdown_ends_at =
-choosePreferredNonEmpty(next.countdown_ends_at, prev.countdown_ends_at) || null;
+choosePreferredNonEmpty(
+next.countdown_ends_at,
+prev.countdown_ends_at
+) || null;
 merged.live_at =
-choosePreferredNonEmpty(next.live_at, prev.live_at, merged.countdown_ends_at) ||
-null;
-merged.created_at = choosePreferredNonEmpty(next.created_at, prev.created_at) || null;
-merged.updated_at = choosePreferredNonEmpty(next.updated_at, prev.updated_at) || null;
+choosePreferredNonEmpty(
+next.live_at,
+prev.live_at,
+merged.countdown_ends_at
+) || null;
+merged.created_at =
+choosePreferredNonEmpty(next.created_at, prev.created_at) || null;
+merged.updated_at =
+choosePreferredNonEmpty(next.updated_at, prev.updated_at) || null;
 
 merged.mint_finalized_at =
-choosePreferredNonEmpty(next.mint_finalized_at, prev.mint_finalized_at) || null;
+choosePreferredNonEmpty(next.mint_finalized_at, prev.mint_finalized_at) ||
+null;
 
 merged.market_bootstrapped =
-next.market_bootstrapped !== undefined && next.market_bootstrapped !== null
+next.market_bootstrapped !== undefined &&
+next.market_bootstrapped !== null
 ? next.market_bootstrapped
 : prev.market_bootstrapped;
 
@@ -1351,7 +1542,8 @@ firstFinite(next.participants_count, prev.participants_count) ??
 toNumber(next.participants_count ?? prev.participants_count, 0);
 
 merged.price =
-firstFinite(next.price, prev.price) ?? toNumber(next.price ?? prev.price, 0);
+firstFinite(next.price, prev.price) ??
+toNumber(next.price ?? prev.price, 0);
 
 merged.market_cap =
 firstFinite(next.market_cap, prev.market_cap) ??
@@ -1392,7 +1584,9 @@ return normalizeLaunchTruth(merged);
 function resolveCanonicalPhase(launch = {}, lifecycle = null) {
 const truth = normalizeLaunchTruth(launch || {});
 const lifecycleTruth = normalizeLifecyclePayload(lifecycle || null);
-const explicit = normalizeLaunchStatusValue(truth?.status || truth?.raw_status);
+const explicit = normalizeLaunchStatusValue(
+truth?.status || truth?.raw_status
+);
 const lifecycleStatus = normalizeLaunchStatusValue(
 lifecycleTruth?.launchStatus || lifecycleTruth?.status
 );
@@ -1414,10 +1608,12 @@ truth?.mint,
 lifecycleTruth?.contractAddress,
 lifecycleTruth?.contract_address
 );
+
 const reservationStatus = cleanString(
 truth?.mint_reservation_status,
 64
 ).toLowerCase();
+
 const mintFinalizedAtMs = parseDateMs(truth?.mint_finalized_at);
 
 const hasLiveSignal = Boolean(
@@ -1454,7 +1650,9 @@ if (marketBootstrapped === false) return PHASES.BUILDING;
 return PHASES.LIVE;
 }
 
-if (explicit === "building" || lifecycleStatus === "building") return PHASES.BUILDING;
+if (explicit === "building" || lifecycleStatus === "building") {
+return PHASES.BUILDING;
+}
 
 if (explicit === "countdown" || lifecycleStatus === "countdown") {
 if (!countdownEndMs || now < countdownEndMs) return PHASES.COUNTDOWN;
@@ -1470,7 +1668,12 @@ if (!countdownEndMs || now < countdownEndMs) return PHASES.COUNTDOWN;
 return PHASES.BUILDING;
 }
 
-if (commitEndMs && now >= commitEndMs && countdownEndMs && now < countdownEndMs) {
+if (
+commitEndMs &&
+now >= commitEndMs &&
+countdownEndMs &&
+now < countdownEndMs
+) {
 return PHASES.COUNTDOWN;
 }
 
@@ -1482,14 +1685,23 @@ return PHASES.COMMIT;
 }
 
 function getDaysSinceLive(launch = {}) {
-const liveStartMs = parseDateMs(launch?.live_at || launch?.updated_at || launch?.created_at);
+const liveStartMs = parseDateMs(
+launch?.live_at || launch?.updated_at || launch?.created_at
+);
+
 if (!liveStartMs) return 0;
+
 return Math.max(0, Math.floor((Date.now() - liveStartMs) / 86400000));
 }
 
 function getLocalMaxWalletPercent(launch = {}, connectedWallet = "") {
-const builderWallet = String(launch?.builder_wallet || "").trim().toLowerCase();
-const currentWallet = String(connectedWallet || "").trim().toLowerCase();
+const builderWallet = String(launch?.builder_wallet || "")
+.trim()
+.toLowerCase();
+const currentWallet = String(connectedWallet || "")
+.trim()
+.toLowerCase();
+
 const isBuilderWallet = Boolean(
 builderWallet && currentWallet && builderWallet === currentWallet
 );
@@ -1512,11 +1724,16 @@ lifecycle
 );
 }
 
-function canonicalizeLaunchTruth(launch = {}, commitStats = {}, lifecycle = null) {
+function canonicalizeLaunchTruth(
+launch = {},
+commitStats = {},
+lifecycle = null
+) {
 const merged = mergeLaunchTruth(
 normalizeLaunchTruth(launch || {}),
 buildLaunchPatchFromCommitStats(commitStats || {})
 );
+
 const mergedWithLifecycle = mergeLaunchTruth(
 merged,
 buildLaunchPatchFromLifecycle(lifecycle)
@@ -1545,10 +1762,7 @@ mergedWithLifecycle.status = "graduated";
 return normalizeLaunchTruth(mergedWithLifecycle);
 }
 
-if (
-explicit === "failed_refunded" ||
-lifecycleStatus === "failed_refunded"
-) {
+if (explicit === "failed_refunded" || lifecycleStatus === "failed_refunded") {
 mergedWithLifecycle.status = "failed_refunded";
 return normalizeLaunchTruth(mergedWithLifecycle);
 }
@@ -1658,6 +1872,7 @@ return "Launch has graduated. Lifecycle proof and migration telemetry remain vis
 
 if (phase === PHASES.COUNTDOWN) {
 const countdownText = getCountdownText(launch, commitStats);
+
 return countdownText !== "00:00"
 ? `Commit closed. Live transition opens in ${countdownText}.`
 : "Commit closed. Launch is transitioning to live.";
@@ -1668,7 +1883,7 @@ return "Countdown reached zero. MSS is finalizing mint, liquidity, and the exter
 }
 
 if (phase === PHASES.LIVE) {
-return "Live market access is active through the external LP route. MSS shows the market state here while execution happens on Raydium.";
+return "Live market access is active through the external LP route. MSS shows market truth and wallet-linked access posture here while execution happens on Raydium.";
 }
 
 if (phase === PHASES.FAILED) {
@@ -1693,6 +1908,7 @@ overlaySubtext:
 "Contract address and external trading route appear once bootstrap completes.",
 marketTitle: "Market Bootstrap",
 };
+
 case PHASES.COUNTDOWN:
 return {
 badgeText: "COUNTDOWN",
@@ -1704,6 +1920,7 @@ overlayText: "",
 overlaySubtext: "Market activation is imminent.",
 marketTitle: "Launch Countdown",
 };
+
 case PHASES.LIVE:
 return {
 badgeText: "LIVE",
@@ -1715,6 +1932,7 @@ overlayText: "Market is live. Execution routes externally.",
 overlaySubtext: "",
 marketTitle: "Live Market",
 };
+
 case PHASES.FAILED:
 return {
 badgeText: "FAILED",
@@ -1727,6 +1945,7 @@ overlayText:
 overlaySubtext: "Refund handling remains on the main launch page.",
 marketTitle: "Launch Closed",
 };
+
 case PHASES.COMMIT:
 default:
 return {
@@ -1854,10 +2073,13 @@ input.value = value;
 input.setAttribute("readonly", "");
 input.style.position = "absolute";
 input.style.left = "-9999px";
+
 document.body.appendChild(input);
 input.select();
+
 const ok = document.execCommand("copy");
 document.body.removeChild(input);
+
 return ok;
 } catch {
 return false;
@@ -1869,6 +2091,7 @@ function setButtonCopiedState(button, originalHtml, copiedText = "Copied") {
 if (!button) return;
 
 button.innerHTML = copiedText;
+
 window.setTimeout(() => {
 button.innerHTML = originalHtml;
 }, 1200);
@@ -1876,7 +2099,10 @@ button.innerHTML = originalHtml;
 
 function setText(id, value) {
 const el = typeof id === "string" ? $(id) : id;
-if (el) el.textContent = value;
+
+if (el) {
+el.textContent = value;
+}
 }
 
 function setTextMany(ids, value) {
@@ -1885,18 +2111,22 @@ ids.forEach((id) => setText(id, value));
 
 function toggleHidden(id, hidden) {
 const el = typeof id === "string" ? $(id) : id;
-if (el) el.classList.toggle("hidden", Boolean(hidden));
+
+if (el) {
+el.classList.toggle("hidden", Boolean(hidden));
+}
 }
 
 function setTitleMany(ids, value) {
 ids.forEach((id) => {
 const el = $(id);
-if (el) {
+
+if (!el) return;
+
 if (value) {
 el.setAttribute("title", value);
 } else {
 el.removeAttribute("title");
-}
 }
 });
 }
@@ -1921,6 +2151,7 @@ tradePanelPhasePill,
 launchTokenHero,
 ]) {
 if (!el) continue;
+
 el.classList.remove(...phaseClasses);
 el.classList.add(`phase-${visualPhase}`);
 }
@@ -1934,13 +2165,19 @@ launchTokenHero.dataset.phase = phase;
 }
 }
 
-function updatePhaseContent(phase, launch = {}, commitStats = {}, lifecycle = null) {
+function updatePhaseContent(
+phase,
+launch = {},
+commitStats = {},
+lifecycle = null
+) {
 const graduatedLike = isGraduatedLike(launch, lifecycle);
 const displayStatus = getDisplayStatusLabel(phase, launch, lifecycle);
 const accessLabel = getPhaseAccessLabel(phase, launch, lifecycle);
 const phaseNote = getPhaseNote(phase, launch, commitStats, lifecycle);
 
 const meta = getPhaseMeta(phase);
+
 const displayMeta = graduatedLike
 ? {
 ...meta,
@@ -1964,38 +2201,55 @@ setTextMany(["launchStatusText", "launchStatusText2"], displayMeta.statusText);
 setText("launchMarketModeText", displayMeta.marketModeText);
 setText(
 "marketStatusLabel",
-graduatedLike ? "Graduated" : phase === PHASES.LIVE ? "External Market" : displayMeta.statusText
+graduatedLike
+? "Graduated"
+: phase === PHASES.LIVE
+? "External Market"
+: displayMeta.statusText
 );
 setText("marketOverlayEyebrow", displayMeta.overlayEyebrow);
 setText("marketOverlayTitle", displayMeta.overlayTitle);
 
 setTextMany(
-["phaseValueMirror", "launchStatusBoardValue", "launchCommandPhase", "launchCommandStatus"],
+[
+"phaseValueMirror",
+"launchStatusBoardValue",
+"launchCommandPhase",
+"launchCommandStatus",
+],
 displayStatus
 );
+
 setTextMany(
 ["phaseNoteMirror", "launchStatusBoardNote", "launchCommandText"],
 phaseNote
 );
+
 setTextMany(
 ["launchStatusBoardAccess", "launchCommandMarket", "launchTerminalModeLabel"],
 accessLabel
 );
+
 setText("launchTerminalPhaseLabel", `Phase • ${displayMeta.badgeText}`);
 setText("launchOverviewAccessText", accessLabel);
 
 const marketTitleEl = document.querySelector(".market-card-title");
+
 if (marketTitleEl) {
 marketTitleEl.textContent = displayMeta.marketTitle;
 }
 
 const marketOverlayText = $("marketOverlayText");
+
 if (marketOverlayText) {
 marketOverlayText.textContent = displayMeta.overlayText;
 marketOverlayText.classList.toggle("hidden", !displayMeta.overlayText);
 }
 
-const marketCountdownSubtext = document.querySelector(".market-countdown-subtext");
+const marketCountdownSubtext = document.querySelector(
+".market-countdown-subtext"
+);
+
 if (marketCountdownSubtext) {
 marketCountdownSubtext.textContent =
 displayMeta.overlaySubtext || "Market activation is imminent.";
@@ -2014,7 +2268,11 @@ toggleHidden(marketLiveLayer, phase !== PHASES.LIVE);
 toggleHidden(marketCountdownBox, phase !== PHASES.COUNTDOWN);
 
 if (marketOverlay) {
-marketOverlay.classList.remove("overlay-commit", "overlay-countdown", "overlay-live");
+marketOverlay.classList.remove(
+"overlay-commit",
+"overlay-countdown",
+"overlay-live"
+);
 marketOverlay.classList.add(`overlay-${getVisualPhase(phase)}`);
 marketOverlay.classList.toggle("hidden", phase === PHASES.LIVE);
 }
@@ -2031,27 +2289,30 @@ phase === PHASES.LIVE
 : "commit";
 
 const phasePillMirror = $("phasePillMirror");
+
 if (phasePillMirror) {
 phasePillMirror.className = `status-pill ${statusClass}`;
 phasePillMirror.textContent = displayStatus;
 }
 
 const launchStatusBadge = $("launchStatusBadge");
+
 if (launchStatusBadge) {
 launchStatusBadge.className = `status-pill ${statusClass}`;
 launchStatusBadge.textContent = displayStatus;
 }
 
 const launchStatusPill = $("launchStatusPill");
+
 if (launchStatusPill) {
 launchStatusPill.className = `status-pill ${statusClass}`;
 launchStatusPill.textContent = displayStatus;
 }
 
 const phaseHeadline = $("phaseHeadline");
+
 if (phaseHeadline) {
-phaseHeadline.textContent =
-graduatedLike
+phaseHeadline.textContent = graduatedLike
 ? "Launch has graduated"
 : phase === PHASES.LIVE
 ? "External market is live"
@@ -2065,6 +2326,7 @@ graduatedLike
 }
 
 const phaseSummary = $("phaseSummary");
+
 if (phaseSummary) {
 phaseSummary.textContent = phaseNote;
 }
@@ -2089,21 +2351,31 @@ launch?.builder_score ?? tokenPayload?.launch?.builder_score,
 
 const initials = getInitials(tokenSymbol, tokenName);
 
-setTextMany(["launchTokenName", "launchTokenNameMirror", "launchCommandTitle"], tokenName);
+setTextMany(
+["launchTokenName", "launchTokenNameMirror", "launchCommandTitle"],
+tokenName
+);
 setText("launchTokenSymbol", tokenSymbol);
 setText("launchBuilderLabel", builderAlias);
-setText("launchBuilderWalletShort", builderWallet ? shortAddress(builderWallet) : "Pending");
+setText(
+"launchBuilderWalletShort",
+builderWallet ? shortAddress(builderWallet) : "Pending"
+);
 setText("launchTokenLogo", initials);
 
 setText("builderAlias", builderAlias);
 setText(
 "builderScoreStat",
-builderScore > 0 ? formatNumber(builderScore, { maximumFractionDigits: 0 }) : "—"
+builderScore > 0
+? formatNumber(builderScore, { maximumFractionDigits: 0 })
+: "—"
 );
 setText("launchCommandBuilder", builderAlias);
 setText(
 "launchCommandScore",
-builderScore > 0 ? formatNumber(builderScore, { maximumFractionDigits: 0 }) : "—"
+builderScore > 0
+? formatNumber(builderScore, { maximumFractionDigits: 0 })
+: "—"
 );
 setText(
 "launchStatusBoardBuilderWallet",
@@ -2122,19 +2394,29 @@ builderScore >= 80
 setText("launchBuilderTierText", tier);
 
 const nameEl = $("launchTokenName");
+
 if (nameEl) {
 nameEl.title = tokenName;
 }
 
 const launchSubline = $("launchSubline");
+
 if (launchSubline) {
-const template = cleanString(launch?.template, 80).replaceAll("_", " ") || "standard";
+const template =
+cleanString(launch?.template, 80).replaceAll("_", " ") || "standard";
+
 launchSubline.textContent = `${tokenSymbol} • ${template} • ${builderAlias}`;
 }
 }
 
-function resolveContractAddress(launch = {}, tokenPayload = {}, commitStats = {}, lifecycle = null) {
+function resolveContractAddress(
+launch = {},
+tokenPayload = {},
+commitStats = {},
+lifecycle = null
+) {
 const phase = inferPhase(launch, commitStats, lifecycle);
+
 const contractAddress = choosePreferredNonEmpty(
 launch?.contract_address,
 launch?.mint_address,
@@ -2169,13 +2451,19 @@ state: "Pending",
 };
 }
 
-function updateContractAddress(launch, tokenPayload = null, commitStats = {}, lifecycle = null) {
+function updateContractAddress(
+launch,
+tokenPayload = null,
+commitStats = {},
+lifecycle = null
+) {
 const resolved = resolveContractAddress(
 launch || {},
 tokenPayload || {},
 commitStats || {},
 lifecycle || null
 );
+
 const fullValue = resolved.value || "";
 const shortValue = fullValue
 ? shortAddress(fullValue)
@@ -2225,6 +2513,7 @@ chartCaCopyBtn.disabled = !fullValue;
 }
 
 const contractAddressRow = $("contractAddressRow");
+
 if (contractAddressRow) {
 contractAddressRow.classList.toggle("hidden", !fullValue);
 }
@@ -2248,7 +2537,8 @@ url: normalized,
 }
 
 if (!links.length) {
-launchExternalLinks.innerHTML = `<span class="launch-link-chip" aria-disabled="true">No external links added</span>`;
+launchExternalLinks.innerHTML =
+'<span class="launch-link-chip" aria-disabled="true">No external links added</span>';
 return;
 }
 
@@ -2271,7 +2561,9 @@ rel="noopener noreferrer"
 
 function getCommitMetrics(launch, commitStats = {}) {
 const committedSol = toNumber(
-commitStats?.totalCommitted ?? launch?.committed_sol ?? launch?.commit_total_sol,
+commitStats?.totalCommitted ??
+launch?.committed_sol ??
+launch?.commit_total_sol,
 0
 );
 
@@ -2294,7 +2586,9 @@ commitStats?.minRaise ?? launch?.min_raise_sol ?? launch?.min_raise,
 );
 
 const countdownEndsAt =
-commitStats?.countdownEndsAt || launch?.countdown_ends_at || launch?.live_at;
+commitStats?.countdownEndsAt ||
+launch?.countdown_ends_at ||
+launch?.live_at;
 
 return {
 committedSol,
@@ -2306,10 +2600,9 @@ countdownEndsAt,
 }
 
 function updateStatsForCommit(launch, commitStats = {}) {
-const { committedSol, participantCount, hardCapSol, minRaiseSol } = getCommitMetrics(
-launch,
-commitStats
-);
+const { committedSol, participantCount, hardCapSol, minRaiseSol } =
+getCommitMetrics(launch, commitStats);
+
 const progress =
 hardCapSol > 0 ? Math.min(100, (committedSol / hardCapSol) * 100) : 0;
 
@@ -2317,7 +2610,10 @@ setText("stat1Label", "Committed Capital");
 setText("stat1Value", formatSol(committedSol, 2));
 
 setText("stat2Label", "Participant Count");
-setText("stat2Value", formatNumber(participantCount, { maximumFractionDigits: 0 }));
+setText(
+"stat2Value",
+formatNumber(participantCount, { maximumFractionDigits: 0 })
+);
 
 setText("stat3Label", "Minimum Raise");
 setText("stat3Value", minRaiseSol > 0 ? formatSol(minRaiseSol, 2) : "—");
@@ -2336,7 +2632,10 @@ setText("stat1Label", "Committed Capital");
 setText("stat1Value", formatSol(committedSol, 2));
 
 setText("stat2Label", "Participant Count");
-setText("stat2Value", formatNumber(participantCount, { maximumFractionDigits: 0 }));
+setText(
+"stat2Value",
+formatNumber(participantCount, { maximumFractionDigits: 0 })
+);
 
 setText("stat3Label", "Hard Cap");
 setText("stat3Value", hardCapSol > 0 ? formatSol(hardCapSol, 2) : "—");
@@ -2358,23 +2657,27 @@ setText("stat2Label", "Mint Status");
 setText("stat2Value", "Protected");
 
 setText("stat3Label", "Liquidity Prep");
-setText("stat3Value", liquidityPrepSol > 0 ? formatSol(liquidityPrepSol, 4) : "Pending");
+setText(
+"stat3Value",
+liquidityPrepSol > 0 ? formatSol(liquidityPrepSol, 4) : "Pending"
+);
 
 setText("stat4Label", "Execution");
 setText("stat4Value", "External Route Pending");
 }
 
 function updateStatsForFailed(launch, commitStats = {}) {
-const { committedSol, participantCount, hardCapSol, minRaiseSol } = getCommitMetrics(
-launch,
-commitStats
-);
+const { committedSol, participantCount, hardCapSol, minRaiseSol } =
+getCommitMetrics(launch, commitStats);
 
 setText("stat1Label", "Committed Capital");
 setText("stat1Value", formatSol(committedSol, 2));
 
 setText("stat2Label", "Participant Count");
-setText("stat2Value", formatNumber(participantCount, { maximumFractionDigits: 0 }));
+setText(
+"stat2Value",
+formatNumber(participantCount, { maximumFractionDigits: 0 })
+);
 
 setText("stat3Label", "Minimum Raise");
 setText("stat3Value", minRaiseSol > 0 ? formatSol(minRaiseSol, 2) : "—");
@@ -2481,7 +2784,12 @@ solUsdPrice,
 };
 }
 
-function updateStatsForLive(tokenPayload = {}, chartStats = {}, launch = {}, lifecycle = null) {
+function updateStatsForLive(
+tokenPayload = {},
+chartStats = {},
+launch = {},
+lifecycle = null
+) {
 const liveStats = getLiveStats(tokenPayload, chartStats, launch, lifecycle);
 
 setText("stat1Label", "Spot Price");
@@ -2489,7 +2797,9 @@ setText(
 "stat1Value",
 liveStats.priceUsd > 0 || liveStats.priceSol > 0
 ? `${liveStats.priceUsd > 0 ? formatPriceUsd(liveStats.priceUsd) : "—"}${
-liveStats.priceSol > 0 ? ` • ${formatPriceSol(liveStats.priceSol)} SOL` : ""
+liveStats.priceSol > 0
+? ` • ${formatPriceSol(liveStats.priceSol)} SOL`
+: ""
 }`
 : "—"
 );
@@ -2524,10 +2834,17 @@ solDecimals: 4,
 
 function getCountdownParts(launch, commitStats = {}) {
 const merged = canonicalizeLaunchTruth(launch, commitStats);
-const target = commitStats?.countdownEndsAt || merged?.countdown_ends_at || merged?.live_at;
+
+const target =
+commitStats?.countdownEndsAt ||
+merged?.countdown_ends_at ||
+merged?.live_at;
 
 const tradingOpenMs = parseDateMs(target);
-if (!tradingOpenMs) return { totalMs: 0, minutes: 0, seconds: 0 };
+
+if (!tradingOpenMs) {
+return { totalMs: 0, minutes: 0, seconds: 0 };
+}
 
 const diff = Math.max(0, tradingOpenMs - getNowMs());
 const minutes = Math.floor(diff / 60000);
@@ -2538,8 +2855,13 @@ return { totalMs: diff, minutes, seconds };
 
 function getCountdownText(launch, commitStats = {}) {
 const { totalMs, minutes, seconds } = getCountdownParts(launch, commitStats);
+
 if (totalMs <= 0) return "00:00";
-return `${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
+
+return `${String(minutes).padStart(2, "0")}:${String(seconds).padStart(
+2,
+"0"
+)}`;
 }
 
 function updateCountdownUi(launch, commitStats = {}) {
@@ -2550,12 +2872,23 @@ setText("stat4Value", getCountdownText(launch, commitStats));
 }
 }
 
-function setManageLinksVisibility(launch, connectedWallet, commitStats = {}, lifecycle = null) {
+function setManageLinksVisibility(
+launch,
+connectedWallet,
+commitStats = {},
+lifecycle = null
+) {
 const button = $("manageLaunchLinksBtn");
 if (!button) return;
 
-const builderWallet = String(launch?.builder_wallet || "").trim().toLowerCase();
-const wallet = String(connectedWallet || "").trim().toLowerCase();
+const builderWallet = String(launch?.builder_wallet || "")
+.trim()
+.toLowerCase();
+
+const wallet = String(connectedWallet || "")
+.trim()
+.toLowerCase();
+
 const phase = inferPhase(launch, commitStats, lifecycle);
 
 const canManage = Boolean(
@@ -2569,10 +2902,21 @@ button.classList.toggle("hidden", !canManage);
 }
 
 function fillLinksModal(launch) {
-if ($("linkWebsiteInput")) $("linkWebsiteInput").value = launch?.website_url || "";
-if ($("linkXInput")) $("linkXInput").value = launch?.x_url || "";
-if ($("linkTelegramInput")) $("linkTelegramInput").value = launch?.telegram_url || "";
-if ($("linkDiscordInput")) $("linkDiscordInput").value = launch?.discord_url || "";
+if ($("linkWebsiteInput")) {
+$("linkWebsiteInput").value = launch?.website_url || "";
+}
+
+if ($("linkXInput")) {
+$("linkXInput").value = launch?.x_url || "";
+}
+
+if ($("linkTelegramInput")) {
+$("linkTelegramInput").value = launch?.telegram_url || "";
+}
+
+if ($("linkDiscordInput")) {
+$("linkDiscordInput").value = launch?.discord_url || "";
+}
 }
 
 function openLinksModal() {
@@ -2606,31 +2950,46 @@ stickyMs > 0 ? String(Date.now() + stickyMs) : "";
 
 function shouldPreserveTradeMessage() {
 const el = $("tradePanelMessage");
+
 if (!el || el.classList.contains("hidden")) return false;
 
 const stickyUntil = Number(el.dataset.stickyUntil || 0);
+
 return Number.isFinite(stickyUntil) && stickyUntil > Date.now();
 }
 
 function resolveTradesFromPayload(payload = {}) {
-const snapshotTrades = Array.isArray(payload?.tokenTrades) ? payload.tokenTrades : [];
+const snapshotTrades = Array.isArray(payload?.tokenTrades)
+? payload.tokenTrades
+: [];
+
 const genericTrades = Array.isArray(payload?.trades) ? payload.trades : [];
+
 const tokenPayloadTrades = Array.isArray(payload?.tokenPayload?.recent_trades)
 ? payload.tokenPayload.recent_trades
 : [];
+
 const tokenPayloadTradesAlt = Array.isArray(payload?.tokenPayload?.trades)
 ? payload.tokenPayload.trades
 : [];
-const tokenStatsTrades = Array.isArray(payload?.tokenPayload?.stats?.recent_trades)
+
+const tokenStatsTrades = Array.isArray(
+payload?.tokenPayload?.stats?.recent_trades
+)
 ? payload.tokenPayload.stats.recent_trades
 : [];
+
 const chartStatsTrades = Array.isArray(payload?.chartStats?.recent_trades)
 ? payload.chartStats.recent_trades
 : [];
+
 const chartTrades = Array.isArray(payload?.snapshotPayload?.trades)
 ? payload.snapshotPayload.trades
 : [];
-const nestedChartTrades = Array.isArray(payload?.snapshotPayload?.chart?.trades)
+
+const nestedChartTrades = Array.isArray(
+payload?.snapshotPayload?.chart?.trades
+)
 ? payload.snapshotPayload.chart.trades
 : [];
 
@@ -2656,7 +3015,7 @@ const list = $("recentTradesList");
 if (!list) return;
 
 if (!Array.isArray(trades) || !trades.length) {
-list.innerHTML = `<div class="recent-trades-empty">No trades yet.</div>`;
+list.innerHTML = '<div class="recent-trades-empty">No trades yet.</div>';
 return;
 }
 
@@ -2668,25 +3027,33 @@ tokenPayload?.stats?.sol_usd_price ?? chartStats?.sol_usd_price,
 const ordered = [...trades].sort((a, b) => {
 const aTs = parseDateMs(a?.created_at || a?.timestamp || a?.time) || 0;
 const bTs = parseDateMs(b?.created_at || b?.timestamp || b?.time) || 0;
+
 return bTs - aTs;
 });
 
 list.innerHTML = ordered
 .slice(0, 50)
 .map((trade) => {
-const side = String(trade?.side || trade?.type || "").toLowerCase() || "trade";
+const side =
+String(trade?.side || trade?.type || "").toLowerCase() || "trade";
+
 const wallet = shortAddress(String(trade?.wallet || trade?.owner || ""));
+
 const solAmountNum = toNumber(
 trade?.sol_amount ?? trade?.base_amount ?? trade?.solAmount,
 0
 );
+
 const tokenAmountNum = toNumber(
 trade?.token_amount ?? trade?.tokenAmount ?? trade?.amount,
 0
 );
+
 const priceSolNum = toNumber(trade?.price_sol ?? trade?.price, 0);
 const tradeUsdValue = solUsdPrice > 0 ? solAmountNum * solUsdPrice : 0;
-const createdAt = trade?.created_at || trade?.timestamp || trade?.time || "";
+const createdAt =
+trade?.created_at || trade?.timestamp || trade?.time || "";
+
 const relativeTime = formatRelativeTime(createdAt);
 
 return `
@@ -2698,19 +3065,27 @@ side.toUpperCase() || "TRADE"
 <div class="recent-trade-wallet">${escapeHtml(wallet)}</div>
 <div class="recent-trade-sub">${escapeHtml(relativeTime)}</div>
 </div>
+
 <div class="recent-trade-metrics">
-<div class="recent-trade-value">${escapeHtml(formatSol(solAmountNum, 4))}</div>
+<div class="recent-trade-value">${escapeHtml(
+formatSol(solAmountNum, 4)
+)}</div>
 <div class="recent-trade-sub">${
 tradeUsdValue > 0
 ? escapeHtml(formatUsd(tradeUsdValue, 2))
-: escapeHtml(`${formatTokenAmount(tokenAmountNum, 0)} tokens`)
+: escapeHtml(
+`${formatTokenAmount(tokenAmountNum, 0)} tokens`
+)
 }</div>
 </div>
+
 <div class="recent-trade-meta">
 <div class="recent-trade-price">@ ${escapeHtml(
 priceSolNum > 0 ? `${formatPriceSol(priceSolNum)} SOL` : "—"
 )}</div>
-<div class="recent-trade-time">${escapeHtml(formatDateTime(createdAt))}</div>
+<div class="recent-trade-time">${escapeHtml(
+formatDateTime(createdAt)
+)}</div>
 </div>
 </div>
 `;
@@ -2734,8 +3109,14 @@ const shouldShowRecentTrades = phase === PHASES.LIVE;
 tradePanelCard.classList.toggle("hidden", !shouldShowTradePanel);
 recentTradesCard.classList.toggle("hidden", !shouldShowRecentTrades);
 
-tradePanelPhasePill.classList.remove("phase-commit", "phase-countdown", "phase-live");
+tradePanelPhasePill.classList.remove(
+"phase-commit",
+"phase-countdown",
+"phase-live"
+);
+
 tradePanelPhasePill.classList.add(`phase-${getVisualPhase(phase)}`);
+
 tradePanelPhasePill.textContent = graduatedLike
 ? "Externalized"
 : phase === PHASES.LIVE
@@ -2766,8 +3147,13 @@ const walletLimitLabel = $("tradeQuoteWalletLimitLabel");
 const quickBuyRow = $("tradeQuickBuyRow");
 const quickSellRow = $("tradeQuickSellRow");
 
-if (buyTab) buyTab.classList.toggle("active", mode === TRADE_MODES.BUY);
-if (sellTab) sellTab.classList.toggle("active", mode === TRADE_MODES.SELL);
+if (buyTab) {
+buyTab.classList.toggle("active", mode === TRADE_MODES.BUY);
+}
+
+if (sellTab) {
+sellTab.classList.toggle("active", mode === TRADE_MODES.SELL);
+}
 
 if (amountLabel) {
 amountLabel.textContent = "Execution Venue";
@@ -2802,6 +3188,7 @@ function syncMarketShellLayout() {
 const shell = $("launchMarketShell");
 const market = $("marketCard");
 const hero = document.querySelector(".launch-hero-shell");
+
 if (!shell || !market || !hero) return;
 
 const wrap = shell.querySelector(".launch-market-wrap");
@@ -2846,7 +3233,12 @@ volumeCanvas.style.height = "72px";
 }
 }
 
-function syncTerminalPresentation(phase, launch = {}, chartStats = {}, tokenPayload = {}) {
+function syncTerminalPresentation(
+phase,
+launch = {},
+chartStats = {},
+tokenPayload = {}
+) {
 const marketCard = $("marketCard");
 const tradePanelCard = $("tradePanelCard");
 const recentTradesCard = $("recentTradesCard");
@@ -2855,8 +3247,10 @@ const accessCard = $("marketAccessCard");
 
 const priceChangePct = toNumber(chartStats?.price_change_pct, 0);
 const flowImbalance = Math.abs(
-toNumber(chartStats?.buys_24h, 0) - toNumber(chartStats?.sells_24h, 0)
+toNumber(chartStats?.buys_24h, 0) -
+toNumber(chartStats?.sells_24h, 0)
 );
+
 const builderScore = toNumber(
 launch?.builder_score ?? tokenPayload?.launch?.builder_score,
 0
@@ -2873,15 +3267,31 @@ phase === PHASES.FAILED
 ? "strong"
 : "neutral";
 
-for (const el of [marketCard, tradePanelCard, recentTradesCard, walletSummary, accessCard]) {
+for (const el of [
+marketCard,
+tradePanelCard,
+recentTradesCard,
+walletSummary,
+accessCard,
+]) {
 if (!el) continue;
+
 el.dataset.phase = phase;
 el.dataset.tone = tone;
 }
 }
 
-function getWalletSummaryData(tokenPayload = {}, chartStats = {}, fallbackTokenBalance = null) {
-const wallet = tokenPayload?.wallet || tokenPayload?.wallet_summary || tokenPayload?.position || {};
+function getWalletSummaryData(
+tokenPayload = {},
+chartStats = {},
+fallbackTokenBalance = null
+) {
+const wallet =
+tokenPayload?.wallet ||
+tokenPayload?.wallet_summary ||
+tokenPayload?.position ||
+{};
+
 const stats = { ...(tokenPayload?.stats || {}), ...(chartStats || {}) };
 const chartWallet = chartStats?.wallet || {};
 
@@ -2920,7 +3330,10 @@ stats?.wallet_visible_total_balance,
 tokenBalance
 );
 
-const totalBalance = Math.max(tokenBalance, toInt(totalBalanceRaw ?? tokenBalance, tokenBalance));
+const totalBalance = Math.max(
+tokenBalance,
+toInt(totalBalanceRaw ?? tokenBalance, tokenBalance)
+);
 
 const unlockedBalanceRaw = firstFinite(
 wallet?.unlocked_balance,
@@ -2941,7 +3354,10 @@ stats?.wallet_sellable_balance,
 tokenBalance
 );
 
-const unlockedBalance = Math.max(0, toInt(unlockedBalanceRaw ?? tokenBalance, tokenBalance));
+const unlockedBalance = Math.max(
+0,
+toInt(unlockedBalanceRaw ?? tokenBalance, tokenBalance)
+);
 
 const lockedBalanceRaw = firstFinite(
 wallet?.locked_balance,
@@ -3059,7 +3475,9 @@ const isParticipantWallet = Boolean(
 wallet?.is_participant_wallet ?? stats?.is_participant_wallet ?? false
 );
 
-const isTeamWallet = Boolean(wallet?.is_team_wallet ?? stats?.is_team_wallet ?? false);
+const isTeamWallet = Boolean(
+wallet?.is_team_wallet ?? stats?.is_team_wallet ?? false
+);
 
 const vestingActive = Boolean(
 wallet?.vesting_active ??
@@ -3089,10 +3507,12 @@ wallet?.wallet_source_kind,
 stats?.wallet_source,
 stats?.wallet_source_kind
 );
+
 const walletSourceWarning = choosePreferredNonEmpty(
 wallet?.wallet_source_warning,
 stats?.wallet_source_warning
 );
+
 const walletPositionConfidence = choosePreferredNonEmpty(
 wallet?.wallet_position_confidence,
 stats?.wallet_position_confidence
@@ -3139,20 +3559,29 @@ wrap.classList.toggle("hidden", !show);
 
 if (!show) return;
 
-const summary = getWalletSummaryData(tokenPayload, chartStats, fallbackTokenBalance);
+const summary = getWalletSummaryData(
+tokenPayload,
+chartStats,
+fallbackTokenBalance
+);
+
 const hasWallet = Boolean(String(connectedWallet || "").trim());
 
 if (!hasWallet) {
 tokenBalanceEl.textContent = "Connect wallet";
 positionValueEl.textContent = "—";
 solBalanceEl.textContent = "—";
+
 setText("launchWalletSummaryText", "Not Connected");
 setText("launchWalletPositionText", "Connect Wallet");
 setText("launchWalletLimitText", "External Route");
 return;
 }
 
-if (summary.isBuilderWallet && (summary.vestingActive || summary.lockedBalance > 0)) {
+if (
+summary.isBuilderWallet &&
+(summary.vestingActive || summary.lockedBalance > 0)
+) {
 tokenBalanceEl.innerHTML = `
 <div>${formatTokenAmount(summary.sellableBalance, 0)} unlocked</div>
 <div style="margin-top:4px;font-size:12px;opacity:.68;">
@@ -3163,7 +3592,10 @@ summary.builderVestingPercentUnlocked,
 </div>
 `;
 } else {
-tokenBalanceEl.textContent = `${formatTokenAmount(summary.tokenBalance, 0)} tokens`;
+tokenBalanceEl.textContent = `${formatTokenAmount(
+summary.tokenBalance,
+0
+)} tokens`;
 }
 
 if (summary.positionValueUsd > 0) {
@@ -3177,14 +3609,19 @@ positionValueEl.textContent = "$0";
 solBalanceEl.textContent = formatSol(summary.solBalance, 4);
 
 setText("launchWalletSummaryText", shortAddress(connectedWallet));
+
 setText(
 "launchWalletPositionText",
 summary.positionValueUsd > 0
 ? formatUsd(summary.positionValueUsd, 2)
 : summary.positionValueSol > 0
 ? formatSol(summary.positionValueSol, 4)
-: `${formatTokenAmount(summary.sellableBalance || summary.tokenBalance, 0)} tokens`
+: `${formatTokenAmount(
+summary.sellableBalance || summary.tokenBalance,
+0
+)} tokens`
 );
+
 setText(
 "launchWalletLimitText",
 summary.isBuilderWallet
@@ -3227,6 +3664,7 @@ return;
 
 const show = phase === PHASES.LIVE;
 card.classList.toggle("hidden", !show);
+
 if (!show) return;
 
 const graduatedLike = isGraduatedLike(launch);
@@ -3235,10 +3673,12 @@ tokenPayload,
 chartStats,
 fallbackTokenBalance
 );
-const complianceState = getParticipantComplianceAccessState(
+
+const accessState = getParticipantComplianceAccessState(
 participantCompliance,
 connectedWallet
 );
+
 const totalSupply = toInt(
 firstFinite(
 tokenPayload?.token?.supply,
@@ -3254,14 +3694,22 @@ launch?.supply
 
 const localMaxWalletPct = getLocalMaxWalletPercent(launch, connectedWallet);
 const capOpen = localMaxWalletPct >= 100;
+
 const localMaxWalletTokens =
-totalSupply > 0 && !capOpen ? Math.floor((totalSupply * localMaxWalletPct) / 100) : totalSupply;
+totalSupply > 0 && !capOpen
+? Math.floor((totalSupply * localMaxWalletPct) / 100)
+: totalSupply;
 
 const maxWalletTokens = localMaxWalletTokens;
+
 const effectiveHolding = walletSummary.isBuilderWallet
 ? walletSummary.sellableBalance
 : walletSummary.tokenBalance;
-const remaining = maxWalletTokens > 0 ? Math.max(0, maxWalletTokens - effectiveHolding) : 0;
+
+const remaining =
+maxWalletTokens > 0
+? Math.max(0, maxWalletTokens - effectiveHolding)
+: 0;
 
 if (graduatedLike) {
 statePill.classList.remove("is-open", "is-restricted");
@@ -3270,10 +3718,14 @@ statePill.textContent = "Externalized";
 
 tierLabel.textContent = "Graduated Market";
 limitValue.textContent = "External Venue";
-holdingValue.textContent = `${formatTokenAmount(effectiveHolding, 0)} tokens`;
+holdingValue.textContent = `${formatTokenAmount(
+effectiveHolding,
+0
+)} tokens`;
 remainingValue.textContent = "No longer enforced here";
 totalSupplyValue.textContent =
 totalSupply > 0 ? `${formatTokenAmount(totalSupply, 0)} tokens` : "Pending";
+
 schedule.textContent =
 "This launch has graduated. Trading continues externally while MSS retains lifecycle visibility and LP telemetry.";
 
@@ -3281,7 +3733,7 @@ setText("launchAccessModeText", "Externalized");
 return;
 }
 
-if (!complianceState.walletConnected) {
+if (!accessState.walletConnected) {
 statePill.classList.remove("is-open", "is-restricted");
 statePill.classList.add("is-restricted");
 statePill.textContent = "Wallet";
@@ -3292,27 +3744,54 @@ holdingValue.textContent = "—";
 remainingValue.textContent = "—";
 totalSupplyValue.textContent =
 totalSupply > 0 ? `${formatTokenAmount(totalSupply, 0)} tokens` : "Pending";
+
 schedule.textContent =
-"Connect your wallet to view participant access posture and open the external route.";
+"Connect your wallet to view participant acknowledgement status and terminal route access.";
 
 setText("launchAccessModeText", "Wallet Required");
 return;
 }
 
-if (complianceState.blocked) {
+if (accessState.blocked) {
 statePill.classList.remove("is-open", "is-restricted");
 statePill.classList.add("is-restricted");
 statePill.textContent = "Blocked";
 
-tierLabel.textContent = "Participant Verification";
-limitValue.textContent = "Restricted";
-holdingValue.textContent = `${formatTokenAmount(effectiveHolding, 0)} tokens`;
-remainingValue.textContent = "Verification required";
+tierLabel.textContent = "Launcher Access Blocked";
+limitValue.textContent = "Unavailable";
+holdingValue.textContent = `${formatTokenAmount(
+effectiveHolding,
+0
+)} tokens`;
+remainingValue.textContent = "Wallet blocked";
 totalSupplyValue.textContent =
 totalSupply > 0 ? `${formatTokenAmount(totalSupply, 0)} tokens` : "Pending";
-schedule.textContent = complianceState.message;
 
-setText("launchAccessModeText", "Verification Required");
+schedule.textContent = accessState.message;
+
+setText("launchAccessModeText", "Wallet Blocked");
+return;
+}
+
+if (!accessState.acknowledgementAccepted) {
+statePill.classList.remove("is-open", "is-restricted");
+statePill.classList.add("is-restricted");
+statePill.textContent = "Required";
+
+tierLabel.textContent = "Acknowledgement Required";
+limitValue.textContent = "Terms Required";
+holdingValue.textContent = `${formatTokenAmount(
+effectiveHolding,
+0
+)} tokens`;
+remainingValue.textContent = "Record terms";
+totalSupplyValue.textContent =
+totalSupply > 0 ? `${formatTokenAmount(totalSupply, 0)} tokens` : "Pending";
+
+schedule.textContent =
+"No identity verification or KYC is required. Record the required Launcher terms and risk acknowledgements before using the routed action from this terminal.";
+
+setText("launchAccessModeText", "Acknowledgement Required");
 return;
 }
 
@@ -3338,7 +3817,10 @@ tierLabel.textContent = walletSummary.isBuilderWallet
 if (walletSummary.isBuilderWallet) {
 limitValue.textContent =
 totalSupply > 0
-? `${formatPercent(BUILDER_MAX_WALLET_PERCENT, 2)} builder allocation`
+? `${formatPercent(
+BUILDER_MAX_WALLET_PERCENT,
+2
+)} builder allocation`
 : "Builder allocation";
 } else if (hasRestriction) {
 limitValue.textContent =
@@ -3349,7 +3831,10 @@ maxWalletTokens > 0
 limitValue.textContent = "Open";
 }
 
-if (walletSummary.isBuilderWallet && (walletSummary.vestingActive || walletSummary.lockedBalance > 0)) {
+if (
+walletSummary.isBuilderWallet &&
+(walletSummary.vestingActive || walletSummary.lockedBalance > 0)
+) {
 holdingValue.innerHTML = `
 <div>${formatTokenAmount(walletSummary.sellableBalance, 0)} unlocked</div>
 <div style="margin-top:4px;font-size:12px;opacity:.68;">
@@ -3358,19 +3843,25 @@ ${formatTokenAmount(walletSummary.lockedBalance, 0)} locked
 `;
 } else if (totalSupply > 0 && effectiveHolding > 0) {
 const holdingPct = (effectiveHolding / totalSupply) * 100;
+
 holdingValue.innerHTML = `
 <div>${formatTokenAmount(effectiveHolding, 0)} tokens</div>
-<div style="margin-top:4px;font-size:12px;opacity:.68;">${formatPercent(
-holdingPct,
-3
-)}</div>
+<div style="margin-top:4px;font-size:12px;opacity:.68;">
+${formatPercent(holdingPct, 3)}
+</div>
 `;
 } else {
-holdingValue.textContent = `${formatTokenAmount(effectiveHolding, 0)} tokens`;
+holdingValue.textContent = `${formatTokenAmount(
+effectiveHolding,
+0
+)} tokens`;
 }
 
 if (walletSummary.isBuilderWallet) {
-remainingValue.textContent = `${formatTokenAmount(walletSummary.lockedBalance, 0)} locked`;
+remainingValue.textContent = `${formatTokenAmount(
+walletSummary.lockedBalance,
+0
+)} locked`;
 } else if (hasRestriction) {
 remainingValue.textContent =
 maxWalletTokens > 0
@@ -3391,19 +3882,17 @@ walletSummary.builderVestingPercentUnlocked,
 } else if (hasRestriction) {
 schedule.textContent =
 totalSupply > 0
-? `Wallet concentration controls remain visible here while execution routes externally. Current cap is ${formatPercent(
+? `Launcher acknowledgements recorded. Wallet concentration controls remain visible here while execution routes externally. Current cap is ${formatPercent(
 localMaxWalletPct,
 2
 )} of total supply.`
-: `Wallet concentration controls remain visible here while execution routes externally. Current cap is ${formatPercent(
+: `Launcher acknowledgements recorded. Wallet concentration controls remain visible here while execution routes externally. Current cap is ${formatPercent(
 localMaxWalletPct,
 2
 )} of total supply, with token-cap figures pending supply resolution.`;
 } else {
 schedule.textContent =
-complianceState.gateEnabled
-? "Participant verification approved. Protected wallet cap window has opened and execution routes externally."
-: "Protected wallet cap window has opened. MSS shows the policy state here while live execution routes externally.";
+"Launcher acknowledgements recorded. The protected wallet cap window has opened and execution routes externally through Raydium.";
 }
 
 setText(
@@ -3428,11 +3917,16 @@ setText("marketAccessLimitValue", "—");
 setText("marketAccessHoldingValue", "—");
 setText("marketAccessRemainingValue", "—");
 setText("marketTotalSupplyValue", "—");
-setText("marketAccessSchedule", "External routing opens once the launch is live.");
+setText(
+"marketAccessSchedule",
+"External routing opens once the launch is live."
+);
 
 const recentTradesList = $("recentTradesList");
+
 if (recentTradesList) {
-recentTradesList.innerHTML = `<div class="recent-trades-empty">No trades yet.</div>`;
+recentTradesList.innerHTML =
+'<div class="recent-trades-empty">No trades yet.</div>';
 }
 
 setTradeMessage("");
@@ -3445,9 +3939,11 @@ setText("launchWalletLimitText", "Rule Based");
 
 function getLifecycleStatusTone(status = "") {
 const normalized = cleanString(status, 80).toLowerCase();
+
 if (normalized === "graduated") return "good";
 if (normalized === "ready") return "warn";
 if (normalized.includes("pending")) return "warn";
+
 return "neutral";
 }
 
@@ -3500,7 +3996,11 @@ graduated: false,
 };
 }
 
-function renderLifecycleCard(lifecycle = null, graduationPlan = null, phase = PHASES.COMMIT) {
+function renderLifecycleCard(
+lifecycle = null,
+graduationPlan = null,
+phase = PHASES.COMMIT
+) {
 const section = $("lifecycleSection");
 if (!section) return;
 
@@ -3510,7 +4010,9 @@ phase === PHASES.LIVE
 : buildPendingLifecycle(phase);
 
 const graduationPlanSafe =
-phase === PHASES.LIVE ? normalizeGraduationPlanPayload(graduationPlan || {}) || null : null;
+phase === PHASES.LIVE
+? normalizeGraduationPlanPayload(graduationPlan || {}) || null
+: null;
 
 const statusValue = $("lifecycleStatusValue");
 const statusPill = $("lifecycleStatusPill");
@@ -3525,11 +4027,13 @@ const graduateBtn = $("graduateDevnetBtn");
 const graduationProof = $("graduationProofList");
 
 const readiness = lifecycleSafe?.graduationReadiness || null;
+
 const statusText =
 cleanString(
 lifecycleSafe?.graduated
 ? "graduated"
-: lifecycleSafe?.graduationStatus || (phase === PHASES.LIVE ? "internal_live" : "pending"),
+: lifecycleSafe?.graduationStatus ||
+(phase === PHASES.LIVE ? "internal_live" : "pending"),
 80
 ) || "pending";
 
@@ -3556,6 +4060,7 @@ lifecycleSafe?.internalSolReserve
 ) ?? 0,
 0
 );
+
 const liveLiquidityTokens = toInt(
 firstPositive(
 lifecycleSafe?.raydiumTokenMigrated,
@@ -3567,12 +4072,18 @@ lifecycleSafe?.internalTokenReserve
 
 if (reservesValue) {
 reservesValue.innerHTML = `
-<div>${phase === PHASES.LIVE && liveLiquiditySol > 0 ? formatSol(liveLiquiditySol, 4) : "Pending"}</div>
-<div style="margin-top:4px;font-size:12px;opacity:.68;">${
+<div>${
+phase === PHASES.LIVE && liveLiquiditySol > 0
+? formatSol(liveLiquiditySol, 4)
+: "Pending"
+}</div>
+<div style="margin-top:4px;font-size:12px;opacity:.68;">
+${
 phase === PHASES.LIVE && liveLiquidityTokens > 0
 ? `${formatTokenAmount(liveLiquidityTokens, 0)} tokens`
 : "Raydium routing proof pending"
-}</div>
+}
+</div>
 `;
 }
 
@@ -3582,6 +4093,7 @@ graduationPlanSafe?.raydiumSplitPct ??
 LIVE_LIQUIDITY_TARGET_PCT,
 LIVE_LIQUIDITY_TARGET_PCT
 );
+
 const reserveHeldPct = toNumber(
 lifecycleSafe?.protocolReserveHeldPct ??
 graduationPlanSafe?.protocolReserveHeldPct ??
@@ -3592,18 +4104,25 @@ PROTOCOL_RESERVE_HELD_PCT
 if (splitValue) {
 splitValue.innerHTML = `
 <div>Raydium ${formatPercent(raydiumPct, 0)}</div>
-<div style="margin-top:4px;font-size:12px;opacity:.68;">Reserve held ${formatPercent(
+<div style="margin-top:4px;font-size:12px;opacity:.68;">
+Reserve held ${formatPercent(
 reserveHeldPct,
 0
-)} • former reserve burned</div>
+)} • former reserve burned
+</div>
 `;
 }
 
 const distributorMode =
 cleanString(lifecycleSafe?.lpFeeControlMode, 80) || "distributor_only";
+
 const distributorStatus =
 cleanString(lifecycleSafe?.lpFeeDistributorStatus, 120) || "pending";
-const distributorAddress = cleanString(lifecycleSafe?.lpFeeDistributorAddress, 240);
+
+const distributorAddress = cleanString(
+lifecycleSafe?.lpFeeDistributorAddress,
+240
+);
 
 if (lockValue) {
 lockValue.innerHTML = `
@@ -3619,17 +4138,29 @@ phase === PHASES.LIVE && distributorAddress
 }
 
 const raydiumPoolId = cleanString(lifecycleSafe?.raydiumPoolId, 240);
-const raydiumMigrationTx = cleanString(lifecycleSafe?.raydiumMigrationTx, 240);
+const raydiumMigrationTx = cleanString(
+lifecycleSafe?.raydiumMigrationTx,
+240
+);
 const raydiumSolMigrated = toNumber(lifecycleSafe?.raydiumSolMigrated, 0);
-const raydiumTokenMigrated = toInt(lifecycleSafe?.raydiumTokenMigrated, 0);
+const raydiumTokenMigrated = toInt(
+lifecycleSafe?.raydiumTokenMigrated,
+0
+);
 
 if (raydiumValue) {
 raydiumValue.innerHTML = `
-<div>${phase === PHASES.LIVE && raydiumPoolId ? escapeHtml(shortAddress(raydiumPoolId, 10, 8)) : "Pending"}</div>
+<div>${
+phase === PHASES.LIVE && raydiumPoolId
+? escapeHtml(shortAddress(raydiumPoolId, 10, 8))
+: "Pending"
+}</div>
 <div style="margin-top:4px;font-size:12px;opacity:.68;">
 ${
 phase === PHASES.LIVE && raydiumMigrationTx
-? `${escapeHtml(shortAddress(raydiumMigrationTx, 10, 8))} • `
+? `${escapeHtml(
+shortAddress(raydiumMigrationTx, 10, 8)
+)} • `
 : ""
 }${escapeHtml(formatSol(raydiumSolMigrated, 4))} / ${escapeHtml(
 formatTokenAmount(raydiumTokenMigrated, 0)
@@ -3638,26 +4169,41 @@ formatTokenAmount(raydiumTokenMigrated, 0)
 `;
 }
 
-const vest = lifecycleSafe?.builderVesting || normalizeBuilderVestingPayload({});
-const unlockedAmount = phase === PHASES.LIVE ? toInt(vest?.unlockedAmount, 0) : 0;
-const lockedAmount = phase === PHASES.LIVE ? toInt(vest?.lockedAmount, 0) : 0;
-const vestedDays = phase === PHASES.LIVE ? toInt(vest?.vestedDays, 0) : 0;
+const vest =
+lifecycleSafe?.builderVesting || normalizeBuilderVestingPayload({});
+
+const unlockedAmount =
+phase === PHASES.LIVE ? toInt(vest?.unlockedAmount, 0) : 0;
+
+const lockedAmount =
+phase === PHASES.LIVE ? toInt(vest?.lockedAmount, 0) : 0;
+
+const vestedDays =
+phase === PHASES.LIVE ? toInt(vest?.vestedDays, 0) : 0;
+
 const unlockDays =
-phase === PHASES.LIVE ? toInt(vest?.unlockDays, BUILDER_UNLOCK_DAYS) : BUILDER_UNLOCK_DAYS;
-const totalAllocation = phase === PHASES.LIVE ? toInt(vest?.totalAllocation, 0) : 0;
+phase === PHASES.LIVE
+? toInt(vest?.unlockDays, BUILDER_UNLOCK_DAYS)
+: BUILDER_UNLOCK_DAYS;
+
+const totalAllocation =
+phase === PHASES.LIVE ? toInt(vest?.totalAllocation, 0) : 0;
+
 const percentUnlocked =
 totalAllocation > 0 ? (unlockedAmount / totalAllocation) * 100 : 0;
 
 if (builderVestValue) {
 builderVestValue.innerHTML = `
 <div>${formatTokenAmount(unlockedAmount, 0)} unlocked</div>
-<div style="margin-top:4px;font-size:12px;opacity:.68;">${formatTokenAmount(
+<div style="margin-top:4px;font-size:12px;opacity:.68;">
+${formatTokenAmount(
 lockedAmount,
 0
 )} locked • day ${vestedDays}/${unlockDays} • ${formatPercent(
 percentUnlocked,
 1
-)}</div>
+)}
+</div>
 `;
 }
 
@@ -3688,7 +4234,9 @@ phase !== PHASES.LIVE
 
 if (graduateBtn) {
 const canShow =
-phase === PHASES.LIVE && Boolean(readiness?.ready) && !Boolean(lifecycleSafe?.graduated);
+phase === PHASES.LIVE &&
+Boolean(readiness?.ready) &&
+!Boolean(lifecycleSafe?.graduated);
 
 graduateBtn.classList.toggle("hidden", !canShow);
 graduateBtn.disabled = !canShow || graduateBtn.dataset.busy === "1";
@@ -3710,7 +4258,11 @@ phase !== PHASES.LIVE
 )}</div>
 </div>
 <div class="recent-wallet">${escapeHtml(
-phase !== PHASES.LIVE ? "PENDING" : readiness?.ready ? "READY" : "PENDING"
+phase !== PHASES.LIVE
+? "PENDING"
+: readiness?.ready
+? "READY"
+: "PENDING"
 )}</div>
 </div>
 `);
@@ -3732,7 +4284,9 @@ items.push(`
 <div class="recent-item">
 <div>
 <div class="recent-wallet">Raydium Migration</div>
-<div class="recent-meta">${escapeHtml(raydiumMigrationTx || "Migration proof recorded")}</div>
+<div class="recent-meta">${escapeHtml(
+raydiumMigrationTx || "Migration proof recorded"
+)}</div>
 </div>
 <div class="recent-wallet">${escapeHtml(
 raydiumPoolId ? shortAddress(raydiumPoolId, 10, 8) : "Tracked"
@@ -3775,7 +4329,9 @@ items.push(`
 <div class="recent-meta">Builder benefits from Raydium LP fees through MSS distributor control only</div>
 </div>
 <div class="recent-wallet">${escapeHtml(
-phase === PHASES.LIVE ? `${formatPercent(BUILDER_LP_FEE_RIGHTS_PCT, 0)}` : "PENDING"
+phase === PHASES.LIVE
+? `${formatPercent(BUILDER_LP_FEE_RIGHTS_PCT, 0)}`
+: "PENDING"
 )}</div>
 </div>
 `);
@@ -3785,18 +4341,28 @@ graduationProof.innerHTML = items.join("");
 
 setText(
 "launchGraduationReadinessText",
-phase === PHASES.LIVE ? (readiness?.ready ? "Ready" : "Monitoring") : "Pending"
+phase === PHASES.LIVE
+? readiness?.ready
+? "Ready"
+: "Monitoring"
+: "Pending"
 );
+
 setText(
 "launchLpInternalText",
-phase === PHASES.LIVE && liveLiquiditySol > 0 ? formatSol(liveLiquiditySol, 4) : "Pending"
+phase === PHASES.LIVE && liveLiquiditySol > 0
+? formatSol(liveLiquiditySol, 4)
+: "Pending"
 );
+
 setText(
 "launchLockedLpText",
 phase === PHASES.LIVE
-? cleanString(lifecycleSafe?.lpFeeControlMode, 80).replaceAll("_", " ") || "Distributor only"
+? cleanString(lifecycleSafe?.lpFeeControlMode, 80).replaceAll("_", " ") ||
+"Distributor only"
 : "Pending"
 );
+
 setText("launchMigrationStateText", statusText.replaceAll("_", " "));
 }
 
@@ -3811,7 +4377,9 @@ credentials: "include",
 const json = await response.json().catch(() => null);
 
 if (!response.ok) {
-throw new Error(json?.error || json?.message || `Request failed (${response.status})`);
+throw new Error(
+json?.error || json?.message || `Request failed (${response.status})`
+);
 }
 
 if (json && json.ok === false) {
@@ -3827,7 +4395,9 @@ return fetchJson(`/api/launcher/${encodeURIComponent(launchId)}`);
 
 async function defaultFetchCommitStats(launchId) {
 try {
-return await fetchJson(`/api/launcher/commits/${encodeURIComponent(launchId)}`);
+return await fetchJson(
+`/api/launcher/commits/${encodeURIComponent(launchId)}`
+);
 } catch {
 return {};
 }
@@ -3835,7 +4405,11 @@ return {};
 
 async function defaultFetchTokenStats(launchId, wallet = "") {
 try {
-return await fetchJson(`/api/token/${encodeURIComponent(launchId)}${wallet ? `?wallet=${encodeURIComponent(wallet)}` : ""}`);
+return await fetchJson(
+`/api/token/${encodeURIComponent(launchId)}${
+wallet ? `?wallet=${encodeURIComponent(wallet)}` : ""
+}`
+);
 } catch {
 return {};
 }
@@ -3843,7 +4417,9 @@ return {};
 
 async function defaultFetchLifecycle(launchId) {
 try {
-return await fetchJson(`/api/launcher/${encodeURIComponent(launchId)}/lifecycle`);
+return await fetchJson(
+`/api/launcher/${encodeURIComponent(launchId)}/lifecycle`
+);
 } catch {
 return {};
 }
@@ -3861,16 +4437,20 @@ const walletQs = wallet ? `&wallet=${encodeURIComponent(wallet)}` : "";
 const [tokenPayloadRaw, snapshotPayload] = await Promise.all([
 defaultFetchTokenStats(launchId, wallet),
 fetchJson(
-`/api/chart/${encodeURIComponent(launchId)}/snapshot?interval=${encodeURIComponent(
+`/api/chart/${encodeURIComponent(
+launchId
+)}/snapshot?interval=${encodeURIComponent(
 interval
-)}&candle_limit=${encodeURIComponent(candleLimit)}&trade_limit=${encodeURIComponent(
-tradeLimit
-)}${walletQs}`
+)}&candle_limit=${encodeURIComponent(
+candleLimit
+)}&trade_limit=${encodeURIComponent(tradeLimit)}${walletQs}`
 ).catch(() => ({})),
 ]);
 
 const tokenPayload = tokenPayloadRaw || {};
-const snapshotWallet = snapshotPayload?.wallet || snapshotPayload?.wallet_summary || null;
+const snapshotWallet =
+snapshotPayload?.wallet || snapshotPayload?.wallet_summary || null;
+
 const snapshotStats = snapshotPayload?.stats || {};
 const snapshotSource = snapshotPayload?.source || null;
 
@@ -3915,8 +4495,10 @@ tokenTrades: snapshotPayload?.trades || [],
 trades: snapshotPayload?.trades || [],
 }),
 chartStats: snapshotStats,
-candles: snapshotPayload?.candles || snapshotPayload?.chart?.candles || [],
-chartLaunch: snapshotPayload?.launch || snapshotPayload?.chart?.launch || null,
+candles:
+snapshotPayload?.candles || snapshotPayload?.chart?.candles || [],
+chartLaunch:
+snapshotPayload?.launch || snapshotPayload?.chart?.launch || null,
 pool: snapshotPayload?.pool || snapshotPayload?.chart?.pool || null,
 wallet: snapshotWallet,
 cassie: snapshotPayload?.cassie || null,
@@ -3934,11 +4516,14 @@ body: JSON.stringify(payload),
 }
 
 async function defaultGraduateDevnet(launchId, payload = {}) {
-return fetchJson(`/api/launcher/${encodeURIComponent(launchId)}/graduate-devnet`, {
+return fetchJson(
+`/api/launcher/${encodeURIComponent(launchId)}/graduate-devnet`,
+{
 method: "POST",
 headers: { "Content-Type": "application/json" },
 body: JSON.stringify(payload),
-});
+}
+);
 }
 
 function getQuickSellPct(button) {
@@ -3956,21 +4541,34 @@ this.fetchLaunch = options.fetchLaunch || defaultFetchLaunch;
 this.fetchCommitStats = options.fetchCommitStats || defaultFetchCommitStats;
 this.fetchTokenStats = options.fetchTokenStats || defaultFetchTokenStats;
 this.fetchLifecycle = options.fetchLifecycle || defaultFetchLifecycle;
-this.fetchMarketSnapshot = options.fetchMarketSnapshot || defaultFetchMarketSnapshot;
+this.fetchMarketSnapshot =
+options.fetchMarketSnapshot || defaultFetchMarketSnapshot;
 this.saveLinks = options.saveLinks || defaultSaveLinks;
 this.graduateDevnet = options.graduateDevnet || defaultGraduateDevnet;
+
 this.onPhaseChange =
-typeof options.onPhaseChange === "function" ? options.onPhaseChange : null;
+typeof options.onPhaseChange === "function"
+? options.onPhaseChange
+: null;
 
 this.launch = options.launch
-? canonicalizeLaunchTruth(options.launch, options.commitStats || {}, options.lifecycle || null)
+? canonicalizeLaunchTruth(
+options.launch,
+options.commitStats || {},
+options.lifecycle || null
+)
 : null;
+
 this.commitStats = options.commitStats || {};
 this.lifecycle = normalizeLifecyclePayload(options.lifecycle || null);
-this.graduationPlan = normalizeGraduationPlanPayload(options.graduationPlan || null);
+this.graduationPlan = normalizeGraduationPlanPayload(
+options.graduationPlan || null
+);
+
 this.participantCompliance = normalizeComplianceStatusPayload(
 options.participantCompliance || null
 );
+
 this.source = normalizeSourcePayload(options.source || null);
 this.phase = PHASES.COMMIT;
 this.currentInterval = options.initialInterval || "1m";
@@ -4001,7 +4599,8 @@ this._timeframeRefreshInFlight = null;
 this._walletRefreshTimeout = null;
 this._destroyed = false;
 
-this._boundHandleManageLinksClick = this.handleManageLinksClick.bind(this);
+this._boundHandleManageLinksClick =
+this.handleManageLinksClick.bind(this);
 this._boundHandleSaveLinksClick = this.handleSaveLinksClick.bind(this);
 this._boundHandleCloseLinksClick = this.handleCloseLinksClick.bind(this);
 this._boundHandleBackdropClick = this.handleBackdropClick.bind(this);
@@ -4009,9 +4608,12 @@ this._boundHandleCaCopy = this.handleCaCopy.bind(this);
 this._boundHandleTimeframeClick = this.handleTimeframeClick.bind(this);
 this._boundHandleTradeTabClick = this.handleTradeTabClick.bind(this);
 this._boundHandleTradeQuickClick = this.handleTradeQuickClick.bind(this);
-this._boundHandleTradeSubmitClick = this.handleTradeSubmitClick.bind(this);
-this._boundHandleTradeAmountInput = this.handleTradeAmountInput.bind(this);
-this._boundHandleGraduateDevnetClick = this.handleGraduateDevnetClick.bind(this);
+this._boundHandleTradeSubmitClick =
+this.handleTradeSubmitClick.bind(this);
+this._boundHandleTradeAmountInput =
+this.handleTradeAmountInput.bind(this);
+this._boundHandleGraduateDevnetClick =
+this.handleGraduateDevnetClick.bind(this);
 }
 
 async init() {
@@ -4028,6 +4630,7 @@ this.launch || {},
 this.commitStats || {},
 this.lifecycle || null
 );
+
 this.applyAll();
 }
 
@@ -4058,6 +4661,7 @@ const volumeHost = $("marketVolumeCanvas");
 if (!chartHost || !volumeHost) return;
 
 let tooltipHost = $("eliteChartTooltip");
+
 if (!tooltipHost) {
 tooltipHost = document.createElement("div");
 tooltipHost.id = "eliteChartTooltip";
@@ -4066,6 +4670,7 @@ tooltipHost.style.top = "12px";
 tooltipHost.style.left = "12px";
 tooltipHost.style.zIndex = "3";
 tooltipHost.style.pointerEvents = "none";
+
 chartHost.parentNode?.appendChild(tooltipHost);
 }
 
@@ -4077,23 +4682,64 @@ tooltipHost,
 }
 
 bindEvents() {
-$("manageLaunchLinksBtn")?.addEventListener("click", this._boundHandleManageLinksClick);
-$("saveLaunchLinksBtn")?.addEventListener("click", this._boundHandleSaveLinksClick);
-$("closeLaunchLinksModalBtn")?.addEventListener("click", this._boundHandleCloseLinksClick);
-$("launchLinksModal")?.addEventListener("click", this._boundHandleBackdropClick);
+$("manageLaunchLinksBtn")?.addEventListener(
+"click",
+this._boundHandleManageLinksClick
+);
 
-$("launchCaCopyBtn")?.addEventListener("click", this._boundHandleCaCopy);
-$("chartCaCopyBtn")?.addEventListener("click", this._boundHandleCaCopy);
-$("graduateDevnetBtn")?.addEventListener("click", this._boundHandleGraduateDevnetClick);
+$("saveLaunchLinksBtn")?.addEventListener(
+"click",
+this._boundHandleSaveLinksClick
+);
+
+$("closeLaunchLinksModalBtn")?.addEventListener(
+"click",
+this._boundHandleCloseLinksClick
+);
+
+$("launchLinksModal")?.addEventListener(
+"click",
+this._boundHandleBackdropClick
+);
+
+$("launchCaCopyBtn")?.addEventListener(
+"click",
+this._boundHandleCaCopy
+);
+
+$("chartCaCopyBtn")?.addEventListener(
+"click",
+this._boundHandleCaCopy
+);
+
+$("graduateDevnetBtn")?.addEventListener(
+"click",
+this._boundHandleGraduateDevnetClick
+);
 
 document.querySelectorAll(".market-timeframe").forEach((btn) => {
 btn.addEventListener("click", this._boundHandleTimeframeClick);
 });
 
-$("tradeTabBuy")?.addEventListener("click", this._boundHandleTradeTabClick);
-$("tradeTabSell")?.addEventListener("click", this._boundHandleTradeTabClick);
-$("tradeSubmitBtn")?.addEventListener("click", this._boundHandleTradeSubmitClick);
-$("tradeAmountInput")?.addEventListener("input", this._boundHandleTradeAmountInput);
+$("tradeTabBuy")?.addEventListener(
+"click",
+this._boundHandleTradeTabClick
+);
+
+$("tradeTabSell")?.addEventListener(
+"click",
+this._boundHandleTradeTabClick
+);
+
+$("tradeSubmitBtn")?.addEventListener(
+"click",
+this._boundHandleTradeSubmitClick
+);
+
+$("tradeAmountInput")?.addEventListener(
+"input",
+this._boundHandleTradeAmountInput
+);
 
 document.querySelectorAll(".trade-quick-btn").forEach((btn) => {
 btn.addEventListener("click", this._boundHandleTradeQuickClick);
@@ -4105,15 +4751,32 @@ $("manageLaunchLinksBtn")?.removeEventListener(
 "click",
 this._boundHandleManageLinksClick
 );
-$("saveLaunchLinksBtn")?.removeEventListener("click", this._boundHandleSaveLinksClick);
+
+$("saveLaunchLinksBtn")?.removeEventListener(
+"click",
+this._boundHandleSaveLinksClick
+);
+
 $("closeLaunchLinksModalBtn")?.removeEventListener(
 "click",
 this._boundHandleCloseLinksClick
 );
-$("launchLinksModal")?.removeEventListener("click", this._boundHandleBackdropClick);
 
-$("launchCaCopyBtn")?.removeEventListener("click", this._boundHandleCaCopy);
-$("chartCaCopyBtn")?.removeEventListener("click", this._boundHandleCaCopy);
+$("launchLinksModal")?.removeEventListener(
+"click",
+this._boundHandleBackdropClick
+);
+
+$("launchCaCopyBtn")?.removeEventListener(
+"click",
+this._boundHandleCaCopy
+);
+
+$("chartCaCopyBtn")?.removeEventListener(
+"click",
+this._boundHandleCaCopy
+);
+
 $("graduateDevnetBtn")?.removeEventListener(
 "click",
 this._boundHandleGraduateDevnetClick
@@ -4123,10 +4786,25 @@ document.querySelectorAll(".market-timeframe").forEach((btn) => {
 btn.removeEventListener("click", this._boundHandleTimeframeClick);
 });
 
-$("tradeTabBuy")?.removeEventListener("click", this._boundHandleTradeTabClick);
-$("tradeTabSell")?.removeEventListener("click", this._boundHandleTradeTabClick);
-$("tradeSubmitBtn")?.removeEventListener("click", this._boundHandleTradeSubmitClick);
-$("tradeAmountInput")?.removeEventListener("input", this._boundHandleTradeAmountInput);
+$("tradeTabBuy")?.removeEventListener(
+"click",
+this._boundHandleTradeTabClick
+);
+
+$("tradeTabSell")?.removeEventListener(
+"click",
+this._boundHandleTradeTabClick
+);
+
+$("tradeSubmitBtn")?.removeEventListener(
+"click",
+this._boundHandleTradeSubmitClick
+);
+
+$("tradeAmountInput")?.removeEventListener(
+"input",
+this._boundHandleTradeAmountInput
+);
 
 document.querySelectorAll(".trade-quick-btn").forEach((btn) => {
 btn.removeEventListener("click", this._boundHandleTradeQuickClick);
@@ -4169,6 +4847,7 @@ await this.refreshLaunch({ force: true });
 console.error("launch-market building refresh failed:", error);
 }
 }, this.buildingPollMs);
+
 return;
 }
 
@@ -4184,6 +4863,7 @@ await this.refreshLaunch({ force: false });
 console.error("launch-market commit refresh failed:", error);
 }
 }, this.commitPollMs);
+
 return;
 }
 
@@ -4197,7 +4877,9 @@ console.error("launch-market live refresh failed:", error);
 }
 
 startCountdownTicker() {
-if (this.countdownTimer) clearInterval(this.countdownTimer);
+if (this.countdownTimer) {
+clearInterval(this.countdownTimer);
+}
 
 updateCountdownUi(this.launch, this.commitStats);
 
@@ -4207,11 +4889,18 @@ this.launch || {},
 this.commitStats || {},
 this.lifecycle || null
 );
+
 updateCountdownUi(this.launch, this.commitStats);
 
-const nextPhase = inferPhase(this.launch, this.commitStats, this.lifecycle);
+const nextPhase = inferPhase(
+this.launch,
+this.commitStats,
+this.lifecycle
+);
+
 if (nextPhase !== this.phase) {
 const previousPhase = this.phase;
+
 this.phase = nextPhase;
 this.applyAll(previousPhase);
 this.startPollingLoop();
@@ -4236,24 +4925,31 @@ console.error("countdown to building refresh failed:", error);
 
 applySnapshotPayload(payload = {}) {
 const incomingTokenPayload = payload?.tokenPayload || {};
+
 const snapshotWallet =
 payload?.wallet ||
 payload?.snapshotPayload?.wallet ||
 payload?.snapshotPayload?.wallet_summary ||
 null;
-const snapshotStats = payload?.chartStats || payload?.snapshotPayload?.stats || {};
+
+const snapshotStats =
+payload?.chartStats || payload?.snapshotPayload?.stats || {};
 
 this.tokenPayload = {
 ...(this.tokenPayload || {}),
 ...(incomingTokenPayload || {}),
 wallet: {
 ...(this.tokenPayload?.wallet || this.tokenPayload?.wallet_summary || {}),
-...(incomingTokenPayload?.wallet || incomingTokenPayload?.wallet_summary || {}),
+...(incomingTokenPayload?.wallet ||
+incomingTokenPayload?.wallet_summary ||
+{}),
 ...(snapshotWallet || {}),
 },
 wallet_summary: {
 ...(this.tokenPayload?.wallet_summary || this.tokenPayload?.wallet || {}),
-...(incomingTokenPayload?.wallet_summary || incomingTokenPayload?.wallet || {}),
+...(incomingTokenPayload?.wallet_summary ||
+incomingTokenPayload?.wallet ||
+{}),
 ...(snapshotWallet || {}),
 },
 stats: {
@@ -4289,6 +4985,7 @@ null
 );
 
 this.candles = payload?.candles || [];
+
 this.trades = resolveTradesFromPayload({
 tokenPayload: this.tokenPayload,
 chartStats: this.chartStats,
@@ -4296,9 +4993,12 @@ snapshotPayload: payload?.snapshotPayload || {},
 tokenTrades: payload?.tokenTrades || [],
 trades: payload?.trades || [],
 });
+
 this.pool = payload?.pool || payload?.snapshotPayload?.pool || null;
 
-const tokenLaunchPatch = buildLaunchPatchFromTokenPayload(this.tokenPayload);
+const tokenLaunchPatch = buildLaunchPatchFromTokenPayload(
+this.tokenPayload
+);
 
 if (payload?.chartLaunch) {
 this.launch = mergeLaunchTruth(this.launch || {}, payload.chartLaunch);
@@ -4340,6 +5040,7 @@ null
 );
 
 this.launch = mergeLaunchTruth(this.launch || {}, tokenLaunchPatch);
+
 this.launch = canonicalizeLaunchTruth(
 this.launch || {},
 this.commitStats || {},
@@ -4352,7 +5053,10 @@ this.chartStats,
 this.walletTokenBalanceFallback
 );
 
-if (liveWalletSummary.sellableBalance > 0 || this.walletTokenBalanceFallback <= 0) {
+if (
+liveWalletSummary.sellableBalance > 0 ||
+this.walletTokenBalanceFallback <= 0
+) {
 this.walletTokenBalanceFallback = liveWalletSummary.sellableBalance;
 }
 }
@@ -4361,6 +5065,7 @@ async refreshLifecycleOnly() {
 if (!this.launchId) return;
 
 const payload = await this.fetchLifecycle(this.launchId);
+
 const lifecycleSeed = {
 ...(this.lifecycle || {}),
 ...(payload?.lifecycle || {}),
@@ -4381,13 +5086,17 @@ null,
 };
 
 this.lifecycle = normalizeLifecyclePayload(lifecycleSeed || null);
+
 this.graduationPlan = normalizeGraduationPlanPayload(
 payload?.graduationPlan || payload?.graduation_plan || null
 );
 
 if (this.launch) {
 this.launch = canonicalizeLaunchTruth(
-mergeLaunchTruth(this.launch || {}, buildLaunchPatchFromLifecycle(this.lifecycle)),
+mergeLaunchTruth(
+this.launch || {},
+buildLaunchPatchFromLifecycle(this.lifecycle)
+),
 this.commitStats || {},
 this.lifecycle || null
 );
@@ -4421,6 +5130,7 @@ this.applyAll(previousPhaseOverride);
 
 if (this.chartRenderer) {
 this.chartRenderer.setInterval(this.currentInterval);
+
 if (typeof this.chartRenderer.updateData === "function") {
 this.chartRenderer.updateData({
 candles: this.candles,
@@ -4454,19 +5164,33 @@ return this._launchRefreshInFlight;
 this._launchRefreshInFlight = (async () => {
 const previousPhase = this.phase;
 
-const [launchPayload, commitStatsPayload, lifecyclePayload, tokenPayload] =
-await Promise.all([
+const [
+launchPayload,
+commitStatsPayload,
+lifecyclePayload,
+tokenPayload,
+] = await Promise.all([
 this.fetchLaunch(this.launchId),
 this.fetchCommitStats(this.launchId),
 this.fetchLifecycle(this.launchId).catch(() => ({})),
-this.fetchTokenStats(this.launchId, this.connectedWallet || "").catch(() => ({})),
+this.fetchTokenStats(this.launchId, this.connectedWallet || "").catch(
+() => ({})
+),
 ]);
 
 if (this._destroyed) return;
 
-const incomingLaunch = normalizeLaunchTruth(launchPayload?.launch || launchPayload || {});
-const commitStatsPatch = buildLaunchPatchFromCommitStats(commitStatsPayload || {});
-const tokenLaunchPatch = buildLaunchPatchFromTokenPayload(tokenPayload || {});
+const incomingLaunch = normalizeLaunchTruth(
+launchPayload?.launch || launchPayload || {}
+);
+
+const commitStatsPatch = buildLaunchPatchFromCommitStats(
+commitStatsPayload || {}
+);
+
+const tokenLaunchPatch = buildLaunchPatchFromTokenPayload(
+tokenPayload || {}
+);
 
 this.tokenPayload = tokenPayload || this.tokenPayload || {};
 this.commitStats = commitStatsPayload || {};
@@ -4501,6 +5225,7 @@ null,
 };
 
 this.lifecycle = normalizeLifecyclePayload(lifecycleSeed || null);
+
 this.graduationPlan = normalizeGraduationPlanPayload(
 lifecyclePayload?.graduationPlan ||
 lifecyclePayload?.graduation_plan ||
@@ -4521,13 +5246,19 @@ this.launch = mergeLaunchTruth(
 this.launch || {},
 buildLaunchPatchFromLifecycle(this.lifecycle)
 );
+
 this.launch = canonicalizeLaunchTruth(
 this.launch || {},
 this.commitStats || {},
 this.lifecycle || null
 );
 
-const nextPhase = inferPhase(this.launch, this.commitStats, this.lifecycle);
+const nextPhase = inferPhase(
+this.launch,
+this.commitStats,
+this.lifecycle
+);
+
 this.phase = nextPhase;
 
 if (nextPhase === PHASES.LIVE) {
@@ -4553,6 +5284,7 @@ this._launchRefreshInFlight = null;
 
 getExternalMarketContext() {
 const graduatedLike = isGraduatedLike(this.launch, this.lifecycle);
+
 const resolvedContract = resolveContractAddress(
 this.launch || {},
 this.tokenPayload || {},
@@ -4561,27 +5293,37 @@ this.lifecycle || null
 );
 
 const contractAddress = cleanString(resolvedContract.value, 240);
+
 const raydiumPoolId = cleanString(
 this.lifecycle?.raydiumPoolId || this.lifecycle?.raydium_pool_id,
 240
 );
 
-const routeReady = Boolean(contractAddress && this.phase === PHASES.LIVE);
+const routeReady = Boolean(
+contractAddress && this.phase === PHASES.LIVE
+);
+
 const venueUrl = EXTERNAL_MARKET.url;
-const source = normalizeSourcePayload(this.source || this.chartStats || this.tokenPayload?.source || null);
+
+const source = normalizeSourcePayload(
+this.source || this.chartStats || this.tokenPayload?.source || null
+);
 
 let note = "External route unavailable.";
+
 if (graduatedLike && contractAddress) {
 note = `Market is externalized. Open ${EXTERNAL_MARKET.venue} and paste the contract address to trade.`;
 } else if (this.phase === PHASES.LIVE && contractAddress) {
-note = `Execution is handled on ${EXTERNAL_MARKET.venue}. Copy the contract address and trade on the external venue. Builder LP-fee rights remain MSS-distributor controlled.`;
+note = `Execution is handled on ${EXTERNAL_MARKET.venue}. The routed action from this terminal requires recorded Launcher acknowledgements and copies the contract address for external execution.`;
 } else if (this.phase === PHASES.BUILDING) {
 note =
 "External route is still being prepared. Contract address will appear once bootstrap completes.";
 } else if (this.phase === PHASES.COUNTDOWN) {
-note = "Countdown is active. External market access opens once the launch is live.";
+note =
+"Countdown is active. External market visibility opens once the launch is live.";
 } else if (this.phase === PHASES.COMMIT) {
-note = "Commit phase is active. External trading is not open yet.";
+note =
+"Commit phase is active. Record participant Launcher acknowledgements before committing.";
 } else if (this.phase === PHASES.FAILED) {
 note = "This launch is closed.";
 }
@@ -4602,7 +5344,8 @@ source,
 
 getTradePanelState() {
 const route = this.getExternalMarketContext();
-const complianceState = getParticipantComplianceAccessState(
+
+const accessState = getParticipantComplianceAccessState(
 this.participantCompliance,
 this.connectedWallet
 );
@@ -4639,7 +5382,7 @@ this.phase === PHASES.COUNTDOWN
 
 return {
 route,
-complianceState,
+accessState,
 disabled: true,
 buttonText,
 helperType: "neutral",
@@ -4656,15 +5399,15 @@ contractValue: route.contractState || "Pending",
 };
 }
 
-if (!complianceState.walletConnected) {
+if (!accessState.walletConnected) {
 return {
 route,
-complianceState,
+accessState,
 disabled: true,
 buttonText: "Connect Wallet",
 helperType: "neutral",
 helperMessage:
-"Connect wallet to review participant access posture and open the external route.",
+"Connect wallet to review acknowledgement status and use the external route action.",
 inputText: "Connect wallet to continue",
 routeValue: "Wallet Required",
 feeValue: "Access pending",
@@ -4674,26 +5417,46 @@ contractValue: route.contractAddress
 };
 }
 
-if (complianceState.blocked) {
+if (accessState.blocked) {
 return {
 route,
-complianceState,
+accessState,
 disabled: true,
-buttonText: "Verification Required",
+buttonText: "Wallet Blocked",
 helperType: "error",
 helperMessage:
-complianceState.message || "Participant verification is required.",
-inputText: "Complete participant verification",
-routeValue: "Verification Required",
-feeValue: "Access gated",
+accessState.message ||
+"This wallet is currently unable to use Launcher transactions.",
+inputText: "Launcher access blocked",
+routeValue: "Wallet Blocked",
+feeValue: "Access unavailable",
 contractValue: "Blocked",
+};
+}
+
+if (!accessState.acknowledgementAccepted) {
+return {
+route,
+accessState,
+disabled: true,
+buttonText: "Review Access Terms",
+helperType: "neutral",
+helperMessage:
+accessState.message ||
+"Record the required Launcher acknowledgements before continuing.",
+inputText: "Record Launcher acknowledgements",
+routeValue: "Acknowledgement Required",
+feeValue: "Terms required",
+contractValue: route.contractAddress
+? shortAddress(route.contractAddress)
+: route.contractState || "Pending",
 };
 }
 
 if (!route.routeReady) {
 return {
 route,
-complianceState,
+accessState,
 disabled: true,
 buttonText: "Await Route",
 helperType: "neutral",
@@ -4703,7 +5466,9 @@ route.contractState === "Hidden"
 ? "Hidden until live"
 : "Awaiting external route",
 routeValue:
-route.contractState === "Hidden" ? "Hidden until live" : "Route Pending",
+route.contractState === "Hidden"
+? "Hidden until live"
+: "Route Pending",
 feeValue: "Preparing venue",
 contractValue: route.contractState || "Pending",
 };
@@ -4711,7 +5476,7 @@ contractValue: route.contractState || "Pending",
 
 return {
 route,
-complianceState,
+accessState,
 disabled: false,
 buttonText: route.graduatedLike
 ? `Open ${route.venue}`
@@ -4721,7 +5486,7 @@ helperMessage: syncWarning
 ? `${route.note} ${syncWarning}`
 : route.graduatedLike
 ? `${route.venue} is ready. MSS will open the venue and copy the contract address for convenience.`
-: `${route.venue} route is ready. MSS will copy the contract address and open the venue in a new tab.`,
+: `${route.venue} route is ready. Launcher acknowledgements are recorded. MSS will copy the contract address and open the venue in a new tab.`,
 inputText: route.graduatedLike
 ? `${route.venue} external market`
 : `${route.venue} external LP route`,
@@ -4738,10 +5503,14 @@ contractValue: route.contractAddress
 renderExternalTradeRoutePanel() {
 const tradeState = this.getTradePanelState();
 const route = tradeState.route;
+
 const priceSol = toNumber(
-this.chartStats?.price_sol ?? this.chartStats?.price ?? this.launch?.price,
+this.chartStats?.price_sol ??
+this.chartStats?.price ??
+this.launch?.price,
 0
 );
+
 const priceUsd = toNumber(this.chartStats?.price_usd, 0);
 
 const amountLabel = $("tradeAmountLabel");
@@ -4773,7 +5542,9 @@ setText("tradeQuotePrimaryValue", tradeState.routeValue);
 setText(
 "tradeQuotePriceValue",
 priceUsd > 0
-? `${formatPriceUsd(priceUsd)}${priceSol > 0 ? ` • ${formatPriceSol(priceSol)} SOL` : ""}`
+? `${formatPriceUsd(priceUsd)}${
+priceSol > 0 ? ` • ${formatPriceSol(priceSol)} SOL` : ""
+}`
 : priceSol > 0
 ? `${formatPriceSol(priceSol)} SOL`
 : "Live market"
@@ -4809,6 +5580,7 @@ copied
 "success",
 { stickyMs: TRADE_MESSAGE_STICKY_MS }
 );
+
 return;
 }
 
@@ -4829,45 +5601,96 @@ this.launch || {},
 this.commitStats || {},
 this.lifecycle || null
 );
+
 const previousPhase = previousPhaseOverride ?? this.phase;
+
 this.phase = inferPhase(this.launch, this.commitStats, this.lifecycle);
+
 const graduatedLike = isGraduatedLike(this.launch, this.lifecycle);
 
 updateTokenIdentity(this.launch, this.tokenPayload);
-updateContractAddress(this.launch, this.tokenPayload, this.commitStats, this.lifecycle);
+
+updateContractAddress(
+this.launch,
+this.tokenPayload,
+this.commitStats,
+this.lifecycle
+);
+
 renderExternalLinks(this.launch);
+
 setManageLinksVisibility(
 this.launch,
 this.connectedWallet,
 this.commitStats,
 this.lifecycle
 );
+
 updatePhaseClasses(this.phase);
-updatePhaseContent(this.phase, this.launch, this.commitStats, this.lifecycle);
+
+updatePhaseContent(
+this.phase,
+this.launch,
+this.commitStats,
+this.lifecycle
+);
+
 setTradePanelVisibility(this.phase, graduatedLike);
 syncMarketShellLayout();
 syncChartSizing(this.phase);
-syncTerminalPresentation(this.phase, this.launch, this.chartStats, this.tokenPayload);
+
+syncTerminalPresentation(
+this.phase,
+this.launch,
+this.chartStats,
+this.tokenPayload
+);
 
 if (this.phase === PHASES.COMMIT) {
 clearLiveOnlyUi();
 updateStatsForCommit(this.launch, this.commitStats);
-renderCassiePanel(this.phase, this.launch, this.tokenPayload, this.chartStats);
+renderCassiePanel(
+this.phase,
+this.launch,
+this.tokenPayload,
+this.chartStats
+);
 } else if (this.phase === PHASES.COUNTDOWN) {
 clearLiveOnlyUi();
 updateStatsForCountdown(this.launch, this.commitStats);
 updateCountdownUi(this.launch, this.commitStats);
-renderCassiePanel(this.phase, this.launch, this.tokenPayload, this.chartStats);
+renderCassiePanel(
+this.phase,
+this.launch,
+this.tokenPayload,
+this.chartStats
+);
 } else if (this.phase === PHASES.BUILDING) {
 clearLiveOnlyUi();
 updateStatsForBuilding(this.launch, this.lifecycle);
-renderCassiePanel(this.phase, this.launch, this.tokenPayload, this.chartStats);
+renderCassiePanel(
+this.phase,
+this.launch,
+this.tokenPayload,
+this.chartStats
+);
 } else if (this.phase === PHASES.FAILED) {
 clearLiveOnlyUi();
 updateStatsForFailed(this.launch, this.commitStats);
-renderCassiePanel(this.phase, this.launch, this.tokenPayload, this.chartStats);
+renderCassiePanel(
+this.phase,
+this.launch,
+this.tokenPayload,
+this.chartStats
+);
 } else {
-updateStatsForLive(this.tokenPayload, this.chartStats, this.launch, this.lifecycle);
+updateStatsForLive(
+this.tokenPayload,
+this.chartStats,
+this.launch,
+this.lifecycle
+);
+
 updateWalletSummary(
 this.phase,
 this.connectedWallet,
@@ -4875,6 +5698,7 @@ this.tokenPayload,
 this.chartStats,
 this.walletTokenBalanceFallback
 );
+
 updateAccessCard(
 this.phase,
 this.launch,
@@ -4885,11 +5709,19 @@ this.connectedWallet,
 this.walletTokenBalanceFallback,
 this.participantCompliance
 );
+
 renderRecentTrades(this.trades, this.tokenPayload, this.chartStats);
-renderCassiePanel(this.phase, this.launch, this.tokenPayload, this.chartStats);
+
+renderCassiePanel(
+this.phase,
+this.launch,
+this.tokenPayload,
+this.chartStats
+);
 
 if (this.chartRenderer) {
 this.chartRenderer.setInterval(this.currentInterval);
+
 if (typeof this.chartRenderer.setData === "function") {
 this.chartRenderer.setData({
 candles: this.candles,
@@ -4912,7 +5744,12 @@ this.syncSellQuickButtons();
 this.renderTradePanel();
 
 if (previousPhase !== this.phase && this.onPhaseChange) {
-this.onPhaseChange(this.phase, this.launch, this.tokenPayload, this.chartStats);
+this.onPhaseChange(
+this.phase,
+this.launch,
+this.tokenPayload,
+this.chartStats
+);
 }
 }
 
@@ -4930,6 +5767,7 @@ syncSellQuickButtons() {
 const buyButtons = Array.from(
 document.querySelectorAll("#tradeQuickBuyRow .trade-quick-btn")
 );
+
 const sellButtons = Array.from(
 document.querySelectorAll("#tradeQuickSellRow .trade-quick-btn")
 );
@@ -4966,6 +5804,7 @@ setTradeMessage(tradeState.helperMessage, tradeState.helperType);
 
 setConnectedWallet(wallet) {
 this.connectedWallet = wallet || "";
+
 resetTradeQuoteUi();
 setTradeMessage("");
 
@@ -4986,6 +5825,7 @@ this.tokenPayload,
 this.chartStats,
 this.walletTokenBalanceFallback
 );
+
 updateAccessCard(
 this.phase,
 this.launch,
@@ -4996,6 +5836,7 @@ this.connectedWallet,
 this.walletTokenBalanceFallback,
 this.participantCompliance
 );
+
 this.syncSellQuickButtons();
 this.renderTradePanel();
 
@@ -5008,6 +5849,7 @@ void this.refreshLiveMarketOnly({ force: true }).catch((error) => {
 console.error("wallet sync refresh failed:", error);
 });
 }, 250);
+
 return;
 }
 
@@ -5023,7 +5865,10 @@ console.error("wallet metadata refresh failed:", error);
 }
 
 setComplianceState(payload = null) {
-this.participantCompliance = normalizeComplianceStatusPayload(payload || null);
+this.participantCompliance = normalizeComplianceStatusPayload(
+payload || null
+);
+
 resetTradeQuoteUi();
 setTradeMessage("");
 
@@ -5034,6 +5879,7 @@ this.applyAll(this.phase);
 
 async handleManageLinksClick() {
 if (!this.launch) return;
+
 fillLinksModal(this.launch);
 openLinksModal();
 }
@@ -5044,6 +5890,7 @@ closeLinksModal();
 
 handleBackdropClick(event) {
 const modal = $("launchLinksModal");
+
 if (!modal || modal.classList.contains("hidden")) return;
 
 if (
@@ -5056,35 +5903,54 @@ closeLinksModal();
 
 async handleSaveLinksClick() {
 const saveBtn = $("saveLaunchLinksBtn");
+
 if (!saveBtn || !this.launchId) return;
 
 const originalText = saveBtn.textContent;
+
 saveBtn.disabled = true;
 saveBtn.textContent = "Saving...";
 
 try {
 const payload = {
-website_url: normalizeUrl($("linkWebsiteInput")?.value || "", "website_url"),
+website_url: normalizeUrl(
+$("linkWebsiteInput")?.value || "",
+"website_url"
+),
 x_url: normalizeUrl($("linkXInput")?.value || "", "x_url"),
-telegram_url: normalizeUrl($("linkTelegramInput")?.value || "", "telegram_url"),
-discord_url: normalizeUrl($("linkDiscordInput")?.value || "", "discord_url"),
+telegram_url: normalizeUrl(
+$("linkTelegramInput")?.value || "",
+"telegram_url"
+),
+discord_url: normalizeUrl(
+$("linkDiscordInput")?.value || "",
+"discord_url"
+),
 wallet: this.connectedWallet || "",
 };
 
 const result = await this.saveLinks(this.launchId, payload);
-this.launch = mergeLaunchTruth(this.launch || {}, result?.launch || payload);
+
+this.launch = mergeLaunchTruth(
+this.launch || {},
+result?.launch || payload
+);
+
 this.launch = canonicalizeLaunchTruth(
 this.launch || {},
 this.commitStats || {},
 this.lifecycle || null
 );
+
 renderExternalLinks(this.launch);
+
 setManageLinksVisibility(
 this.launch,
 this.connectedWallet,
 this.commitStats,
 this.lifecycle
 );
+
 closeLinksModal();
 } catch (error) {
 console.error("save links failed:", error);
@@ -5101,6 +5967,7 @@ if (!button) return;
 
 const fullValue = button.dataset.copyValue || "";
 const ok = await copyText(fullValue);
+
 if (!ok) return;
 
 const originalHtml = button.innerHTML;
@@ -5110,16 +5977,25 @@ setButtonCopiedState(button, originalHtml);
 async handleTimeframeClick(event) {
 const btn = event.currentTarget;
 const timeframesWrap = $("marketTimeframes");
-if (!btn || !timeframesWrap || timeframesWrap.classList.contains("disabled")) return;
+
+if (
+!btn ||
+!timeframesWrap ||
+timeframesWrap.classList.contains("disabled")
+) {
+return;
+}
 
 if (this._timeframeRefreshInFlight) return;
 
 document.querySelectorAll(".market-timeframe").forEach((el) => {
 el.classList.remove("active");
 });
+
 btn.classList.add("active");
 
 this.currentInterval = btn.dataset.interval || "1m";
+
 resetTradeQuoteUi();
 
 if (this.chartRenderer) {
@@ -5127,7 +6003,9 @@ this.chartRenderer.setInterval(this.currentInterval);
 }
 
 if (this.phase === PHASES.LIVE) {
-this._timeframeRefreshInFlight = this.refreshLiveMarketOnly({ force: true })
+this._timeframeRefreshInFlight = this.refreshLiveMarketOnly({
+force: true,
+})
 .catch((error) => {
 console.error("timeframe refresh failed:", error);
 })
@@ -5143,11 +6021,16 @@ this.renderTradePanel();
 
 handleTradeTabClick(event) {
 const id = event.currentTarget?.id;
-this.tradeMode = id === "tradeTabSell" ? TRADE_MODES.SELL : TRADE_MODES.BUY;
+
+this.tradeMode =
+id === "tradeTabSell" ? TRADE_MODES.SELL : TRADE_MODES.BUY;
+
 resetTradeQuoteUi();
+
 if (!shouldPreserveTradeMessage()) {
 setTradeMessage("");
 }
+
 updateTradeTabUi(this.tradeMode);
 this.syncSellQuickButtons();
 this.renderTradePanel();
@@ -5156,13 +6039,15 @@ this.renderTradePanel();
 handleTradeQuickClick(event) {
 const button = event?.currentTarget;
 const pct = getQuickSellPct(button);
+
 if (pct > 0) {
 setTradeMessage(
-`Sell presets are informational only. MSS will still route you externally through ${EXTERNAL_MARKET.venue}.`,
+`Sell presets are informational only. MSS routes live execution externally through ${EXTERNAL_MARKET.venue}.`,
 "neutral",
 { stickyMs: 1600 }
 );
 }
+
 this.renderTradePanel();
 }
 
@@ -5174,12 +6059,14 @@ async handleTradeSubmitClick() {
 if (this.tradeBusy) return;
 
 const tradeState = this.getTradePanelState();
+
 if (tradeState.disabled) {
 setTradeMessage(
 tradeState.helperMessage || "External route is not ready.",
 tradeState.helperType || "neutral",
 { stickyMs: TRADE_MESSAGE_STICKY_MS }
 );
+
 return;
 }
 
@@ -5197,6 +6084,7 @@ submitBtn.textContent = `Opening ${tradeState.route.venue}...`;
 await this.openExternalTradeVenue();
 } catch (error) {
 console.error("trade submit failed:", error);
+
 setTradeMessage(
 error?.message || "Unable to open external venue.",
 "error",
@@ -5204,17 +6092,23 @@ error?.message || "Unable to open external venue.",
 );
 } finally {
 this.tradeBusy = false;
-if (submitBtn) submitBtn.textContent = originalText;
+
+if (submitBtn) {
+submitBtn.textContent = originalText;
+}
+
 this.renderTradePanel();
 }
 }
 
 async handleGraduateDevnetClick() {
 const btn = $("graduateDevnetBtn");
+
 if (!btn || !this.launchId) return;
 if (btn.dataset.busy === "1") return;
 
 const originalText = btn.textContent;
+
 btn.dataset.busy = "1";
 btn.disabled = true;
 btn.textContent = "Graduating...";
@@ -5224,9 +6118,13 @@ const result = await this.graduateDevnet(this.launchId, {
 reason: "devnet_manual_override",
 });
 
-this.lifecycle = normalizeLifecyclePayload(result?.lifecycle || this.lifecycle || null);
+this.lifecycle = normalizeLifecyclePayload(
+result?.lifecycle || this.lifecycle || null
+);
+
 if (result?.launch) {
 this.launch = mergeLaunchTruth(this.launch || {}, result.launch);
+
 this.launch = canonicalizeLaunchTruth(
 this.launch || {},
 this.commitStats || {},
@@ -5237,9 +6135,11 @@ this.lifecycle || null
 setTradeMessage("Launch marked as graduated on devnet.", "success", {
 stickyMs: TRADE_MESSAGE_STICKY_MS,
 });
+
 await this.refreshLaunch({ force: true });
 } catch (error) {
 console.error("graduate devnet failed:", error);
+
 setTradeMessage(
 error?.message || "Failed to mark launch graduated.",
 "error",
@@ -5249,6 +6149,7 @@ error?.message || "Failed to mark launch graduated.",
 btn.dataset.busy = "0";
 btn.disabled = false;
 btn.textContent = originalText;
+
 this.applyAll();
 }
 }
@@ -5271,11 +6172,13 @@ this.source = normalizeSourcePayload(options.source || null);
 }
 
 this.commitStats = commitStats || this.commitStats || {};
+
 this.launch = canonicalizeLaunchTruth(
 mergeLaunchTruth(this.launch || {}, launch || {}),
 this.commitStats || {},
 this.lifecycle || null
 );
+
 this.applyAll(previousPhase);
 
 if (options.restartPolling) {
@@ -5290,7 +6193,9 @@ return new LaunchMarketController(options);
 
 export async function initLaunchMarket(options = {}) {
 const controller = new LaunchMarketController(options);
+
 await controller.init();
+
 return controller;
 }
 

@@ -6,7 +6,6 @@ getConnectedPublicKey,
 onWalletChange,
 restoreWalletIfTrusted,
 getMobileWalletHelpText,
-sendSolTransfer,
 } from "../wallet.js";
 import { initLaunchMarket } from "../../js/launch-market.js";
 
@@ -17,14 +16,42 @@ const BUILDING_PHASE_REFRESH_INTERVAL_MS = 1800;
 const RENDER_TICK_MS = 1000;
 const FORCE_FINALIZE_COOLDOWN_MS = 8000;
 const LIVE_LIFECYCLE_REFRESH_INTERVAL_MS = 20000;
-const LAUNCH_PAGE_INIT_KEY = "__mssLaunchPageInit_v3";
+const LAUNCH_PAGE_INIT_KEY = "__mssLaunchPageInit_v4";
 const COMMIT_DEDUP_WINDOW_MS = 2000;
+
+const PARTICIPANT_ROLE = "participant";
+const ACKNOWLEDGEMENT_MODEL = "acknowledgement_only";
+const PARTICIPANT_ACKNOWLEDGEMENT_FIELDS = [
+{
+id: "ackParticipantTerms",
+key: "terms_accepted",
+message: "Accept the MSS Launcher Terms before committing.",
+label: "I accept the MSS Launcher Terms for participating in this launch.",
+},
+{
+id: "ackParticipantRiskDisclosure",
+key: "risk_disclosure_accepted",
+message: "Accept the launch risk disclosure before committing.",
+label: "I understand crypto launches involve significant risk and outcomes are not guaranteed.",
+},
+{
+id: "ackParticipantLaunchRules",
+key: "launch_rules_accepted",
+message: "Accept the launch rules and transaction conditions before committing.",
+label: "I accept the launch rules, allocation conditions and transaction conditions.",
+},
+{
+id: "ackParticipantNoAdvice",
+key: "no_advice_accepted",
+message: "Accept the information-only acknowledgement before committing.",
+label: "I understand MSS provides information and infrastructure only, not investment advice.",
+},
+];
 
 const LIVE_LIQUIDITY_TARGET_PCT = 100;
 const PROTOCOL_RESERVE_HELD_PCT = 0;
 const FORMER_RESERVE_BURNED = true;
 const UNUSED_PARTICIPANT_ALLOCATION_BURNED = true;
-
 const BUILDER_LP_FEE_RIGHTS_PCT = 100;
 const MSS_LP_FEE_RIGHTS_PCT = 0;
 const BUILDER_LP_FEE_RIGHTS_VIA_DISTRIBUTOR = true;
@@ -115,16 +142,21 @@ const MARKET_OWNED_TEXT_IDS = new Set([
 "launchCassiePatternText",
 ]);
 
-const MARKET_OWNED_HIDDEN_IDS = new Set([
-"contractAddressRow",
-]);
-
+const MARKET_OWNED_HIDDEN_IDS = new Set(["contractAddressRow"]);
 const MARKET_OWNED_CLASS_IDS = new Set([
 "launchPhaseBadge",
 "launchStatusBadge",
 "launchStatusPill",
 "phasePillMirror",
 ]);
+
+function $(id) {
+return document.getElementById(id);
+}
+
+function $all(selector) {
+return Array.from(document.querySelectorAll(selector));
+}
 
 function isMarketOwnedTextId(id) {
 return MARKET_OWNED_TEXT_IDS.has(String(id || ""));
@@ -136,14 +168,6 @@ return MARKET_OWNED_HIDDEN_IDS.has(String(id || ""));
 
 function isMarketOwnedClassId(id) {
 return MARKET_OWNED_CLASS_IDS.has(String(id || ""));
-}
-
-function $(id) {
-return document.getElementById(id);
-}
-
-function $all(selector) {
-return Array.from(document.querySelectorAll(selector));
 }
 
 function getApiBase() {
@@ -203,8 +227,8 @@ return String(value ?? "").trim().slice(0, max);
 
 function choosePreferredString(...values) {
 for (const value of values) {
-const s = cleanString(value);
-if (s) return s;
+const text = cleanString(value);
+if (text) return text;
 }
 
 return "";
@@ -216,6 +240,17 @@ if (Array.isArray(value) && value.length) return value;
 }
 
 return [];
+}
+
+function toTruthyBoolean(value) {
+if (value === true || value === 1) return true;
+const raw = String(value ?? "").trim().toLowerCase();
+return ["true", "1", "yes", "y", "on", "accepted"].includes(raw);
+}
+
+function isFalseLike(value) {
+const raw = String(value ?? "").trim().toLowerCase();
+return value === false || value === 0 || raw === "0" || raw === "false" || raw === "no";
 }
 
 function parseTs(value) {
@@ -243,16 +278,16 @@ function fmtCountdown(ms) {
 if (!Number.isFinite(ms)) return "—";
 if (ms <= 0) return "00:00";
 
-const s = Math.floor(ms / 1000);
-const h = Math.floor(s / 3600);
-const m = Math.floor((s % 3600) / 60);
-const r = s % 60;
+const seconds = Math.floor(ms / 1000);
+const hours = Math.floor(seconds / 3600);
+const minutes = Math.floor((seconds % 3600) / 60);
+const remainder = seconds % 60;
 
-if (h > 0) {
-return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}:${String(r).padStart(2, "0")}`;
+if (hours > 0) {
+return `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}:${String(remainder).padStart(2, "0")}`;
 }
 
-return `${String(m).padStart(2, "0")}:${String(r).padStart(2, "0")}`;
+return `${String(minutes).padStart(2, "0")}:${String(remainder).padStart(2, "0")}`;
 }
 
 function fmtDuration(ms) {
@@ -290,20 +325,14 @@ maximumFractionDigits: decimals,
 });
 }
 
-function fmtDateTime(value) {
-const ts = parseTs(value);
-if (!Number.isFinite(ts)) return "—";
-return new Date(ts).toLocaleString();
-}
-
 function solToLamports(solAmount) {
-const n = Number(solAmount);
+const amount = Number(solAmount);
 
-if (!Number.isFinite(n) || n <= 0) {
+if (!Number.isFinite(amount) || amount <= 0) {
 throw new Error("Invalid SOL amount.");
 }
 
-return Math.round(n * 1_000_000_000);
+return Math.round(amount * 1_000_000_000);
 }
 
 function badgeText(status) {
@@ -336,16 +365,16 @@ return value === "live" || value === "graduated";
 }
 
 function getBuilderTrust(score) {
-const n = safeNum(score, 0);
+const value = safeNum(score, 0);
 
-if (n >= 80) {
+if (value >= 80) {
 return {
 label: "Strong",
 note: "Builder profile currently shows strong trust alignment.",
 };
 }
 
-if (n >= 55) {
+if (value >= 55) {
 return {
 label: "Moderate",
 note: "Builder profile currently shows moderate trust alignment.",
@@ -359,16 +388,16 @@ note: "Builder profile is still early-stage and building trust history.",
 }
 
 function shortenWallet(wallet) {
-const w = String(wallet || "").trim();
-if (!w) return "No wallet connected";
-if (w.length <= 12) return w;
-return `${w.slice(0, 4)}...${w.slice(-4)}`;
+const value = String(wallet || "").trim();
+if (!value) return "No wallet connected";
+if (value.length <= 12) return value;
+return `${value.slice(0, 4)}...${value.slice(-4)}`;
 }
 
 function humanizeTemplate(value) {
 const raw = cleanString(value, 120);
 if (!raw) return "Standard";
-return raw.replaceAll("_", " ").replace(/\b\w/g, (m) => m.toUpperCase());
+return raw.replaceAll("_", " ").replace(/\b\w/g, (letter) => letter.toUpperCase());
 }
 
 function getLaunchDisplayName(launchLike = {}) {
@@ -408,11 +437,7 @@ normalized === "finalising"
 return "building";
 }
 
-if (
-normalized === "countdown" ||
-normalized === "pre_live" ||
-normalized === "prelive"
-) {
+if (normalized === "countdown" || normalized === "pre_live" || normalized === "prelive") {
 return "countdown";
 }
 
@@ -420,11 +445,7 @@ if (normalized === "failed_refunded" || normalized === "refunded") {
 return "failed_refunded";
 }
 
-if (
-normalized === "failed" ||
-normalized === "cancelled" ||
-normalized === "canceled"
-) {
+if (normalized === "failed" || normalized === "cancelled" || normalized === "canceled") {
 return "failed";
 }
 
@@ -442,10 +463,6 @@ return "commit";
 return "";
 }
 
-function isFalseLike(value) {
-return value === false || value === 0 || value === "0";
-}
-
 function isMarketBootstrappedFalse(launchLike = {}, lifecycleLike = null) {
 return isFalseLike(
 launchLike?.market_bootstrapped ??
@@ -454,19 +471,11 @@ lifecycleLike?.marketBootstrapped
 );
 }
 
-function resolveCanonicalLaunchStatus(
-launchLike = {},
-statsLike = {},
-lifecycleLike = null
-) {
+function resolveCanonicalLaunchStatus(launchLike = {}, statsLike = {}, lifecycleLike = null) {
 const rawStatus = normalizePhaseStatus(launchLike?.status);
 const lifecycleStatus = normalizePhaseStatus(
-lifecycleLike?.launchStatus ||
-lifecycleLike?.launch_status ||
-lifecycleLike?.status ||
-""
+lifecycleLike?.launchStatus || lifecycleLike?.launch_status || lifecycleLike?.status || ""
 );
-
 const contractAddress = choosePreferredString(
 launchLike?.contract_address,
 launchLike?.mint_address,
@@ -475,117 +484,46 @@ launchLike?.mint,
 lifecycleLike?.contractAddress,
 lifecycleLike?.contract_address
 );
-
-const mintStatus = cleanString(
-launchLike?.mint_reservation_status,
-64
-).toLowerCase();
-
+const mintStatus = cleanString(launchLike?.mint_reservation_status, 64).toLowerCase();
 const mintFinalizedAtMs = parseTs(launchLike?.mint_finalized_at);
-
-const countdownStartedMs = parseTs(
-statsLike?.countdownStartedAt || launchLike?.countdown_started_at
-);
+const countdownStartedMs = parseTs(statsLike?.countdownStartedAt || launchLike?.countdown_started_at);
 const countdownEndsMs = parseTs(
-statsLike?.countdownEndsAt ||
-launchLike?.countdown_ends_at ||
-launchLike?.live_at
+statsLike?.countdownEndsAt || launchLike?.countdown_ends_at || launchLike?.live_at
 );
-const commitEndMs = parseTs(
-statsLike?.commitEndsAt || launchLike?.commit_ends_at
-);
-
-const hasCountdownWindow =
-Number.isFinite(countdownStartedMs) || Number.isFinite(countdownEndsMs);
-
-const hasLiveSignal = Boolean(
-contractAddress ||
-mintStatus === "finalized" ||
-Number.isFinite(mintFinalizedAtMs)
-);
-
+const hasCountdownWindow = Number.isFinite(countdownStartedMs) || Number.isFinite(countdownEndsMs);
+const hasLiveSignal = Boolean(contractAddress || mintStatus === "finalized" || Number.isFinite(mintFinalizedAtMs));
 const now = Date.now();
 
-if (rawStatus === "graduated" || lifecycleStatus === "graduated") {
-return "graduated";
-}
-
-if (rawStatus === "failed_refunded" || lifecycleStatus === "failed_refunded") {
-return "failed_refunded";
-}
-
-if (rawStatus === "failed" || lifecycleStatus === "failed") {
-return "failed";
-}
+if (rawStatus === "graduated" || lifecycleStatus === "graduated") return "graduated";
+if (rawStatus === "failed_refunded" || lifecycleStatus === "failed_refunded") return "failed_refunded";
+if (rawStatus === "failed" || lifecycleStatus === "failed") return "failed";
 
 if (rawStatus === "live" || lifecycleStatus === "live") {
-return isMarketBootstrappedFalse(launchLike, lifecycleLike)
-? "building"
-: "live";
+return isMarketBootstrappedFalse(launchLike, lifecycleLike) ? "building" : "live";
 }
 
-/*
-Protected phase rule:
-countdown/building must never promote to live from CA/mint/finalized signals.
-finalizeLaunch.js owns true live promotion.
-*/
-if (rawStatus === "building" || lifecycleStatus === "building") {
-return "building";
-}
+/* Finalization owns live promotion; protected phases cannot promote from CA/mint clues. */
+if (rawStatus === "building" || lifecycleStatus === "building") return "building";
 
 if (rawStatus === "countdown" || lifecycleStatus === "countdown") {
-if (Number.isFinite(countdownEndsMs) && now >= countdownEndsMs) {
-return "building";
+return Number.isFinite(countdownEndsMs) && now >= countdownEndsMs ? "building" : "countdown";
 }
 
-return "countdown";
-}
-
-if (rawStatus === "commit" || lifecycleStatus === "commit") {
-return "commit";
-}
+if (rawStatus === "commit" || lifecycleStatus === "commit") return "commit";
 
 if (hasCountdownWindow) {
-if (Number.isFinite(countdownEndsMs) && now >= countdownEndsMs) {
-return "building";
+return Number.isFinite(countdownEndsMs) && now >= countdownEndsMs ? "building" : "countdown";
 }
 
-return "countdown";
-}
-
-if (
-Number.isFinite(commitEndMs) &&
-Number.isFinite(countdownEndsMs) &&
-now >= commitEndMs &&
-now < countdownEndsMs
-) {
-return "countdown";
-}
-
-/*
-Legacy fallback only:
-Old rows with no protected phase may infer live from finalized mint/CA data.
-Never override countdown/building/failed states.
-*/
-if (!rawStatus && !lifecycleStatus && hasLiveSignal) {
-return "live";
-}
+/* Legacy-only fallback for rows with no lifecycle phase stored. */
+if (!rawStatus && !lifecycleStatus && hasLiveSignal) return "live";
 
 return "commit";
 }
 
-function sanitizePublicLaunchFields(
-launchLike = {},
-statsLike = {},
-lifecycleLike = null
-) {
-const effectiveStatus = resolveCanonicalLaunchStatus(
-launchLike,
-statsLike,
-lifecycleLike
-);
+function sanitizePublicLaunchFields(launchLike = {}, statsLike = {}, lifecycleLike = null) {
+const effectiveStatus = resolveCanonicalLaunchStatus(launchLike, statsLike, lifecycleLike);
 const exposeCa = shouldExposePublicCa(effectiveStatus);
-
 const contractAddress = exposeCa
 ? choosePreferredString(
 launchLike?.contract_address,
@@ -597,35 +535,20 @@ lifecycleLike?.contract_address
 )
 : "";
 
-const mintStatus = exposeCa
-? cleanString(launchLike?.mint_reservation_status, 64).toLowerCase()
-: "";
-
 return {
 ...launchLike,
 status: effectiveStatus,
-
 contract_address: contractAddress,
-mint_address: exposeCa
-? choosePreferredString(launchLike?.mint_address, contractAddress)
-: "",
-token_mint: exposeCa
-? choosePreferredString(launchLike?.token_mint, contractAddress)
-: "",
-mint: exposeCa
-? choosePreferredString(launchLike?.mint, contractAddress)
-: "",
-
+mint_address: exposeCa ? choosePreferredString(launchLike?.mint_address, contractAddress) : "",
+token_mint: exposeCa ? choosePreferredString(launchLike?.token_mint, contractAddress) : "",
+mint: exposeCa ? choosePreferredString(launchLike?.mint, contractAddress) : "",
 reserved_mint_address: "",
 reserved_mint_secret: "",
 reserved_mint_public_key: "",
 reserved_mint_private_key: "",
 reserved_mint_keypair: "",
-
-mint_reservation_status: mintStatus,
-mint_finalized_at: exposeCa
-? cleanString(launchLike?.mint_finalized_at, 200)
-: "",
+mint_reservation_status: exposeCa ? cleanString(launchLike?.mint_reservation_status, 64).toLowerCase() : "",
+mint_finalized_at: exposeCa ? cleanString(launchLike?.mint_finalized_at, 200) : "",
 market_bootstrapped:
 launchLike?.market_bootstrapped ??
 lifecycleLike?.market_bootstrapped ??
@@ -646,26 +569,18 @@ builder_wallet: cleanString(raw?.builder_wallet, 200),
 builder_alias: cleanString(raw?.builder_alias, 200),
 image_url: cleanString(raw?.image_url, 4000),
 description: cleanString(raw?.description, 10000),
-
 contract_address: cleanString(raw?.contract_address, 200),
 mint_address: cleanString(raw?.mint_address, 200),
 token_mint: cleanString(raw?.token_mint, 200),
 mint: cleanString(raw?.mint, 200),
-
 reserved_mint_address: cleanString(raw?.reserved_mint_address, 200),
 reserved_mint_secret: cleanString(raw?.reserved_mint_secret, 20000),
 reserved_mint_public_key: cleanString(raw?.reserved_mint_public_key, 200),
 reserved_mint_private_key: cleanString(raw?.reserved_mint_private_key, 20000),
 reserved_mint_keypair: cleanString(raw?.reserved_mint_keypair, 20000),
-
-mint_reservation_status: cleanString(
-raw?.mint_reservation_status,
-64
-).toLowerCase(),
+mint_reservation_status: cleanString(raw?.mint_reservation_status, 64).toLowerCase(),
 mint_finalized_at: cleanString(raw?.mint_finalized_at, 200),
-
 market_bootstrapped: raw?.market_bootstrapped ?? null,
-
 commit_started_at: cleanString(raw?.commit_started_at, 200),
 commit_ends_at: cleanString(raw?.commit_ends_at, 200),
 countdown_started_at: cleanString(raw?.countdown_started_at, 200),
@@ -674,147 +589,71 @@ live_at: cleanString(raw?.live_at, 200),
 failed_at: cleanString(raw?.failed_at, 200),
 created_at: cleanString(raw?.created_at, 200),
 updated_at: cleanString(raw?.updated_at, 200),
-
 team_wallet_breakdown: choosePreferredArray(raw?.team_wallet_breakdown),
 };
 }
 
-function mergeLaunchTruth(
-previous = {},
-next = {},
-statsLike = {},
-lifecycleLike = null
-) {
-const prevSanitized = normalizeLaunchData(previous || {});
-const nextSanitized = normalizeLaunchData(next || {});
+function mergeLaunchTruth(previous = {}, next = {}, statsLike = {}, lifecycleLike = null) {
+const prev = normalizeLaunchData(previous || {});
+const incoming = normalizeLaunchData(next || {});
+const merged = { ...prev, ...incoming };
+const lifecycleContract = cleanString(lifecycleLike?.contractAddress || lifecycleLike?.contract_address, 200);
 
-const lifecycleContract = cleanString(
-lifecycleLike?.contractAddress || lifecycleLike?.contract_address,
-200
-);
+for (const field of [
+"token_name",
+"symbol",
+"template",
+"builder_alias",
+"builder_name",
+"image_url",
+"description",
+"commit_started_at",
+"commit_ends_at",
+"countdown_started_at",
+"countdown_ends_at",
+"live_at",
+"created_at",
+"updated_at",
+"failed_at",
+"mint_finalized_at",
+"mint_reservation_status",
+]) {
+merged[field] = choosePreferredString(incoming[field], prev[field]);
+}
 
-const merged = {
-...prevSanitized,
-...nextSanitized,
-};
-
-merged.token_name = choosePreferredString(
-nextSanitized?.token_name,
-prevSanitized?.token_name
-);
-merged.symbol = choosePreferredString(
-nextSanitized?.symbol,
-prevSanitized?.symbol
-);
-merged.template = choosePreferredString(
-nextSanitized?.template,
-prevSanitized?.template
-);
-merged.builder_alias = choosePreferredString(
-nextSanitized?.builder_alias,
-prevSanitized?.builder_alias
-);
-merged.builder_name = choosePreferredString(
-nextSanitized?.builder_name,
-prevSanitized?.builder_name
-);
 merged.builder_wallet = choosePreferredString(
-nextSanitized?.builder_wallet,
-prevSanitized?.builder_wallet,
+incoming.builder_wallet,
+prev.builder_wallet,
 lifecycleLike?.builderWallet,
 lifecycleLike?.builder_wallet
 );
-merged.image_url = choosePreferredString(
-nextSanitized?.image_url,
-prevSanitized?.image_url
-);
-merged.description = choosePreferredString(
-nextSanitized?.description,
-prevSanitized?.description
-);
 merged.team_wallet_breakdown = choosePreferredArray(
-nextSanitized?.team_wallet_breakdown,
-prevSanitized?.team_wallet_breakdown
-);
-
-merged.commit_started_at = choosePreferredString(
-nextSanitized?.commit_started_at,
-prevSanitized?.commit_started_at
-);
-merged.commit_ends_at = choosePreferredString(
-nextSanitized?.commit_ends_at,
-prevSanitized?.commit_ends_at
-);
-merged.countdown_started_at = choosePreferredString(
-nextSanitized?.countdown_started_at,
-prevSanitized?.countdown_started_at
-);
-merged.countdown_ends_at = choosePreferredString(
-nextSanitized?.countdown_ends_at,
-prevSanitized?.countdown_ends_at
-);
-merged.live_at = choosePreferredString(
-nextSanitized?.live_at,
-prevSanitized?.live_at,
-merged.countdown_ends_at
-);
-merged.created_at = choosePreferredString(
-nextSanitized?.created_at,
-prevSanitized?.created_at
-);
-merged.updated_at = choosePreferredString(
-nextSanitized?.updated_at,
-prevSanitized?.updated_at
-);
-merged.failed_at = choosePreferredString(
-nextSanitized?.failed_at,
-prevSanitized?.failed_at
-);
-merged.mint_finalized_at = choosePreferredString(
-nextSanitized?.mint_finalized_at,
-prevSanitized?.mint_finalized_at
+incoming.team_wallet_breakdown,
+prev.team_wallet_breakdown
 );
 merged.market_bootstrapped =
-nextSanitized?.market_bootstrapped ??
-prevSanitized?.market_bootstrapped ??
+incoming?.market_bootstrapped ??
+prev?.market_bootstrapped ??
 lifecycleLike?.market_bootstrapped ??
 lifecycleLike?.marketBootstrapped ??
 null;
 
 const strongestContract = choosePreferredString(
-nextSanitized?.contract_address,
-nextSanitized?.mint_address,
-nextSanitized?.token_mint,
-nextSanitized?.mint,
-prevSanitized?.contract_address,
-prevSanitized?.mint_address,
-prevSanitized?.token_mint,
-prevSanitized?.mint,
+incoming?.contract_address,
+incoming?.mint_address,
+incoming?.token_mint,
+incoming?.mint,
+prev?.contract_address,
+prev?.mint_address,
+prev?.token_mint,
+prev?.mint,
 lifecycleContract
 );
 
 merged.contract_address = strongestContract;
-merged.mint_address = choosePreferredString(
-nextSanitized?.mint_address,
-prevSanitized?.mint_address,
-strongestContract
-);
-merged.token_mint = choosePreferredString(
-nextSanitized?.token_mint,
-prevSanitized?.token_mint,
-strongestContract
-);
-merged.mint = choosePreferredString(
-nextSanitized?.mint,
-prevSanitized?.mint,
-strongestContract
-);
-
-merged.mint_reservation_status = choosePreferredString(
-nextSanitized?.mint_reservation_status,
-prevSanitized?.mint_reservation_status
-);
-
+merged.mint_address = choosePreferredString(incoming?.mint_address, prev?.mint_address, strongestContract);
+merged.token_mint = choosePreferredString(incoming?.token_mint, prev?.token_mint, strongestContract);
+merged.mint = choosePreferredString(incoming?.mint, prev?.mint, strongestContract);
 merged.status = resolveCanonicalLaunchStatus(merged, statsLike, lifecycleLike);
 
 return sanitizePublicLaunchFields(merged, statsLike, lifecycleLike);
@@ -831,27 +670,11 @@ thresholds:
 raw.thresholds && typeof raw.thresholds === "object"
 ? {
 ...raw.thresholds,
-marketcapSol: safeNum(
-raw.thresholds.marketcapSol ?? raw.thresholds.marketcap_sol,
-0
-),
-volume24hSol: safeNum(
-raw.thresholds.volume24hSol ?? raw.thresholds.volume_24h_sol,
-0
-),
-minHolders: safeNum(
-raw.thresholds.minHolders ?? raw.thresholds.min_holders,
-0
-),
-minLiveMinutes: safeNum(
-raw.thresholds.minLiveMinutes ??
-raw.thresholds.min_live_minutes,
-0
-),
-lockDays: safeNum(
-raw.thresholds.lockDays ?? raw.thresholds.lock_days,
-0
-),
+marketcapSol: safeNum(raw.thresholds.marketcapSol ?? raw.thresholds.marketcap_sol, 0),
+volume24hSol: safeNum(raw.thresholds.volume24hSol ?? raw.thresholds.volume_24h_sol, 0),
+minHolders: safeNum(raw.thresholds.minHolders ?? raw.thresholds.min_holders, 0),
+minLiveMinutes: safeNum(raw.thresholds.minLiveMinutes ?? raw.thresholds.min_live_minutes, 0),
+lockDays: safeNum(raw.thresholds.lockDays ?? raw.thresholds.lock_days, 0),
 }
 : null,
 };
@@ -862,18 +685,12 @@ if (!raw || typeof raw !== "object") return null;
 
 return {
 ...raw,
-builderWallet: choosePreferredString(
-raw.builderWallet,
-raw.builder_wallet
-),
+builderWallet: choosePreferredString(raw.builderWallet, raw.builder_wallet),
 totalAllocation: safeNum(raw.totalAllocation ?? raw.total_allocation, 0),
 dailyUnlock: safeNum(raw.dailyUnlock ?? raw.daily_unlock, 0),
 unlockedAmount: safeNum(raw.unlockedAmount ?? raw.unlocked_amount, 0),
 lockedAmount: safeNum(raw.lockedAmount ?? raw.locked_amount, 0),
-vestingStartAt: cleanString(
-raw.vestingStartAt ?? raw.vesting_start_at,
-200
-),
+vestingStartAt: cleanString(raw.vestingStartAt ?? raw.vesting_start_at, 200),
 createdAt: cleanString(raw.createdAt ?? raw.created_at, 200),
 updatedAt: cleanString(raw.updatedAt ?? raw.updated_at, 200),
 vestedDays: safeNum(raw.vestedDays ?? raw.vested_days, 0),
@@ -886,56 +703,24 @@ if (!raw || typeof raw !== "object") return null;
 return {
 ...raw,
 status: cleanString(raw.status, 64).toLowerCase(),
-launchStatus: cleanString(
-raw.launchStatus ?? raw.launch_status ?? raw.status,
-64
-).toLowerCase(),
-contractAddress: cleanString(
-raw.contractAddress ?? raw.contract_address,
-200
-),
-contract_address: cleanString(
-raw.contract_address ?? raw.contractAddress,
-200
-),
+launchStatus: cleanString(raw.launchStatus ?? raw.launch_status ?? raw.status, 64).toLowerCase(),
+contractAddress: cleanString(raw.contractAddress ?? raw.contract_address, 200),
+contract_address: cleanString(raw.contract_address ?? raw.contractAddress, 200),
 builderWallet: cleanString(raw.builderWallet ?? raw.builder_wallet, 200),
 builder_wallet: cleanString(raw.builder_wallet ?? raw.builderWallet, 200),
-marketBootstrapped:
-raw.marketBootstrapped ?? raw.market_bootstrapped ?? null,
-market_bootstrapped:
-raw.market_bootstrapped ?? raw.marketBootstrapped ?? null,
-internalSolReserve: safeNum(
-raw.internalSolReserve ?? raw.internal_sol_reserve,
-0
-),
-internalTokenReserve: safeNum(
-raw.internalTokenReserve ?? raw.internal_token_reserve,
-0
-),
+marketBootstrapped: raw.marketBootstrapped ?? raw.market_bootstrapped ?? null,
+market_bootstrapped: raw.market_bootstrapped ?? raw.marketBootstrapped ?? null,
+internalSolReserve: safeNum(raw.internalSolReserve ?? raw.internal_sol_reserve, 0),
+internalTokenReserve: safeNum(raw.internalTokenReserve ?? raw.internal_token_reserve, 0),
 totalSupply: safeNum(raw.totalSupply ?? raw.total_supply, 0),
 priceSol: safeNum(raw.priceSol ?? raw.price_sol, 0),
 volume24hSol: safeNum(raw.volume24hSol ?? raw.volume_24h_sol, 0),
 lockedLpAmount: safeNum(raw.lockedLpAmount ?? raw.locked_lp_amount, 0),
-mssLockedLpAmount: safeNum(
-raw.mssLockedLpAmount ?? raw.mss_locked_lp_amount,
-0
-),
-mssLockedLpSol: safeNum(
-raw.mssLockedLpSol ?? raw.mss_locked_lp_sol,
-0
-),
-lockedSolReserve: safeNum(
-raw.lockedSolReserve ?? raw.locked_sol_reserve,
-0
-),
-raydiumTargetPct: safeNum(
-raw.raydiumTargetPct ?? raw.raydium_target_pct,
-LIVE_LIQUIDITY_TARGET_PCT
-),
-mssLockedTargetPct: safeNum(
-raw.mssLockedTargetPct ?? raw.mss_locked_target_pct,
-0
-),
+mssLockedLpAmount: safeNum(raw.mssLockedLpAmount ?? raw.mss_locked_lp_amount, 0),
+mssLockedLpSol: safeNum(raw.mssLockedLpSol ?? raw.mss_locked_lp_sol, 0),
+lockedSolReserve: safeNum(raw.lockedSolReserve ?? raw.locked_sol_reserve, 0),
+raydiumTargetPct: safeNum(raw.raydiumTargetPct ?? raw.raydium_target_pct, LIVE_LIQUIDITY_TARGET_PCT),
+mssLockedTargetPct: safeNum(raw.mssLockedTargetPct ?? raw.mss_locked_target_pct, 0),
 liveLiquidityTargetPct: safeNum(
 raw.liveLiquidityTargetPct ?? raw.live_liquidity_target_pct,
 safeNum(raw.raydiumTargetPct ?? raw.raydium_target_pct, LIVE_LIQUIDITY_TARGET_PCT)
@@ -944,42 +729,20 @@ protocolReserveHeldPct: safeNum(
 raw.protocolReserveHeldPct ?? raw.protocol_reserve_held_pct,
 PROTOCOL_RESERVE_HELD_PCT
 ),
-formerReserveBurned:
-raw.formerReserveBurned ?? raw.former_reserve_burned ?? FORMER_RESERVE_BURNED,
+formerReserveBurned: raw.formerReserveBurned ?? raw.former_reserve_burned ?? FORMER_RESERVE_BURNED,
 unusedParticipantAllocationBurned:
 raw.unusedParticipantAllocationBurned ??
 raw.unused_participant_allocation_burned ??
 UNUSED_PARTICIPANT_ALLOCATION_BURNED,
-graduationStatus: cleanString(
-raw.graduationStatus ?? raw.graduation_status,
-120
-),
-graduationReason: cleanString(
-raw.graduationReason ?? raw.graduation_reason,
-200
-),
-raydiumPoolId: cleanString(
-raw.raydiumPoolId ?? raw.raydium_pool_id,
-300
-),
-raydiumSolMigrated: safeNum(
-raw.raydiumSolMigrated ?? raw.raydium_sol_migrated,
-0
-),
-raydiumTokenMigrated: safeNum(
-raw.raydiumTokenMigrated ?? raw.raydium_token_migrated,
-0
-),
-raydiumMigrationTx: cleanString(
-raw.raydiumMigrationTx ?? raw.raydium_migration_tx,
-300
-),
+graduationStatus: cleanString(raw.graduationStatus ?? raw.graduation_status, 120),
+graduationReason: cleanString(raw.graduationReason ?? raw.graduation_reason, 200),
+raydiumPoolId: cleanString(raw.raydiumPoolId ?? raw.raydium_pool_id, 300),
+raydiumSolMigrated: safeNum(raw.raydiumSolMigrated ?? raw.raydium_sol_migrated, 0),
+raydiumTokenMigrated: safeNum(raw.raydiumTokenMigrated ?? raw.raydium_token_migrated, 0),
+raydiumMigrationTx: cleanString(raw.raydiumMigrationTx ?? raw.raydium_migration_tx, 300),
 lockStatus: cleanString(raw.lockStatus ?? raw.lock_status, 120),
 updated_at: cleanString(raw.updated_at, 200),
-lpFeeBeneficiaryWallet: cleanString(
-raw.lpFeeBeneficiaryWallet ?? raw.lp_fee_beneficiary_wallet,
-200
-),
+lpFeeBeneficiaryWallet: cleanString(raw.lpFeeBeneficiaryWallet ?? raw.lp_fee_beneficiary_wallet, 200),
 lpFeeBeneficiaryType:
 cleanString(raw.lpFeeBeneficiaryType ?? raw.lp_fee_beneficiary_type, 120) ||
 LP_FEE_BENEFICIARY_TYPE_DEFAULT,
@@ -993,67 +756,26 @@ lpFeeDistributionModel:
 cleanString(raw.lpFeeDistributionModel ?? raw.lp_fee_distribution_model, 160) ||
 LP_FEE_DISTRIBUTION_MODEL_DEFAULT,
 lpFeeSource: cleanString(raw.lpFeeSource ?? raw.lp_fee_source, 120),
-lpFeeDistributorEnabled: toTruthyBoolean(
-raw.lpFeeDistributorEnabled ?? raw.lp_fee_distributor_enabled
-),
-lpFeeDistributorStatus: cleanString(
-raw.lpFeeDistributorStatus ?? raw.lp_fee_distributor_status,
-120
-),
-lpFeeDistributorAddress: cleanString(
-raw.lpFeeDistributorAddress ?? raw.lp_fee_distributor_address,
-300
-),
-lpFeeDistributorProgram: cleanString(
-raw.lpFeeDistributorProgram ?? raw.lp_fee_distributor_program,
-300
-),
-lpFeeDistributorProgramId: cleanString(
-raw.lpFeeDistributorProgramId ?? raw.lp_fee_distributor_program_id,
-300
-),
-lpFeeDistributorVault: cleanString(
-raw.lpFeeDistributorVault ?? raw.lp_fee_distributor_vault,
-300
-),
-lpFeeDistributorTx: cleanString(
-raw.lpFeeDistributorTx ?? raw.lp_fee_distributor_tx,
-300
-),
-lpFeeLastDistributedAt:
-raw.lpFeeLastDistributedAt ?? raw.lp_fee_last_distributed_at ?? null,
-builderLpFeeRightsPct: safeNum(
-raw.builderLpFeeRightsPct ?? raw.builder_lp_fee_rights_pct,
-BUILDER_LP_FEE_RIGHTS_PCT
-),
-mssLpFeeRightsPct: safeNum(
-raw.mssLpFeeRightsPct ?? raw.mss_lp_fee_rights_pct,
-MSS_LP_FEE_RIGHTS_PCT
-),
+lpFeeDistributorEnabled: toTruthyBoolean(raw.lpFeeDistributorEnabled ?? raw.lp_fee_distributor_enabled),
+lpFeeDistributorStatus: cleanString(raw.lpFeeDistributorStatus ?? raw.lp_fee_distributor_status, 120),
+lpFeeDistributorAddress: cleanString(raw.lpFeeDistributorAddress ?? raw.lp_fee_distributor_address, 300),
+lpFeeDistributorProgram: cleanString(raw.lpFeeDistributorProgram ?? raw.lp_fee_distributor_program, 300),
+lpFeeDistributorProgramId: cleanString(raw.lpFeeDistributorProgramId ?? raw.lp_fee_distributor_program_id, 300),
+lpFeeDistributorVault: cleanString(raw.lpFeeDistributorVault ?? raw.lp_fee_distributor_vault, 300),
+lpFeeDistributorTx: cleanString(raw.lpFeeDistributorTx ?? raw.lp_fee_distributor_tx, 300),
+lpFeeLastDistributedAt: raw.lpFeeLastDistributedAt ?? raw.lp_fee_last_distributed_at ?? null,
+builderLpFeeRightsPct: safeNum(raw.builderLpFeeRightsPct ?? raw.builder_lp_fee_rights_pct, BUILDER_LP_FEE_RIGHTS_PCT),
+mssLpFeeRightsPct: safeNum(raw.mssLpFeeRightsPct ?? raw.mss_lp_fee_rights_pct, MSS_LP_FEE_RIGHTS_PCT),
 builderLpFeeRightsViaDistributor:
 raw.builderLpFeeRightsViaDistributor ??
 raw.builder_lp_fee_rights_via_distributor ??
 BUILDER_LP_FEE_RIGHTS_VIA_DISTRIBUTOR,
-builderCanRemoveLp: toTruthyBoolean(
-raw.builderCanRemoveLp ?? raw.builder_can_remove_lp
-),
-builderCanClaimLpFees: toTruthyBoolean(
-raw.builderCanClaimLpFees ?? raw.builder_can_claim_lp_fees
-),
-externalMarketVenue: cleanString(
-raw.externalMarketVenue ?? raw.external_market_venue,
-120
-),
-externalMarketMode: cleanString(
-raw.externalMarketMode ?? raw.external_market_mode,
-120
-),
-graduationReadiness: normalizeGraduationReadinessData(
-raw.graduationReadiness || raw.graduation_readiness || null
-),
-builderVesting: normalizeBuilderVestingData(
-raw.builderVesting || raw.builder_vesting || null
-),
+builderCanRemoveLp: toTruthyBoolean(raw.builderCanRemoveLp ?? raw.builder_can_remove_lp),
+builderCanClaimLpFees: toTruthyBoolean(raw.builderCanClaimLpFees ?? raw.builder_can_claim_lp_fees),
+externalMarketVenue: cleanString(raw.externalMarketVenue ?? raw.external_market_venue, 120),
+externalMarketMode: cleanString(raw.externalMarketMode ?? raw.external_market_mode, 120),
+graduationReadiness: normalizeGraduationReadinessData(raw.graduationReadiness || raw.graduation_readiness || null),
+builderVesting: normalizeBuilderVestingData(raw.builderVesting || raw.builder_vesting || null),
 };
 }
 
@@ -1068,10 +790,8 @@ const incoming = normalizeLifecycleData(next);
 return {
 ...prev,
 ...incoming,
-graduationReadiness:
-incoming?.graduationReadiness || prev?.graduationReadiness || null,
-builderVesting:
-incoming?.builderVesting || prev?.builderVesting || null,
+graduationReadiness: incoming?.graduationReadiness || prev?.graduationReadiness || null,
+builderVesting: incoming?.builderVesting || prev?.builderVesting || null,
 };
 }
 
@@ -1088,39 +808,28 @@ LIVE_LIQUIDITY_TARGET_PCT
 
 function resolveProtocolReserveHeldPct(lifecycle = null, plan = null) {
 return safeNum(
-lifecycle?.protocolReserveHeldPct ??
-plan?.protocolReserveHeldPct,
+lifecycle?.protocolReserveHeldPct ?? plan?.protocolReserveHeldPct,
 PROTOCOL_RESERVE_HELD_PCT
 );
 }
 
 function resolveBuilderLpFeeRightsPct(lifecycle = null) {
-return safeNum(
-lifecycle?.builderLpFeeRightsPct,
-BUILDER_LP_FEE_RIGHTS_PCT
-);
+return safeNum(lifecycle?.builderLpFeeRightsPct, BUILDER_LP_FEE_RIGHTS_PCT);
 }
 
 function resolveMssLpFeeRightsPct(lifecycle = null) {
-return safeNum(
-lifecycle?.mssLpFeeRightsPct,
-MSS_LP_FEE_RIGHTS_PCT
-);
+return safeNum(lifecycle?.mssLpFeeRightsPct, MSS_LP_FEE_RIGHTS_PCT);
 }
 
 function hasFormerReserveBurned(lifecycle = null, plan = null) {
-const value =
-lifecycle?.formerReserveBurned ?? plan?.formerReserveBurned;
+const value = lifecycle?.formerReserveBurned ?? plan?.formerReserveBurned;
 return value == null ? FORMER_RESERVE_BURNED : toTruthyBoolean(value);
 }
 
 function hasUnusedParticipantAllocationBurned(lifecycle = null, plan = null) {
 const value =
-lifecycle?.unusedParticipantAllocationBurned ??
-plan?.unusedParticipantAllocationBurned;
-return value == null
-? UNUSED_PARTICIPANT_ALLOCATION_BURNED
-: toTruthyBoolean(value);
+lifecycle?.unusedParticipantAllocationBurned ?? plan?.unusedParticipantAllocationBurned;
+return value == null ? UNUSED_PARTICIPANT_ALLOCATION_BURNED : toTruthyBoolean(value);
 }
 
 function usesDistributorLpFeeControl(lifecycle = null) {
@@ -1134,13 +843,6 @@ for (const id of ids) {
 if (isMarketOwnedTextId(id)) continue;
 const el = $(id);
 if (el) el.textContent = value;
-}
-}
-
-function setValueByIds(ids, value) {
-for (const id of ids) {
-const el = $(id);
-if (el) el.value = value;
 }
 }
 
@@ -1189,11 +891,8 @@ else if (status === "countdown") el.classList.add("phase-countdown");
 else if (status === "building") el.classList.add("phase-building");
 else if (status === "live") el.classList.add("phase-live");
 else if (status === "graduated") el.classList.add("phase-graduated");
-else if (status === "failed" || status === "failed_refunded") {
-el.classList.add("phase-failed");
-} else {
-el.classList.add("phase-commit");
-}
+else if (status === "failed" || status === "failed_refunded") el.classList.add("phase-failed");
+else el.classList.add("phase-commit");
 }
 
 async function copyTextToClipboard(value) {
@@ -1223,9 +922,7 @@ if (!el) return;
 
 const { auto = false, preserveManual = false } = options;
 
-if (preserveManual && el.textContent && el.dataset.autoState !== "1") {
-return;
-}
+if (preserveManual && el.textContent && el.dataset.autoState !== "1") return;
 
 el.className = "status";
 el.dataset.autoState = auto ? "1" : "";
@@ -1244,13 +941,10 @@ el.textContent = message;
 
 function clearAutoStatus() {
 const el = $("commitStatus");
-if (!el) return;
-
-if (el.dataset.autoState === "1") {
+if (!el || el.dataset.autoState !== "1") return;
 el.className = "status";
 el.textContent = "";
 el.dataset.autoState = "";
-}
 }
 
 function setClosureNote(message, type = "") {
@@ -1275,111 +969,111 @@ function getLaunchBondLabel() {
 return "Launch bond";
 }
 
-function buildCompliancePageUrl(wallet = "", mode = "participant") {
+function buildCompliancePageUrl(wallet = "", mode = PARTICIPANT_ROLE) {
 const params = new URLSearchParams();
 params.set("mode", mode);
-if (wallet) {
-params.set("wallet", wallet);
-}
+if (wallet) params.set("wallet", wallet);
+const launchId = qs("id");
+if (launchId) params.set("launchId", launchId);
 return `./compliance.html?${params.toString()}`;
 }
 
-function toTruthyBoolean(value) {
-if (value === true || value === 1) return true;
-const raw = String(value ?? "").trim().toLowerCase();
-return raw === "true" || raw === "1" || raw === "yes";
+function buildParticipantAcknowledgementPayload() {
+const out = {};
+
+for (const field of PARTICIPANT_ACKNOWLEDGEMENT_FIELDS) {
+out[field.key] = Boolean($(field.id)?.checked);
 }
 
-function normalizeComplianceStatusPayload(
-payload = {},
-{ wallet = "", mode = "participant" } = {}
-) {
-const profile =
-payload?.profile && typeof payload.profile === "object" ? payload.profile : {};
+return out;
+}
 
-const status = cleanString(
-payload.status ?? payload.profile_status ?? profile.status,
-40
-).toLowerCase() || "not_started";
+function validateParticipantAcknowledgements() {
+const acknowledgements = buildParticipantAcknowledgementPayload();
 
-const builderGateEnabled = toTruthyBoolean(
-payload.builder_gate_enabled ??
-payload.builderGateEnabled ??
-payload.requires_builder_approval ??
-payload.requiresBuilderApproval
-);
+for (const field of PARTICIPANT_ACKNOWLEDGEMENT_FIELDS) {
+if (!acknowledgements[field.key]) {
+throw new Error(field.message);
+}
+}
 
-const participantGateEnabled = toTruthyBoolean(
-payload.participant_gate_enabled ??
-payload.participantGateEnabled ??
-payload.requires_participant_approval ??
-payload.requiresParticipantApproval
-);
+return acknowledgements;
+}
 
-const restrictedJurisdiction = toTruthyBoolean(
-payload.restricted_jurisdiction ?? payload.restrictedJurisdiction
-);
+function ensureParticipantAcknowledgementUi() {
+const form = $("commitForm");
+if (!form) return;
 
-const manualReviewRequired = toTruthyBoolean(
-profile.manual_review_required ??
-profile.manualReviewRequired ??
-payload.manual_review_required ??
-payload.manualReviewRequired
-);
+let panel = $("participantAcknowledgementPanel");
 
-const manualReviewReason = cleanString(
-profile.manual_review_reason ??
-profile.manualReviewReason ??
-payload.manual_review_reason ??
-payload.manualReviewReason,
-500
-);
+if (!panel) {
+panel = document.createElement("section");
+panel.id = "participantAcknowledgementPanel";
+panel.className = "access-card participant-acknowledgement-panel";
+panel.innerHTML = `
+<div class="access-card-head">
+<div>
+<div class="panel-kicker">Participant Acknowledgements</div>
+<h4>Terms and risk acknowledgement</h4>
+<p class="recent-meta">No ID verification or signup is required for the standard commit flow. Confirm the launcher terms before a transaction is prepared.</p>
+</div>
+</div>
+<div id="participantAcknowledgementFields" class="participant-acknowledgement-fields"></div>
+`;
 
-const transactionalAccess = toTruthyBoolean(
-payload.transactional_access ??
-payload.transactionalAccess ??
-payload.allowed ??
-payload.is_allowed ??
-payload.can_trade ??
-payload.canTrade
-);
-
-const gateEnabled =
-mode === "builder" ? builderGateEnabled : participantGateEnabled;
-
-let allowed = !gateEnabled;
-
-if (gateEnabled) {
-if (restrictedJurisdiction || manualReviewRequired) {
-allowed = false;
-} else if (
-payload.allowed === false ||
-payload.is_allowed === false ||
-payload.transactional_access === false ||
-payload.transactionalAccess === false ||
-payload.can_trade === false ||
-payload.canTrade === false
-) {
-allowed = false;
+const actionStack = form.querySelector(".action-stack");
+if (actionStack) {
+form.insertBefore(panel, actionStack);
 } else {
-allowed = transactionalAccess || status === "approved";
+form.appendChild(panel);
 }
 }
+
+const container = $("participantAcknowledgementFields") || panel;
+
+for (const field of PARTICIPANT_ACKNOWLEDGEMENT_FIELDS) {
+if ($(field.id)) continue;
+
+const row = document.createElement("label");
+row.className = "checkout-check-row participant-acknowledgement-row";
+row.innerHTML = `
+<input id="${field.id}" type="checkbox" />
+<span>${escapeHtml(field.label)}</span>
+`;
+container.appendChild(row);
+}
+
+for (const field of PARTICIPANT_ACKNOWLEDGEMENT_FIELDS) {
+const checkbox = $(field.id);
+if (!checkbox || checkbox.dataset.bound === "1") continue;
+
+checkbox.dataset.bound = "1";
+checkbox.addEventListener("change", () => {
+if (currentLaunch && currentCommitStats) render();
+});
+}
+}
+
+function normalizeParticipantAccessPayload(payload = {}, wallet = "") {
+const blockingSignals = Array.isArray(payload?.blocking_signals) ? payload.blocking_signals : [];
+const accessState = cleanString(payload?.access_state, 40).toLowerCase();
+const blocked = Boolean(
+toTruthyBoolean(payload?.internal_intervention_active) ||
+accessState === "blocked" ||
+blockingSignals.some((signal) => toTruthyBoolean(signal?.blocking))
+);
 
 return {
 ...payload,
-profile,
-wallet: cleanString(payload.wallet, 120) || cleanString(wallet, 120),
-mode,
-status,
-builder_gate_enabled: builderGateEnabled,
-participant_gate_enabled: participantGateEnabled,
-restricted_jurisdiction: restrictedJurisdiction,
-transactional_access: transactionalAccess,
-allowed,
-gate_enabled: gateEnabled,
-manual_review_required: manualReviewRequired,
-manual_review_reason: manualReviewReason,
+wallet: cleanString(payload?.wallet, 120) || cleanString(wallet, 120),
+role: PARTICIPANT_ROLE,
+mode: PARTICIPANT_ROLE,
+compliance_model: ACKNOWLEDGEMENT_MODEL,
+identity_verification_required: false,
+kyc_required: false,
+blocked,
+acknowledgement_accepted: toTruthyBoolean(payload?.acknowledgement_accepted),
+access_state: accessState || (blocked ? "blocked" : "acknowledgement_required"),
 };
 }
 
@@ -1387,150 +1081,65 @@ function getCurrentParticipantCompliancePayload() {
 return currentParticipantCompliance?.payload || null;
 }
 
-function isParticipantComplianceApproved(payload = null) {
-const statusPayload = payload || getCurrentParticipantCompliancePayload();
-if (!statusPayload) return false;
-
-const gateEnabled = Boolean(
-statusPayload.participant_gate_enabled ||
-statusPayload.requires_participant_approval
-);
-
-if (!gateEnabled) {
-return true;
-}
-
-if (statusPayload.restricted_jurisdiction) {
-return false;
-}
-
-if (
-statusPayload.manual_review_required ||
-statusPayload.profile?.manual_review_required
-) {
-return false;
-}
-
-if (
-statusPayload.allowed === false ||
-statusPayload.transactional_access === false
-) {
-return false;
-}
-
-return (
-String(statusPayload.status || "").toLowerCase() === "approved" ||
-Boolean(statusPayload.allowed || statusPayload.transactional_access)
-);
+function isParticipantInterventionBlocked(payload = null) {
+return Boolean((payload || getCurrentParticipantCompliancePayload())?.blocked);
 }
 
 function getParticipantComplianceMessage(payload = null) {
 const statusPayload = payload || getCurrentParticipantCompliancePayload();
 
 if (!statusPayload) {
-return "Participant verification is required before committing to launches.";
+return "No ID verification or signup is required. Accept the Launcher terms and risk acknowledgements before committing.";
 }
 
-const gateEnabled = Boolean(
-statusPayload.participant_gate_enabled ||
-statusPayload.requires_participant_approval
-);
-
-if (!gateEnabled) {
-return "Participant verification gate is currently disabled.";
-}
-
-if (statusPayload.restricted_jurisdiction) {
-return "Participant access is restricted for the current jurisdiction.";
-}
-
-if (
-statusPayload.manual_review_required ||
-statusPayload.profile?.manual_review_required
-) {
+if (statusPayload.blocked) {
 return (
-statusPayload.manual_review_reason ||
-statusPayload.profile?.manual_review_reason ||
-"Participant profile is in manual review."
+cleanString(statusPayload.access_reason, 500) ||
+"This wallet is currently unable to use Launcher transactions. Contact support if you believe this is an error."
 );
 }
 
-const status = String(statusPayload.status || "").toLowerCase();
-
-if (status === "approved") {
-return "Participant verification approved. Commit access is enabled.";
+if (statusPayload.acknowledgement_accepted) {
+return "Required Launcher acknowledgements have been recorded for this wallet. No ID verification is required for this flow.";
 }
 
-if (status === "pending") {
-return "Participant verification is pending review before commit access can proceed.";
-}
-
-if (status === "rejected") {
-return "Participant verification was rejected. Review the compliance profile before trying again.";
-}
-
-if (status === "restricted") {
-return "Participant profile is currently restricted from committing to launches.";
-}
-
-return "Complete participant verification before committing to launches.";
+return "No ID verification or signup is required. Accept the Launcher terms and risk acknowledgements below before committing.";
 }
 
 function renderParticipantComplianceUi(payload = null) {
+const statusPayload = payload || getCurrentParticipantCompliancePayload();
+const wallet = cleanString(statusPayload?.wallet, 120) || getConnectedPublicKey() || "";
+const blocked = isParticipantInterventionBlocked(statusPayload);
+const acknowledged = Boolean(statusPayload?.acknowledgement_accepted);
+const message = getParticipantComplianceMessage(statusPayload);
+
 const card = $("participantComplianceCard");
 const pill = $("participantCompliancePill");
-const statusTextEl =
-$("participantComplianceStatusText") || $("participantComplianceCopy");
-const summaryEl =
-$("participantComplianceSummary") || $("participantComplianceMeta");
+const statusTextEl = $("participantComplianceStatusText") || $("participantComplianceCopy");
+const summaryEl = $("participantComplianceSummary") || $("participantComplianceMeta");
 const action = $("participantComplianceAction");
-
 const marketComplianceCard = $("marketComplianceCard");
 const marketComplianceStatusText = $("marketComplianceStatusText");
 const marketComplianceSummary = $("marketComplianceSummary");
 
-if (
-!card &&
-!pill &&
-!statusTextEl &&
-!summaryEl &&
-!action &&
-!marketComplianceCard &&
-!marketComplianceStatusText &&
-!marketComplianceSummary
-) {
-return;
-}
-
-const wallet = cleanString(payload?.wallet, 120) || getConnectedPublicKey() || "";
-const gateEnabled = Boolean(
-payload?.participant_gate_enabled || payload?.requires_participant_approval
-);
-const approved = isParticipantComplianceApproved(payload);
-const message = getParticipantComplianceMessage(payload);
-const status = cleanString(payload?.status, 40).toLowerCase();
-
-let pillText = "Verification Required";
-let pillClass = "warn";
-
-if (!gateEnabled) {
-pillText = "Verification Optional";
-pillClass = "good";
-} else if (approved) {
-pillText = "Approved";
-pillClass = "good";
-} else if (status === "pending") {
-pillText = "Pending Review";
-pillClass = "warn";
-} else if (status === "rejected" || status === "restricted") {
-pillText = status === "restricted" ? "Restricted" : "Rejected";
-pillClass = "bad";
-}
-
+const shouldShow = Boolean(wallet || statusPayload);
 if (card) {
-const shouldShow = Boolean(wallet || gateEnabled || payload);
 card.classList.toggle("hidden", !shouldShow);
 card.classList.toggle("show", shouldShow);
+}
+
+let pillText = "Terms Required";
+let pillClass = "warn";
+
+if (blocked) {
+pillText = "Wallet Blocked";
+pillClass = "bad";
+} else if (acknowledged) {
+pillText = "Terms Recorded";
+pillClass = "good";
+} else {
+pillText = "No ID / KYC Required";
+pillClass = "good";
 }
 
 if (pill) {
@@ -1538,86 +1147,49 @@ pill.className = `status-pill ${pillClass}`;
 pill.textContent = pillText;
 }
 
-if (statusTextEl) {
-statusTextEl.textContent = message;
-}
+if (statusTextEl) statusTextEl.textContent = message;
 
 if (summaryEl) {
-const country = cleanString(payload?.profile?.country_code, 20).toUpperCase();
-const risk = cleanString(payload?.profile?.risk_rating, 40) || "low";
-const parts = [];
-
-if (country) parts.push(`Country: ${country}`);
-if (risk) parts.push(`Risk: ${risk}`);
-if (gateEnabled) {
-parts.push(`Access: ${approved ? "Allowed" : "Blocked"}`);
-} else {
-parts.push("Access: Open");
-}
-
-summaryEl.textContent = parts.join(" • ");
+summaryEl.textContent = wallet
+? `Wallet: ${shortenWallet(wallet)} • Flow: Acknowledgement only${blocked ? " • Access blocked" : ""}`
+: "Connect a wallet to continue";
 }
 
 if (action) {
-action.href = buildCompliancePageUrl(wallet, "participant");
-action.textContent = approved
-? "Review Compliance Profile"
-: "Complete Participant Verification";
-action.style.display = gateEnabled || wallet ? "" : "none";
+action.href = buildCompliancePageUrl(wallet, PARTICIPANT_ROLE);
+action.textContent = blocked ? "Review Access Status" : "Review Terms";
+action.style.display = wallet ? "" : "none";
 }
 
 if (marketComplianceCard) {
-const shouldShowMarket = Boolean(wallet || gateEnabled || payload);
-marketComplianceCard.classList.toggle("hidden", !shouldShowMarket);
+marketComplianceCard.classList.toggle("hidden", !shouldShow);
 }
 
-if (marketComplianceStatusText) {
-marketComplianceStatusText.textContent = pillText;
-}
-
-if (marketComplianceSummary) {
-marketComplianceSummary.textContent = message;
-}
+if (marketComplianceStatusText) marketComplianceStatusText.textContent = pillText;
+if (marketComplianceSummary) marketComplianceSummary.textContent = message;
 }
 
 async function fetchParticipantComplianceStatus(wallet, { silent = false } = {}) {
 const normalizedWallet = cleanString(wallet, 120);
+const launchId = qs("id");
+
 if (!normalizedWallet) {
-currentParticipantCompliance = {
-wallet: "",
-payload: null,
-};
+currentParticipantCompliance = { wallet: "", payload: null };
 renderParticipantComplianceUi(null);
 return null;
 }
 
+const launchParam = launchId ? `&launchId=${encodeURIComponent(launchId)}` : "";
 const data = await fetchJson(
-`/api/compliance/status?wallet=${encodeURIComponent(
-normalizedWallet
-)}&mode=participant`
+`/api/compliance/status?wallet=${encodeURIComponent(normalizedWallet)}&role=${PARTICIPANT_ROLE}&mode=${PARTICIPANT_ROLE}${launchParam}`
 );
 
-const payload = normalizeComplianceStatusPayload(data, {
-wallet: normalizedWallet,
-mode: "participant",
-});
-
-currentParticipantCompliance = {
-wallet: normalizedWallet,
-payload,
-};
-
+const payload = normalizeParticipantAccessPayload(data, normalizedWallet);
+currentParticipantCompliance = { wallet: normalizedWallet, payload };
 renderParticipantComplianceUi(payload);
 
 if (!silent) {
-if (isParticipantComplianceApproved(payload)) {
-setStatus(getParticipantComplianceMessage(payload), "good");
-} else if (
-payload.participant_gate_enabled ||
-payload.requires_participant_approval
-) {
-setStatus(getParticipantComplianceMessage(payload), "warn");
-}
+setStatus(getParticipantComplianceMessage(payload), payload.blocked ? "bad" : "good");
 }
 
 return payload;
@@ -1627,113 +1199,64 @@ async function refreshParticipantComplianceStatus({ silent = false } = {}) {
 const wallet = getConnectedPublicKey() || $("commitWallet")?.value?.trim() || "";
 
 if (!wallet) {
-currentParticipantCompliance = {
-wallet: "",
-payload: null,
-};
+currentParticipantCompliance = { wallet: "", payload: null };
 renderParticipantComplianceUi(null);
 return null;
 }
 
-if (participantComplianceRefreshInFlight) {
-return currentParticipantCompliance?.payload || null;
-}
+if (participantComplianceRefreshInFlight) return currentParticipantCompliance?.payload || null;
 
 participantComplianceRefreshInFlight = true;
 
 try {
 return await fetchParticipantComplianceStatus(wallet, { silent });
 } catch (err) {
-if (!silent) {
-setStatus(
-err?.message || "Unable to load participant compliance status.",
-"bad"
-);
-}
+if (!silent) setStatus(err?.message || "Unable to load wallet access status.", "bad");
 throw err;
 } finally {
 participantComplianceRefreshInFlight = false;
 }
 }
 
-async function requireApprovedParticipantCompliance(
-wallet,
-{ redirect = false } = {}
-) {
+async function requireParticipantTransactionAccess(wallet) {
 const normalizedWallet = cleanString(wallet, 120);
-
 const payload =
-currentParticipantCompliance.wallet === normalizedWallet &&
-currentParticipantCompliance.payload
+currentParticipantCompliance.wallet === normalizedWallet && currentParticipantCompliance.payload
 ? currentParticipantCompliance.payload
-: await fetchParticipantComplianceStatus(normalizedWallet, {
-silent: true,
-});
+: await fetchParticipantComplianceStatus(normalizedWallet, { silent: true });
 
-if (isParticipantComplianceApproved(payload)) {
-return payload;
-}
+if (!isParticipantInterventionBlocked(payload)) return payload;
 
-const message = getParticipantComplianceMessage(payload);
 renderParticipantComplianceUi(payload);
-setStatus(`${message} Open the compliance page to continue.`, "warn");
-
-if (redirect) {
-window.setTimeout(() => {
-window.location.href = buildCompliancePageUrl(normalizedWallet, "participant");
-}, 800);
-}
-
-throw new Error(message);
+throw new Error(getParticipantComplianceMessage(payload));
 }
 
 function getBuilderBondState(launch, stats) {
 const builderBondSol = safeNum(
 stats?.builderBondSol,
-safeNum(
-stats?.launchBondSol,
-safeNum(
-launch?.builder_bond_sol,
-safeNum(launch?.launch_bond_sol, 0)
-)
-)
+safeNum(stats?.launchBondSol, safeNum(launch?.builder_bond_sol, safeNum(launch?.launch_bond_sol, 0)))
 );
 const builderBondRefunded =
 safeNum(
 stats?.builderBondRefunded,
-safeNum(
-stats?.launchBondRefunded,
-safeNum(
-launch?.builder_bond_refunded,
-safeNum(launch?.launch_bond_refunded, 0)
-)
-)
+safeNum(stats?.launchBondRefunded, safeNum(launch?.builder_bond_refunded, safeNum(launch?.launch_bond_refunded, 0)))
 ) === 1;
 const builderBondPaid =
 safeNum(
 stats?.builderBondPaid,
-safeNum(
-stats?.launchBondPaid,
-safeNum(
-launch?.builder_bond_paid,
-safeNum(launch?.launch_bond_paid, 0)
-)
-)
+safeNum(stats?.launchBondPaid, safeNum(launch?.builder_bond_paid, safeNum(launch?.launch_bond_paid, 0)))
 ) === 1;
 
 return {
 amount: builderBondSol,
 paid: builderBondPaid,
 refunded: builderBondRefunded,
-pending:
-builderBondSol > 0 && !builderBondPaid && !builderBondRefunded,
+pending: builderBondSol > 0 && !builderBondPaid && !builderBondRefunded,
 };
 }
 
 function getCountdownEndsMs(launch, stats) {
-return parseTs(
-stats?.countdownEndsAt || launch?.countdown_ends_at || launch?.live_at
-);
+return parseTs(stats?.countdownEndsAt || launch?.countdown_ends_at || launch?.live_at);
 }
 
 function getCommitEndsMs(launch, stats) {
@@ -1748,21 +1271,18 @@ function getLaunchStateMessage(launch, stats, lifecycle = null) {
 const status = getDisplayPhaseStatus(launch, stats, lifecycle);
 const bondState = getBuilderBondState(launch, stats);
 const readiness = lifecycle?.graduationReadiness || null;
-const bondLabel = getLaunchBondLabel(launch);
+const bondLabel = getLaunchBondLabel();
 
 if (status === "commit") {
 return {
 kind: "warn",
-message: "Commit phase is open. Max commit is 1 SOL per wallet.",
+message: "Commit phase is open. Max commit is 1 SOL per wallet. Accept the Launcher terms before a transaction is prepared.",
 };
 }
 
 if (status === "countdown") {
 const ends = getCountdownEndsMs(launch, stats);
-const timePart = Number.isFinite(ends)
-? ` Countdown ends in ${fmtCountdown(ends - Date.now())}.`
-: "";
-
+const timePart = Number.isFinite(ends) ? ` Countdown ends in ${fmtCountdown(ends - Date.now())}.` : "";
 return {
 kind: "warn",
 message: `Launch is in countdown lock. Commits and refunds are closed.${timePart}`,
@@ -1772,8 +1292,7 @@ message: `Launch is in countdown lock. Commits and refunds are closed.${timePart
 if (status === "building") {
 return {
 kind: "warn",
-message:
-"Countdown reached zero. MSS is finalizing mint, Raydium liquidity routing, and live market state.",
+message: "Countdown reached zero. MSS is finalizing mint, Raydium liquidity routing, and live market state.",
 };
 }
 
@@ -1788,21 +1307,19 @@ const readinessLine = readiness
 
 return {
 kind: "good",
-message: `Launch is now live. Live liquidity routes to Raydium, participant allocations are fully unlocked, and commit/refund actions are closed.${readinessLine}`,
+message: `Launch is now live. Live liquidity routes to Raydium and commit/refund actions are closed.${readinessLine}`,
 };
 }
 
 if (status === "graduated") {
 return {
 kind: "good",
-message:
-"This launch has already graduated. Trading remains external and lifecycle visibility stays attached to the launch.",
+message: "This launch has graduated. Trading remains external and lifecycle visibility stays attached to the launch.",
 };
 }
 
 if (status === "failed_refunded") {
-const bondLine =
-bondState.refunded && bondState.amount > 0
+const bondLine = bondState.refunded && bondState.amount > 0
 ? ` ${bondLabel} of ${fmtSol(bondState.amount)} was refunded as well.`
 : "";
 
@@ -1813,8 +1330,7 @@ message: `This launch failed and all tracked commits were refunded. This launch 
 }
 
 if (status === "failed") {
-const bondLine =
-bondState.paid && !bondState.refunded && bondState.amount > 0
+const bondLine = bondState.paid && !bondState.refunded && bondState.amount > 0
 ? ` ${bondLabel} of ${fmtSol(bondState.amount)} is still awaiting failed-launch handling.`
 : "";
 
@@ -1824,10 +1340,7 @@ message: `This launch failed to meet requirements before commit expiry.${bondLin
 };
 }
 
-return {
-kind: "warn",
-message: `Launch status: ${badgeText(status)}`,
-};
+return { kind: "warn", message: `Launch status: ${badgeText(status)}` };
 }
 
 function canCommitForStatus(status) {
@@ -1841,16 +1354,10 @@ return ["commit", "failed"].includes(String(status || ""));
 function updateLifecycleVisibility(status) {
 const commitProgressSection = $("commitProgressSection");
 const recentCommitsSection = $("recentCommitsSection");
-const isLiveLike =
-String(status || "") === "live" || String(status || "") === "graduated";
+const isLiveLike = String(status || "") === "live" || String(status || "") === "graduated";
 
-if (commitProgressSection) {
-commitProgressSection.classList.toggle("hidden", isLiveLike);
-}
-
-if (recentCommitsSection) {
-recentCommitsSection.classList.toggle("hidden", isLiveLike);
-}
+if (commitProgressSection) commitProgressSection.classList.toggle("hidden", isLiveLike);
+if (recentCommitsSection) recentCommitsSection.classList.toggle("hidden", isLiveLike);
 }
 
 function getConnectButtons() {
@@ -1870,24 +1377,15 @@ return [
 }
 
 function getWalletPills() {
-return [
-...$all('[data-role="wallet-pill"]'),
-...($("walletPillMirror") ? [$("walletPillMirror")] : []),
-].filter(Boolean);
+return [...$all('[data-role="wallet-pill"]'), ...($("walletPillMirror") ? [$("walletPillMirror")] : [])].filter(Boolean);
 }
 
 function getWalletHints() {
-return [
-...$all('[data-role="wallet-hint"]'),
-...($("walletHint") ? [$("walletHint")] : []),
-].filter(Boolean);
+return [...$all('[data-role="wallet-hint"]'), ...($("walletHint") ? [$("walletHint")] : [])].filter(Boolean);
 }
 
 function getWalletInputs() {
-return [
-...$all('[data-role="wallet-input"]'),
-...($("commitWallet") ? [$("commitWallet")] : []),
-].filter(Boolean);
+return [...$all('[data-role="wallet-input"]'), ...($("commitWallet") ? [$("commitWallet")] : [])].filter(Boolean);
 }
 
 function renderRecent(items) {
@@ -1895,8 +1393,7 @@ const list = $("recentList");
 if (!list) return;
 
 if (!Array.isArray(items) || !items.length) {
-list.innerHTML =
-`<div class="recent-item"><div class="recent-meta">No commits yet.</div></div>`;
+list.innerHTML = '<div class="recent-item"><div class="recent-meta">No commits yet.</div></div>';
 return;
 }
 
@@ -1916,83 +1413,35 @@ list.innerHTML = items
 }
 
 function getFillDurationMs(launch, stats) {
-const commitStartedAt = parseTs(
-stats.commitStartedAt || launch.commit_started_at
-);
-const countdownStartedAt = parseTs(
-stats.countdownStartedAt || launch.countdown_started_at
-);
+const commitStartedAt = parseTs(stats.commitStartedAt || launch.commit_started_at);
+const countdownStartedAt = parseTs(stats.countdownStartedAt || launch.countdown_started_at);
 
-if (
-!Number.isFinite(commitStartedAt) ||
-!Number.isFinite(countdownStartedAt)
-) {
-return null;
-}
-
+if (!Number.isFinite(commitStartedAt) || !Number.isFinite(countdownStartedAt)) return null;
 if (countdownStartedAt <= commitStartedAt) return null;
 return countdownStartedAt - commitStartedAt;
 }
 
 function renderBuilderInfo(launch) {
-const alias = choosePreferredString(
-launch.builder_alias,
-launch.builder_name,
-"MSS Builder"
-);
+const alias = choosePreferredString(launch.builder_alias, launch.builder_name, "MSS Builder");
 const wallet = choosePreferredString(launch.builder_wallet, launch.builder, "");
-const trustScore = safeNum(
-launch.builder_trust_score,
-safeNum(launch.builder_score, safeNum(launch.trust_score, 0))
-);
+const trustScore = safeNum(launch.builder_trust_score, safeNum(launch.builder_score, safeNum(launch.trust_score, 0)));
 const trust = getBuilderTrust(trustScore);
 
-setHiddenByIds(
-["builderInfoSection", "builderCard", "builderProfileWrap"],
-false
-);
-
+setHiddenByIds(["builderInfoSection", "builderCard", "builderProfileWrap"], false);
 setTextByIds(["launchBuilderAliasText"], alias);
 setTextByIds(["launchBuilderIntelSub"], trust.note);
 setTextByIds(["launchBuilderTrustPill"], trust.label);
-setTextByIds(
-["launchBuilderScoreText"],
-trustScore > 0 ? String(Math.round(trustScore)) : "—"
-);
+setTextByIds(["launchBuilderScoreText"], trustScore > 0 ? String(Math.round(trustScore)) : "—");
 
-const badgeCount = pickFiniteNumber(
-launch.builder_badges_count,
-launch.builder_badge_count,
-launch.badge_count,
-launch.badges_unlocked
-);
-const liveLaunchCount = pickFiniteNumber(
-launch.builder_live_launches,
-launch.live_launches_count,
-launch.builder_live_count
-);
-const totalLaunchCount = pickFiniteNumber(
-launch.builder_total_launches,
-launch.total_launches_count,
-launch.builder_launch_count
-);
+const badgeCount = pickFiniteNumber(launch.builder_badges_count, launch.builder_badge_count, launch.badge_count, launch.badges_unlocked);
+const liveLaunchCount = pickFiniteNumber(launch.builder_live_launches, launch.live_launches_count, launch.builder_live_count);
+const totalLaunchCount = pickFiniteNumber(launch.builder_total_launches, launch.total_launches_count, launch.builder_launch_count);
 
-setTextByIds(
-["launchBuilderBadgesText"],
-badgeCount != null ? String(Math.round(badgeCount)) : "—"
-);
-setTextByIds(
-["launchBuilderLiveCountText"],
-liveLaunchCount != null ? String(Math.round(liveLaunchCount)) : "—"
-);
-setTextByIds(
-["launchBuilderLaunchCountText"],
-totalLaunchCount != null ? String(Math.round(totalLaunchCount)) : "—"
-);
+setTextByIds(["launchBuilderBadgesText"], badgeCount != null ? String(Math.round(badgeCount)) : "—");
+setTextByIds(["launchBuilderLiveCountText"], liveLaunchCount != null ? String(Math.round(liveLaunchCount)) : "—");
+setTextByIds(["launchBuilderLaunchCountText"], totalLaunchCount != null ? String(Math.round(totalLaunchCount)) : "—");
 
-const builderProfileHref = wallet
-? `./builder.html?wallet=${encodeURIComponent(wallet)}`
-: "./builder.html";
+const builderProfileHref = wallet ? `./builder.html?wallet=${encodeURIComponent(wallet)}` : "./builder.html";
 setHrefByIds(["launchBuilderProfileBtn2"], builderProfileHref);
 
 const builderCopyBtn = $("launchBuilderCopyWalletBtn");
@@ -2000,88 +1449,37 @@ if (builderCopyBtn) {
 builderCopyBtn.classList.toggle("hidden", !wallet);
 builderCopyBtn.disabled = !wallet;
 }
-
-setTextByIds(["launchCommandBuilder"], alias);
-setTextByIds(
-["launchCommandScore"],
-trustScore > 0 ? String(Math.round(trustScore)) : "—"
-);
 }
 
-function renderCommandSurfaceMeta(
-launch,
-stats = currentCommitStats,
-lifecycle = currentLifecycle
-) {
+function renderCommandSurfaceMeta(launch, stats = currentCommitStats, lifecycle = currentLifecycle) {
 const status = getDisplayPhaseStatus(launch, stats, lifecycle);
 const bondState = getBuilderBondState(launch, stats);
-
-const feePct = safeNum(
-stats?.launchFeePct,
-safeNum(launch?.launch_fee_pct, 5)
-);
-const totalFeeSol = safeNum(
-stats?.feeTotal,
-safeNum(launch?.fee_total_sol, 0)
-);
-const coreFeeSol = safeNum(
-stats?.coreFee ?? stats?.founderFee,
-safeNum(launch?.core_fee_sol ?? launch?.founder_fee_sol, 0)
-);
+const feePct = safeNum(stats?.launchFeePct, safeNum(launch?.launch_fee_pct, 5));
+const totalFeeSol = safeNum(stats?.feeTotal, safeNum(launch?.fee_total_sol, 0));
+const coreFeeSol = safeNum(stats?.coreFee ?? stats?.founderFee, safeNum(launch?.core_fee_sol ?? launch?.founder_fee_sol, 0));
 const ecosystemSupportFeeSol = safeNum(
 stats?.ecosystemSupportFee ?? stats?.ecosystemFee ?? stats?.buybackFee,
 safeNum(launch?.ecosystem_support_fee_sol ?? launch?.buyback_fee_sol, 0)
 );
-const reserveHeldSol = safeNum(
-stats?.protocolReserveHeldSol,
-safeNum(launch?.protocol_reserve_held_sol, 0)
-);
-const netRaiseAfterFee = safeNum(
-stats?.netRaiseAfterFee ?? stats?.netRaise,
-safeNum(launch?.net_raise_after_fee_sol ?? launch?.net_raise_sol, 0)
-);
+const reserveHeldSol = safeNum(stats?.protocolReserveHeldSol, safeNum(launch?.protocol_reserve_held_sol, 0));
+const netRaiseAfterFee = safeNum(stats?.netRaiseAfterFee ?? stats?.netRaise, safeNum(launch?.net_raise_after_fee_sol ?? launch?.net_raise_sol, 0));
 const liveLiquidityFunding = safeNum(
-stats?.raydiumLiquidityFundingSol ??
-stats?.liveLiquidityFundingSol ??
-lifecycle?.raydiumSolMigrated,
+stats?.raydiumLiquidityFundingSol ?? stats?.liveLiquidityFundingSol ?? lifecycle?.raydiumSolMigrated,
 safeNum(launch?.raydium_liquidity_sol ?? launch?.liquidity, 0)
 );
-const liveLiquidityTargetPct = resolveLiveLiquidityTargetPct(
-lifecycle,
-currentGraduationPlan
-);
-const reserveHeldPct = resolveProtocolReserveHeldPct(
-lifecycle,
-currentGraduationPlan
-);
+const liveLiquidityTargetPct = resolveLiveLiquidityTargetPct(lifecycle, currentGraduationPlan);
+const reserveHeldPct = resolveProtocolReserveHeldPct(lifecycle, currentGraduationPlan);
 
 setTextByIds(["launchStatusBoardStatus"], phaseDisplayText(status));
-
 setTextByIds(["launchFeePctStat"], fmtPct(feePct, 0));
 setTextByIds(["totalFeeSolStat"], totalFeeSol > 0 ? fmtSol(totalFeeSol, 4) : "—");
-setTextByIds(
-["founderFeeSolStat"],
-coreFeeSol > 0 ? fmtSol(coreFeeSol, 4) : "—"
-);
-setTextByIds(
-["buybackFeeSolStat"],
-ecosystemSupportFeeSol > 0 ? fmtSol(ecosystemSupportFeeSol, 4) : "—"
-);
-setTextByIds(
-["treasuryFeeSolStat"],
-reserveHeldSol > 0 ? fmtSol(reserveHeldSol, 4) : `${fmtPct(reserveHeldPct, 0)} held`
-);
-setTextByIds(
-["netRaiseAfterFeeStat"],
-netRaiseAfterFee > 0 ? fmtSol(netRaiseAfterFee, 4) : "—"
-);
-setTextByIds(
-["liquidityFundingStat"],
-liveLiquidityFunding > 0 ? fmtSol(liveLiquidityFunding, 4) : `${fmtPct(liveLiquidityTargetPct, 0)} Raydium`
-);
+setTextByIds(["founderFeeSolStat"], coreFeeSol > 0 ? fmtSol(coreFeeSol, 4) : "—");
+setTextByIds(["buybackFeeSolStat"], ecosystemSupportFeeSol > 0 ? fmtSol(ecosystemSupportFeeSol, 4) : "—");
+setTextByIds(["treasuryFeeSolStat"], reserveHeldSol > 0 ? fmtSol(reserveHeldSol, 4) : `${fmtPct(reserveHeldPct, 0)} held`);
+setTextByIds(["netRaiseAfterFeeStat"], netRaiseAfterFee > 0 ? fmtSol(netRaiseAfterFee, 4) : "—");
+setTextByIds(["liquidityFundingStat"], liveLiquidityFunding > 0 ? fmtSol(liveLiquidityFunding, 4) : `${fmtPct(liveLiquidityTargetPct, 0)} Raydium`);
 
-const bondText =
-bondState.amount > 0
+const bondText = bondState.amount > 0
 ? bondState.refunded
 ? `${fmtSol(bondState.amount)} refunded`
 : bondState.paid
@@ -2092,21 +1490,13 @@ bondState.amount > 0
 setTextByIds(["builderBondStat"], bondText);
 }
 
-function resolveAllocationPct(primary, fallback) {
-const n = safeNum(primary, NaN);
-if (Number.isFinite(n)) return n;
-return safeNum(fallback, 0);
-}
-
 function formatAllocationStatText(value, fallbackText = "—") {
 const numeric = Number(value);
 return Number.isFinite(numeric) && numeric > 0 ? fmtPct(numeric) : fallbackText;
 }
 
 function renderAllocationStructure(launch, stats) {
-const isBuilderLaunch =
-String(launch.template || "").toLowerCase() === "builder";
-
+const isBuilderLaunch = String(launch.template || "").toLowerCase() === "builder";
 const participantPct = pickFiniteNumber(
 stats?.participantAllocationPct,
 launch.participant_allocation_pct,
@@ -2116,55 +1506,34 @@ launch.participants_pct
 const liquidityPct = pickFiniteNumber(
 stats?.liquidityAllocationPct,
 launch.liquidity_allocation_pct,
-launch.liquidity_pct,
-LIVE_LIQUIDITY_TARGET_PCT
-);
-const reservePct = pickFiniteNumber(
-stats?.reserveAllocationPct,
-launch.reserve_allocation_pct,
-launch.reserve_pct,
-PROTOCOL_RESERVE_HELD_PCT
+launch.liquidity_pct
 );
 const builderPct = isBuilderLaunch
-? pickFiniteNumber(
-stats?.builderAllocationPct,
-launch.builder_allocation_pct,
-launch.builder_pct,
-5
-)
+? pickFiniteNumber(stats?.builderAllocationPct, launch.builder_allocation_pct, launch.builder_pct, 5)
 : null;
+const protocolReserveHeldPct = resolveProtocolReserveHeldPct(currentLifecycle, currentGraduationPlan);
 
-const participantText = Number.isFinite(participantPct)
-? fmtPct(participantPct)
-: "LP Based";
-const liquidityText = Number.isFinite(liquidityPct)
-? fmtPct(liquidityPct)
-: `${LIVE_LIQUIDITY_TARGET_PCT}%`;
-const reserveText = Number.isFinite(reservePct)
-? fmtPct(reservePct)
-: `${PROTOCOL_RESERVE_HELD_PCT}%`;
-const builderText = isBuilderLaunch
-? formatAllocationStatText(builderPct, "5%")
-: "—";
+const participantText = Number.isFinite(participantPct) ? fmtPct(participantPct) : "LP Based";
+const liquidityText = Number.isFinite(liquidityPct) ? fmtPct(liquidityPct) : "LP Based";
+const reserveText = `${fmtPct(protocolReserveHeldPct, 0)} held`;
+const builderText = isBuilderLaunch ? formatAllocationStatText(builderPct, "5%") : "—";
 
 setTextByIds(["participantAllocationPctStat"], participantText);
 setTextByIds(["liquidityAllocationPctStat"], liquidityText);
 setTextByIds(["reserveAllocationPctStat"], reserveText);
 setTextByIds(["builderAllocationPctStat"], builderText);
-
 setHiddenByIds(["builderAllocationStatWrap"], !isBuilderLaunch);
-
 setTextByIds(["launchOverviewTemplateText"], humanizeTemplate(launch.template));
 
 const raiseStructureParts = [
 "Participants priced from final raise",
-`${liquidityText} Raydium`,
-safeNum(reservePct, 0) > 0
-? `${reserveText} held reserve`
-: hasFormerReserveBurned(currentLifecycle, currentGraduationPlan)
-? "Former reserve burned"
-: "0% held reserve",
+`${fmtPct(resolveLiveLiquidityTargetPct(currentLifecycle, currentGraduationPlan), 0)} live liquidity routed to Raydium`,
+protocolReserveHeldPct > 0 ? `${reserveText} protocol reserve` : "No protocol reserve held",
 ];
+
+if (hasFormerReserveBurned(currentLifecycle, currentGraduationPlan)) {
+raiseStructureParts.push("Former reserve burned");
+}
 
 if (hasUnusedParticipantAllocationBurned(currentLifecycle, currentGraduationPlan)) {
 raiseStructureParts.push("Unused participant allocation burned");
@@ -2173,31 +1542,20 @@ raiseStructureParts.push("Unused participant allocation burned");
 setTextByIds(["launchRaiseStructureText"], raiseStructureParts.join(" • "));
 
 const bondState = getBuilderBondState(launch, stats);
-const teamAllocationPct = safeNum(
-stats?.teamAllocationPct,
-safeNum(launch?.team_allocation_pct, 0)
-);
-const bondLabel = getLaunchBondLabel(launch);
-
+const teamAllocationPct = safeNum(stats?.teamAllocationPct, safeNum(launch?.team_allocation_pct, 0));
 const parts = [];
 
 if (isBuilderLaunch) {
 parts.push(builderText !== "—" ? `${builderText} Builder` : "Builder Launch");
-if (teamAllocationPct > 0) {
-parts.push(`${fmtPct(teamAllocationPct)} Team`);
-}
+if (teamAllocationPct > 0) parts.push(`${fmtPct(teamAllocationPct)} Team`);
 } else {
 parts.push("Public Launch");
 }
 
 if (bondState.amount > 0) {
-if (bondState.refunded) {
-parts.push(`${bondLabel} ${fmtSol(bondState.amount)} Refunded`);
-} else if (bondState.paid) {
-parts.push(`${bondLabel} ${fmtSol(bondState.amount)} Collected`);
-} else {
-parts.push(`${bondLabel} ${fmtSol(bondState.amount)} Pending`);
-}
+if (bondState.refunded) parts.push(`${getLaunchBondLabel()} ${fmtSol(bondState.amount)} Refunded`);
+else if (bondState.paid) parts.push(`${getLaunchBondLabel()} ${fmtSol(bondState.amount)} Collected`);
+else parts.push(`${getLaunchBondLabel()} ${fmtSol(bondState.amount)} Pending`);
 }
 
 if (usesDistributorLpFeeControl(currentLifecycle)) {
@@ -2213,14 +1571,7 @@ const teamAllocationPctStat = $("teamAllocationPctStat");
 const builderBondStat = $("builderBondStat");
 const teamWalletBreakdownList = $("teamWalletBreakdownList");
 
-if (
-!wrap ||
-!teamAllocationPctStat ||
-!builderBondStat ||
-!teamWalletBreakdownList
-) {
-return;
-}
+if (!wrap || !teamAllocationPctStat || !builderBondStat || !teamWalletBreakdownList) return;
 
 const isBuilder = String(launch.template || "") === "builder";
 const bondState = getBuilderBondState(launch, stats);
@@ -2232,10 +1583,7 @@ return;
 
 wrap.classList.remove("hidden");
 
-const teamAllocationPct = safeNum(
-stats.teamAllocationPct,
-safeNum(launch.team_allocation_pct, 0)
-);
+const teamAllocationPct = safeNum(stats.teamAllocationPct, safeNum(launch.team_allocation_pct, 0));
 const breakdown = Array.isArray(stats.teamWalletBreakdown)
 ? stats.teamWalletBreakdown
 : Array.isArray(launch.team_wallet_breakdown)
@@ -2245,33 +1593,28 @@ const breakdown = Array.isArray(stats.teamWalletBreakdown)
 teamAllocationPctStat.textContent = `${teamAllocationPct}%`;
 
 if (bondState.refunded) {
-builderBondStat.innerHTML =
-`${fmtSol(bondState.amount)}<div style="margin-top:6px;font-size:12px;color:rgba(255,255,255,.62);font-weight:600;">Refunded</div>`;
+builderBondStat.innerHTML = `${fmtSol(bondState.amount)}<div style="margin-top:6px;font-size:12px;color:rgba(255,255,255,.62);font-weight:600;">Refunded</div>`;
 } else if (bondState.paid) {
-builderBondStat.innerHTML =
-`${fmtSol(bondState.amount)}<div style="margin-top:6px;font-size:12px;color:rgba(255,255,255,.62);font-weight:600;">Collected</div>`;
+builderBondStat.innerHTML = `${fmtSol(bondState.amount)}<div style="margin-top:6px;font-size:12px;color:rgba(255,255,255,.62);font-weight:600;">Collected</div>`;
 } else if (bondState.pending) {
-builderBondStat.innerHTML =
-`${fmtSol(bondState.amount)}<div style="margin-top:6px;font-size:12px;color:rgba(255,255,255,.62);font-weight:600;">Pending</div>`;
+builderBondStat.innerHTML = `${fmtSol(bondState.amount)}<div style="margin-top:6px;font-size:12px;color:rgba(255,255,255,.62);font-weight:600;">Pending</div>`;
 } else {
 builderBondStat.textContent = fmtSol(bondState.amount);
 }
 
 if (!isBuilder) {
-teamWalletBreakdownList.innerHTML =
-`<div class="recent-item"><div class="recent-meta">No visible team wallet breakdown for this template.</div></div>`;
+teamWalletBreakdownList.innerHTML = '<div class="recent-item"><div class="recent-meta">No visible team wallet breakdown for this template.</div></div>';
 return;
 }
 
 if (!breakdown.length) {
-teamWalletBreakdownList.innerHTML =
-`<div class="recent-item"><div class="recent-meta">No team wallet breakdown set.</div></div>`;
+teamWalletBreakdownList.innerHTML = '<div class="recent-item"><div class="recent-meta">No team wallet breakdown set.</div></div>';
 return;
 }
 
 teamWalletBreakdownList.innerHTML = breakdown
-.map((row, idx) => {
-const wallet = escapeHtml(row.wallet || `Team Wallet ${idx + 1}`);
+.map((row, index) => {
+const wallet = escapeHtml(row.wallet || `Team Wallet ${index + 1}`);
 const pct = safeNum(row.pct, row.allocationPct);
 const label = escapeHtml(row.label || "");
 
@@ -2292,50 +1635,22 @@ function buildLifecycleSummaryText(lifecycle, launch) {
 if (!lifecycle || !launch) return "";
 
 const parts = [];
+const status = getDisplayPhaseStatus(launch, currentCommitStats, lifecycle);
 
-if (
-isLiveLikeStatus(
-getDisplayPhaseStatus(launch, currentCommitStats, lifecycle)
-)
-) {
+if (isLiveLikeStatus(status)) {
 const raydiumPoolId = cleanString(lifecycle.raydiumPoolId, 300);
-const raydiumLiquiditySol = safeNum(
-lifecycle.raydiumSolMigrated,
-safeNum(lifecycle.internalSolReserve, 0)
-);
+const raydiumLiquiditySol = safeNum(lifecycle.raydiumSolMigrated, safeNum(lifecycle.internalSolReserve, 0));
 const builderLpFeeRightsPct = resolveBuilderLpFeeRightsPct(lifecycle);
 
-if (raydiumPoolId) {
-parts.push(`Raydium pool: ${shortenWallet(raydiumPoolId)}`);
-}
-
-if (raydiumLiquiditySol > 0) {
-parts.push(`Raydium liquidity: ${fmtSol(raydiumLiquiditySol, 4)}`);
-}
-
-if (usesDistributorLpFeeControl(lifecycle)) {
-parts.push(
-`Builder LP fees: ${fmtPct(builderLpFeeRightsPct, 0)} via MSS distributor`
-);
-}
-
-if (hasFormerReserveBurned(lifecycle, currentGraduationPlan)) {
-parts.push("Former reserve burned");
-}
-
-if (hasUnusedParticipantAllocationBurned(lifecycle, currentGraduationPlan)) {
-parts.push("Unused participant allocation burned");
-}
-
+if (raydiumPoolId) parts.push(`Raydium pool: ${shortenWallet(raydiumPoolId)}`);
+if (raydiumLiquiditySol > 0) parts.push(`Raydium liquidity: ${fmtSol(raydiumLiquiditySol, 4)}`);
+if (usesDistributorLpFeeControl(lifecycle)) parts.push(`Builder LP fees: ${fmtPct(builderLpFeeRightsPct, 0)} via MSS distributor`);
+if (hasFormerReserveBurned(lifecycle, currentGraduationPlan)) parts.push("Former reserve burned");
+if (hasUnusedParticipantAllocationBurned(lifecycle, currentGraduationPlan)) parts.push("Unused participant allocation burned");
 if (safeNum(lifecycle?.builderVesting?.lockedAmount, 0) > 0) {
-parts.push(
-`Builder locked: ${fmtTokenAmount(lifecycle.builderVesting.lockedAmount, 0)} tokens`
-);
+parts.push(`Builder locked: ${fmtTokenAmount(lifecycle.builderVesting.lockedAmount, 0)} tokens`);
 }
-
-if (lifecycle.graduationReadiness?.ready) {
-parts.push("Graduation-ready");
-}
+if (lifecycle.graduationReadiness?.ready) parts.push("Graduation-ready");
 }
 
 return parts.join(" • ");
@@ -2343,165 +1658,83 @@ return parts.join(" • ");
 
 function renderOverviewPanels(launch, stats, lifecycle) {
 const status = getDisplayPhaseStatus(launch, stats, lifecycle);
-const builderAlias = choosePreferredString(
-launch.builder_alias,
-launch.builder_name,
-"MSS Builder"
-);
-const totalCommitted = safeNum(
-stats?.totalCommitted,
-safeNum(launch?.committed_sol, 0)
-);
-const hardCap = safeNum(
-stats?.hardCap,
-safeNum(launch?.hard_cap_sol, 0)
-);
-const minRaise = safeNum(
-stats?.minRaise,
-safeNum(launch?.min_raise_sol, 0)
-);
+const builderAlias = choosePreferredString(launch.builder_alias, launch.builder_name, "MSS Builder");
+const totalCommitted = safeNum(stats?.totalCommitted, safeNum(launch?.committed_sol, 0));
+const hardCap = safeNum(stats?.hardCap, safeNum(launch?.hard_cap_sol, 0));
+const minRaise = safeNum(stats?.minRaise, safeNum(launch?.min_raise_sol, 0));
 const templateText = humanizeTemplate(launch.template);
 const tokenName = getLaunchDisplayName(launch);
 const lifecycleSummary = buildLifecycleSummaryText(lifecycle, launch);
-
 const walletState = getConnectedWallet();
-setTextByIds(
-["launchWalletAccessText"],
-walletState.isConnected ? walletState.shortPublicKey : "Not Connected"
-);
 
+setTextByIds(["launchWalletAccessText"], walletState.isConnected ? walletState.shortPublicKey : "Not Connected");
 setTextByIds(["launchOverviewTemplateText"], templateText);
 setTextByIds(
 ["launchLifecycleSummaryText"],
-(() => {
-if (status === "commit") return "Commit → Countdown → Building → Live";
-if (status === "countdown") return "Countdown Locked";
-if (status === "building") return "Bootstrapping";
-if (status === "live") return "Live Market";
-if (status === "graduated") return "Graduated";
-if (status === "failed_refunded") return "Closed & Refunded";
-if (status === "failed") return "Failed";
-return phaseDisplayText(status);
-})()
-);
-
-const overviewCopy = (() => {
-const base =
-`${tokenName} is running through MSS ${templateText.toLowerCase()} infrastructure with public builder identity linked to ${builderAlias}.`;
-
-if (status === "commit") {
-return `${base} ${fmtSol(Math.max(0, minRaise - totalCommitted))} remains to minimum raise and ${fmtSol(Math.max(0, hardCap - totalCommitted))} remains to hard cap.`;
-}
-
-if (status === "countdown") {
-return `${base} Commit phase is closed and countdown lock is now controlling the transition into market activation.`;
-}
-
-if (status === "building") {
-return `${base} MSS is finalizing mint assignment, Raydium route state, and live market activation.`;
-}
-
-if (status === "live" || status === "graduated") {
-return `${base} Live market state is active through Raydium, participant allocations are fully unlocked, former reserve is not held on-platform, and lifecycle visibility remains attached to this terminal.`;
-}
-
-if (status === "failed_refunded") {
-return `${base} The launch failed and tracked commitments have already been refunded.`;
-}
-
-if (status === "failed") {
-return `${base} The launch failed to satisfy launch requirements and refund handling remains the primary action path.`;
-}
-
-return base;
-})();
-
-setTextByIds(["launchOverviewCopy"], overviewCopy);
-setTextByIds(
-["launchSubline"],
-`${getDisplaySymbol(launch.symbol)} • ${templateText} • ${phaseDisplayText(status)}${lifecycleSummary ? ` • ${lifecycleSummary}` : ""}`
-);
-
-if ($("launchDesc")) {
-$("launchDesc").textContent =
-launch.description || "No description provided.";
-}
-
-setTextByIds(
-["launchOverviewAccessText"],
-status === "live"
-? "Live Access"
-: status === "graduated"
-? "Graduated"
-: status === "building"
-? "Bootstrapping"
+status === "commit"
+? "Commit → Countdown → Building → Live"
 : status === "countdown"
 ? "Countdown Locked"
-: "Pre-Live"
+: status === "building"
+? "Bootstrapping"
+: status === "live"
+? "Live Market"
+: status === "graduated"
+? "Graduated"
+: status === "failed_refunded"
+? "Closed & Refunded"
+: "Failed"
 );
 
-const builderProfileHref = choosePreferredString(
-launch.builder_wallet,
-lifecycle?.builderWallet,
-lifecycle?.builder_wallet
-)
-? `./builder.html?wallet=${encodeURIComponent(
-choosePreferredString(
-launch.builder_wallet,
-lifecycle?.builderWallet,
-lifecycle?.builder_wallet
-)
-)}`
-: "./builder.html";
+let overviewCopy = `${tokenName} is running through MSS ${templateText.toLowerCase()} infrastructure with public builder identity linked to ${builderAlias}.`;
 
-setHrefByIds(["launchBuilderProfileBtn"], builderProfileHref);
+if (status === "commit") {
+overviewCopy += ` ${fmtSol(Math.max(0, minRaise - totalCommitted))} remains to minimum raise and ${fmtSol(Math.max(0, hardCap - totalCommitted))} remains to hard cap.`;
+} else if (status === "countdown") {
+overviewCopy += " Commit phase is closed and countdown lock is controlling the transition into market activation.";
+} else if (status === "building") {
+overviewCopy += " MSS is finalizing mint assignment, Raydium route state and live market activation.";
+} else if (status === "live" || status === "graduated") {
+overviewCopy += " Live market state is active through Raydium, former reserve is not held on-platform and lifecycle visibility remains attached to this terminal.";
+} else if (status === "failed_refunded") {
+overviewCopy += " The launch failed and tracked commitments have already been refunded.";
+} else if (status === "failed") {
+overviewCopy += " The launch failed to satisfy launch requirements and refund handling remains the primary action path.";
 }
 
-function renderProgressCard(
-launch,
-committed,
-hardCap,
-minRaise,
-participants,
-pct,
-commitEndsAt,
-stats
-) {
+setTextByIds(["launchOverviewCopy"], overviewCopy);
+setTextByIds(["launchSubline"], `${getDisplaySymbol(launch.symbol)} • ${templateText} • ${phaseDisplayText(status)}${lifecycleSummary ? ` • ${lifecycleSummary}` : ""}`);
+
+if ($("launchDesc")) $("launchDesc").textContent = launch.description || "No description provided.";
+
+const builderWallet = choosePreferredString(launch.builder_wallet, lifecycle?.builderWallet, lifecycle?.builder_wallet);
+setHrefByIds(["launchBuilderProfileBtn"], builderWallet ? `./builder.html?wallet=${encodeURIComponent(builderWallet)}` : "./builder.html");
+}
+
+function renderProgressCard(launch, committed, hardCap, minRaise, participants, pct, commitEndsAt, stats) {
 const status = getDisplayPhaseStatus(launch, stats, currentLifecycle);
 const countdownEndsAt = getCountdownEndsMs(launch, stats);
-const commitStartedAt = parseTs(
-stats.commitStartedAt || launch.commit_started_at
-);
+const commitStartedAt = parseTs(stats.commitStartedAt || launch.commit_started_at);
 const fillDurationMs = getFillDurationMs(launch, stats);
 const now = Date.now();
-
 const remainingToMin = Math.max(0, safeNum(minRaise, 0) - safeNum(committed, 0));
 const remainingToHardCap = Math.max(0, safeNum(hardCap, 0) - safeNum(committed, 0));
-const minMet =
-safeNum(committed, 0) >= safeNum(minRaise, 0) && safeNum(minRaise, 0) > 0;
-const hardCapMet =
-safeNum(committed, 0) >= safeNum(hardCap, 0) && safeNum(hardCap, 0) > 0;
+const minMet = safeNum(committed, 0) >= safeNum(minRaise, 0) && safeNum(minRaise, 0) > 0;
+const hardCapMet = safeNum(committed, 0) >= safeNum(hardCap, 0) && safeNum(hardCap, 0) > 0;
 
 let primaryCountdownLabel = "Commit ends in";
-let primaryCountdownValue = Number.isFinite(commitEndsAt)
-? fmtCountdown(commitEndsAt - now)
-: "—";
+let primaryCountdownValue = Number.isFinite(commitEndsAt) ? fmtCountdown(commitEndsAt - now) : "—";
 
 if (status === "countdown" || status === "building") {
-primaryCountdownLabel =
-status === "countdown" ? "Countdown ends in" : "Finalizing";
-primaryCountdownValue =
-status === "countdown" && Number.isFinite(countdownEndsAt)
+primaryCountdownLabel = status === "countdown" ? "Countdown ends in" : "Finalizing";
+primaryCountdownValue = status === "countdown" && Number.isFinite(countdownEndsAt)
 ? fmtCountdown(countdownEndsAt - now)
 : "In progress";
 }
 
 if (status === "live" || status === "graduated") {
 primaryCountdownLabel = status === "graduated" ? "Launch state" : "Went live";
-primaryCountdownValue =
-status === "graduated"
-? "Graduated"
-: launch.live_at || stats.liveAt || "Live";
+primaryCountdownValue = status === "graduated" ? "Graduated" : launch.live_at || stats.liveAt || "Live";
 }
 
 if (status === "failed" || status === "failed_refunded") {
@@ -2509,38 +1742,14 @@ primaryCountdownLabel = "Launch state";
 primaryCountdownValue = badgeText(status);
 }
 
-setTextByIds(
-["totalCommittedStat", "committedStat", "currentCommittedStat"],
-fmtSol(committed)
-);
-setTextByIds(
-["progressPercentStat", "fillPctStat", "commitFillStat"],
-`${pct}%`
-);
-setTextByIds(
-["remainingToMinRaiseStat", "remainingToMinStat"],
-minMet ? "Reached" : fmtSol(remainingToMin)
-);
-setTextByIds(
-["remainingToHardCapStat", "remainingToCapStat"],
-hardCapMet ? "Filled" : fmtSol(remainingToHardCap)
-);
-setTextByIds(
-["participantsCountStat", "participantsTotalStat"],
-String(participants)
-);
-setTextByIds(
-["progressCountdownLabel", "phaseTimerLabel"],
-primaryCountdownLabel
-);
-setTextByIds(
-["progressCountdownValue", "phaseTimerValue", "countdownValue"],
-primaryCountdownValue
-);
-setWidthByIds(
-["launchProgressFill", "commitProgressFill", "heroProgressFill"],
-`${pct}%`
-);
+setTextByIds(["totalCommittedStat", "committedStat", "currentCommittedStat"], fmtSol(committed));
+setTextByIds(["progressPercentStat", "fillPctStat", "commitFillStat"], `${pct}%`);
+setTextByIds(["remainingToMinRaiseStat", "remainingToMinStat"], minMet ? "Reached" : fmtSol(remainingToMin));
+setTextByIds(["remainingToHardCapStat", "remainingToCapStat"], hardCapMet ? "Filled" : fmtSol(remainingToHardCap));
+setTextByIds(["participantsCountStat", "participantsTotalStat"], String(participants));
+setTextByIds(["progressCountdownLabel", "phaseTimerLabel"], primaryCountdownLabel);
+setTextByIds(["progressCountdownValue", "phaseTimerValue", "countdownValue"], primaryCountdownValue);
+setWidthByIds(["launchProgressFill", "commitProgressFill", "heroProgressFill"], `${pct}%`);
 
 const progressBar = $("launchProgressFill");
 if (progressBar) {
@@ -2551,7 +1760,6 @@ progressBar.setAttribute("aria-valuemax", "100");
 
 setTextByIds(["minRaiseStateStat"], minMet ? "Reached" : "Pending");
 setTextByIds(["hardCapStateStat"], hardCapMet ? "Filled" : "Open");
-
 setTextByIds(["launchOverviewMinRaiseText"], fmtSol(minRaise));
 setTextByIds(["launchOverviewParticipantsText"], String(participants));
 
@@ -2564,20 +1772,15 @@ const phaseMetaValue = $("phaseMetaValue");
 
 if (phaseMetaLabel && phaseMetaValue) {
 if (Number.isFinite(fillDurationMs)) {
-phaseMetaLabel.textContent =
-status === "countdown" || status === "building"
-? "Commit window"
-: "Fill duration";
-phaseMetaValue.textContent =
-status === "countdown" || status === "building"
+phaseMetaLabel.textContent = status === "countdown" || status === "building" ? "Commit window" : "Fill duration";
+phaseMetaValue.textContent = status === "countdown" || status === "building"
 ? Number.isFinite(commitStartedAt) && Number.isFinite(commitEndsAt)
 ? fmtDuration(commitEndsAt - commitStartedAt)
 : "—"
 : fmtDuration(fillDurationMs);
 } else {
 phaseMetaLabel.textContent = "Commit window";
-phaseMetaValue.textContent =
-Number.isFinite(commitStartedAt) && Number.isFinite(commitEndsAt)
+phaseMetaValue.textContent = Number.isFinite(commitStartedAt) && Number.isFinite(commitEndsAt)
 ? fmtDuration(commitEndsAt - commitStartedAt)
 : "—";
 }
@@ -2589,85 +1792,55 @@ const status = getDisplayPhaseStatus(launch, stats, lifecycle);
 const countdownEndsAt = getCountdownEndsMs(launch, stats);
 const caVisible = shouldExposePublicCa(status);
 
-setTextByIds(
-["launchStatusBadge", "launchStatusPill", "phaseBadge"],
-phaseDisplayText(status)
-);
+setTextByIds(["launchStatusBadge", "launchStatusPill", "phaseBadge"], phaseDisplayText(status));
+["launchStatusBadge", "launchStatusPill", "phaseBadge", "phasePillMirror"].forEach((id) => setStatusPillClasses($(id), status));
 
-["launchStatusBadge", "launchStatusPill", "phaseBadge", "phasePillMirror"].forEach(
-(id) => setStatusPillClasses($(id), status)
-);
+const phaseHeadline =
+status === "commit"
+? "Commit window is open"
+: status === "countdown"
+? "Launch has entered countdown lock"
+: status === "building"
+? "MSS is finalizing launch infrastructure"
+: status === "live"
+? "Launch is now live"
+: status === "graduated"
+? "Launch has graduated"
+: status === "failed_refunded"
+? "Launch closed and refunded"
+: "Launch did not reach threshold";
 
-const phaseHeadline = (() => {
-if (status === "commit") return "Commit window is open";
-if (status === "countdown") return "Launch has entered countdown lock";
-if (status === "building") return "MSS is finalizing launch infrastructure";
-if (status === "live") return "Launch is now live";
-if (status === "graduated") return "Launch has graduated";
-if (status === "failed_refunded") return "Launch closed and refunded";
-if (status === "failed") return "Launch did not reach threshold";
-return `Launch is ${phaseDisplayText(status).toLowerCase()}`;
-})();
+let phaseSummary = "";
 
-const phaseSummary = (() => {
 if (status === "commit") {
 const minLeft = Math.max(0, safeNum(minRaise, 0) - safeNum(committed, 0));
-return minLeft > 0
+phaseSummary = minLeft > 0
 ? `${fmtSol(minLeft)} remains to reach minimum raise.`
 : `Minimum raise reached. ${fmtSol(Math.max(0, safeNum(hardCap, 0) - safeNum(committed, 0)))} remains to hard cap.`;
-}
-
-if (status === "countdown") {
-return Number.isFinite(countdownEndsAt)
+} else if (status === "countdown") {
+phaseSummary = Number.isFinite(countdownEndsAt)
 ? `Countdown lock ends in ${fmtCountdown(countdownEndsAt - Date.now())}.`
 : "Countdown lock is active.";
+} else if (status === "building") {
+phaseSummary = "Mint reservation, Raydium liquidity routing and live market activation are in progress.";
+} else if (status === "live") {
+phaseSummary = lifecycle?.graduationReadiness?.ready
+? "Graduation threshold is currently satisfied."
+: lifecycle?.graduationReadiness?.reason || "Live market is active through Raydium.";
+} else if (status === "graduated") {
+phaseSummary = lifecycle?.graduationStatus || "Launch completed graduation flow.";
+} else if (status === "failed_refunded") {
+phaseSummary = "All tracked commitments have been refunded and the launch is closed.";
+} else if (status === "failed") {
+phaseSummary = "Commit refunds remain available for eligible wallets.";
 }
-
-if (status === "building") {
-return "Mint reservation, Raydium liquidity routing, and live market activation are in progress.";
-}
-
-if (status === "live") {
-if (lifecycle?.graduationReadiness?.ready) {
-return "Graduation threshold is currently satisfied.";
-}
-
-return lifecycle?.graduationReadiness?.reason || "Live market is active through Raydium and participant allocations are fully unlocked.";
-}
-
-if (status === "graduated") {
-return lifecycle?.graduationStatus || "Launch completed graduation flow.";
-}
-
-if (status === "failed_refunded") {
-return "All tracked commitments have been refunded and the launch is closed.";
-}
-
-if (status === "failed") {
-return "Commit refunds remain available for eligible wallets.";
-}
-
-return `Current status: ${phaseDisplayText(status)}.`;
-})();
 
 setTextByIds(["phaseHeadline"], phaseHeadline);
 setTextByIds(["phaseSummary"], phaseSummary);
-setTextByIds(
-["commitEndsAtStat"],
-Number.isFinite(commitEndsAt) ? new Date(commitEndsAt).toLocaleString() : "—"
-);
-setTextByIds(
-["countdownEndsAtStat"],
-Number.isFinite(countdownEndsAt)
-? new Date(countdownEndsAt).toLocaleString()
-: "—"
-);
+setTextByIds(["commitEndsAtStat"], Number.isFinite(commitEndsAt) ? new Date(commitEndsAt).toLocaleString() : "—");
+setTextByIds(["countdownEndsAtStat"], Number.isFinite(countdownEndsAt) ? new Date(countdownEndsAt).toLocaleString() : "—");
 
-const phaseBadgeEl = $("launchPhaseBadge");
-if (phaseBadgeEl) {
-setLaunchPhaseBadgeClass(phaseBadgeEl, status);
-}
-
+setLaunchPhaseBadgeClass($("launchPhaseBadge"), status);
 setHiddenByIds(["contractAddressRow"], !caVisible);
 setTextByIds(["phasePillMirror"], phaseDisplayText(status));
 }
@@ -2676,10 +1849,7 @@ let currentLaunch = null;
 let currentCommitStats = null;
 let currentLifecycle = null;
 let currentGraduationPlan = null;
-let currentParticipantCompliance = {
-wallet: "",
-payload: null,
-};
+let currentParticipantCompliance = { wallet: "", payload: null };
 let refreshIntervalId = null;
 let renderIntervalId = null;
 let lifecycleRefreshIntervalId = null;
@@ -2701,15 +1871,15 @@ let lastCommitIntentAt = 0;
 
 async function fetchJson(path, options = {}) {
 const apiBase = getApiBase();
-
 const res = await fetch(`${apiBase}${path}`, options);
 const data = await res.json().catch(() => null);
 
 if (!res.ok || (data && data.ok === false)) {
-const err = new Error(data?.error || `HTTP ${res.status}`);
-err.data = data;
-err.status = res.status;
-throw err;
+const error = new Error(data?.error || `HTTP ${res.status}`);
+error.data = data;
+error.status = res.status;
+error.code = data?.code || "";
+throw error;
 }
 
 return data;
@@ -2717,38 +1887,24 @@ return data;
 
 async function defaultSaveLinksWithWallet(launchId, payload) {
 const wallet = getConnectedPublicKey() || "";
-
-if (!wallet) {
-throw new Error("Connect wallet first");
-}
+if (!wallet) throw new Error("Connect wallet first");
 
 return fetchJson(`/api/launcher/${encodeURIComponent(launchId)}/links`, {
 method: "PATCH",
-headers: {
-"Content-Type": "application/json",
-},
-body: JSON.stringify({
-...payload,
-wallet,
-}),
+headers: { "Content-Type": "application/json" },
+body: JSON.stringify({ ...payload, wallet }),
 });
 }
 
 async function loadLaunch() {
 const id = qs("id");
-
-if (!id) {
-throw new Error("Missing launch id in URL.");
-}
+if (!id) throw new Error("Missing launch id in URL.");
 
 const requestSeq = ++loadRequestSeq;
-
 const [launchRes, commitsRes, reconcileRes] = await Promise.all([
 fetchJson(`/api/launcher/${id}`),
 fetchJson(`/api/launcher/commits/${id}`),
-fetchJson(`/api/launcher/${id}/reconcile`, {
-method: "POST",
-}).catch(() => null),
+fetchJson(`/api/launcher/${id}/reconcile`, { method: "POST" }).catch(() => null),
 ]);
 
 if (requestSeq !== loadRequestSeq) return;
@@ -2759,46 +1915,21 @@ currentCommitStats = {
 ...(reconcileRes
 ? {
 status: reconcileRes.status || commitsRes?.status,
-totalCommitted:
-reconcileRes.totalCommitted ?? commitsRes?.totalCommitted,
-participants:
-reconcileRes.participants ?? commitsRes?.participants,
+totalCommitted: reconcileRes.totalCommitted ?? commitsRes?.totalCommitted,
+participants: reconcileRes.participants ?? commitsRes?.participants,
 }
 : {}),
 };
 
 const baseLaunchRaw = normalizeLaunchData(launchRes?.launch || {});
 const reconcileLaunchRaw = normalizeLaunchData(reconcileRes?.launch || {});
-
-const strongestLaunch = mergeLaunchTruth(
-baseLaunchRaw,
-reconcileLaunchRaw,
-currentCommitStats || {},
-currentLifecycle
-);
-
-currentLaunch = mergeLaunchTruth(
-currentLaunch || {},
-strongestLaunch,
-currentCommitStats || {},
-currentLifecycle
-);
-
+const strongestLaunch = mergeLaunchTruth(baseLaunchRaw, reconcileLaunchRaw, currentCommitStats || {}, currentLifecycle);
+currentLaunch = mergeLaunchTruth(currentLaunch || {}, strongestLaunch, currentCommitStats || {}, currentLifecycle);
 currentLifecycle = mergeLifecycleTruth(
 currentLifecycle,
-launchRes?.lifecycle ||
-commitsRes?.lifecycle ||
-reconcileRes?.lifecycle ||
-null
+launchRes?.lifecycle || commitsRes?.lifecycle || reconcileRes?.lifecycle || null
 );
-
-currentLaunch = mergeLaunchTruth(
-currentLaunch || {},
-currentLaunch || {},
-currentCommitStats || {},
-currentLifecycle
-);
-
+currentLaunch = mergeLaunchTruth(currentLaunch || {}, currentLaunch || {}, currentCommitStats || {}, currentLifecycle);
 currentGraduationPlan =
 launchRes?.graduationPlan ||
 launchRes?.graduation_plan ||
@@ -2812,65 +1943,27 @@ null;
 
 async function loadLifecycleIfNeeded(force = false) {
 const id = qs("id");
-if (!id || !currentLaunch) return;
+if (!id || !currentLaunch || lifecycleRefreshInFlight) return;
 
-const effectiveStatus = getDisplayPhaseStatus(
-currentLaunch,
-currentCommitStats,
-currentLifecycle
-);
-
-const eligibleStatuses = new Set([
-"countdown",
-"building",
-"live",
-"graduated",
-]);
-
-if (!eligibleStatuses.has(effectiveStatus)) {
-return;
-}
-
-if (lifecycleRefreshInFlight) return;
-
-if (!force && effectiveStatus !== "live" && effectiveStatus !== "graduated") {
-return;
-}
+const status = getDisplayPhaseStatus(currentLaunch, currentCommitStats, currentLifecycle);
+if (!["countdown", "building", "live", "graduated"].includes(status)) return;
+if (!force && status !== "live" && status !== "graduated") return;
 
 lifecycleRefreshInFlight = true;
 
 try {
-const lifecycleRes = await fetchJson(
-`/api/launcher/${id}/lifecycle`
-).catch(() => null);
-
+const lifecycleRes = await fetchJson(`/api/launcher/${id}/lifecycle`).catch(() => null);
 if (!lifecycleRes) return;
 
-currentLifecycle = mergeLifecycleTruth(
-currentLifecycle,
-lifecycleRes.lifecycle || null
-);
-
-currentGraduationPlan =
-lifecycleRes.graduationPlan ||
-lifecycleRes.graduation_plan ||
-currentGraduationPlan ||
-null;
-
+currentLifecycle = mergeLifecycleTruth(currentLifecycle, lifecycleRes.lifecycle || null);
+currentGraduationPlan = lifecycleRes.graduationPlan || lifecycleRes.graduation_plan || currentGraduationPlan || null;
 currentLaunch = mergeLaunchTruth(
 currentLaunch || {},
 {
 status: currentLifecycle?.launchStatus || currentLaunch?.status || "",
-contract_address:
-currentLifecycle?.contractAddress ||
-currentLifecycle?.contract_address ||
-currentLaunch?.contract_address ||
-"",
+contract_address: currentLifecycle?.contractAddress || currentLifecycle?.contract_address || currentLaunch?.contract_address || "",
 market_bootstrapped:
-currentLifecycle?.marketBootstrapped ??
-currentLifecycle?.market_bootstrapped ??
-currentLaunch?.market_bootstrapped ??
-null,
+currentLifecycle?.marketBootstrapped ?? currentLifecycle?.market_bootstrapped ?? currentLaunch?.market_bootstrapped ?? null,
 },
 currentCommitStats || {},
 currentLifecycle
@@ -2885,24 +1978,16 @@ const id = qs("id");
 if (!id || countdownFinalizeInFlight) return;
 
 const now = Date.now();
-
-if (now - lastForcedFinalizeAt < FORCE_FINALIZE_COOLDOWN_MS) {
-return;
-}
+if (now - lastForcedFinalizeAt < FORCE_FINALIZE_COOLDOWN_MS) return;
 
 countdownFinalizeInFlight = true;
 lastForcedFinalizeAt = now;
 
 try {
 try {
-await fetchJson(`/api/launcher/${id}/finalize`, {
-method: "POST",
-});
+await fetchJson(`/api/launcher/${id}/finalize`, { method: "POST" });
 } catch (err) {
-console.warn(
-"launch.js finalize attempt did not complete:",
-err?.message || err
-);
+console.warn("launch.js finalize attempt did not complete:", err?.message || err);
 }
 
 await refresh({ marketSyncMode: "hard", syncLifecycle: true });
@@ -2920,24 +2005,14 @@ const amountField = amountInput?.closest(".field") || null;
 const quickWrap = document.querySelector(".quick");
 const walletField = $("commitWallet")?.closest(".field") || null;
 const actionStack = commitBtn?.closest(".action-stack") || null;
-const quickButtons = Array.from(
-document.querySelectorAll(".quick button[data-amount]")
-);
+const quickButtons = Array.from(document.querySelectorAll(".quick button[data-amount]"));
+const acknowledgementPanel = $("participantAcknowledgementPanel");
 const stateInfo = getLaunchStateMessage(launch, stats, lifecycle);
-
-const rawStatus = getDisplayPhaseStatus(launch, stats, lifecycle);
-const refundOpen = canRefundForStatus(rawStatus);
-
-const compliancePayload = getCurrentParticipantCompliancePayload();
-const participantGateEnabled = Boolean(
-compliancePayload?.participant_gate_enabled ||
-compliancePayload?.requires_participant_approval
-);
-const participantApproved = isParticipantComplianceApproved(compliancePayload);
-const participantBlocked = rawStatus === "commit" && participantGateEnabled && !participantApproved;
-const commitOpen = canCommitForStatus(rawStatus) && !participantBlocked;
-const refundOnly = rawStatus === "failed";
-
+const status = getDisplayPhaseStatus(launch, stats, lifecycle);
+const refundOpen = canRefundForStatus(status);
+const participantBlocked = status === "commit" && isParticipantInterventionBlocked();
+const commitOpen = canCommitForStatus(status) && !participantBlocked;
+const refundOnly = status === "failed";
 const shouldShowForm = commitOpen || refundOpen || participantBlocked;
 
 if (commitForm) commitForm.style.display = shouldShowForm ? "" : "none";
@@ -2945,6 +2020,7 @@ if (walletField) walletField.style.display = shouldShowForm ? "" : "none";
 if (amountField) amountField.style.display = commitOpen ? "" : "none";
 if (quickWrap) quickWrap.style.display = commitOpen ? "" : "none";
 if (actionStack) actionStack.style.display = shouldShowForm ? "" : "none";
+if (acknowledgementPanel) acknowledgementPanel.style.display = commitOpen ? "" : "none";
 
 if (commitBtn) {
 commitBtn.style.display = commitOpen ? "inline-flex" : "none";
@@ -2958,38 +2034,28 @@ refundBtn.disabled = !refundOpen || refundActionInFlight;
 
 if (amountInput) {
 amountInput.disabled = !commitOpen || commitActionInFlight;
-amountInput.setAttribute(
-"placeholder",
-commitOpen ? "0.50" : participantBlocked ? "Verification required" : badgeText(rawStatus)
-);
+amountInput.setAttribute("placeholder", commitOpen ? "0.50" : participantBlocked ? "Access blocked" : badgeText(status));
 }
 
-quickButtons.forEach((btn) => {
-btn.disabled = !commitOpen || commitActionInFlight;
+quickButtons.forEach((button) => {
+button.disabled = !commitOpen || commitActionInFlight;
 });
 
 if (participantBlocked) {
-setStatus(getParticipantComplianceMessage(compliancePayload), "warn", {
-auto: true,
-preserveManual: true,
-});
+setStatus(getParticipantComplianceMessage(), "bad", { auto: true, preserveManual: true });
 return;
 }
 
 if (refundOnly) {
-setStatus(
-"Launch failed. Refund remains available for wallets with tracked commit balance.",
-"warn",
-{ auto: true, preserveManual: true }
-);
+setStatus("Launch failed. Refund remains available for wallets with tracked commit balance.", "warn", {
+auto: true,
+preserveManual: true,
+});
 return;
 }
 
 if (!commitOpen) {
-setStatus(stateInfo.message, stateInfo.kind, {
-auto: true,
-preserveManual: true,
-});
+setStatus(stateInfo.message, stateInfo.kind, { auto: true, preserveManual: true });
 } else {
 clearAutoStatus();
 }
@@ -3021,10 +2087,7 @@ if (typeof launchMarketController.setComplianceState === "function") {
 launchMarketController.setComplianceState(participantCompliance);
 }
 
-if (
-mode === "hard" &&
-typeof launchMarketController.refreshLaunch === "function"
-) {
+if (mode === "hard" && typeof launchMarketController.refreshLaunch === "function") {
 await launchMarketController.refreshLaunch({ force: true });
 }
 
@@ -3049,25 +2112,14 @@ launchMarketController.setComplianceState(participantCompliance);
 }
 
 const controllerPhaseBefore = launchMarketController.phase || "";
-const localPhaseNow = getDisplayPhaseStatus(
-currentLaunch,
-currentCommitStats,
-currentLifecycle
-);
+const localPhaseNow = getDisplayPhaseStatus(currentLaunch, currentCommitStats, currentLifecycle);
 
 if (typeof launchMarketController.setBaseState === "function") {
-launchMarketController.setBaseState(
-currentLaunch || null,
-currentCommitStats || {},
-{
+launchMarketController.setBaseState(currentLaunch || null, currentCommitStats || {}, {
 lifecycle: currentLifecycle || null,
 participantCompliance,
-restartPolling:
-mode === "hard" ||
-walletChanged ||
-controllerPhaseBefore !== localPhaseNow,
-}
-);
+restartPolling: mode === "hard" || walletChanged || controllerPhaseBefore !== localPhaseNow,
+});
 } else {
 launchMarketController.launch = mergeLaunchTruth(
 launchMarketController.launch || {},
@@ -3078,25 +2130,16 @@ currentLifecycle
 launchMarketController.commitStats = currentCommitStats || {};
 launchMarketController.lifecycle = currentLifecycle || null;
 
-if (typeof launchMarketController.setComplianceState === "function") {
-launchMarketController.setComplianceState(participantCompliance);
-}
-
 if (typeof launchMarketController.applyAll === "function") {
 launchMarketController.applyAll();
 }
 }
 
-if (
-mode === "hard" &&
-typeof launchMarketController.refreshLaunch === "function"
-) {
+if (mode === "hard" && typeof launchMarketController.refreshLaunch === "function") {
 await launchMarketController.refreshLaunch({ force: true });
 } else if (
 mode === "live-only" &&
-isLiveLikeStatus(
-getDisplayPhaseStatus(currentLaunch, currentCommitStats, currentLifecycle)
-) &&
+isLiveLikeStatus(getDisplayPhaseStatus(currentLaunch, currentCommitStats, currentLifecycle)) &&
 typeof launchMarketController.refreshLiveMarketOnly === "function"
 ) {
 await launchMarketController.refreshLiveMarketOnly({ force: true });
@@ -3110,29 +2153,12 @@ const launch = currentLaunch;
 const stats = currentCommitStats;
 const lifecycle = currentLifecycle;
 const bondState = getBuilderBondState(launch, stats);
-const bondLabel = getLaunchBondLabel(launch);
-
-const committed = safeNum(
-stats.totalCommitted,
-safeNum(launch.committed_sol)
-);
-const hardCap = safeNum(
-stats.hardCap,
-safeNum(launch.hard_cap_sol)
-);
-const minRaise = safeNum(
-stats.minRaise,
-safeNum(launch.min_raise_sol)
-);
-const participants = safeNum(
-stats.participants,
-safeNum(launch.participants_count)
-);
+const committed = safeNum(stats.totalCommitted, safeNum(launch.committed_sol));
+const hardCap = safeNum(stats.hardCap, safeNum(launch.hard_cap_sol));
+const minRaise = safeNum(stats.minRaise, safeNum(launch.min_raise_sol));
+const participants = safeNum(stats.participants, safeNum(launch.participants_count));
 const commitEndsAt = getCommitEndsMs(launch, stats);
-const pct =
-hardCap > 0
-? Math.max(0, Math.min(100, Math.floor((committed / hardCap) * 100)))
-: 0;
+const pct = hardCap > 0 ? Math.max(0, Math.min(100, Math.floor((committed / hardCap) * 100))) : 0;
 const displayStatus = getDisplayPhaseStatus(launch, stats, lifecycle);
 
 updateLifecycleVisibility(displayStatus);
@@ -3140,68 +2166,40 @@ renderBuilderInfo(launch);
 renderCommandSurfaceMeta(launch, stats, lifecycle);
 renderAllocationStructure(launch, stats);
 renderTeamWalletBreakdown(launch, stats);
-renderProgressCard(
-launch,
-committed,
-hardCap,
-minRaise,
-participants,
-pct,
-commitEndsAt,
-stats
-);
+renderProgressCard(launch, committed, hardCap, minRaise, participants, pct, commitEndsAt, stats);
 renderOverviewPanels(launch, stats, lifecycle);
-renderPhase(
-launch,
-committed,
-minRaise,
-hardCap,
-commitEndsAt,
-stats,
-lifecycle
-);
+renderPhase(launch, committed, minRaise, hardCap, commitEndsAt, stats, lifecycle);
 renderRecent(stats.recent || []);
-renderParticipantComplianceUi(getCurrentParticipantCompliancePayload());
+renderParticipantComplianceUi();
 updateWalletUi();
 renderActionPanelState(launch, stats, lifecycle);
 
 if (displayStatus === "failed_refunded") {
 setClosureNote(
 bondState.refunded
-? `This launch failed, all tracked commitments were automatically refunded, the ${bondLabel.toLowerCase()} of ${fmtSol(bondState.amount)} was refunded, and the launch is now closed.`
+? `This launch failed, all tracked commitments were refunded, the ${getLaunchBondLabel().toLowerCase()} of ${fmtSol(bondState.amount)} was refunded, and the launch is now closed.`
 : bondState.paid
-? `This launch failed, all tracked commitments were automatically refunded, and the launch is now closed. A collected ${bondLabel.toLowerCase()} of ${fmtSol(bondState.amount)} is not marked refunded.`
-: "This launch failed, all tracked commitments were automatically refunded, and the launch is now closed.",
+? `This launch failed, all tracked commitments were refunded, and the launch is now closed. A collected ${getLaunchBondLabel().toLowerCase()} of ${fmtSol(bondState.amount)} is not marked refunded.`
+: "This launch failed, all tracked commitments were refunded, and the launch is now closed.",
 "warn"
 );
 } else if (displayStatus === "failed") {
 if (bondState.paid && !bondState.refunded) {
 setClosureNote(
-`This launch failed. Commit refunds are available and the collected ${bondLabel.toLowerCase()} of ${fmtSol(bondState.amount)} should be handled by the failed-launch refund flow.`,
-"warn"
-);
-} else if (bondState.pending) {
-setClosureNote(
-`This launch failed. No collected ${bondLabel.toLowerCase()} is recorded on this launch.`,
+`This launch failed. Commit refunds are available and the collected ${getLaunchBondLabel().toLowerCase()} of ${fmtSol(bondState.amount)} should be handled by the failed-launch refund flow.`,
 "warn"
 );
 } else {
-setClosureNote("");
+setClosureNote("This launch failed. Eligible tracked commits can be refunded.", "warn");
 }
 } else if (displayStatus === "building") {
 setClosureNote(
-"Countdown has completed and MSS is now finalizing mint assignment, Raydium liquidity routing, and live market activation.",
+"Countdown has completed and MSS is now finalizing mint assignment, Raydium liquidity routing and live market activation.",
 "warn"
 );
 } else if (displayStatus === "live") {
-const liveLiquidityPct = resolveLiveLiquidityTargetPct(
-lifecycle,
-currentGraduationPlan
-);
-const reserveHeldPct = resolveProtocolReserveHeldPct(
-lifecycle,
-currentGraduationPlan
-);
+const liveLiquidityPct = resolveLiveLiquidityTargetPct(lifecycle, currentGraduationPlan);
+const reserveHeldPct = resolveProtocolReserveHeldPct(lifecycle, currentGraduationPlan);
 const builderLpFeeRightsPct = resolveBuilderLpFeeRightsPct(lifecycle);
 const mssLpFeeRightsPct = resolveMssLpFeeRightsPct(lifecycle);
 const readinessNote = lifecycle?.graduationReadiness?.ready
@@ -3211,18 +2209,12 @@ const readinessNote = lifecycle?.graduationReadiness?.ready
 : "";
 
 setClosureNote(
-`Launch is live. ${fmtPct(liveLiquidityPct, 0)} of live liquidity routes to Raydium, ${fmtPct(
-reserveHeldPct,
-0
-)} of protocol reserve is held, former reserve is burned, and LP-fee rights are ${fmtPct(
-builderLpFeeRightsPct,
-0
-)} builder / ${fmtPct(mssLpFeeRightsPct, 0)} MSS with builder rights routed through MSS distributor control.${readinessNote}`,
+`Launch is live. ${fmtPct(liveLiquidityPct, 0)} of live liquidity routes to Raydium, ${fmtPct(reserveHeldPct, 0)} of protocol reserve is held, former reserve is burned, and LP-fee rights are ${fmtPct(builderLpFeeRightsPct, 0)} builder / ${fmtPct(mssLpFeeRightsPct, 0)} MSS with builder rights routed through MSS distributor control.${readinessNote}`,
 "good"
 );
 } else if (displayStatus === "graduated") {
 setClosureNote(
-`Launch has graduated. External venue remains Raydium, former reserve remains burned, and builder LP-fee rights continue through MSS distributor control.`,
+"Launch has graduated. External venue remains Raydium, former reserve remains burned, and builder LP-fee rights continue through MSS distributor control.",
 "good"
 );
 } else {
@@ -3234,8 +2226,8 @@ lastRenderedPhaseStatus = displayStatus;
 
 async function refresh(options = {}) {
 const { marketSyncMode = "soft", syncLifecycle = false } = options;
-
 if (refreshInFlight) return;
+
 refreshInFlight = true;
 
 try {
@@ -3248,16 +2240,9 @@ currentLaunch = mergeLaunchTruth(
 currentLaunch || {},
 {
 status: currentLifecycle?.launchStatus || currentLaunch?.status || "",
-contract_address:
-currentLifecycle?.contractAddress ||
-currentLifecycle?.contract_address ||
-currentLaunch?.contract_address ||
-"",
+contract_address: currentLifecycle?.contractAddress || currentLifecycle?.contract_address || currentLaunch?.contract_address || "",
 market_bootstrapped:
-currentLifecycle?.marketBootstrapped ??
-currentLifecycle?.market_bootstrapped ??
-currentLaunch?.market_bootstrapped ??
-null,
+currentLifecycle?.marketBootstrapped ?? currentLifecycle?.market_bootstrapped ?? currentLaunch?.market_bootstrapped ?? null,
 },
 currentCommitStats || {},
 currentLifecycle
@@ -3265,10 +2250,7 @@ currentLifecycle
 }
 
 render();
-
-if (marketSyncMode !== "none") {
-await syncLaunchMarketController(marketSyncMode);
-}
+if (marketSyncMode !== "none") await syncLaunchMarketController(marketSyncMode);
 } finally {
 refreshInFlight = false;
 }
@@ -3276,11 +2258,7 @@ refreshInFlight = false;
 
 async function refreshStateBeforeAction() {
 await refresh({ marketSyncMode: "hard", syncLifecycle: true });
-
-return {
-launch: currentLaunch,
-stats: currentCommitStats,
-};
+return { launch: currentLaunch, stats: currentCommitStats };
 }
 
 async function connectWallet() {
@@ -3296,22 +2274,15 @@ updateWalletUi();
 if (wallet?.isConnected) {
 try {
 await refreshParticipantComplianceStatus({ silent: true });
-} catch (complianceErr) {
-console.error(complianceErr);
+} catch (err) {
+console.error(err);
 }
 
-const compliancePayload = getCurrentParticipantCompliancePayload();
-
-if (
-compliancePayload &&
-(compliancePayload.participant_gate_enabled ||
-compliancePayload.requires_participant_approval) &&
-!isParticipantComplianceApproved(compliancePayload)
-) {
-setStatus(getParticipantComplianceMessage(compliancePayload), "warn");
-} else {
-setStatus(`Wallet connected: ${shortenWallet(wallet.publicKey)}`, "good");
-}
+const payload = getCurrentParticipantCompliancePayload();
+setStatus(
+payload?.blocked ? getParticipantComplianceMessage(payload) : `Wallet connected: ${shortenWallet(wallet.publicKey)}`,
+payload?.blocked ? "bad" : "good"
+);
 
 await syncLaunchMarketController("hard");
 return;
@@ -3319,16 +2290,11 @@ return;
 
 setStatus("Wallet connection cancelled.", "warn");
 } catch (err) {
-const msg = err?.message || "Wallet connection failed.";
-
-setStatus(
-msg.includes("No supported wallet") ? getMobileWalletHelpText() : msg,
-"bad"
-);
+const message = err?.message || "Wallet connection failed.";
+setStatus(message.includes("No supported wallet") ? getMobileWalletHelpText() : message, "bad");
 } finally {
 walletActionInFlight = false;
 updateWalletUi();
-
 if (currentLaunch && currentCommitStats) render();
 }
 }
@@ -3342,46 +2308,88 @@ updateWalletUi();
 try {
 await disconnectAnyWallet();
 } catch {
-// no-op
+// Ignore wallet adapter disconnect failures.
 } finally {
 walletActionInFlight = false;
-currentParticipantCompliance = {
-wallet: "",
-payload: null,
-};
+currentParticipantCompliance = { wallet: "", payload: null };
 renderParticipantComplianceUi(null);
 updateWalletUi();
-
 if (currentLaunch && currentCommitStats) render();
-
 await syncLaunchMarketController("hard");
 }
 
 setStatus("Wallet disconnected.", "warn");
 }
 
-function buildLateRefundMessage(err, fallbackSignature = "") {
-const data = err?.data || {};
-const refundedSol = data.refundedSol;
-const refundTxSignature = data.refundTxSignature || "";
-const originalTx = data.txSignature || fallbackSignature || "";
-const status = data.status ? `\nLaunch status: ${data.status}` : "";
-const refundLine = Number.isFinite(Number(refundedSol))
-? `\nRefunded: ${refundedSol} SOL`
-: "";
-const originalTxLine = originalTx
-? `\nOriginal transaction: ${originalTx}`
-: "";
-const refundTxLine = refundTxSignature
-? `\nRefund transaction: ${refundTxSignature}`
-: "";
+function getInjectedWalletProvider() {
+const walletState = getConnectedWallet?.() || {};
+const candidates = [
+walletState?.provider,
+walletState?.wallet,
+walletState?.adapter,
+window.getPhantomProvider?.(),
+window.phantom?.solana,
+window.backpack?.solana,
+window.solflare,
+window.solana,
+];
 
-return `${err.message || "Commit could not be completed."}${status}${refundLine}${originalTxLine}${refundTxLine}`;
+return candidates.find((provider) => provider && typeof provider.signTransaction === "function") || null;
 }
 
-async function onCommitSubmit(e) {
-e.preventDefault();
+async function signPreparedCommitTransaction(transactionBase64) {
+const provider = getInjectedWalletProvider();
 
+if (!provider?.signTransaction) {
+throw new Error("Commit transaction signing is not available for this wallet session.");
+}
+
+if (!window.solanaWeb3?.Transaction?.from) {
+throw new Error("solanaWeb3 is not available on this page.");
+}
+
+const txBytes = Uint8Array.from(atob(transactionBase64), (character) => character.charCodeAt(0));
+const transaction = window.solanaWeb3.Transaction.from(txBytes);
+const signedTransaction = await provider.signTransaction(transaction);
+
+return btoa(String.fromCharCode(...signedTransaction.serialize()));
+}
+
+function isPostTransferRefundResponse(error) {
+const data = error?.data || {};
+return Boolean(
+Number(error?.status) === 409 &&
+(data.refundQueued ||
+data.refundStatus ||
+data.refundTxSignature ||
+Object.prototype.hasOwnProperty.call(data, "refundedSol") ||
+data.refundError)
+);
+}
+
+function buildRejectedCommitRefundMessage(error) {
+const data = error?.data || {};
+const lines = [error?.message || "Commit could not be accepted after transaction submission."];
+
+if (data.status) lines.push(`Launch status: ${data.status}`);
+
+if (data.refundQueued) {
+lines.push(`Refund queued: ${data.refundStatus || "pending"}`);
+if (data.refundProgramReference) lines.push(`Refund reference: ${data.refundProgramReference}`);
+} else if (safeNum(data.refundedSol, 0) > 0 || data.refundTxSignature) {
+lines.push(`Refunded: ${safeNum(data.refundedSol, 0)} SOL`);
+if (data.refundTxSignature) lines.push(`Refund transaction: ${data.refundTxSignature}`);
+} else if (data.refundError) {
+lines.push(`Automatic refund could not be confirmed: ${data.refundError}`);
+lines.push("Contact support before retrying.");
+}
+
+if (data.txSignature) lines.push(`Original transaction: ${data.txSignature}`);
+return lines.join("\n");
+}
+
+async function onCommitSubmit(event) {
+event.preventDefault();
 if (commitActionInFlight) return;
 
 setStatus("");
@@ -3403,29 +2411,19 @@ return;
 const intentKey = `${id}:${wallet}:${solAmount}`;
 const now = Date.now();
 
-if (
-lastCommitIntentKey === intentKey &&
-now - lastCommitIntentAt < COMMIT_DEDUP_WINDOW_MS
-) {
-return;
-}
-
+if (lastCommitIntentKey === intentKey && now - lastCommitIntentAt < COMMIT_DEDUP_WINDOW_MS) return;
 lastCommitIntentKey = intentKey;
 lastCommitIntentAt = now;
 
 commitActionInFlight = true;
 render();
 
-let transferSignature = "";
-
 try {
 const latest = await refreshStateBeforeAction();
 const launch = latest.launch;
 const stats = latest.stats;
 
-if (!launch) {
-throw new Error("Launch not found.");
-}
+if (!launch) throw new Error("Launch not found.");
 
 if (!canCommitForStatus(getDisplayPhaseStatus(launch, stats, currentLifecycle))) {
 const stateInfo = getLaunchStateMessage(launch, stats, currentLifecycle);
@@ -3433,97 +2431,74 @@ setStatus(stateInfo.message, stateInfo.kind);
 return;
 }
 
-await requireApprovedParticipantCompliance(wallet, { redirect: true });
+await requireParticipantTransactionAccess(wallet);
+const acknowledgements = validateParticipantAcknowledgements();
 
 setStatus("Preparing secure commit request…", "warn");
 
-const prepare = await fetchJson(`/api/launcher/prepare-commit`, {
+const prepare = await fetchJson("/api/launcher/prepare-commit", {
 method: "POST",
-headers: {
-"Content-Type": "application/json",
-},
+headers: { "Content-Type": "application/json" },
 body: JSON.stringify({
 launchId: Number(id),
 wallet,
 solAmount,
+role: PARTICIPANT_ROLE,
+acknowledgements,
 }),
 });
 
-const destinationWallet = String(
-prepare.escrowWallet || prepare.destinationWallet || ""
-).trim();
-
-if (!destinationWallet) {
-throw new Error("Escrow wallet was not returned by the server.");
+const preparedTransaction = prepare.transaction || prepare.serializedTransaction || prepare.tx || "";
+if (!preparedTransaction) {
+throw new Error("Prepared commit transaction was not returned by the server.");
 }
 
-const lamports = solToLamports(solAmount);
-
 setStatus("Awaiting wallet approval…", "warn");
+const signedTransaction = await signPreparedCommitTransaction(preparedTransaction);
 
-const transfer = await sendSolTransfer({
-destination: destinationWallet,
-lamports,
-});
-
-transferSignature = transfer.signature || "";
-
-setStatus("Verifying on-chain transfer…", "warn");
-
-const data = await fetchJson(`/api/launcher/confirm-commit`, {
+setStatus("Submitting and verifying on-chain commit…", "warn");
+const data = await fetchJson("/api/launcher/confirm-commit", {
 method: "POST",
-headers: {
-"Content-Type": "application/json",
-},
+headers: { "Content-Type": "application/json" },
 body: JSON.stringify({
 launchId: Number(id),
 wallet,
 solAmount,
-txSignature: transferSignature,
+signedTransaction,
+role: PARTICIPANT_ROLE,
+acknowledgements,
 }),
 });
 
-const countdownLine =
-data.status === "countdown" && data.countdownEndsAt
+const countdownLine = data.status === "countdown" && data.countdownEndsAt
 ? `\nCountdown ends at: ${data.countdownEndsAt}`
 : "";
 
 setStatus(
-`Commit successful.\n\nWallet total: ${data.walletCommittedTotal} SOL\nTotal committed: ${data.totalCommitted} SOL\nParticipants: ${data.participants}\nTransaction: ${data.txSignature || transferSignature}${countdownLine}`,
+`Commit successful.\n\nWallet total: ${data.walletCommittedTotal} SOL\nTotal committed: ${data.totalCommitted} SOL\nParticipants: ${data.participants}\nTransaction: ${data.txSignature || "Confirmed"}${countdownLine}`,
 "good"
 );
 
-if ($("commitAmount")) {
-$("commitAmount").value = "";
-}
+if ($("commitAmount")) $("commitAmount").value = "";
 
+await refreshParticipantComplianceStatus({ silent: true }).catch(() => null);
 await refresh({ marketSyncMode: "hard", syncLifecycle: true });
 restartRefreshLoop();
 restartLifecycleRefreshLoop();
 } catch (err) {
 console.error(err);
 
-const lateRefund =
-Number(err?.status) === 409 &&
-(err?.data?.refundTxSignature ||
-Number.isFinite(Number(err?.data?.refundedSol)));
-
-if (lateRefund) {
-setStatus(buildLateRefundMessage(err, transferSignature), "warn");
-
-try {
-await refresh({ marketSyncMode: "hard", syncLifecycle: true });
-} catch (refreshErr) {
-console.error(refreshErr);
-}
+if (isPostTransferRefundResponse(err)) {
+setStatus(buildRejectedCommitRefundMessage(err), err?.data?.refundError ? "bad" : "warn");
 } else {
 setStatus(err?.message || "Commit failed.", "bad");
+}
 
 try {
+await refreshParticipantComplianceStatus({ silent: true });
 await refresh({ marketSyncMode: "hard", syncLifecycle: true });
 } catch (refreshErr) {
 console.error(refreshErr);
-}
 }
 
 restartRefreshLoop();
@@ -3555,9 +2530,7 @@ const latest = await refreshStateBeforeAction();
 const launch = latest.launch;
 const stats = latest.stats;
 
-if (!launch) {
-throw new Error("Launch not found.");
-}
+if (!launch) throw new Error("Launch not found.");
 
 if (!canRefundForStatus(getDisplayPhaseStatus(launch, stats, currentLifecycle))) {
 const stateInfo = getLaunchStateMessage(launch, stats, currentLifecycle);
@@ -3565,26 +2538,27 @@ setStatus(stateInfo.message, stateInfo.kind);
 return;
 }
 
-const data = await fetchJson(`/api/launcher/refund`, {
+const data = await fetchJson("/api/launcher/refund", {
 method: "POST",
-headers: {
-"Content-Type": "application/json",
-},
-body: JSON.stringify({
-launchId: Number(id),
-wallet,
-}),
+headers: { "Content-Type": "application/json" },
+body: JSON.stringify({ launchId: Number(id), wallet }),
 });
 
-const bondLine =
-safeNum(data.builderBondRefunded, safeNum(data.launchBondRefunded, 0)) > 0
-? `\n${getLaunchBondLabel(launch)} refunded: ${safeNum(data.builderBondRefunded, safeNum(data.launchBondRefunded, 0))} SOL`
+if (data.refundQueued) {
+setStatus(
+`Refund queued.\n\nStatus: ${data.refundStatus || "pending"}${data.refundProgramReference ? `\nReference: ${data.refundProgramReference}` : ""}`,
+"warn"
+);
+} else {
+const bondLine = safeNum(data.builderBondRefunded, safeNum(data.launchBondRefunded, 0)) > 0
+? `\n${getLaunchBondLabel()} refunded: ${safeNum(data.builderBondRefunded, safeNum(data.launchBondRefunded, 0))} SOL`
 : "";
 
 setStatus(
 `Refund successful.\n\nRefunded: ${data.refundedSolActual || data.refundedSol} SOL${bondLine}\nTotal committed: ${data.totalCommitted} SOL\nParticipants: ${data.participants}\nTransaction: ${data.refundTxSignature || "Recorded"}`,
 "good"
 );
+}
 
 await refresh({ marketSyncMode: "hard", syncLifecycle: true });
 restartRefreshLoop();
@@ -3608,33 +2582,29 @@ render();
 }
 
 function bindQuickAmounts() {
-document.querySelectorAll(".quick button[data-amount]").forEach((btn) => {
-if (btn.dataset.quickBound === "1") return;
+document.querySelectorAll(".quick button[data-amount]").forEach((button) => {
+if (button.dataset.quickBound === "1") return;
 
-btn.dataset.quickBound = "1";
-
-btn.addEventListener("click", () => {
-if (btn.disabled || commitActionInFlight) return;
-
-const amount = btn.getAttribute("data-amount") || "";
+button.dataset.quickBound = "1";
+button.addEventListener("click", () => {
+if (button.disabled || commitActionInFlight) return;
+const amount = button.getAttribute("data-amount") || "";
 if ($("commitAmount")) $("commitAmount").value = amount;
 });
 });
 }
 
 function bindWalletButtons() {
-for (const btn of getConnectButtons()) {
-if (btn.dataset.walletBound === "1") continue;
-
-btn.dataset.walletBound = "1";
-btn.addEventListener("click", connectWallet);
+for (const button of getConnectButtons()) {
+if (button.dataset.walletBound === "1") continue;
+button.dataset.walletBound = "1";
+button.addEventListener("click", connectWallet);
 }
 
-for (const btn of getDisconnectButtons()) {
-if (btn.dataset.walletBound === "1") continue;
-
-btn.dataset.walletBound = "1";
-btn.addEventListener("click", disconnectWallet);
+for (const button of getDisconnectButtons()) {
+if (button.dataset.walletBound === "1") continue;
+button.dataset.walletBound = "1";
+button.addEventListener("click", disconnectWallet);
 }
 }
 
@@ -3643,7 +2613,6 @@ const builderCopyBtn = $("launchBuilderCopyWalletBtn");
 
 if (builderCopyBtn && builderCopyBtn.dataset.bound !== "1") {
 builderCopyBtn.dataset.bound = "1";
-
 builderCopyBtn.addEventListener("click", async () => {
 try {
 const builderWallet = choosePreferredString(
@@ -3666,14 +2635,12 @@ setStatus(err?.message || "Copy failed.", "bad");
 }
 
 const participantComplianceAction = $("participantComplianceAction");
-if (
-participantComplianceAction &&
-participantComplianceAction.dataset.bound !== "1"
-) {
+
+if (participantComplianceAction && participantComplianceAction.dataset.bound !== "1") {
 participantComplianceAction.dataset.bound = "1";
 participantComplianceAction.addEventListener("click", (event) => {
 const wallet = getConnectedPublicKey() || "";
-event.currentTarget.href = buildCompliancePageUrl(wallet, "participant");
+event.currentTarget.href = buildCompliancePageUrl(wallet, PARTICIPANT_ROLE);
 });
 }
 }
@@ -3683,7 +2650,6 @@ bindWalletButtons();
 bindUtilityButtons();
 
 if (walletChangeBound) return;
-
 walletChangeBound = true;
 
 onWalletChange(async () => {
@@ -3696,17 +2662,12 @@ console.error(err);
 }
 
 if (currentLaunch && currentCommitStats) render();
-
 await syncLaunchMarketController("hard");
 });
 }
 
 function getDynamicRefreshIntervalMs() {
-const displayStatus = getDisplayPhaseStatus(
-currentLaunch,
-currentCommitStats,
-currentLifecycle
-);
+const displayStatus = getDisplayPhaseStatus(currentLaunch, currentCommitStats, currentLifecycle);
 
 if (displayStatus === "building") return BUILDING_PHASE_REFRESH_INTERVAL_MS;
 if (displayStatus === "countdown") return COUNTDOWN_REFRESH_INTERVAL_MS;
@@ -3720,29 +2681,13 @@ clearInterval(refreshIntervalId);
 refreshIntervalId = null;
 }
 
-const displayStatus = getDisplayPhaseStatus(
-currentLaunch,
-currentCommitStats,
-currentLifecycle
-);
-
-const shouldRunBaseLoop =
-displayStatus === "commit" ||
-displayStatus === "countdown" ||
-displayStatus === "building" ||
-!currentLaunch?.status;
+const displayStatus = getDisplayPhaseStatus(currentLaunch, currentCommitStats, currentLifecycle);
+const shouldRunBaseLoop = ["commit", "countdown", "building"].includes(displayStatus) || !currentLaunch?.status;
 
 if (!shouldRunBaseLoop) return;
 
 refreshIntervalId = setInterval(async () => {
-if (
-refreshInFlight ||
-commitActionInFlight ||
-refundActionInFlight ||
-countdownFinalizeInFlight
-) {
-return;
-}
+if (refreshInFlight || commitActionInFlight || refundActionInFlight || countdownFinalizeInFlight) return;
 
 try {
 await refresh({ marketSyncMode: "soft", syncLifecycle: false });
@@ -3758,13 +2703,7 @@ clearInterval(lifecycleRefreshIntervalId);
 lifecycleRefreshIntervalId = null;
 }
 
-if (
-!isLiveLikeStatus(
-getDisplayPhaseStatus(currentLaunch, currentCommitStats, currentLifecycle)
-)
-) {
-return;
-}
+if (!isLiveLikeStatus(getDisplayPhaseStatus(currentLaunch, currentCommitStats, currentLifecycle))) return;
 
 lifecycleRefreshIntervalId = setInterval(async () => {
 if (refreshInFlight || lifecycleRefreshInFlight) return;
@@ -3782,64 +2721,43 @@ console.error(err);
 function updateWalletUi() {
 const walletState = getConnectedWallet();
 const walletText = walletState.publicKey || "";
-const walletPillText = walletState.isConnected
-? `Connected: ${walletState.shortPublicKey}`
-: "No wallet connected";
+const walletPillText = walletState.isConnected ? `Connected: ${walletState.shortPublicKey}` : "No wallet connected";
 const walletHintText = walletState.isConnected
-? `Connected via ${String(walletState.walletName || "wallet").replace(/\b\w/g, (m) => m.toUpperCase())}.`
+? `Connected via ${String(walletState.walletName || "wallet").replace(/\b\w/g, (letter) => letter.toUpperCase())}.`
 : "Use Connect Wallet to choose Phantom, Solflare, or Backpack.";
 
-for (const input of getWalletInputs()) {
-input.value = walletText;
+for (const input of getWalletInputs()) input.value = walletText;
+for (const pill of getWalletPills()) pill.textContent = walletPillText;
+
+for (const button of getConnectButtons()) {
+button.style.display = walletState.isConnected ? "none" : "inline-flex";
+button.disabled = walletActionInFlight;
 }
 
-for (const pill of getWalletPills()) {
-pill.textContent = walletPillText;
+for (const button of getDisconnectButtons()) {
+button.style.display = walletState.isConnected ? "inline-flex" : "none";
+button.disabled = walletActionInFlight;
 }
 
-for (const btn of getConnectButtons()) {
-btn.style.display = walletState.isConnected ? "none" : "inline-flex";
-btn.disabled = walletActionInFlight;
-}
+for (const hint of getWalletHints()) hint.textContent = walletHintText;
 
-for (const btn of getDisconnectButtons()) {
-btn.style.display = walletState.isConnected ? "inline-flex" : "none";
-btn.disabled = walletActionInFlight;
-}
-
-for (const hint of getWalletHints()) {
-hint.textContent = walletHintText;
-}
-
-const badgeEls = $all('[data-role="wallet-badge"]');
-
-for (const badge of badgeEls) {
+for (const badge of $all('[data-role="wallet-badge"]')) {
 badge.classList.remove("is-connected", "is-disconnected");
-badge.classList.add(
-walletState.isConnected ? "is-connected" : "is-disconnected"
-);
+badge.classList.add(walletState.isConnected ? "is-connected" : "is-disconnected");
 
 let dotEl = badge.querySelector(".terminal-wallet-badge-dot");
 let labelEl = badge.querySelector(".terminal-wallet-badge-label");
 
 if (!dotEl || !labelEl) {
-badge.innerHTML =
-`<span class="terminal-wallet-badge-dot"></span><span class="terminal-wallet-badge-label"></span>`;
+badge.innerHTML = '<span class="terminal-wallet-badge-dot"></span><span class="terminal-wallet-badge-label"></span>';
 dotEl = badge.querySelector(".terminal-wallet-badge-dot");
 labelEl = badge.querySelector(".terminal-wallet-badge-label");
 }
 
-if (labelEl) {
-labelEl.textContent = walletState.isConnected
-? "Wallet Connected"
-: "Wallet Disconnected";
-}
+if (labelEl) labelEl.textContent = walletState.isConnected ? "Wallet Connected" : "Wallet Disconnected";
 }
 
-setTextByIds(
-["launchWalletAccessText"],
-walletState.isConnected ? walletState.shortPublicKey : "Not Connected"
-);
+setTextByIds(["launchWalletAccessText"], walletState.isConnected ? walletState.shortPublicKey : "Not Connected");
 }
 
 async function init() {
@@ -3848,6 +2766,7 @@ if (window[LAUNCH_PAGE_INIT_KEY]) return;
 window[LAUNCH_PAGE_INIT_KEY] = true;
 window.API_BASE = getApiBase();
 
+ensureParticipantAcknowledgementUi();
 bindQuickAmounts();
 bindWalletEvents();
 
@@ -3889,17 +2808,10 @@ if (!currentLaunch || !currentCommitStats) return;
 
 render();
 
-const rawStatus = getDisplayPhaseStatus(
-currentLaunch,
-currentCommitStats,
-currentLifecycle
-);
+const status = getDisplayPhaseStatus(currentLaunch, currentCommitStats, currentLifecycle);
 
-if (rawStatus === "countdown" || rawStatus === "building") {
-const countdownEndsMs = getCountdownEndsMs(
-currentLaunch,
-currentCommitStats
-);
+if (status === "countdown" || status === "building") {
+const countdownEndsMs = getCountdownEndsMs(currentLaunch, currentCommitStats);
 
 if (
 Number.isFinite(countdownEndsMs) &&
@@ -3920,7 +2832,7 @@ restartLifecycleRefreshLoop();
 }
 }
 
-if (rawStatus !== lastRenderedPhaseStatus && !refreshInFlight) {
+if (status !== lastRenderedPhaseStatus && !refreshInFlight) {
 void refresh({ marketSyncMode: "hard", syncLifecycle: true })
 .then(() => {
 restartRefreshLoop();

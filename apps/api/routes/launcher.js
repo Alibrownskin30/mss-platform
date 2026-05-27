@@ -41,6 +41,22 @@ const LAUNCH_FEE_PCT = 5;
 const REFUND_FEE_BUFFER_LAMPORTS = 10000;
 const REFUND_WORKER_BATCH_SIZE = 10;
 
+const LAUNCH_ACKNOWLEDGEMENT_TABLE = "launcher_acknowledgements";
+const INTERNAL_COMPLIANCE_PROFILE_TABLE = "compliance_profiles";
+const BUILDER_BOND_REFUND_TABLE = "builder_bond_refund_ledger";
+
+const PARTICIPANT_ACKNOWLEDGEMENT_ROLE = "participant";
+const BUILDER_ACKNOWLEDGEMENT_ROLE = "builder";
+
+const LAUNCH_ACKNOWLEDGEMENT_VERSIONS = Object.freeze({
+terms: "launcher_terms_v1",
+riskDisclosure: "launcher_risk_disclosure_v1",
+launchRules: "launcher_rules_v1",
+noAdvice: "launcher_no_investment_advice_v1",
+projectDisclosure: "builder_project_disclosure_v1",
+prohibitedConduct: "builder_prohibited_conduct_v1",
+});
+
 const REFUND_LEDGER_PENDING_SHARED_STATUS = "pending_shared_refund";
 const REFUND_LEDGER_PENDING_SHARED_LEGACY_STATUS =
 "pending_shared_wallet_refund";
@@ -54,11 +70,10 @@ const REFUND_REQUEST_KIND_MANUAL = "manual_refund";
 const REFUND_REQUEST_KIND_AUTO_FAILED = "failed_launch_auto";
 const REFUND_REQUEST_KIND_LATE_REJECTED = "late_rejected_commit";
 
-function cleanEnv(value, max = 200) {
-return String(value ?? "").trim().slice(0, max);
-}
-
-const INTERNAL_API_PORT = cleanEnv(process.env.PORT, 20) || "8787";
+const BUILDER_BOND_REFUND_PENDING_STATUS = "pending";
+const BUILDER_BOND_REFUND_PROCESSING_STATUS = "processing";
+const BUILDER_BOND_REFUND_REFUNDED_STATUS = "refunded";
+const BUILDER_BOND_REFUND_FAILED_STATUS = "failed";
 
 const BUILDER_ALLOWED_HARD_CAPS = [250, 500, 750, 1000];
 const BUILDER_SOFT_CAP_BY_HARD_CAP = {
@@ -161,6 +176,10 @@ return columns;
 
 async function refundLedgerTableExists() {
 return tableExists("launch_refund_ledger");
+}
+
+async function builderBondRefundLedgerTableExists() {
+return tableExists(BUILDER_BOND_REFUND_TABLE);
 }
 
 function normalizeWallet(value) {
@@ -1164,6 +1183,25 @@ throw new Error(
 return keypair;
 }
 
+function getBuilderBondEscrowKeypair() {
+const keypair = maybeGetKeypairFromEnv(
+[
+"BUILDER_BOND_ESCROW_PRIVATE_KEY",
+"LAUNCH_ESCROW_PRIVATE_KEY",
+"ESCROW_PRIVATE_KEY",
+],
+"builder bond escrow signer"
+);
+
+if (!keypair) {
+throw new Error(
+"BUILDER_BOND_ESCROW_PRIVATE_KEY, LAUNCH_ESCROW_PRIVATE_KEY, or ESCROW_PRIVATE_KEY is not configured"
+);
+}
+
+return keypair;
+}
+
 function getRelayerKeypair(fallback = null) {
 return (
 maybeGetKeypairFromEnv(
@@ -1240,6 +1278,757 @@ normalizeWallet(wallet).replace(/[^a-zA-Z0-9]/g, "").slice(0, 12) || "wallet";
 return `mss-refund-${launchId}-${suffix}`;
 }
 
+function toTruthyBoolean(value) {
+if (value === true || value === 1) return true;
+const raw = String(value ?? "").trim().toLowerCase();
+return raw === "true" || raw === "1" || raw === "yes" || raw === "on";
+}
+
+function normalizeAcknowledgementRole(value) {
+const normalized = cleanText(value, 40).toLowerCase();
+
+if (normalized === PARTICIPANT_ACKNOWLEDGEMENT_ROLE) {
+return PARTICIPANT_ACKNOWLEDGEMENT_ROLE;
+}
+
+if (normalized === BUILDER_ACKNOWLEDGEMENT_ROLE) {
+return BUILDER_ACKNOWLEDGEMENT_ROLE;
+}
+
+return null;
+}
+
+function buildInternalWalletInterventionError({
+wallet,
+role,
+action = "launcher_transaction",
+} = {}) {
+const normalizedRole =
+normalizeAcknowledgementRole(role) || PARTICIPANT_ACKNOWLEDGEMENT_ROLE;
+
+const err = new Error(
+"This wallet is currently unable to use Launcher transactions. Contact support if you believe this is an error."
+);
+
+err.statusCode = 403;
+err.code = "launcher_wallet_intervention_active";
+err.role = normalizedRole;
+err.action = cleanText(action, 80) || "launcher_transaction";
+err.wallet = normalizeWallet(wallet);
+err.internalInterventionActive = true;
+
+return err;
+}
+
+async function getInternalWalletIntervention(wallet) {
+const normalizedWallet = normalizeWallet(wallet);
+
+if (
+!normalizedWallet ||
+!(await tableExists(INTERNAL_COMPLIANCE_PROFILE_TABLE))
+) {
+return {
+record_present: false,
+blocked: false,
+state: "clear",
+reason_code: null,
+};
+}
+
+const row = await db.get(
+`
+SELECT
+id,
+status,
+risk_rating,
+sanctions_status,
+manual_review_required
+FROM ${INTERNAL_COMPLIANCE_PROFILE_TABLE}
+WHERE LOWER(wallet_address) = LOWER(?)
+LIMIT 1
+`,
+[normalizedWallet]
+);
+
+if (!row) {
+return {
+record_present: false,
+blocked: false,
+state: "clear",
+reason_code: null,
+};
+}
+
+const status = cleanText(row.status, 40).toLowerCase();
+const riskRating = cleanText(row.risk_rating, 40).toLowerCase();
+const sanctionsFlag = toTruthyBoolean(row.sanctions_status);
+const manualIntervention = toTruthyBoolean(row.manual_review_required);
+
+let reasonCode = null;
+
+if (status === "rejected" || status === "restricted") {
+reasonCode = "profile_intervention";
+} else if (riskRating === "critical") {
+reasonCode = "critical_risk_intervention";
+} else if (sanctionsFlag) {
+reasonCode = "screening_intervention";
+} else if (manualIntervention) {
+reasonCode = "manual_intervention";
+}
+
+return {
+record_present: true,
+blocked: Boolean(reasonCode),
+state: reasonCode ? "blocked" : "monitored",
+reason_code: reasonCode,
+};
+}
+
+async function requireNoInternalWalletIntervention({
+wallet,
+role,
+action = "launcher_transaction",
+} = {}) {
+const intervention = await getInternalWalletIntervention(wallet);
+
+if (intervention.blocked) {
+throw buildInternalWalletInterventionError({
+wallet,
+role,
+action,
+});
+}
+
+return intervention;
+}
+
+function maybeSendInternalWalletInterventionError(res, err) {
+if (!err || err.code !== "launcher_wallet_intervention_active") {
+return false;
+}
+
+res.status(Number(err.statusCode) || 403).json({
+ok: false,
+error:
+err.message ||
+"This wallet is currently unable to use Launcher transactions.",
+code: err.code,
+role: err.role || null,
+action: err.action || null,
+internalInterventionActive: true,
+acknowledgementModel: "acknowledgement_only",
+identityVerificationRequired: false,
+});
+
+return true;
+}
+
+function getAcknowledgementPayload(body = {}) {
+const candidate =
+body?.acknowledgements ??
+body?.acknowledgments ??
+body?.launcher_acknowledgements ??
+body?.launcherAcknowledgements ??
+body?.launcher_acknowledgments ??
+body?.launcherAcknowledgments;
+
+if (candidate && typeof candidate === "object" && !Array.isArray(candidate)) {
+return candidate;
+}
+
+return body && typeof body === "object" ? body : {};
+}
+
+function readAcknowledgementFlag(payload, aliases = []) {
+for (const alias of aliases) {
+if (
+Object.prototype.hasOwnProperty.call(payload, alias) &&
+toTruthyBoolean(payload[alias])
+) {
+return true;
+}
+}
+
+return false;
+}
+
+function buildAcknowledgementRequirements(role) {
+const common = [
+{
+key: "terms_accepted",
+label: "Launcher terms",
+aliases: [
+"terms_accepted",
+"termsAccepted",
+"accept_terms",
+"acceptTerms",
+"launcher_terms_accepted",
+"launcherTermsAccepted",
+],
+},
+{
+key: "risk_disclosure_accepted",
+label: "Risk disclosure",
+aliases: [
+"risk_disclosure_accepted",
+"riskDisclosureAccepted",
+"accept_risk_disclosure",
+"acceptRiskDisclosure",
+"launch_risk_accepted",
+"launchRiskAccepted",
+],
+},
+{
+key: "launch_rules_accepted",
+label: "Launch rules and transaction conditions",
+aliases: [
+"launch_rules_accepted",
+"launchRulesAccepted",
+"rules_accepted",
+"rulesAccepted",
+"allocation_rules_accepted",
+"allocationRulesAccepted",
+],
+},
+{
+key: "no_advice_accepted",
+label: "No investment advice acknowledgement",
+aliases: [
+"no_advice_accepted",
+"noAdviceAccepted",
+"not_investment_advice_accepted",
+"notInvestmentAdviceAccepted",
+"information_only_accepted",
+"informationOnlyAccepted",
+],
+},
+];
+
+if (role !== BUILDER_ACKNOWLEDGEMENT_ROLE) {
+return common;
+}
+
+return [
+...common,
+{
+key: "project_disclosure_accepted",
+label: "Project information accuracy disclosure",
+aliases: [
+"project_disclosure_accepted",
+"projectDisclosureAccepted",
+"project_information_accepted",
+"projectInformationAccepted",
+"builder_project_disclosure_accepted",
+"builderProjectDisclosureAccepted",
+],
+},
+{
+key: "prohibited_conduct_accepted",
+label: "Prohibited conduct acknowledgement",
+aliases: [
+"prohibited_conduct_accepted",
+"prohibitedConductAccepted",
+"market_manipulation_prohibited_accepted",
+"marketManipulationProhibitedAccepted",
+"builder_conduct_accepted",
+"builderConductAccepted",
+],
+},
+];
+}
+
+function hasAcknowledgementInput(body = {}, role = PARTICIPANT_ACKNOWLEDGEMENT_ROLE) {
+const payload = getAcknowledgementPayload(body);
+const requirements = buildAcknowledgementRequirements(role);
+
+return requirements.some((requirement) =>
+requirement.aliases.some((alias) =>
+Object.prototype.hasOwnProperty.call(payload, alias)
+)
+);
+}
+
+function buildAcknowledgementError({
+role,
+missing = [],
+message = "",
+statusCode = 428,
+code = "launcher_acknowledgements_required",
+} = {}) {
+const normalizedRole =
+normalizeAcknowledgementRole(role) || PARTICIPANT_ACKNOWLEDGEMENT_ROLE;
+
+const err = new Error(
+message ||
+`Accept the required ${normalizedRole} launcher acknowledgements before continuing.`
+);
+
+err.statusCode = statusCode;
+err.code = code;
+err.role = normalizedRole;
+err.requiredAcknowledgements = buildAcknowledgementRequirements(
+normalizedRole
+).map((item) => item.key);
+err.missingAcknowledgements = missing;
+
+return err;
+}
+
+function validateAcknowledgementInput(body = {}, { role } = {}) {
+const normalizedRole = normalizeAcknowledgementRole(role);
+
+if (!normalizedRole) {
+throw buildAcknowledgementError({
+role: PARTICIPANT_ACKNOWLEDGEMENT_ROLE,
+message: "invalid launcher acknowledgement role",
+statusCode: 400,
+code: "invalid_acknowledgement_role",
+});
+}
+
+const payload = getAcknowledgementPayload(body);
+const requirements = buildAcknowledgementRequirements(normalizedRole);
+const values = {};
+const missing = [];
+
+for (const requirement of requirements) {
+values[requirement.key] = readAcknowledgementFlag(
+payload,
+requirement.aliases
+);
+
+if (!values[requirement.key]) {
+missing.push(requirement.key);
+}
+}
+
+if (missing.length) {
+throw buildAcknowledgementError({
+role: normalizedRole,
+missing,
+});
+}
+
+return {
+role: normalizedRole,
+...values,
+terms_version: LAUNCH_ACKNOWLEDGEMENT_VERSIONS.terms,
+risk_disclosure_version: LAUNCH_ACKNOWLEDGEMENT_VERSIONS.riskDisclosure,
+launch_rules_version: LAUNCH_ACKNOWLEDGEMENT_VERSIONS.launchRules,
+no_advice_version: LAUNCH_ACKNOWLEDGEMENT_VERSIONS.noAdvice,
+project_disclosure_version:
+normalizedRole === BUILDER_ACKNOWLEDGEMENT_ROLE
+? LAUNCH_ACKNOWLEDGEMENT_VERSIONS.projectDisclosure
+: null,
+prohibited_conduct_version:
+normalizedRole === BUILDER_ACKNOWLEDGEMENT_ROLE
+? LAUNCH_ACKNOWLEDGEMENT_VERSIONS.prohibitedConduct
+: null,
+};
+}
+
+async function ensureAcknowledgementStorageAvailable() {
+if (!(await tableExists(LAUNCH_ACKNOWLEDGEMENT_TABLE))) {
+throw buildAcknowledgementError({
+role: PARTICIPANT_ACKNOWLEDGEMENT_ROLE,
+message:
+"Launcher acknowledgements are not configured yet. Apply the launcher acknowledgement migration before using launch transactions.",
+statusCode: 503,
+code: "launcher_acknowledgements_not_configured",
+});
+}
+}
+
+function serializeLauncherAcknowledgement(row) {
+if (!row) return null;
+
+return {
+id: Number(row.id || 0),
+launch_id: row.launch_id == null ? null : Number(row.launch_id),
+wallet: cleanText(row.wallet, 120) || null,
+role: normalizeAcknowledgementRole(row.role),
+action: cleanText(row.action, 80) || null,
+terms_version: cleanText(row.terms_version, 120) || null,
+risk_disclosure_version: cleanText(row.risk_disclosure_version, 120) || null,
+launch_rules_version: cleanText(row.launch_rules_version, 120) || null,
+no_advice_version: cleanText(row.no_advice_version, 120) || null,
+project_disclosure_version:
+cleanText(row.project_disclosure_version, 120) || null,
+prohibited_conduct_version:
+cleanText(row.prohibited_conduct_version, 120) || null,
+accepted_terms_at: row.accepted_terms_at || null,
+accepted_risk_disclosure_at: row.accepted_risk_disclosure_at || null,
+accepted_launch_rules_at: row.accepted_launch_rules_at || null,
+accepted_no_advice_at: row.accepted_no_advice_at || null,
+accepted_project_disclosure_at:
+row.accepted_project_disclosure_at || null,
+accepted_prohibited_conduct_at:
+row.accepted_prohibited_conduct_at || null,
+signature_reference: cleanText(row.signature_reference, 160) || null,
+signature_message: cleanText(row.signature_message, 255) || null,
+status: cleanText(row.status, 40).toLowerCase() || "accepted",
+escalation_flag: Number(row.escalation_flag || 0),
+escalation_reason: cleanText(row.escalation_reason, 500) || null,
+created_at: row.created_at || null,
+updated_at: row.updated_at || null,
+};
+}
+
+function isAcknowledgementSatisfied(row, role) {
+const acknowledgement = serializeLauncherAcknowledgement(row);
+const normalizedRole = normalizeAcknowledgementRole(role);
+
+if (!acknowledgement || !normalizedRole) return false;
+if (acknowledgement.role !== normalizedRole) return false;
+if (acknowledgement.status !== "accepted") return false;
+
+const commonAccepted = Boolean(
+acknowledgement.accepted_terms_at &&
+acknowledgement.accepted_risk_disclosure_at &&
+acknowledgement.accepted_launch_rules_at &&
+acknowledgement.accepted_no_advice_at
+);
+
+if (!commonAccepted) return false;
+
+if (normalizedRole === BUILDER_ACKNOWLEDGEMENT_ROLE) {
+return Boolean(
+acknowledgement.accepted_project_disclosure_at &&
+acknowledgement.accepted_prohibited_conduct_at
+);
+}
+
+return true;
+}
+
+async function findLauncherAcknowledgement({
+wallet,
+role,
+launchId = null,
+} = {}) {
+await ensureAcknowledgementStorageAvailable();
+
+const normalizedWallet = normalizeWallet(wallet);
+const normalizedRole = normalizeAcknowledgementRole(role);
+
+if (!normalizedWallet || !normalizedRole) return null;
+
+let row;
+
+if (launchId == null) {
+row = await db.get(
+`
+SELECT *
+FROM ${LAUNCH_ACKNOWLEDGEMENT_TABLE}
+WHERE LOWER(wallet) = LOWER(?)
+AND role = ?
+AND launch_id IS NULL
+ORDER BY id DESC
+LIMIT 1
+`,
+[normalizedWallet, normalizedRole]
+);
+} else {
+row = await db.get(
+`
+SELECT *
+FROM ${LAUNCH_ACKNOWLEDGEMENT_TABLE}
+WHERE LOWER(wallet) = LOWER(?)
+AND role = ?
+AND launch_id = ?
+ORDER BY id DESC
+LIMIT 1
+`,
+[normalizedWallet, normalizedRole, Number(launchId)]
+);
+}
+
+return serializeLauncherAcknowledgement(row);
+}
+
+async function saveLauncherAcknowledgement({
+wallet,
+role,
+launchId = null,
+body = {},
+action = "",
+signatureReference = "",
+signatureMessage = "",
+} = {}) {
+await ensureAcknowledgementStorageAvailable();
+
+const normalizedWallet = normalizeWallet(wallet);
+const normalizedRole = normalizeAcknowledgementRole(role);
+
+if (!normalizedWallet) {
+throw buildAcknowledgementError({
+role: normalizedRole || PARTICIPANT_ACKNOWLEDGEMENT_ROLE,
+message: "wallet is required for launcher acknowledgements",
+statusCode: 400,
+code: "wallet_required",
+});
+}
+
+const accepted = validateAcknowledgementInput(body, {
+role: normalizedRole,
+});
+
+const columns = await getTableColumns(LAUNCH_ACKNOWLEDGEMENT_TABLE);
+
+if (!columns.size) {
+throw buildAcknowledgementError({
+role: normalizedRole,
+message: "Unable to inspect launcher acknowledgement storage.",
+statusCode: 503,
+code: "launcher_acknowledgements_not_configured",
+});
+}
+
+const existing = await findLauncherAcknowledgement({
+wallet: normalizedWallet,
+role: normalizedRole,
+launchId,
+});
+
+const acceptedAt = new Date().toISOString();
+
+const valuesByColumn = {
+launch_id: launchId == null ? null : Number(launchId),
+wallet: normalizedWallet,
+role: normalizedRole,
+action: cleanText(action, 80) || null,
+terms_version: accepted.terms_version,
+risk_disclosure_version: accepted.risk_disclosure_version,
+launch_rules_version: accepted.launch_rules_version,
+no_advice_version: accepted.no_advice_version,
+project_disclosure_version: accepted.project_disclosure_version,
+prohibited_conduct_version: accepted.prohibited_conduct_version,
+accepted_terms_at: acceptedAt,
+accepted_risk_disclosure_at: acceptedAt,
+accepted_launch_rules_at: acceptedAt,
+accepted_no_advice_at: acceptedAt,
+accepted_project_disclosure_at:
+normalizedRole === BUILDER_ACKNOWLEDGEMENT_ROLE ? acceptedAt : null,
+accepted_prohibited_conduct_at:
+normalizedRole === BUILDER_ACKNOWLEDGEMENT_ROLE ? acceptedAt : null,
+signature_reference: cleanText(signatureReference, 160) || null,
+signature_message: cleanText(signatureMessage, 255) || null,
+status: "accepted",
+escalation_flag: 0,
+escalation_reason: null,
+};
+
+if (existing?.id) {
+const assignments = [];
+const values = [];
+
+for (const [column, value] of Object.entries(valuesByColumn)) {
+if (!columns.has(column)) continue;
+if (column === "launch_id" || column === "wallet" || column === "role") {
+continue;
+}
+
+assignments.push(`${column} = ?`);
+values.push(value);
+}
+
+if (columns.has("updated_at")) {
+assignments.push("updated_at = CURRENT_TIMESTAMP");
+}
+
+if (assignments.length) {
+await db.run(
+`
+UPDATE ${LAUNCH_ACKNOWLEDGEMENT_TABLE}
+SET ${assignments.join(", ")}
+WHERE id = ?
+`,
+[...values, existing.id]
+);
+}
+
+return findLauncherAcknowledgement({
+wallet: normalizedWallet,
+role: normalizedRole,
+launchId,
+});
+}
+
+const insertColumns = [];
+const placeholders = [];
+const insertValues = [];
+
+for (const [column, value] of Object.entries(valuesByColumn)) {
+if (!columns.has(column)) continue;
+
+insertColumns.push(column);
+placeholders.push("?");
+insertValues.push(value);
+}
+
+if (columns.has("created_at")) {
+insertColumns.push("created_at");
+placeholders.push("CURRENT_TIMESTAMP");
+}
+
+if (columns.has("updated_at")) {
+insertColumns.push("updated_at");
+placeholders.push("CURRENT_TIMESTAMP");
+}
+
+const result = await db.run(
+`
+INSERT INTO ${LAUNCH_ACKNOWLEDGEMENT_TABLE} (
+${insertColumns.join(", ")}
+) VALUES (
+${placeholders.join(", ")}
+)
+`,
+insertValues
+);
+
+const row = await db.get(
+`
+SELECT *
+FROM ${LAUNCH_ACKNOWLEDGEMENT_TABLE}
+WHERE id = ?
+LIMIT 1
+`,
+[result.lastID]
+);
+
+return serializeLauncherAcknowledgement(row);
+}
+
+async function requireStoredLauncherAcknowledgement({
+wallet,
+role,
+launchId = null,
+} = {}) {
+const acknowledgement = await findLauncherAcknowledgement({
+wallet,
+role,
+launchId,
+});
+
+if (!isAcknowledgementSatisfied(acknowledgement, role)) {
+throw buildAcknowledgementError({
+role,
+});
+}
+
+return acknowledgement;
+}
+
+async function ensureLauncherAcknowledgementForAction({
+wallet,
+role,
+launchId = null,
+body = {},
+action = "",
+signatureReference = "",
+signatureMessage = "",
+} = {}) {
+if (hasAcknowledgementInput(body, role)) {
+return saveLauncherAcknowledgement({
+wallet,
+role,
+launchId,
+body,
+action,
+signatureReference,
+signatureMessage,
+});
+}
+
+return requireStoredLauncherAcknowledgement({
+wallet,
+role,
+launchId,
+});
+}
+
+async function attachLauncherAcknowledgementSignature({
+wallet,
+role,
+launchId = null,
+action = "",
+signatureReference = "",
+signatureMessage = "",
+} = {}) {
+const acknowledgement = await requireStoredLauncherAcknowledgement({
+wallet,
+role,
+launchId,
+});
+
+const columns = await getTableColumns(LAUNCH_ACKNOWLEDGEMENT_TABLE);
+const assignments = [];
+const values = [];
+
+if (columns.has("action")) {
+assignments.push("action = ?");
+values.push(cleanText(action, 80) || acknowledgement.action || null);
+}
+
+if (columns.has("signature_reference")) {
+assignments.push("signature_reference = ?");
+values.push(cleanText(signatureReference, 160) || null);
+}
+
+if (columns.has("signature_message")) {
+assignments.push("signature_message = ?");
+values.push(cleanText(signatureMessage, 255) || null);
+}
+
+if (columns.has("updated_at")) {
+assignments.push("updated_at = CURRENT_TIMESTAMP");
+}
+
+if (assignments.length) {
+await db.run(
+`
+UPDATE ${LAUNCH_ACKNOWLEDGEMENT_TABLE}
+SET ${assignments.join(", ")}
+WHERE id = ?
+`,
+[...values, acknowledgement.id]
+);
+}
+
+return findLauncherAcknowledgement({
+wallet,
+role,
+launchId,
+});
+}
+
+function maybeSendAcknowledgementError(res, err) {
+if (!err) return false;
+
+if (
+err.code === "launcher_acknowledgements_required" ||
+err.code === "launcher_acknowledgements_not_configured" ||
+err.code === "invalid_acknowledgement_role"
+) {
+res.status(Number(err.statusCode) || 428).json({
+ok: false,
+error: err.message || "launcher acknowledgements are required",
+code: err.code,
+role: err.role || null,
+requiredAcknowledgements: err.requiredAcknowledgements || [],
+missingAcknowledgements: err.missingAcknowledgements || [],
+versions: LAUNCH_ACKNOWLEDGEMENT_VERSIONS,
+acknowledgementModel: "acknowledgement_only",
+identityVerificationRequired: false,
+});
+
+return true;
+}
+
+return false;
+}
+
 function normalizeRefundLedgerStatus(status = "") {
 const normalized = cleanText(status, 80).toLowerCase();
 
@@ -1292,6 +2081,10 @@ function buildRefundExecutionLockKey(launchId, wallet) {
 return `${Number(launchId || 0)}:${normalizeWalletKey(wallet)}`;
 }
 
+function buildBuilderBondRefundLockKey(txSignature) {
+return `builder-bond:${cleanText(txSignature, 140)}`;
+}
+
 async function runRefundExecutionLocked(lockKey, fn) {
 if (refundExecutionLocks.has(lockKey)) {
 return refundExecutionLocks.get(lockKey);
@@ -1305,6 +2098,342 @@ return await promise;
 } finally {
 refundExecutionLocks.delete(lockKey);
 }
+}
+
+function normalizeBuilderBondRefundRow(row) {
+if (!row) return null;
+
+return {
+...row,
+id: Number(row.id || 0),
+wallet: cleanText(row.wallet, 120),
+bond_tx_signature: cleanText(row.bond_tx_signature, 140),
+bond_sol: safeNumber(row.bond_sol, 0),
+bond_lamports: safeNumber(row.bond_lamports, 0),
+bond_escrow_address: cleanText(row.bond_escrow_address, 120),
+status:
+cleanText(row.status, 40).toLowerCase() ||
+BUILDER_BOND_REFUND_PENDING_STATUS,
+reason_code: cleanText(row.reason_code, 120),
+request_action: cleanText(row.request_action, 120),
+refund_tx_signature: cleanText(row.refund_tx_signature, 140),
+relayer_wallet: cleanText(row.relayer_wallet, 120),
+source_wallet: cleanText(row.source_wallet, 120),
+refund_attempts: safeNumber(row.refund_attempts, 0),
+last_error: cleanText(row.last_error, 500),
+requested_at: row.requested_at || null,
+last_attempt_at: row.last_attempt_at || null,
+refunded_at: row.refunded_at || null,
+failed_at: row.failed_at || null,
+created_at: row.created_at || null,
+updated_at: row.updated_at || null,
+};
+}
+
+function buildBuilderBondRefundError({
+message = "",
+code = "builder_bond_refund_failed",
+statusCode = 409,
+refund = null,
+} = {}) {
+const err = new Error(message || "Builder bond refund could not be processed.");
+err.code = code;
+err.statusCode = statusCode;
+err.builderBondRefund = refund;
+return err;
+}
+
+async function ensureBuilderBondRefundStorageAvailable() {
+if (!(await builderBondRefundLedgerTableExists())) {
+throw buildBuilderBondRefundError({
+message:
+"Builder bond refund storage is not configured. Apply the builder bond refund migration before processing blocked-builder bond refunds.",
+code: "builder_bond_refund_not_configured",
+statusCode: 503,
+});
+}
+}
+
+async function getBuilderBondRefundBySignature(txSignature) {
+await ensureBuilderBondRefundStorageAvailable();
+
+const signature = cleanText(txSignature, 140);
+if (!signature) return null;
+
+const row = await db.get(
+`
+SELECT *
+FROM ${BUILDER_BOND_REFUND_TABLE}
+WHERE bond_tx_signature = ?
+LIMIT 1
+`,
+[signature]
+);
+
+return normalizeBuilderBondRefundRow(row);
+}
+
+async function assertBuilderBondTransactionUsable(txSignature) {
+if (!(await builderBondRefundLedgerTableExists())) {
+return;
+}
+
+const refund = await getBuilderBondRefundBySignature(txSignature);
+
+if (!refund) return;
+
+if (refund.status === BUILDER_BOND_REFUND_REFUNDED_STATUS) {
+throw buildBuilderBondRefundError({
+message:
+"This launch bond transaction has already been refunded and cannot be used to create a launch.",
+code: "builder_bond_already_refunded",
+statusCode: 409,
+refund,
+});
+}
+
+if (refund.status === BUILDER_BOND_REFUND_PROCESSING_STATUS) {
+throw buildBuilderBondRefundError({
+message:
+"This launch bond refund is currently processing and cannot be used to create a launch.",
+code: "builder_bond_refund_processing",
+statusCode: 409,
+refund,
+});
+}
+}
+
+async function claimBuilderBondRefundProcessing({
+wallet,
+builderBondSol,
+bondTxSignature,
+reasonCode = "wallet_intervention_active",
+requestAction = "builder_bond_refund",
+} = {}) {
+await ensureBuilderBondRefundStorageAvailable();
+
+const normalizedWallet = normalizeWallet(wallet);
+const signature = cleanText(bondTxSignature, 140);
+const normalizedBondSol = safeNumber(builderBondSol, 0);
+
+if (!normalizedWallet || !signature || normalizedBondSol <= 0) {
+throw buildBuilderBondRefundError({
+message:
+"Valid builder wallet, launch bond amount, and bond transaction signature are required.",
+code: "invalid_builder_bond_refund_request",
+statusCode: 400,
+});
+}
+
+let existing = await getBuilderBondRefundBySignature(signature);
+
+if (existing?.status === BUILDER_BOND_REFUND_REFUNDED_STATUS) {
+return {
+ledger: existing,
+alreadyRefunded: true,
+};
+}
+
+if (existing?.status === BUILDER_BOND_REFUND_PROCESSING_STATUS) {
+throw buildBuilderBondRefundError({
+message:
+"This launch bond refund is already processing. Review its refund status before retrying.",
+code: "builder_bond_refund_processing",
+statusCode: 409,
+refund: existing,
+});
+}
+
+if (!existing) {
+try {
+const insert = await db.run(
+`
+INSERT INTO ${BUILDER_BOND_REFUND_TABLE} (
+wallet,
+bond_tx_signature,
+bond_sol,
+bond_lamports,
+bond_escrow_address,
+status,
+reason_code,
+request_action,
+refund_attempts,
+requested_at,
+last_attempt_at,
+created_at,
+updated_at
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+`,
+[
+normalizedWallet,
+signature,
+normalizedBondSol,
+solToLamports(normalizedBondSol),
+getBuilderBondEscrowWallet(),
+BUILDER_BOND_REFUND_PROCESSING_STATUS,
+cleanText(reasonCode, 120) || "wallet_intervention_active",
+cleanText(requestAction, 120) || "builder_bond_refund",
+]
+);
+
+const created = await db.get(
+`
+SELECT *
+FROM ${BUILDER_BOND_REFUND_TABLE}
+WHERE id = ?
+LIMIT 1
+`,
+[insert.lastID]
+);
+
+return {
+ledger: normalizeBuilderBondRefundRow(created),
+alreadyRefunded: false,
+};
+} catch (err) {
+const message = String(err?.message || "").toLowerCase();
+
+if (!message.includes("unique") && !message.includes("constraint")) {
+throw err;
+}
+
+existing = await getBuilderBondRefundBySignature(signature);
+
+if (existing?.status === BUILDER_BOND_REFUND_REFUNDED_STATUS) {
+return {
+ledger: existing,
+alreadyRefunded: true,
+};
+}
+
+throw buildBuilderBondRefundError({
+message:
+"This launch bond refund is already being handled. Review its refund status before retrying.",
+code: "builder_bond_refund_processing",
+statusCode: 409,
+refund: existing,
+});
+}
+}
+
+await db.run(
+`
+UPDATE ${BUILDER_BOND_REFUND_TABLE}
+SET
+wallet = ?,
+bond_sol = ?,
+bond_lamports = ?,
+bond_escrow_address = ?,
+status = ?,
+reason_code = ?,
+request_action = ?,
+refund_attempts = COALESCE(refund_attempts, 0) + 1,
+last_attempt_at = CURRENT_TIMESTAMP,
+last_error = NULL,
+failed_at = NULL,
+updated_at = CURRENT_TIMESTAMP
+WHERE id = ?
+`,
+[
+normalizedWallet,
+normalizedBondSol,
+solToLamports(normalizedBondSol),
+getBuilderBondEscrowWallet(),
+BUILDER_BOND_REFUND_PROCESSING_STATUS,
+cleanText(reasonCode, 120) || "wallet_intervention_active",
+cleanText(requestAction, 120) || "builder_bond_refund",
+existing.id,
+]
+);
+
+const refreshed = await db.get(
+`
+SELECT *
+FROM ${BUILDER_BOND_REFUND_TABLE}
+WHERE id = ?
+LIMIT 1
+`,
+[existing.id]
+);
+
+return {
+ledger: normalizeBuilderBondRefundRow(refreshed),
+alreadyRefunded: false,
+};
+}
+
+async function markBuilderBondRefundRefunded(
+ledgerId,
+{ refundTransfer = null } = {}
+) {
+if (!ledgerId) return null;
+
+await db.run(
+`
+UPDATE ${BUILDER_BOND_REFUND_TABLE}
+SET
+status = ?,
+refund_tx_signature = ?,
+relayer_wallet = ?,
+source_wallet = ?,
+refunded_at = CURRENT_TIMESTAMP,
+last_error = NULL,
+updated_at = CURRENT_TIMESTAMP
+WHERE id = ?
+`,
+[
+BUILDER_BOND_REFUND_REFUNDED_STATUS,
+cleanText(refundTransfer?.signature, 140) || null,
+cleanText(refundTransfer?.feePayer, 120) || null,
+cleanText(refundTransfer?.sourceWallet, 120) || null,
+ledgerId,
+]
+);
+
+const row = await db.get(
+`
+SELECT *
+FROM ${BUILDER_BOND_REFUND_TABLE}
+WHERE id = ?
+LIMIT 1
+`,
+[ledgerId]
+);
+
+return normalizeBuilderBondRefundRow(row);
+}
+
+async function markBuilderBondRefundFailed(ledgerId, errorMessage = "") {
+if (!ledgerId) return null;
+
+await db.run(
+`
+UPDATE ${BUILDER_BOND_REFUND_TABLE}
+SET
+status = ?,
+last_error = ?,
+failed_at = CURRENT_TIMESTAMP,
+updated_at = CURRENT_TIMESTAMP
+WHERE id = ?
+`,
+[
+BUILDER_BOND_REFUND_FAILED_STATUS,
+cleanText(errorMessage, 500) || "builder bond refund failed",
+ledgerId,
+]
+);
+
+const row = await db.get(
+`
+SELECT *
+FROM ${BUILDER_BOND_REFUND_TABLE}
+WHERE id = ?
+LIMIT 1
+`,
+[ledgerId]
+);
+
+return normalizeBuilderBondRefundRow(row);
 }
 
 async function getCommitRowsForLaunch(launchId) {
@@ -1787,445 +2916,6 @@ function extractGraduationReadiness(lifecycle) {
 return lifecycle?.graduationReadiness || null;
 }
 
-function toTruthyBoolean(value) {
-if (value === true || value === 1) return true;
-const raw = String(value ?? "").trim().toLowerCase();
-return raw === "true" || raw === "1" || raw === "yes";
-}
-
-function getInternalApiOrigin() {
-const explicit =
-cleanText(process.env.INTERNAL_API_BASE, 500) ||
-cleanText(process.env.INTERNAL_API_ORIGIN, 500) ||
-cleanText(process.env.API_BASE_INTERNAL, 500);
-
-if (explicit) {
-return explicit.replace(/\/$/, "");
-}
-
-return `http://127.0.0.1:${INTERNAL_API_PORT}`;
-}
-
-function buildCompliancePagePath(wallet, mode = "builder") {
-const params = new URLSearchParams();
-params.set("mode", mode);
-if (wallet) {
-params.set("wallet", wallet);
-}
-return `./compliance.html?${params.toString()}`;
-}
-
-function normalizeComplianceBucket(value, fallback = "unknown") {
-const normalized = cleanText(value, 40).toLowerCase();
-return normalized || fallback;
-}
-
-function normalizeComplianceSignal(signal = {}) {
-return {
-code: cleanText(signal?.code, 80).toLowerCase(),
-severity: cleanText(signal?.severity, 20).toLowerCase() || "low",
-source: cleanText(signal?.source, 40).toLowerCase() || "system",
-blocking: toTruthyBoolean(signal?.blocking),
-escalates: toTruthyBoolean(signal?.escalates),
-message: cleanText(signal?.message, 500),
-};
-}
-
-function normalizeComplianceStatusPayload(payload = {}, { wallet = "", mode = "builder" } = {}) {
-const normalizedMode =
-cleanText(mode, 20).toLowerCase() === "participant" ? "participant" : "builder";
-
-const profile =
-payload?.profile && typeof payload.profile === "object" ? payload.profile : {};
-
-const status =
-cleanText(
-payload.status ?? payload.profile_status ?? profile.status,
-40
-).toLowerCase() || "not_started";
-
-const builderGateEnabled = toTruthyBoolean(
-payload.builder_gate_enabled ??
-payload.builderGateEnabled ??
-payload.requires_builder_approval ??
-payload.requiresBuilderApproval
-);
-
-const participantGateEnabled = toTruthyBoolean(
-payload.participant_gate_enabled ??
-payload.participantGateEnabled ??
-payload.requires_participant_approval ??
-payload.requiresParticipantApproval
-);
-
-const restrictedJurisdiction = toTruthyBoolean(
-payload.restricted_jurisdiction ?? payload.restrictedJurisdiction
-);
-
-const manualReviewRequired = toTruthyBoolean(
-profile.manual_review_required ??
-profile.manualReviewRequired ??
-payload.manual_review_required ??
-payload.manualReviewRequired
-);
-
-const manualReviewReason = cleanText(
-profile.manual_review_reason ??
-profile.manualReviewReason ??
-payload.manual_review_reason ??
-payload.manualReviewReason,
-500
-);
-
-const approvalRequired = toTruthyBoolean(
-payload.approval_required ?? payload.approvalRequired
-);
-
-const silentMonitoring = toTruthyBoolean(
-payload.silent_monitoring ?? payload.silentMonitoring
-);
-
-const escalationMonitoring = toTruthyBoolean(
-payload.escalation_monitoring ?? payload.escalationMonitoring
-);
-
-const blockingSignals = Array.isArray(payload.blocking_signals)
-? payload.blocking_signals.map(normalizeComplianceSignal)
-: [];
-
-const escalationSignals = Array.isArray(payload.escalation_signals)
-? payload.escalation_signals.map(normalizeComplianceSignal)
-: [];
-
-const escalationRequired =
-toTruthyBoolean(payload.escalation_required ?? payload.escalationRequired) ||
-blockingSignals.length > 0 ||
-escalationSignals.length > 0;
-
-const explicitTransactionalAccess =
-payload.transactional_access ??
-payload.transactionalAccess ??
-payload.allowed ??
-payload.is_allowed ??
-payload.can_create_launch ??
-payload.canCreateLaunch;
-
-const complianceBucket = normalizeComplianceBucket(
-payload.compliance_bucket ?? payload.bucket,
-""
-);
-const builderBucket = normalizeComplianceBucket(
-payload.builder_bucket,
-complianceBucket || "silent"
-);
-const participantBucket = normalizeComplianceBucket(
-payload.participant_bucket,
-complianceBucket || "silent"
-);
-const jurisdictionBucket = normalizeComplianceBucket(
-payload.jurisdiction_bucket,
-"unknown"
-);
-const manualReviewBucket = normalizeComplianceBucket(
-payload.manual_review_bucket,
-"unknown"
-);
-const surfaceBucket =
-normalizedMode === "participant"
-? participantBucket || complianceBucket || "silent"
-: builderBucket || complianceBucket || "silent";
-
-const gateEnabled =
-normalizedMode === "participant" ? participantGateEnabled : builderGateEnabled;
-
-let transactionalAccess;
-if (
-explicitTransactionalAccess !== undefined &&
-explicitTransactionalAccess !== null &&
-String(explicitTransactionalAccess).trim() !== ""
-) {
-transactionalAccess = toTruthyBoolean(explicitTransactionalAccess);
-} else if (!gateEnabled) {
-transactionalAccess = true;
-} else if (restrictedJurisdiction || manualReviewRequired) {
-transactionalAccess = false;
-} else if (approvalRequired) {
-transactionalAccess = status === "approved";
-} else {
-transactionalAccess = true;
-}
-
-let accessState = cleanText(
-payload.access_state ?? payload.accessState,
-40
-).toLowerCase();
-
-if (!accessState) {
-if (!transactionalAccess) {
-if (status === "pending") {
-accessState = "pending";
-} else if (approvalRequired) {
-accessState = "required";
-} else {
-accessState = "blocked";
-}
-} else if (surfaceBucket === "silent" || silentMonitoring) {
-accessState = "silent";
-} else if (
-surfaceBucket === "escalation" ||
-escalationMonitoring ||
-escalationRequired
-) {
-accessState = "watch";
-} else if (approvalRequired && status === "approved") {
-accessState = "approved";
-} else {
-accessState = "open";
-}
-}
-
-const accessReason = cleanText(
-payload.access_reason ?? payload.accessReason,
-500
-);
-
-return {
-...payload,
-profile,
-wallet: cleanText(payload.wallet, 120) || cleanText(wallet, 120),
-mode: normalizedMode,
-status,
-builder_gate_enabled: builderGateEnabled,
-participant_gate_enabled: participantGateEnabled,
-restricted_jurisdiction: restrictedJurisdiction,
-manual_review_required: manualReviewRequired,
-manual_review_reason: manualReviewReason,
-approval_required: approvalRequired,
-transactional_access: transactionalAccess,
-allowed: transactionalAccess,
-gate_enabled: gateEnabled,
-silent_monitoring: silentMonitoring,
-escalation_monitoring: escalationMonitoring,
-escalation_required: escalationRequired,
-blocking_signals: blockingSignals,
-escalation_signals: escalationSignals,
-compliance_bucket: complianceBucket || surfaceBucket || "unknown",
-builder_bucket: builderBucket || complianceBucket || "unknown",
-participant_bucket: participantBucket || complianceBucket || "unknown",
-jurisdiction_bucket: jurisdictionBucket,
-manual_review_bucket: manualReviewBucket,
-surface_bucket: surfaceBucket || complianceBucket || "unknown",
-access_state: accessState || "unknown",
-access_reason: accessReason,
-};
-}
-
-function getComplianceAccessErrorMessage(compliance = {}) {
-const actor = compliance?.mode === "participant" ? "participant" : "builder";
-
-if (cleanText(compliance?.access_reason, 500)) {
-return cleanText(compliance.access_reason, 500);
-}
-
-if (compliance?.restricted_jurisdiction) {
-return `${actor} access is restricted for the current jurisdiction`;
-}
-
-if (compliance?.manual_review_required) {
-return (
-cleanText(compliance?.manual_review_reason, 500) ||
-`${actor} profile is in manual review`
-);
-}
-
-if (compliance?.access_state === "blocked") {
-return `${actor} access is currently blocked`;
-}
-
-if (compliance?.access_state === "pending") {
-return `${actor} verification is pending review before transactional access can proceed`;
-}
-
-if (compliance?.access_state === "required") {
-return `complete ${actor} verification before continuing`;
-}
-
-if (compliance?.status === "rejected") {
-return `${actor} verification was rejected. review the compliance profile before trying again`;
-}
-
-if (compliance?.status === "restricted") {
-return `${actor} profile is currently restricted`;
-}
-
-return `complete ${actor} verification before continuing`;
-}
-
-function buildComplianceError(wallet, compliance, action = "transaction", mode = "builder") {
-const normalizedMode =
-cleanText(mode, 20).toLowerCase() === "participant" ? "participant" : "builder";
-
-const err = new Error(getComplianceAccessErrorMessage(compliance));
-err.statusCode = 403;
-err.code = `${normalizedMode}_compliance_access_blocked`;
-err.mode = normalizedMode;
-err.action = action;
-err.wallet = cleanText(wallet, 120);
-err.compliance = compliance || null;
-err.complianceUrl = buildCompliancePagePath(wallet, normalizedMode);
-return err;
-}
-
-function maybeSendComplianceError(res, err) {
-if (!err) return false;
-
-if (
-err.code === "builder_compliance_access_blocked" ||
-err.code === "participant_compliance_access_blocked" ||
-Number(err.statusCode) === 403
-) {
-res.status(Number(err.statusCode) || 403).json({
-ok: false,
-error: err.message || "compliance access is blocked",
-code: err.code || "compliance_access_blocked",
-mode: err.mode || null,
-action: err.action || null,
-compliance: err.compliance || null,
-complianceUrl: err.complianceUrl || null,
-});
-return true;
-}
-
-if (Number(err.statusCode) === 502) {
-res.status(502).json({
-ok: false,
-error: err.message || "failed to resolve compliance status",
-code: err.code || "compliance_unavailable",
-mode: err.mode || null,
-complianceUrl: err.complianceUrl || null,
-});
-return true;
-}
-
-return false;
-}
-
-async function fetchComplianceStatus(req, { wallet, mode = "builder" } = {}) {
-if (typeof fetch !== "function") {
-const err = new Error("native fetch is not available for compliance checks");
-err.statusCode = 502;
-err.code = "compliance_unavailable";
-err.mode = mode;
-err.complianceUrl = buildCompliancePagePath(wallet, mode);
-throw err;
-}
-
-const normalizedWallet = cleanText(wallet, 120);
-const normalizedMode =
-cleanText(mode, 20).toLowerCase() === "participant" ? "participant" : "builder";
-
-if (!normalizedWallet) {
-const err = new Error("wallet is required for compliance checks");
-err.statusCode = 400;
-err.code = "wallet_required";
-err.mode = normalizedMode;
-throw err;
-}
-
-const origin = getInternalApiOrigin();
-const url =
-`${origin}/api/compliance/status?wallet=${encodeURIComponent(
-normalizedWallet
-)}` +
-`&mode=${encodeURIComponent(normalizedMode)}` +
-`&context=${encodeURIComponent(normalizedMode)}` +
-`&surface=${encodeURIComponent("launcher")}`;
-
-let response;
-try {
-response = await fetch(url, {
-method: "GET",
-headers: {
-Accept: "application/json",
-},
-});
-} catch (cause) {
-const err = new Error("failed to resolve compliance status");
-err.statusCode = 502;
-err.code = "compliance_unavailable";
-err.mode = normalizedMode;
-err.complianceUrl = buildCompliancePagePath(normalizedWallet, normalizedMode);
-err.cause = cause;
-throw err;
-}
-
-let payload = null;
-try {
-payload = await response.json();
-} catch {
-payload = null;
-}
-
-if (!response.ok || !payload) {
-const err = new Error(
-payload?.error ||
-`failed to resolve compliance status (${response.status})`
-);
-err.statusCode =
-response.status >= 400 && response.status < 500 ? response.status : 502;
-err.code =
-err.statusCode === 404
-? "compliance_unavailable"
-: "compliance_status_failed";
-err.mode = normalizedMode;
-err.complianceUrl = buildCompliancePagePath(normalizedWallet, normalizedMode);
-throw err;
-}
-
-return normalizeComplianceStatusPayload(payload, {
-wallet: normalizedWallet,
-mode: normalizedMode,
-});
-}
-
-async function requireComplianceAccess(
-req,
-{ wallet, mode = "builder", action = "transaction" } = {}
-) {
-const compliance = await fetchComplianceStatus(req, {
-wallet,
-mode,
-});
-
-if (compliance.allowed) {
-return compliance;
-}
-
-throw buildComplianceError(wallet, compliance, action, mode);
-}
-
-async function requireBuilderLaunchAccess(
-req,
-{ wallet, action = "launch_create" } = {}
-) {
-return requireComplianceAccess(req, {
-wallet,
-mode: "builder",
-action,
-});
-}
-
-async function requireParticipantLaunchAccess(
-req,
-{ wallet, action = "prepare_commit" } = {}
-) {
-return requireComplianceAccess(req, {
-wallet,
-mode: "participant",
-action,
-});
-}
-
 async function buildEscrowTransferTransaction({
 wallet,
 solAmount,
@@ -2373,6 +3063,236 @@ refundedLamports: lamports,
 feePayer: relayerKeypair.publicKey.toBase58(),
 sourceWallet: escrowKeypair.publicKey.toBase58(),
 };
+}
+
+async function sendBuilderBondRefundTransfer({
+destinationWallet,
+solAmount,
+}) {
+const destination = normalizeWallet(destinationWallet);
+
+if (!isValidSolanaAddress(destination)) {
+throw new Error("builder bond refund destination wallet is invalid");
+}
+
+const sourceAddress = getBuilderBondEscrowWallet();
+
+if (!isValidSolanaAddress(sourceAddress)) {
+throw new Error("builder bond escrow wallet is invalid");
+}
+
+const connection = new Connection(getRpcUrl(), "confirmed");
+const sourceKeypair = getBuilderBondEscrowKeypair();
+const relayerKeypair = getRelayerKeypair(sourceKeypair);
+
+if (sourceKeypair.publicKey.toBase58() !== sourceAddress) {
+throw new Error(
+"configured builder bond escrow signer does not match BUILDER_BOND_ESCROW_WALLET"
+);
+}
+
+const lamports = solToLamports(solAmount);
+if (!Number.isFinite(lamports) || lamports <= 0) {
+throw new Error("invalid builder bond refund amount");
+}
+
+const feePayerIsSource =
+relayerKeypair.publicKey.toBase58() === sourceKeypair.publicKey.toBase58();
+
+const sourceBalance = await connection.getBalance(
+sourceKeypair.publicKey,
+"confirmed"
+);
+
+const requiredSourceBalance =
+lamports + (feePayerIsSource ? REFUND_FEE_BUFFER_LAMPORTS : 0);
+
+if (sourceBalance < requiredSourceBalance) {
+throw new Error(
+`builder bond escrow lacks funds for full refund: balance=${sourceBalance}, refund=${lamports}`
+);
+}
+
+const { blockhash, lastValidBlockHeight } =
+await connection.getLatestBlockhash("confirmed");
+
+const tx = new Transaction({
+feePayer: relayerKeypair.publicKey,
+recentBlockhash: blockhash,
+}).add(
+SystemProgram.transfer({
+fromPubkey: sourceKeypair.publicKey,
+toPubkey: new PublicKey(destination),
+lamports,
+})
+);
+
+const signers = feePayerIsSource
+? [sourceKeypair]
+: [relayerKeypair, sourceKeypair];
+
+const signature = await connection.sendTransaction(tx, signers, {
+skipPreflight: false,
+preflightCommitment: "confirmed",
+});
+
+const confirmation = await connection.confirmTransaction(
+{
+signature,
+blockhash,
+lastValidBlockHeight,
+},
+"confirmed"
+);
+
+if (confirmation?.value?.err) {
+throw new Error("builder bond refund transaction confirmation failed");
+}
+
+return {
+signature,
+refundedSol: Number(solAmount),
+refundedLamports: lamports,
+feePayer: relayerKeypair.publicKey.toBase58(),
+sourceWallet: sourceKeypair.publicKey.toBase58(),
+destinationWallet: destination,
+};
+}
+
+async function executeBuilderBondRefundNow({
+wallet,
+builderBondSol,
+bondTxSignature,
+reasonCode = "wallet_intervention_active",
+requestAction = "builder_bond_refund",
+} = {}) {
+const normalizedWallet = normalizeWallet(wallet);
+const signature = cleanText(bondTxSignature, 140);
+const lockKey = buildBuilderBondRefundLockKey(signature);
+
+return runRefundExecutionLocked(lockKey, async () => {
+const attachedLaunch = await db.get(
+`
+SELECT id
+FROM launches
+WHERE builder_bond_tx_signature = ?
+LIMIT 1
+`,
+[signature]
+);
+
+if (attachedLaunch?.id) {
+throw buildBuilderBondRefundError({
+message:
+"This launch bond has already been attached to a launch and cannot be refunded through the unused blocked-builder refund path.",
+code: "builder_bond_attached_to_launch",
+statusCode: 409,
+});
+}
+
+const claimed = await claimBuilderBondRefundProcessing({
+wallet: normalizedWallet,
+builderBondSol,
+bondTxSignature: signature,
+reasonCode,
+requestAction,
+});
+
+if (claimed.alreadyRefunded) {
+return {
+ledger: claimed.ledger,
+refundTransfer: {
+signature: claimed.ledger.refund_tx_signature || null,
+refundedSol: claimed.ledger.bond_sol,
+refundedLamports: claimed.ledger.bond_lamports,
+feePayer: claimed.ledger.relayer_wallet || null,
+sourceWallet: claimed.ledger.source_wallet || null,
+destinationWallet: claimed.ledger.wallet,
+},
+alreadyRefunded: true,
+};
+}
+
+let ledger = claimed.ledger;
+
+try {
+const refundTransfer = await sendBuilderBondRefundTransfer({
+destinationWallet: normalizedWallet,
+solAmount: builderBondSol,
+});
+
+ledger = await markBuilderBondRefundRefunded(ledger.id, {
+refundTransfer,
+});
+
+return {
+ledger,
+refundTransfer,
+alreadyRefunded: false,
+};
+} catch (err) {
+if (ledger?.id) {
+await markBuilderBondRefundFailed(
+ledger.id,
+err?.message || "builder bond refund failed"
+);
+}
+
+throw err;
+}
+});
+}
+
+function buildBlockedBuilderBondRefundResponse({
+intervention,
+refundResult,
+builderBondSol,
+bondTxSignature,
+} = {}) {
+return {
+ok: false,
+error:
+"This builder wallet is currently blocked from creating launches. The unused launch bond payment has been refunded.",
+code: "launcher_wallet_intervention_active",
+role: BUILDER_ACKNOWLEDGEMENT_ROLE,
+internalInterventionActive: true,
+interventionReasonCode: intervention?.reason_code || null,
+acknowledgementModel: "acknowledgement_only",
+identityVerificationRequired: false,
+builderBondSol: Number(builderBondSol || 0),
+launchBondSol: Number(builderBondSol || 0),
+bondTxSignature: bondTxSignature || null,
+refundStatus:
+refundResult?.ledger?.status || BUILDER_BOND_REFUND_REFUNDED_STATUS,
+refundTxSignature: refundResult?.refundTransfer?.signature || null,
+refundedSol: Number(refundResult?.refundTransfer?.refundedSol || 0),
+refundLedgerId: refundResult?.ledger?.id || null,
+refundAlreadyCompleted: Boolean(refundResult?.alreadyRefunded),
+};
+}
+
+function maybeSendBuilderBondRefundError(res, err) {
+if (
+!err ||
+![
+"builder_bond_refund_not_configured",
+"builder_bond_refund_processing",
+"builder_bond_already_refunded",
+"builder_bond_attached_to_launch",
+"invalid_builder_bond_refund_request",
+].includes(err.code)
+) {
+return false;
+}
+
+res.status(Number(err.statusCode) || 409).json({
+ok: false,
+error: err.message || "Builder bond refund could not proceed.",
+code: err.code,
+builderBondRefund: err.builderBondRefund || null,
+});
+
+return true;
 }
 
 async function executeSharedWalletRefundNow({
@@ -3190,6 +4110,7 @@ globalThis.__mssLaunchReconcileWorkerStarted = true;
 
 setTimeout(() => {
 void reconcileActiveLaunchesWorker();
+void refundLedgerWorkerTick();
 void topUpMintReservationPool({
 requiredTag: REQUIRED_MINT_TAG,
 targetSize: 10,
@@ -3202,8 +4123,245 @@ console.error("Initial mint pool warmup failed:", err);
 
 setInterval(() => {
 void reconcileActiveLaunchesWorker();
+void refundLedgerWorkerTick();
 }, RECONCILE_INTERVAL_MS);
 }
+
+router.get("/acknowledgements/status", async (req, res) => {
+try {
+const wallet = normalizeWallet(req.query.wallet);
+const role = normalizeAcknowledgementRole(req.query.role);
+const launchIdRaw = cleanText(req.query.launchId ?? req.query.launch_id, 40);
+const launchId = launchIdRaw ? Number(launchIdRaw) : null;
+
+if (!wallet || !role) {
+return res.status(400).json({
+ok: false,
+error: "wallet and valid role are required",
+});
+}
+
+if (launchIdRaw && (!Number.isFinite(launchId) || launchId <= 0)) {
+return res.status(400).json({
+ok: false,
+error: "launchId must be valid when supplied",
+});
+}
+
+const acknowledgement = await findLauncherAcknowledgement({
+wallet,
+role,
+launchId,
+});
+
+return res.json({
+ok: true,
+wallet,
+role,
+launchId,
+acknowledgement,
+accepted: isAcknowledgementSatisfied(acknowledgement, role),
+requiredAcknowledgements: buildAcknowledgementRequirements(role).map(
+(item) => item.key
+),
+versions: LAUNCH_ACKNOWLEDGEMENT_VERSIONS,
+model: "acknowledgement_only",
+identityVerificationRequired: false,
+});
+} catch (err) {
+if (maybeSendAcknowledgementError(res, err)) {
+return;
+}
+
+console.error("GET /api/launcher/acknowledgements/status failed:", err);
+return res.status(500).json({
+ok: false,
+error: err.message || "failed to fetch launcher acknowledgement status",
+});
+}
+});
+
+router.post("/acknowledgements", async (req, res) => {
+try {
+const wallet = normalizeWallet(req.body.wallet);
+const role = normalizeAcknowledgementRole(req.body.role);
+const launchIdRaw = cleanText(req.body.launchId ?? req.body.launch_id, 40);
+const launchId = launchIdRaw ? Number(launchIdRaw) : null;
+
+if (!wallet || !role) {
+return res.status(400).json({
+ok: false,
+error: "wallet and valid role are required",
+});
+}
+
+if (launchIdRaw && (!Number.isFinite(launchId) || launchId <= 0)) {
+return res.status(400).json({
+ok: false,
+error: "launchId must be valid when supplied",
+});
+}
+
+const acknowledgement = await saveLauncherAcknowledgement({
+wallet,
+role,
+launchId,
+body: req.body,
+action: cleanText(req.body.action, 80) || "acknowledge",
+});
+
+return res.json({
+ok: true,
+wallet,
+role,
+launchId,
+acknowledgement,
+accepted: true,
+requiredAcknowledgements: buildAcknowledgementRequirements(role).map(
+(item) => item.key
+),
+versions: LAUNCH_ACKNOWLEDGEMENT_VERSIONS,
+model: "acknowledgement_only",
+identityVerificationRequired: false,
+});
+} catch (err) {
+if (maybeSendAcknowledgementError(res, err)) {
+return;
+}
+
+console.error("POST /api/launcher/acknowledgements failed:", err);
+return res.status(500).json({
+ok: false,
+error: err.message || "failed to save launcher acknowledgements",
+});
+}
+});
+
+router.get("/builder-bond-refunds/status", async (req, res) => {
+try {
+const wallet = normalizeWallet(req.query.wallet);
+const bondTxSignature = cleanText(
+req.query.txSignature ?? req.query.bond_tx_signature,
+140
+);
+
+if (!wallet || !bondTxSignature) {
+return res.status(400).json({
+ok: false,
+error: "wallet and bond transaction signature are required",
+});
+}
+
+const refund = await getBuilderBondRefundBySignature(bondTxSignature);
+
+if (
+!refund ||
+normalizeWalletKey(refund.wallet) !== normalizeWalletKey(wallet)
+) {
+return res.status(404).json({
+ok: false,
+error: "builder bond refund record not found",
+});
+}
+
+return res.json({
+ok: true,
+refund,
+});
+} catch (err) {
+if (maybeSendBuilderBondRefundError(res, err)) {
+return;
+}
+
+console.error("GET /api/launcher/builder-bond-refunds/status failed:", err);
+return res.status(500).json({
+ok: false,
+error: err.message || "failed to load builder bond refund status",
+});
+}
+});
+
+router.post("/builder-bond-refunds/retry", async (req, res) => {
+try {
+const wallet = normalizeWallet(req.body.wallet);
+const builderBondSol = Number(
+req.body.builderBondSol ??
+req.body.builder_bond_sol ??
+req.body.launchBondSol ??
+req.body.launch_bond_sol
+);
+const bondTxSignature = cleanText(
+req.body.txSignature ??
+req.body.tx_signature ??
+req.body.bondTxSignature ??
+req.body.bond_tx_signature,
+140
+);
+
+if (!wallet || !Number.isFinite(builderBondSol) || !bondTxSignature) {
+return res.status(400).json({
+ok: false,
+error: "wallet, launch bond amount, and bond transaction signature are required",
+});
+}
+
+if (
+builderBondSol < MIN_LAUNCH_BOND_SOL ||
+builderBondSol > MAX_LAUNCH_BOND_SOL
+) {
+return res.status(400).json({
+ok: false,
+error: `launch bond must be between ${MIN_LAUNCH_BOND_SOL} and ${MAX_LAUNCH_BOND_SOL} SOL`,
+});
+}
+
+const intervention = await getInternalWalletIntervention(wallet);
+
+if (!intervention.blocked) {
+return res.status(403).json({
+ok: false,
+error:
+"This refund endpoint is reserved for unused launch bonds belonging to internally blocked builder wallets.",
+code: "blocked_builder_refund_not_available",
+});
+}
+
+await verifyCommitTransfer({
+txSignature: bondTxSignature,
+expectedSender: wallet,
+expectedDestination: getBuilderBondEscrowWallet(),
+expectedLamports: solToLamports(builderBondSol),
+reference: buildLaunchBondReference(wallet),
+});
+
+const refundResult = await executeBuilderBondRefundNow({
+wallet,
+builderBondSol,
+bondTxSignature,
+reasonCode: intervention.reason_code || "wallet_intervention_active",
+requestAction: "retry_blocked_builder_bond_refund",
+});
+
+return res.json({
+ok: true,
+message: "Unused blocked-builder launch bond refunded.",
+refund: refundResult.ledger,
+refundTxSignature: refundResult.refundTransfer?.signature || null,
+refundedSol: refundResult.refundTransfer?.refundedSol || 0,
+refundAlreadyCompleted: Boolean(refundResult.alreadyRefunded),
+});
+} catch (err) {
+if (maybeSendBuilderBondRefundError(res, err)) {
+return;
+}
+
+console.error("POST /api/launcher/builder-bond-refunds/retry failed:", err);
+return res.status(500).json({
+ok: false,
+error: err.message || "failed to retry builder bond refund",
+});
+}
+});
 
 router.post("/prepare-builder-bond", async (req, res) => {
 try {
@@ -3229,9 +4387,19 @@ error: `launch bond must be between ${MIN_LAUNCH_BOND_SOL} and ${MAX_LAUNCH_BOND
 });
 }
 
-await requireBuilderLaunchAccess(req, {
+await requireNoInternalWalletIntervention({
 wallet,
+role: BUILDER_ACKNOWLEDGEMENT_ROLE,
 action: "prepare_builder_bond",
+});
+
+const acknowledgement = await saveLauncherAcknowledgement({
+wallet,
+role: BUILDER_ACKNOWLEDGEMENT_ROLE,
+launchId: null,
+body: req.body,
+action: "prepare_builder_bond",
+signatureMessage: buildLaunchBondReference(wallet),
 });
 
 const prepared = await buildEscrowTransferTransaction({
@@ -3246,10 +4414,17 @@ ok: true,
 wallet,
 builderBondSol,
 launchBondSol: builderBondSol,
+acknowledgement,
+acknowledgementModel: "acknowledgement_only",
+identityVerificationRequired: false,
 ...prepared,
 });
 } catch (err) {
-if (maybeSendComplianceError(res, err)) {
+if (maybeSendInternalWalletInterventionError(res, err)) {
+return;
+}
+
+if (maybeSendAcknowledgementError(res, err)) {
 return;
 }
 
@@ -3291,6 +4466,26 @@ builderBondSol > MAX_LAUNCH_BOND_SOL
 return res.status(400).json({
 ok: false,
 error: `launch bond must be between ${MIN_LAUNCH_BOND_SOL} and ${MAX_LAUNCH_BOND_SOL} SOL`,
+});
+}
+
+const transactionAlreadySubmittedByWallet = Boolean(txSignatureInput);
+let acknowledgement = null;
+
+if (!transactionAlreadySubmittedByWallet) {
+await requireNoInternalWalletIntervention({
+wallet,
+role: BUILDER_ACKNOWLEDGEMENT_ROLE,
+action: "confirm_builder_bond",
+});
+
+acknowledgement = await ensureLauncherAcknowledgementForAction({
+wallet,
+role: BUILDER_ACKNOWLEDGEMENT_ROLE,
+launchId: null,
+body: req.body,
+action: "confirm_builder_bond",
+signatureMessage: buildLaunchBondReference(wallet),
 });
 }
 
@@ -3349,6 +4544,84 @@ expectedLamports: solToLamports(builderBondSol),
 reference: buildLaunchBondReference(wallet),
 });
 
+const intervention = await getInternalWalletIntervention(wallet);
+
+if (intervention.blocked) {
+const refundResult = await executeBuilderBondRefundNow({
+wallet,
+builderBondSol,
+bondTxSignature: txSignature,
+reasonCode: intervention.reason_code || "wallet_intervention_active",
+requestAction: "confirm_builder_bond_blocked",
+});
+
+return res.status(409).json(
+buildBlockedBuilderBondRefundResponse({
+intervention,
+refundResult,
+builderBondSol,
+bondTxSignature: txSignature,
+})
+);
+}
+
+await assertBuilderBondTransactionUsable(txSignature);
+
+try {
+acknowledgement = await ensureLauncherAcknowledgementForAction({
+wallet,
+role: BUILDER_ACKNOWLEDGEMENT_ROLE,
+launchId: null,
+body: req.body,
+action: "confirm_builder_bond",
+signatureMessage: buildLaunchBondReference(wallet),
+});
+} catch (acknowledgementErr) {
+if (
+acknowledgementErr?.code === "launcher_acknowledgements_required" ||
+acknowledgementErr?.code === "launcher_acknowledgements_not_configured"
+) {
+const refundResult = await executeBuilderBondRefundNow({
+wallet,
+builderBondSol,
+bondTxSignature: txSignature,
+reasonCode: "builder_acknowledgements_missing",
+requestAction: "confirm_builder_bond_acknowledgement_refund",
+});
+
+return res.status(409).json({
+ok: false,
+error:
+"Required builder acknowledgements were not completed before the launch bond payment. The unused launch bond has been refunded.",
+code: acknowledgementErr.code,
+role: BUILDER_ACKNOWLEDGEMENT_ROLE,
+requiredAcknowledgements:
+acknowledgementErr.requiredAcknowledgements || [],
+missingAcknowledgements:
+acknowledgementErr.missingAcknowledgements || [],
+versions: LAUNCH_ACKNOWLEDGEMENT_VERSIONS,
+acknowledgementModel: "acknowledgement_only",
+identityVerificationRequired: false,
+refundStatus:
+refundResult?.ledger?.status || BUILDER_BOND_REFUND_REFUNDED_STATUS,
+refundTxSignature: refundResult?.refundTransfer?.signature || null,
+refundedSol: Number(refundResult?.refundTransfer?.refundedSol || 0),
+refundLedgerId: refundResult?.ledger?.id || null,
+});
+}
+
+throw acknowledgementErr;
+}
+
+acknowledgement = await attachLauncherAcknowledgementSignature({
+wallet,
+role: BUILDER_ACKNOWLEDGEMENT_ROLE,
+launchId: null,
+action: "confirm_builder_bond",
+signatureReference: txSignature,
+signatureMessage: buildLaunchBondReference(wallet),
+});
+
 return res.json({
 ok: true,
 wallet,
@@ -3357,8 +4630,23 @@ launchBondSol: builderBondSol,
 txSignature,
 builderBondPaid: 1,
 launchBondPaid: 1,
+acknowledgement,
+acknowledgementModel: "acknowledgement_only",
+identityVerificationRequired: false,
 });
 } catch (err) {
+if (maybeSendInternalWalletInterventionError(res, err)) {
+return;
+}
+
+if (maybeSendBuilderBondRefundError(res, err)) {
+return;
+}
+
+if (maybeSendAcknowledgementError(res, err)) {
+return;
+}
+
 console.error("POST /api/launcher/confirm-builder-bond failed:", err);
 return res.status(400).json({
 ok: false,
@@ -3417,24 +4705,47 @@ error: validationErr.message,
 });
 }
 
-await requireBuilderLaunchAccess(req, {
-wallet,
-action: "launch_create",
-});
+const initialBuilderIntervention = await getInternalWalletIntervention(wallet);
 
-let builder;
-try {
-builder = await ensureBuilderProfileForWallet(wallet);
-} catch (builderErr) {
-return res.status(400).json({
-ok: false,
-error:
-builderErr.message || "builder profile could not be created automatically",
+if (initialBuilderIntervention.blocked) {
+if (!builderBondTxSignature) {
+throw buildInternalWalletInterventionError({
+wallet,
+role: BUILDER_ACKNOWLEDGEMENT_ROLE,
+action: "launch_create",
 });
 }
 
-let builderBondPaid = 0;
-let finalBuilderBondTxSignature = "";
+await verifyCommitTransfer({
+txSignature: builderBondTxSignature,
+expectedSender: wallet,
+expectedDestination: getBuilderBondEscrowWallet(),
+expectedLamports: solToLamports(builderCfg.builder_bond_sol),
+reference: buildLaunchBondReference(wallet),
+});
+
+const refundResult = await executeBuilderBondRefundNow({
+wallet,
+builderBondSol: builderCfg.builder_bond_sol,
+bondTxSignature: builderBondTxSignature,
+reasonCode:
+initialBuilderIntervention.reason_code || "wallet_intervention_active",
+requestAction: "launch_create_blocked",
+});
+
+return res.status(409).json(
+buildBlockedBuilderBondRefundResponse({
+intervention: initialBuilderIntervention,
+refundResult,
+builderBondSol: builderCfg.builder_bond_sol,
+bondTxSignature: builderBondTxSignature,
+})
+);
+}
+
+validateAcknowledgementInput(req.body, {
+role: BUILDER_ACKNOWLEDGEMENT_ROLE,
+});
 
 if (!builderBondTxSignature) {
 return res.status(400).json({
@@ -3442,6 +4753,8 @@ ok: false,
 error: "launch bond transaction is required",
 });
 }
+
+await assertBuilderBondTransactionUsable(builderBondTxSignature);
 
 const existingLaunchWithBondTx = await db.get(
 `SELECT id FROM launches WHERE builder_bond_tx_signature = ? LIMIT 1`,
@@ -3463,8 +4776,41 @@ expectedLamports: solToLamports(builderCfg.builder_bond_sol),
 reference: buildLaunchBondReference(wallet),
 });
 
-builderBondPaid = 1;
-finalBuilderBondTxSignature = builderBondTxSignature;
+const finalBuilderIntervention = await getInternalWalletIntervention(wallet);
+
+if (finalBuilderIntervention.blocked) {
+const refundResult = await executeBuilderBondRefundNow({
+wallet,
+builderBondSol: builderCfg.builder_bond_sol,
+bondTxSignature: builderBondTxSignature,
+reasonCode:
+finalBuilderIntervention.reason_code || "wallet_intervention_active",
+requestAction: "launch_create_blocked_after_verification",
+});
+
+return res.status(409).json(
+buildBlockedBuilderBondRefundResponse({
+intervention: finalBuilderIntervention,
+refundResult,
+builderBondSol: builderCfg.builder_bond_sol,
+bondTxSignature: builderBondTxSignature,
+})
+);
+}
+
+let builder;
+try {
+builder = await ensureBuilderProfileForWallet(wallet);
+} catch (builderErr) {
+return res.status(400).json({
+ok: false,
+error:
+builderErr.message || "builder profile could not be created automatically",
+});
+}
+
+const builderBondPaid = 1;
+const finalBuilderBondTxSignature = builderBondTxSignature;
 
 const result = await db.run(
 `
@@ -3536,6 +4882,16 @@ REQUIRED_MINT_TAG,
 ]
 );
 
+const acknowledgement = await saveLauncherAcknowledgement({
+wallet,
+role: BUILDER_ACKNOWLEDGEMENT_ROLE,
+launchId: result.lastID,
+body: req.body,
+action: "launch_create",
+signatureReference: builderBondTxSignature,
+signatureMessage: buildLaunchBondReference(wallet),
+});
+
 let reservation = {
 requiredTag: REQUIRED_MINT_TAG,
 reservedMintAddress: null,
@@ -3584,9 +4940,20 @@ reserve_pct: Number(cfg.reserve_pct || 0),
 builder_pct: Number(cfg.builder_pct || 0),
 },
 mintReservation: reservation,
+acknowledgement,
+acknowledgementModel: "acknowledgement_only",
+identityVerificationRequired: false,
 });
 } catch (err) {
-if (maybeSendComplianceError(res, err)) {
+if (maybeSendInternalWalletInterventionError(res, err)) {
+return;
+}
+
+if (maybeSendBuilderBondRefundError(res, err)) {
+return;
+}
+
+if (maybeSendAcknowledgementError(res, err)) {
 return;
 }
 
@@ -3632,9 +4999,19 @@ error: getRestrictedCommitWalletError(),
 });
 }
 
-await requireParticipantLaunchAccess(req, {
+await requireNoInternalWalletIntervention({
 wallet,
+role: PARTICIPANT_ACKNOWLEDGEMENT_ROLE,
 action: "prepare_commit",
+});
+
+const acknowledgement = await saveLauncherAcknowledgement({
+wallet,
+role: PARTICIPANT_ACKNOWLEDGEMENT_ROLE,
+launchId,
+body: req.body,
+action: "prepare_commit",
+signatureMessage: buildCommitReference(launchId),
 });
 
 const existing = await db.get(
@@ -3686,9 +5063,16 @@ currentWalletCommitted: currentWalletTotal,
 remainingWalletCommit: Math.max(0, MAX_WALLET_COMMIT_SOL - currentWalletTotal),
 status: launch.status,
 commitEndsAt: launch.commit_ends_at || null,
+acknowledgement,
+acknowledgementModel: "acknowledgement_only",
+identityVerificationRequired: false,
 });
 } catch (err) {
-if (maybeSendComplianceError(res, err)) {
+if (maybeSendInternalWalletInterventionError(res, err)) {
+return;
+}
+
+if (maybeSendAcknowledgementError(res, err)) {
 return;
 }
 
@@ -3727,6 +5111,7 @@ return res.status(400).json({ ok: false, error: "solAmount must be greater than 
 const txWasAlreadySentByWallet = Boolean(txSignatureInput);
 let launch = await reconcileLaunchState(launchId);
 const initialLaunch = launch;
+let acknowledgement = null;
 
 if (!launch && !txWasAlreadySentByWallet) {
 return res.status(404).json({ ok: false, error: "launch not found" });
@@ -3748,9 +5133,19 @@ error: getRestrictedCommitWalletError(),
 }
 
 if (!txWasAlreadySentByWallet) {
-await requireParticipantLaunchAccess(req, {
+await requireNoInternalWalletIntervention({
 wallet,
+role: PARTICIPANT_ACKNOWLEDGEMENT_ROLE,
 action: "confirm_commit",
+});
+
+acknowledgement = await ensureLauncherAcknowledgementForAction({
+wallet,
+role: PARTICIPANT_ACKNOWLEDGEMENT_ROLE,
+launchId,
+body: req.body,
+action: "confirm_commit",
+signatureMessage: buildCommitReference(launchId),
 });
 }
 
@@ -3891,14 +5286,62 @@ return res.status(refunded.httpStatus).json(refunded.body);
 }
 
 try {
-await requireParticipantLaunchAccess(req, {
+await requireNoInternalWalletIntervention({
 wallet,
+role: PARTICIPANT_ACKNOWLEDGEMENT_ROLE,
 action: "confirm_commit",
 });
-} catch (participantErr) {
+} catch (interventionErr) {
+if (interventionErr?.code === "launcher_wallet_intervention_active") {
+const refunded = await refundRejectedCommit({
+launchId,
+launch,
+wallet,
+solAmount,
+txSignature,
+reason:
+interventionErr.message ||
+"This wallet is currently unable to use Launcher transactions.",
+status: launch.status,
+logLabel: "Late confirm refund failed after internal wallet intervention check",
+});
+
+return res.status(refunded.httpStatus).json({
+...refunded.body,
+code: interventionErr.code,
+role: PARTICIPANT_ACKNOWLEDGEMENT_ROLE,
+internalInterventionActive: true,
+acknowledgementModel: "acknowledgement_only",
+identityVerificationRequired: false,
+});
+}
+
+throw interventionErr;
+}
+
+try {
+acknowledgement = await ensureLauncherAcknowledgementForAction({
+wallet,
+role: PARTICIPANT_ACKNOWLEDGEMENT_ROLE,
+launchId,
+body: req.body,
+action: "confirm_commit",
+signatureReference: txSignature,
+signatureMessage: buildCommitReference(launchId),
+});
+
+acknowledgement = await attachLauncherAcknowledgementSignature({
+wallet,
+role: PARTICIPANT_ACKNOWLEDGEMENT_ROLE,
+launchId,
+action: "confirm_commit",
+signatureReference: txSignature,
+signatureMessage: buildCommitReference(launchId),
+});
+} catch (acknowledgementErr) {
 if (
-Number(participantErr?.statusCode) === 403 ||
-Number(participantErr?.statusCode) === 502
+acknowledgementErr?.code === "launcher_acknowledgements_required" ||
+acknowledgementErr?.code === "launcher_acknowledgements_not_configured"
 ) {
 const refunded = await refundRejectedCommit({
 launchId,
@@ -3907,21 +5350,27 @@ wallet,
 solAmount,
 txSignature,
 reason:
-participantErr.message ||
-"participant access could not be confirmed before commit was accepted",
+acknowledgementErr.message ||
+"required launcher acknowledgements were not confirmed before commit acceptance",
 status: launch.status,
-logLabel: "Late confirm refund failed after participant compliance check",
+logLabel: "Late confirm refund failed after acknowledgement check",
 });
 
 return res.status(refunded.httpStatus).json({
 ...refunded.body,
-code: participantErr.code || null,
-compliance: participantErr.compliance || null,
-complianceUrl: participantErr.complianceUrl || null,
+code: acknowledgementErr.code || null,
+role: acknowledgementErr.role || PARTICIPANT_ACKNOWLEDGEMENT_ROLE,
+requiredAcknowledgements:
+acknowledgementErr.requiredAcknowledgements || [],
+missingAcknowledgements:
+acknowledgementErr.missingAcknowledgements || [],
+versions: LAUNCH_ACKNOWLEDGEMENT_VERSIONS,
+acknowledgementModel: "acknowledgement_only",
+identityVerificationRequired: false,
 });
 }
 
-throw participantErr;
+throw acknowledgementErr;
 }
 
 const existing = await db.get(
@@ -4011,9 +5460,16 @@ status: updatedLaunch.status,
 commitEndsAt: updatedLaunch.commit_ends_at || null,
 countdownEndsAt: updatedLaunch.countdown_ends_at || null,
 liveAt: updatedLaunch.live_at || null,
+acknowledgement,
+acknowledgementModel: "acknowledgement_only",
+identityVerificationRequired: false,
 });
 } catch (err) {
-if (maybeSendComplianceError(res, err)) {
+if (maybeSendInternalWalletInterventionError(res, err)) {
+return;
+}
+
+if (maybeSendAcknowledgementError(res, err)) {
 return;
 }
 
@@ -4754,6 +6210,8 @@ discordUrl: parsedLaunch.discord_url || "",
 lifecycle,
 graduationPlan,
 recent,
+acknowledgementModel: "acknowledgement_only",
+identityVerificationRequired: false,
 });
 } catch (err) {
 console.error("GET /api/launcher/commits/:launchId failed:", err);
@@ -4879,6 +6337,8 @@ parsedLaunch.hard_cap_sol
 },
 lifecycle,
 graduationPlan,
+acknowledgementModel: "acknowledgement_only",
+identityVerificationRequired: false,
 });
 } catch (err) {
 console.error("GET /api/launcher/:id failed:", err);
