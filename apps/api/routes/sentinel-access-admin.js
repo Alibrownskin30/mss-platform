@@ -32,6 +32,14 @@ cassie_admin_audit_log: `PRAGMA table_info(cassie_admin_audit_log)`,
 mss_users: `PRAGMA table_info(mss_users)`,
 }
 
+const ACCESS_CODE_MANAGEMENT_COLUMNS = [
+"created_for_label",
+"campaign_label",
+"revoked_at",
+"revoked_by",
+"revocation_reason",
+]
+
 const ACCESS_CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
 
 function cleanText(value, max = 500) {
@@ -98,7 +106,49 @@ null
 )
 }
 
+function getCreatedForLabel(body = {}) {
+return (
+cleanText(
+body.created_for_label ||
+body.created_for ||
+body.tester_reference ||
+body.tester_label,
+255
+) || null
+)
+}
+
+function getCampaignLabel(body = {}) {
+return (
+cleanText(
+body.campaign_label ||
+body.campaign ||
+body.testing_round ||
+body.round_label,
+255
+) || null
+)
+}
+
+function getRevocationReason(body = {}) {
+return (
+cleanText(
+body.revocation_reason ||
+body.revoke_reason ||
+body.reason ||
+body.notes,
+2000
+) || null
+)
+}
+
+function isCodeRevoked(row = {}) {
+return Boolean(row?.revoked_at)
+}
+
 function buildCodeState(row = {}) {
+if (isCodeRevoked(row)) return "revoked"
+
 const isActive = parseBool(row?.is_active, false)
 const redeemedCount = Number(row?.redeemed_count || 0)
 const maxRedemptions = Number(row?.max_redemptions || 0)
@@ -149,12 +199,20 @@ return true
 function serializeCode(row) {
 if (!row) return null
 
+const state = buildCodeState(row)
+const revokedAt = row.revoked_at || null
+
 return {
 id: Number(row.id || 0),
 code: cleanText(row.code, 128) || null,
 code_type: cleanText(row.code_type, 64) || "trial",
 plan_key: cleanText(row.plan_key, 120) || null,
 plan_label: cleanText(row.plan_label, 120) || null,
+
+created_for_label: cleanText(row.created_for_label, 255) || null,
+tester_reference: cleanText(row.created_for_label, 255) || null,
+campaign_label: cleanText(row.campaign_label, 255) || null,
+
 duration_days: Number(row.duration_days || 0),
 max_redemptions: Number(row.max_redemptions || 0),
 redeemed_count: Number(row.redeemed_count || 0),
@@ -162,21 +220,33 @@ remaining_redemptions: Math.max(
 0,
 Number(row.max_redemptions || 0) - Number(row.redeemed_count || 0)
 ),
+
 bound_user_id:
 row.bound_user_id == null ? null : Number(row.bound_user_id),
 bound_user_email: cleanText(row.bound_user_email, 320) || null,
+
 is_active: parseBool(row.is_active, false),
 starts_at: row.starts_at || null,
 expires_at: row.expires_at || null,
+
+revoked_at: revokedAt,
+revoked_by: cleanText(row.revoked_by, 255) || null,
+revocation_reason: cleanText(row.revocation_reason, 2000) || null,
+
 notes: cleanText(row.notes, 2000) || null,
 metadata: parseJson(row.metadata_json, null),
+
 created_by_user_id:
 row.created_by_user_id == null
 ? null
 : Number(row.created_by_user_id),
 created_at: row.created_at || null,
 updated_at: row.updated_at || null,
-state: buildCodeState(row),
+
+state,
+is_revoked: state === "revoked",
+can_reactivate: state !== "revoked",
+can_revoke: state !== "revoked",
 }
 }
 
@@ -276,6 +346,24 @@ return new Set((rows || []).map((row) => row?.name).filter(Boolean))
 } catch {
 return new Set()
 }
+}
+
+async function requireAccessManagementColumns() {
+const columns = await getTableColumns("sentinel_access_codes")
+
+const missing = ACCESS_CODE_MANAGEMENT_COLUMNS.filter(
+(column) => !columns.has(column)
+)
+
+if (missing.length) {
+throw new Error(
+`Migration 033 is required before Sentinel access management can be used. Missing columns: ${missing.join(
+", "
+)}`
+)
+}
+
+return columns
 }
 
 function randomCodeChunk(length = 4) {
@@ -469,6 +557,7 @@ session_expires_at: session.expiresAt || session.expires_at || null,
 async function listCodes({ limit = 100, filters = {} } = {}) {
 const sqlFilters = []
 const params = []
+const columns = await getTableColumns("sentinel_access_codes")
 
 const stateFilter = cleanText(filters.state, 32).toLowerCase()
 const codeType = cleanText(filters.code_type, 64).toLowerCase()
@@ -477,7 +566,15 @@ filters.is_active == null || filters.is_active === ""
 ? null
 : parseBool(filters.is_active, false)
 const boundUserId = parseIntSafe(filters.bound_user_id, null)
-const search = cleanText(filters.search, 128).toUpperCase()
+const createdForLabel = cleanText(
+filters.created_for_label || filters.created_for,
+255
+).toUpperCase()
+const campaignLabel = cleanText(
+filters.campaign_label || filters.campaign,
+255
+).toUpperCase()
+const search = cleanText(filters.search, 255).toUpperCase()
 
 if (codeType) {
 sqlFilters.push(`c.code_type = ?`)
@@ -494,20 +591,48 @@ sqlFilters.push(`c.bound_user_id = ?`)
 params.push(boundUserId)
 }
 
-if (search) {
-sqlFilters.push(`(
-UPPER(c.code) LIKE ?
-OR UPPER(COALESCE(c.plan_key, '')) LIKE ?
-OR UPPER(COALESCE(c.plan_label, '')) LIKE ?
-OR UPPER(COALESCE(u.email, '')) LIKE ?
-)`)
+if (createdForLabel && columns.has("created_for_label")) {
+sqlFilters.push(`UPPER(COALESCE(c.created_for_label, '')) LIKE ?`)
+params.push(`%${createdForLabel}%`)
+}
 
-params.push(
+if (campaignLabel && columns.has("campaign_label")) {
+sqlFilters.push(`UPPER(COALESCE(c.campaign_label, '')) LIKE ?`)
+params.push(`%${campaignLabel}%`)
+}
+
+if (search) {
+const searchFields = [
+"UPPER(c.code) LIKE ?",
+"UPPER(COALESCE(c.plan_key, '')) LIKE ?",
+"UPPER(COALESCE(c.plan_label, '')) LIKE ?",
+"UPPER(COALESCE(u.email, '')) LIKE ?",
+]
+
+const searchValues = [
 `%${search}%`,
 `%${search}%`,
 `%${search}%`,
-`%${search}%`
-)
+`%${search}%`,
+]
+
+if (columns.has("created_for_label")) {
+searchFields.push("UPPER(COALESCE(c.created_for_label, '')) LIKE ?")
+searchValues.push(`%${search}%`)
+}
+
+if (columns.has("campaign_label")) {
+searchFields.push("UPPER(COALESCE(c.campaign_label, '')) LIKE ?")
+searchValues.push(`%${search}%`)
+}
+
+if (columns.has("revocation_reason")) {
+searchFields.push("UPPER(COALESCE(c.revocation_reason, '')) LIKE ?")
+searchValues.push(`%${search}%`)
+}
+
+sqlFilters.push(`(${searchFields.join(" OR ")})`)
+params.push(...searchValues)
 }
 
 const whereSql = sqlFilters.length
@@ -787,6 +912,15 @@ throw new Error("expires_at must be later than starts_at")
 }
 }
 
+function rejectRevokedCodeMutation(res, code, action = "update") {
+return res.status(409).json({
+ok: false,
+error: "access_code_revoked",
+message: `This access code has been permanently revoked and cannot be ${action}.`,
+code,
+})
+}
+
 router.use(requireSentinelAccessAdminSession)
 
 router.get("/summary", async (req, res) => {
@@ -804,7 +938,16 @@ scheduled_codes: codes.filter((item) => item.state === "scheduled").length,
 exhausted_codes: codes.filter((item) => item.state === "exhausted").length,
 expired_codes: codes.filter((item) => item.state === "expired").length,
 inactive_codes: codes.filter((item) => item.state === "inactive").length,
+revoked_codes: codes.filter((item) => item.state === "revoked").length,
+
 total_redemptions: redemptions.length,
+successful_redemptions: redemptions.filter(
+(item) => item.redemption_status === "success"
+).length,
+revoked_redemptions: redemptions.filter(
+(item) => item.redemption_status === "revoked"
+).length,
+
 active_entitlements: entitlements.filter(
 (item) => item.status === "active"
 ).length,
@@ -849,6 +992,10 @@ state: req.query.state,
 code_type: req.query.code_type,
 is_active: req.query.is_active,
 bound_user_id: req.query.bound_user_id,
+created_for_label:
+req.query.created_for_label || req.query.created_for,
+campaign_label:
+req.query.campaign_label || req.query.campaign,
 search: req.query.search,
 },
 })
@@ -918,6 +1065,8 @@ try {
 const actorId = getActorId(req)
 const auditContext = getAdminAuditContext(req)
 const notes = cleanText(req.body?.notes, 2000) || null
+const createdForLabel = getCreatedForLabel(req.body)
+const campaignLabel = getCampaignLabel(req.body)
 
 const quantity = Math.max(
 1,
@@ -941,6 +1090,7 @@ parseIntSafe(req.body?.max_redemptions, 1) ?? 1
 const isActive = parseBool(req.body?.is_active, true)
 const startsAt = cleanText(req.body?.starts_at, 64) || null
 const expiresAt = cleanText(req.body?.expires_at, 64) || null
+const createdByUserId = parseIntSafe(req.body?.created_by_user_id, null)
 
 const metadata =
 req.body?.metadata_json != null
@@ -972,11 +1122,7 @@ error: "Access code already exists",
 })
 }
 
-const columns = await getTableColumns("sentinel_access_codes")
-
-if (!columns.size) {
-throw new Error("Unable to inspect sentinel_access_codes schema")
-}
+const columns = await requireAccessManagementColumns()
 
 const createdCodes = []
 
@@ -991,6 +1137,8 @@ code,
 code_type: codeType,
 plan_key: planKey,
 plan_label: planLabel,
+created_for_label: createdForLabel,
+campaign_label: campaignLabel,
 duration_days: durationDays,
 max_redemptions: maxRedemptions,
 redeemed_count: 0,
@@ -998,8 +1146,12 @@ bound_user_id: boundUser.id,
 is_active: isActive ? 1 : 0,
 starts_at: startsAt,
 expires_at: expiresAt,
+revoked_at: null,
+revoked_by: null,
+revocation_reason: null,
 notes,
 metadata_json: JSON.stringify(metadata ?? {}),
+created_by_user_id: createdByUserId,
 }
 
 const insertColumns = []
@@ -1064,9 +1216,13 @@ details: {
 quantity,
 code_type: codeType,
 plan_key: planKey,
+plan_label: planLabel,
+created_for_label: createdForLabel,
+campaign_label: campaignLabel,
 max_redemptions: maxRedemptions,
 duration_days: durationDays,
 bound_user_id: boundUser.id,
+bound_user_email: boundUser.email,
 },
 newState: createdCodes,
 })
@@ -1092,6 +1248,7 @@ try {
 const actorId = getActorId(req)
 const auditContext = getAdminAuditContext(req)
 const id = parseIntSafe(req.params.id, null)
+const body = req.body || {}
 
 if (!id) {
 return res.status(400).json({
@@ -1109,37 +1266,92 @@ error: "Access code not found",
 })
 }
 
-const boundUser = await resolveBoundUser({
-boundUserId: req.body?.bound_user_id,
-boundEmail: req.body?.bound_user_email || req.body?.bound_email,
+if (
+"revoked_at" in body ||
+"revoked_by" in body ||
+"revocation_reason" in body
+) {
+return res.status(400).json({
+ok: false,
+error: "Use the revoke action to revoke an access code",
 })
+}
 
-const columns = await getTableColumns("sentinel_access_codes")
+const triesToReactivate =
+"is_active" in body && parseBool(body.is_active, before.is_active)
+
+if (before.state === "revoked" && triesToReactivate) {
+return rejectRevokedCodeMutation(res, before, "reactivated")
+}
+
+const requiresManagementColumns =
+"created_for_label" in body ||
+"created_for" in body ||
+"tester_reference" in body ||
+"tester_label" in body ||
+"campaign_label" in body ||
+"campaign" in body ||
+"testing_round" in body ||
+"round_label" in body
+
+const columns = requiresManagementColumns
+? await requireAccessManagementColumns()
+: await getTableColumns("sentinel_access_codes")
 
 if (!columns.size) {
 throw new Error("Unable to inspect sentinel_access_codes schema")
 }
 
-const patch = {}
-let auditNotes = cleanText(req.body?.notes, 2000) || before.notes || null
+const hasBindingFields =
+"bound_user_id" in body ||
+"bound_user_email" in body ||
+"bound_email" in body
 
-if ("code_type" in (req.body || {})) {
+const boundUser = hasBindingFields
+? await resolveBoundUser({
+boundUserId: body.bound_user_id,
+boundEmail: body.bound_user_email || body.bound_email,
+})
+: null
+
+const patch = {}
+let auditNotes = cleanText(body.notes, 2000) || before.notes || null
+
+if ("code_type" in body) {
 patch.code_type = normalizeCodeType(
-req.body?.code_type,
+body.code_type,
 before.code_type || "trial"
 )
 }
 
-if ("plan_key" in (req.body || {})) {
-patch.plan_key = cleanText(req.body?.plan_key, 120) || null
+if ("plan_key" in body) {
+patch.plan_key = cleanText(body.plan_key, 120) || null
 }
 
-if ("plan_label" in (req.body || {})) {
-patch.plan_label = cleanText(req.body?.plan_label, 120) || null
+if ("plan_label" in body) {
+patch.plan_label = cleanText(body.plan_label, 120) || null
 }
 
-if ("duration_days" in (req.body || {})) {
-const value = parseIntSafe(req.body?.duration_days, null)
+if (
+"created_for_label" in body ||
+"created_for" in body ||
+"tester_reference" in body ||
+"tester_label" in body
+) {
+patch.created_for_label = getCreatedForLabel(body)
+}
+
+if (
+"campaign_label" in body ||
+"campaign" in body ||
+"testing_round" in body ||
+"round_label" in body
+) {
+patch.campaign_label = getCampaignLabel(body)
+}
+
+if ("duration_days" in body) {
+const value = parseIntSafe(body.duration_days, null)
 
 if (value == null || value < 0) {
 return res.status(400).json({
@@ -1151,8 +1363,8 @@ error: "duration_days must be zero or greater",
 patch.duration_days = value
 }
 
-if ("max_redemptions" in (req.body || {})) {
-const value = parseIntSafe(req.body?.max_redemptions, null)
+if ("max_redemptions" in body) {
+const value = parseIntSafe(body.max_redemptions, null)
 
 if (value == null || value < 1) {
 return res.status(400).json({
@@ -1171,42 +1383,33 @@ error: "max_redemptions cannot be lower than redeemed_count",
 patch.max_redemptions = value
 }
 
-if ("is_active" in (req.body || {})) {
-patch.is_active = parseBool(req.body?.is_active, before.is_active)
-? 1
-: 0
+if ("is_active" in body) {
+patch.is_active = parseBool(body.is_active, before.is_active) ? 1 : 0
 }
 
-if ("starts_at" in (req.body || {})) {
-patch.starts_at = cleanText(req.body?.starts_at, 64) || null
+if ("starts_at" in body) {
+patch.starts_at = cleanText(body.starts_at, 64) || null
 }
 
-if ("expires_at" in (req.body || {})) {
-patch.expires_at = cleanText(req.body?.expires_at, 64) || null
+if ("expires_at" in body) {
+patch.expires_at = cleanText(body.expires_at, 64) || null
 }
 
-if ("notes" in (req.body || {})) {
-patch.notes = cleanText(req.body?.notes, 2000) || null
+if ("notes" in body) {
+patch.notes = cleanText(body.notes, 2000) || null
 auditNotes = patch.notes
 }
 
-if (
-"metadata" in (req.body || {}) ||
-"metadata_json" in (req.body || {})
-) {
+if ("metadata" in body || "metadata_json" in body) {
 const metadata =
-req.body?.metadata_json != null
-? parseJson(req.body.metadata_json, {})
-: parseJson(req.body.metadata, {})
+body.metadata_json != null
+? parseJson(body.metadata_json, {})
+: parseJson(body.metadata, {})
 
 patch.metadata_json = JSON.stringify(metadata ?? {})
 }
 
-if (
-"bound_user_id" in (req.body || {}) ||
-"bound_user_email" in (req.body || {}) ||
-"bound_email" in (req.body || {})
-) {
+if (hasBindingFields) {
 patch.bound_user_id = boundUser.id
 }
 
@@ -1262,7 +1465,10 @@ status: "ok",
 notes: auditNotes,
 targetType: "sentinel_access_code",
 targetId: id,
-details: auditContext,
+details: {
+...auditContext,
+updated_fields: Object.keys(patch),
+},
 oldState: before,
 newState: after,
 })
@@ -1304,6 +1510,10 @@ return res.status(404).json({
 ok: false,
 error: "Access code not found",
 })
+}
+
+if (before.state === "revoked") {
+return rejectRevokedCodeMutation(res, before, "bound to a user")
 }
 
 const boundUser = await resolveBoundUser({
@@ -1389,6 +1599,10 @@ error: "Access code not found",
 })
 }
 
+if (before.state === "revoked") {
+return rejectRevokedCodeMutation(res, before, "unbound from its recorded user")
+}
+
 await db.run(
 `
 UPDATE sentinel_access_codes
@@ -1455,6 +1669,10 @@ error: "Access code not found",
 })
 }
 
+if (before.state === "revoked") {
+return rejectRevokedCodeMutation(res, before, "disabled again")
+}
+
 await db.run(
 `
 UPDATE sentinel_access_codes
@@ -1475,13 +1693,18 @@ status: "ok",
 notes,
 targetType: "sentinel_access_code",
 targetId: id,
-details: auditContext,
+details: {
+...auditContext,
+access_already_granted_remains_active: true,
+},
 oldState: before,
 newState: after,
 })
 
 return res.json({
 ok: true,
+message:
+"Code disabled. Existing entitlements remain active until separately revoked.",
 code: after,
 })
 } catch (error) {
@@ -1512,6 +1735,8 @@ error: "Valid code id is required",
 })
 }
 
+await requireAccessManagementColumns()
+
 const before = await getCodeById(id)
 
 if (!before) {
@@ -1519,6 +1744,10 @@ return res.status(404).json({
 ok: false,
 error: "Access code not found",
 })
+}
+
+if (before.state === "revoked") {
+return rejectRevokedCodeMutation(res, before, "reactivated")
 }
 
 await db.run(
@@ -1569,8 +1798,9 @@ try {
 const actorId = getActorId(req)
 const auditContext = getAdminAuditContext(req)
 const id = parseIntSafe(req.params.id, null)
-const notes =
-cleanText(req.body?.notes, 2000) || "Access code revoked by admin"
+const revocationReason = getRevocationReason(req.body)
+const auditNotes =
+cleanText(req.body?.notes, 2000) || revocationReason || null
 
 if (!id) {
 return res.status(400).json({
@@ -1578,6 +1808,16 @@ ok: false,
 error: "Valid code id is required",
 })
 }
+
+if (!revocationReason) {
+return res.status(400).json({
+ok: false,
+error: "revocation_reason_required",
+message: "Enter a reason before revoking this access code.",
+})
+}
+
+await requireAccessManagementColumns()
 
 const before = await getCodeById(id)
 
@@ -1588,7 +1828,21 @@ error: "Access code not found",
 })
 }
 
+if (before.state === "revoked") {
+return res.status(409).json({
+ok: false,
+error: "access_code_already_revoked",
+message: "This access code has already been permanently revoked.",
+code: before,
+})
+}
+
 const beforeEntitlements = await listEntitlements({
+limit: 200,
+codeId: id,
+})
+
+const beforeRedemptions = await listRedemptions({
 limit: 200,
 codeId: id,
 })
@@ -1601,10 +1855,13 @@ await db.run(
 UPDATE sentinel_access_codes
 SET
 is_active = 0,
+revoked_at = CURRENT_TIMESTAMP,
+revoked_by = ?,
+revocation_reason = ?,
 updated_at = CURRENT_TIMESTAMP
 WHERE id = ?
 `,
-[id]
+[actorId, revocationReason, id]
 )
 
 await db.run(
@@ -1617,7 +1874,7 @@ updated_at = CURRENT_TIMESTAMP
 WHERE source_code_id = ?
 AND status IN ('active', 'scheduled')
 `,
-[notes, id]
+[revocationReason, id]
 )
 
 await db.run(
@@ -1651,13 +1908,21 @@ await insertAdminAudit({
 action: "sentinel_access_code_revoked",
 actorId,
 status: "ok",
-notes,
+notes: auditNotes,
 targetType: "sentinel_access_code",
 targetId: id,
-details: auditContext,
+details: {
+...auditContext,
+created_for_label: after?.created_for_label || null,
+campaign_label: after?.campaign_label || null,
+revocation_reason: revocationReason,
+revoked_by: actorId,
+revoked_at: after?.revoked_at || null,
+},
 oldState: {
 code: before,
 entitlements: beforeEntitlements,
+redemptions: beforeRedemptions,
 },
 newState: {
 code: after,
@@ -1668,6 +1933,7 @@ redemptions,
 
 return res.json({
 ok: true,
+message: "Access code and all linked active access have been revoked.",
 code: after,
 entitlements,
 redemptions,
@@ -1791,12 +2057,22 @@ try {
 const actorId = getActorId(req)
 const auditContext = getAdminAuditContext(req)
 const id = parseIntSafe(req.params.id, null)
-const notes = cleanText(req.body?.notes, 2000) || "Revoked by admin"
+const revocationReason = getRevocationReason(req.body)
+const auditNotes =
+cleanText(req.body?.notes, 2000) || revocationReason || null
 
 if (!id) {
 return res.status(400).json({
 ok: false,
 error: "Valid code id is required",
+})
+}
+
+if (!revocationReason) {
+return res.status(400).json({
+ok: false,
+error: "revocation_reason_required",
+message: "Enter a reason before revoking existing entitlements.",
 })
 }
 
@@ -1814,6 +2090,11 @@ limit: 200,
 codeId: id,
 })
 
+const beforeRedemptions = await listRedemptions({
+limit: 200,
+codeId: id,
+})
+
 await db.run("BEGIN IMMEDIATE")
 
 try {
@@ -1827,7 +2108,7 @@ updated_at = CURRENT_TIMESTAMP
 WHERE source_code_id = ?
 AND status IN ('active', 'scheduled')
 `,
-[notes, id]
+[revocationReason, id]
 )
 
 await db.run(
@@ -1860,13 +2141,18 @@ await insertAdminAudit({
 action: "sentinel_access_entitlements_revoked",
 actorId,
 status: "ok",
-notes,
+notes: auditNotes,
 targetType: "sentinel_access_code",
 targetId: id,
-details: auditContext,
+details: {
+...auditContext,
+revocation_reason: revocationReason,
+code_remains_issuable: code.state !== "revoked" && code.is_active,
+},
 oldState: {
 source_code_id: id,
 entitlements: beforeEntitlements,
+redemptions: beforeRedemptions,
 },
 newState: {
 source_code_id: id,
@@ -1877,6 +2163,8 @@ redemptions,
 
 return res.json({
 ok: true,
+message:
+"Existing linked entitlements have been revoked. The code itself has not been permanently revoked.",
 code,
 entitlements,
 redemptions,

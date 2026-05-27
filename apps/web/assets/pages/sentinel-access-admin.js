@@ -33,7 +33,9 @@ loadingCount: 0,
 filters: {
 codeState: "",
 codeType: "",
-planKey: "",
+codeSearch: "",
+createdForLabel: "",
+campaignLabel: "",
 boundUserId: "",
 redemptionCode: "",
 redemptionUserId: "",
@@ -65,9 +67,18 @@ sentinelAccessRedeemedCodesValue: document.getElementById(
 sentinelAccessLiveEntitlementsValue: document.getElementById(
 "sentinelAccessLiveEntitlementsValue"
 ),
+sentinelAccessRevokedCodesValue: document.getElementById(
+"sentinelAccessRevokedCodesValue"
+),
 
 sentinelAccessCustomCodeInput: document.getElementById(
 "sentinelAccessCustomCodeInput"
+),
+sentinelAccessCreatedForLabelInput: document.getElementById(
+"sentinelAccessCreatedForLabelInput"
+),
+sentinelAccessCampaignLabelInput: document.getElementById(
+"sentinelAccessCampaignLabelInput"
 ),
 sentinelAccessCodeTypeInput: document.getElementById(
 "sentinelAccessCodeTypeInput"
@@ -112,8 +123,14 @@ sentinelAccessCodesActiveFilter: document.getElementById(
 sentinelAccessCodesTypeFilter: document.getElementById(
 "sentinelAccessCodesTypeFilter"
 ),
-sentinelAccessCodesPlanFilter: document.getElementById(
-"sentinelAccessCodesPlanFilter"
+sentinelAccessCodesSearchFilter: document.getElementById(
+"sentinelAccessCodesSearchFilter"
+),
+sentinelAccessCodesCreatedForFilter: document.getElementById(
+"sentinelAccessCodesCreatedForFilter"
+),
+sentinelAccessCodesCampaignFilter: document.getElementById(
+"sentinelAccessCodesCampaignFilter"
 ),
 sentinelAccessCodesBoundUserFilter: document.getElementById(
 "sentinelAccessCodesBoundUserFilter"
@@ -166,6 +183,12 @@ sentinelAccessDetailPlanKey: document.getElementById(
 sentinelAccessDetailPlanLabel: document.getElementById(
 "sentinelAccessDetailPlanLabel"
 ),
+sentinelAccessDetailCreatedForLabel: document.getElementById(
+"sentinelAccessDetailCreatedForLabel"
+),
+sentinelAccessDetailCampaignLabel: document.getElementById(
+"sentinelAccessDetailCampaignLabel"
+),
 sentinelAccessDetailDurationDays: document.getElementById(
 "sentinelAccessDetailDurationDays"
 ),
@@ -196,8 +219,27 @@ sentinelAccessDetailUpdatedAt: document.getElementById(
 sentinelAccessDetailLatestRedemptionAt: document.getElementById(
 "sentinelAccessDetailLatestRedemptionAt"
 ),
+sentinelAccessDetailRevokedAt: document.getElementById(
+"sentinelAccessDetailRevokedAt"
+),
+sentinelAccessDetailRevokedBy: document.getElementById(
+"sentinelAccessDetailRevokedBy"
+),
+sentinelAccessDetailRevocationReason: document.getElementById(
+"sentinelAccessDetailRevocationReason"
+),
 sentinelAccessDetailNotes: document.getElementById(
 "sentinelAccessDetailNotes"
+),
+
+sentinelAccessEditCreatedForLabelInput: document.getElementById(
+"sentinelAccessEditCreatedForLabelInput"
+),
+sentinelAccessEditCampaignLabelInput: document.getElementById(
+"sentinelAccessEditCampaignLabelInput"
+),
+sentinelAccessUpdateLabelsButton: document.getElementById(
+"sentinelAccessUpdateLabelsButton"
 ),
 
 sentinelAccessCodeActionActorIdInput: document.getElementById(
@@ -205,6 +247,9 @@ sentinelAccessCodeActionActorIdInput: document.getElementById(
 ),
 sentinelAccessCodeActionNotesInput: document.getElementById(
 "sentinelAccessCodeActionNotesInput"
+),
+sentinelAccessRevocationReasonInput: document.getElementById(
+"sentinelAccessRevocationReasonInput"
 ),
 sentinelAccessCopyCodeButton: document.getElementById(
 "sentinelAccessCopyCodeButton"
@@ -214,6 +259,9 @@ sentinelAccessDeactivateCodeButton: document.getElementById(
 ),
 sentinelAccessActivateCodeButton: document.getElementById(
 "sentinelAccessActivateCodeButton"
+),
+sentinelAccessRevokeCodeButton: document.getElementById(
+"sentinelAccessRevokeCodeButton"
 ),
 sentinelAccessRefreshSelectedCodeButton: document.getElementById(
 "sentinelAccessRefreshSelectedCodeButton"
@@ -233,7 +281,11 @@ if (["true", "1", "yes", "y", "enabled", "on", "active"].includes(normalized)) {
 return true
 }
 
-if (["false", "0", "no", "n", "disabled", "off", "inactive"].includes(normalized)) {
+if (
+["false", "0", "no", "n", "disabled", "off", "inactive"].includes(
+normalized
+)
+) {
 return false
 }
 
@@ -259,9 +311,54 @@ setText(els.apiStatusChip, label)
 setText(els.sentinelAccessStateChip, label)
 }
 
+function getSentinelAccessCodeState(code) {
+const explicit = cleanText(code?.state, 64).toLowerCase()
+
+if (explicit) return explicit
+
+if (code?.revoked_at) return "revoked"
+
+const isActive = parseBool(code?.is_active, false)
+const redeemedCount = safeNumber(code?.redeemed_count, 0)
+const maxRedemptions = safeNumber(code?.max_redemptions, 0)
+const now = Date.now()
+
+const startsAtTs = code?.starts_at
+? new Date(code.starts_at).getTime()
+: null
+
+const expiresAtTs = code?.expires_at
+? new Date(code.expires_at).getTime()
+: null
+
+if (!isActive) return "inactive"
+
+if (startsAtTs && !Number.isNaN(startsAtTs) && startsAtTs > now) {
+return "scheduled"
+}
+
+if (expiresAtTs && !Number.isNaN(expiresAtTs) && expiresAtTs <= now) {
+return "expired"
+}
+
+if (maxRedemptions > 0 && redeemedCount >= maxRedemptions) {
+return "exhausted"
+}
+
+return "active"
+}
+
+function isRevokedCode(code) {
+return getSentinelAccessCodeState(code) === "revoked"
+}
+
 function updateControlDisabledState() {
 const disabled = isLoading()
-const hasSelectedCode = Boolean(state.selectedCodeId)
+const selectedCode = state.selectedCode
+const hasSelectedCode = Boolean(selectedCode?.id)
+const selectedState = getSentinelAccessCodeState(selectedCode)
+const permanentlyRevoked = isRevokedCode(selectedCode)
+const currentlyEnabled = parseBool(selectedCode?.is_active, false)
 
 setDisabled(
 [
@@ -276,12 +373,48 @@ disabled
 setDisabled(
 [
 els.sentinelAccessCopyCodeButton,
-els.sentinelAccessDeactivateCodeButton,
-els.sentinelAccessActivateCodeButton,
 els.sentinelAccessRefreshSelectedCodeButton,
+els.sentinelAccessUpdateLabelsButton,
 ],
 disabled || !hasSelectedCode
 )
+
+setDisabled(
+[els.sentinelAccessDeactivateCodeButton],
+disabled ||
+!hasSelectedCode ||
+permanentlyRevoked ||
+selectedState === "inactive"
+)
+
+setDisabled(
+[els.sentinelAccessActivateCodeButton],
+disabled ||
+!hasSelectedCode ||
+permanentlyRevoked ||
+currentlyEnabled
+)
+
+setDisabled(
+[els.sentinelAccessRevokeCodeButton],
+disabled || !hasSelectedCode || permanentlyRevoked
+)
+
+if (els.sentinelAccessActivateCodeButton) {
+els.sentinelAccessActivateCodeButton.title = permanentlyRevoked
+? "Permanently revoked codes cannot be reactivated."
+: ""
+}
+
+if (els.sentinelAccessDeactivateCodeButton) {
+els.sentinelAccessDeactivateCodeButton.title =
+"Deactivate stops future use of this code only. It does not cancel existing redeemed access."
+}
+
+if (els.sentinelAccessRevokeCodeButton) {
+els.sentinelAccessRevokeCodeButton.title =
+"Revoke Access permanently cancels the code and linked active access."
+}
 }
 
 function beginLoading() {
@@ -439,51 +572,16 @@ if (Number.isNaN(date.getTime())) return null
 return date.toISOString()
 }
 
-function getSentinelAccessCreateActorId() {
-return getSessionActorId()
-}
-
-function getSentinelAccessActionActorId() {
-return getSessionActorId()
-}
-
 function getSentinelAccessActionNotes() {
 return cleanText(els.sentinelAccessCodeActionNotesInput?.value, 2000)
 }
 
-function getSentinelAccessCodeState(code) {
-const explicit = cleanText(code?.state, 64).toLowerCase()
-
-if (explicit) return explicit
-
-const isActive = parseBool(code?.is_active, false)
-const redeemedCount = safeNumber(code?.redeemed_count, 0)
-const maxRedemptions = safeNumber(code?.max_redemptions, 0)
-const now = Date.now()
-
-const startsAtTs = code?.starts_at
-? new Date(code.starts_at).getTime()
-: null
-
-const expiresAtTs = code?.expires_at
-? new Date(code.expires_at).getTime()
-: null
-
-if (!isActive) return "inactive"
-
-if (startsAtTs && !Number.isNaN(startsAtTs) && startsAtTs > now) {
-return "scheduled"
-}
-
-if (expiresAtTs && !Number.isNaN(expiresAtTs) && expiresAtTs <= now) {
-return "expired"
-}
-
-if (maxRedemptions > 0 && redeemedCount >= maxRedemptions) {
-return "exhausted"
-}
-
-return "active"
+function getRevocationReason() {
+return cleanText(
+els.sentinelAccessRevocationReasonInput?.value ||
+els.sentinelAccessCodeActionNotesInput?.value,
+2000
+)
 }
 
 function getSentinelAccessStateVariant(codeState) {
@@ -491,6 +589,7 @@ const normalized = cleanText(codeState, 64).toLowerCase()
 
 if (normalized === "active") return "good"
 if (normalized === "scheduled" || normalized === "exhausted") return "warn"
+if (normalized === "revoked") return "bad"
 if (normalized === "inactive") return "bad"
 if (normalized === "expired") return "neutral"
 
@@ -501,7 +600,7 @@ function getRedemptionStatusVariant(status) {
 const normalized = cleanText(status, 64).toLowerCase()
 
 if (normalized === "success") return "good"
-if (normalized === "failed") return "bad"
+if (normalized === "failed" || normalized === "revoked") return "bad"
 
 return "neutral"
 }
@@ -534,9 +633,17 @@ const fallbackActiveCodes = state.codes.filter((code) => {
 return getSentinelAccessCodeState(code) === "active"
 }).length
 
+const fallbackRevokedCodes = state.codes.filter((code) => {
+return getSentinelAccessCodeState(code) === "revoked"
+}).length
+
 const fallbackRedeemedCount = state.codes.reduce((total, code) => {
 return total + safeNumber(code?.redeemed_count, 0)
 }, 0)
+
+const fallbackLiveEntitlements = state.entitlements.filter(
+isLiveEntitlement
+).length
 
 const totalCodes = safeNumber(
 summary.total_codes ?? summary.totalCodes,
@@ -548,6 +655,11 @@ summary.active_codes ?? summary.activeCodes,
 fallbackActiveCodes
 )
 
+const revokedCodes = safeNumber(
+summary.revoked_codes ?? summary.revokedCodes,
+fallbackRevokedCodes
+)
+
 const redeemedCount = safeNumber(
 summary.total_redemptions ??
 summary.totalRedemptions ??
@@ -556,10 +668,14 @@ summary.redeemedCodes,
 fallbackRedeemedCount
 )
 
-const liveEntitlements = state.entitlements.filter(isLiveEntitlement).length
+const liveEntitlements = safeNumber(
+summary.live_entitlements ?? summary.liveEntitlements,
+fallbackLiveEntitlements
+)
 
 setText(els.sentinelAccessTotalCodesValue, formatNumber(totalCodes, 0))
 setText(els.sentinelAccessActiveCodesValue, formatNumber(activeCodes, 0))
+setText(els.sentinelAccessRevokedCodesValue, formatNumber(revokedCodes, 0))
 setText(els.sentinelAccessRedeemedCodesValue, formatNumber(redeemedCount, 0))
 setText(
 els.sentinelAccessLiveEntitlementsValue,
@@ -578,9 +694,19 @@ els.sentinelAccessCodesTypeFilter?.value,
 64
 ).toLowerCase()
 
-state.filters.planKey = cleanText(
-els.sentinelAccessCodesPlanFilter?.value,
-120
+state.filters.codeSearch = cleanText(
+els.sentinelAccessCodesSearchFilter?.value,
+255
+)
+
+state.filters.createdForLabel = cleanText(
+els.sentinelAccessCodesCreatedForFilter?.value,
+255
+)
+
+state.filters.campaignLabel = cleanText(
+els.sentinelAccessCodesCampaignFilter?.value,
+255
 )
 
 state.filters.boundUserId = cleanText(
@@ -609,11 +735,18 @@ return arrayify(items).filter((code) => {
 const codeState = getSentinelAccessCodeState(code)
 const wantedState = cleanText(state.filters.codeState, 64).toLowerCase()
 const wantedType = cleanText(state.filters.codeType, 64).toLowerCase()
-const wantedPlan = cleanText(state.filters.planKey, 120).toLowerCase()
+const wantedSearch = cleanText(state.filters.codeSearch, 255).toLowerCase()
+const wantedCreatedFor = cleanText(
+state.filters.createdForLabel,
+255
+).toLowerCase()
+const wantedCampaign = cleanText(
+state.filters.campaignLabel,
+255
+).toLowerCase()
 const wantedBoundUserId = cleanText(state.filters.boundUserId, 64)
 
-if (wantedState === "active" && codeState !== "active") return false
-if (wantedState === "inactive" && codeState === "active") return false
+if (wantedState && codeState !== wantedState) return false
 
 if (
 wantedType &&
@@ -622,16 +755,38 @@ cleanText(code.code_type, 64).toLowerCase() !== wantedType
 return false
 }
 
-if (wantedPlan) {
+if (wantedSearch) {
 const haystack = [
+cleanText(code.code, 128),
 cleanText(code.plan_key, 120),
 cleanText(code.plan_label, 120),
-cleanText(code.code, 128),
+cleanText(code.created_for_label, 255),
+cleanText(code.campaign_label, 255),
+cleanText(code.bound_user_email, 320),
+cleanText(code.revocation_reason, 500),
 ]
 .join(" ")
 .toLowerCase()
 
-if (!haystack.includes(wantedPlan)) return false
+if (!haystack.includes(wantedSearch)) return false
+}
+
+if (
+wantedCreatedFor &&
+!cleanText(code.created_for_label, 255)
+.toLowerCase()
+.includes(wantedCreatedFor)
+) {
+return false
+}
+
+if (
+wantedCampaign &&
+!cleanText(code.campaign_label, 255)
+.toLowerCase()
+.includes(wantedCampaign)
+) {
+return false
 }
 
 if (
@@ -691,16 +846,28 @@ return true
 function buildCodesQueryString() {
 const params = new URLSearchParams()
 
+if (state.filters.codeState) {
+params.set("state", state.filters.codeState)
+}
+
 if (state.filters.codeType) {
 params.set("code_type", state.filters.codeType)
 }
 
-if (state.filters.boundUserId) {
-params.set("bound_user_id", state.filters.boundUserId)
+if (state.filters.codeSearch) {
+params.set("search", state.filters.codeSearch)
 }
 
-if (state.filters.planKey) {
-params.set("search", state.filters.planKey)
+if (state.filters.createdForLabel) {
+params.set("created_for_label", state.filters.createdForLabel)
+}
+
+if (state.filters.campaignLabel) {
+params.set("campaign_label", state.filters.campaignLabel)
+}
+
+if (state.filters.boundUserId) {
+params.set("bound_user_id", state.filters.boundUserId)
 }
 
 params.set("limit", "500")
@@ -720,6 +887,33 @@ params.set("limit", "500")
 return params.toString()
 }
 
+function createTextLine(text, className = "") {
+const element = document.createElement("div")
+
+if (className) {
+element.className = className
+}
+
+element.textContent = text || "—"
+
+return element
+}
+
+function appendStackedCell(row, primary, secondary = "", options = {}) {
+const cell = document.createElement("td")
+const primaryClass = options.mono ? "mono" : ""
+
+cell.appendChild(createTextLine(primary || "—", primaryClass))
+
+if (secondary) {
+cell.appendChild(createTextLine(secondary, "dim"))
+}
+
+row.appendChild(cell)
+
+return cell
+}
+
 function renderCodesTable() {
 const tbody = els.sentinelAccessCodesTableBody
 
@@ -730,7 +924,7 @@ tbody.innerHTML = ""
 if (!state.codes.length) {
 renderTableEmpty(
 tbody,
-8,
+10,
 "No Sentinel access codes found for the current filter set."
 )
 return
@@ -743,24 +937,41 @@ if (Number(code.id) === Number(state.selectedCodeId)) {
 row.classList.add("active")
 }
 
+row.tabIndex = 0
+
 const codeState = getSentinelAccessCodeState(code)
 
-const codeCell = document.createElement("td")
-codeCell.innerHTML = `
-<div class="mono" style="font-weight:700;">${cleanText(code.code, 128) || "—"}</div>
-<div class="dim">${cleanText(code.notes, 120) || ""}</div>
-`
+appendStackedCell(
+row,
+cleanText(code.code, 128) || "—",
+cleanText(code.notes, 120),
+{ mono: true }
+)
+
+appendStackedCell(
+row,
+cleanText(code.created_for_label, 255) || "Not labelled",
+code.bound_user_email
+? `Bound: ${cleanText(code.bound_user_email, 160)}`
+: ""
+)
+
+appendStackedCell(
+row,
+cleanText(code.campaign_label, 255) || "—"
+)
 
 const typeCell = document.createElement("td")
 typeCell.appendChild(
 createPill(titleCase(code.code_type || "trial"), "neutral")
 )
+row.appendChild(typeCell)
 
-const planCell = document.createElement("td")
-planCell.innerHTML = `
-<div>${cleanText(code.plan_label, 120) || "—"}</div>
-<div class="dim">${cleanText(code.plan_key, 120) || "—"}</div>
-`
+appendStackedCell(
+row,
+cleanText(code.plan_label, 120) || "—",
+cleanText(code.plan_key, 120) || "—"
+)
 
 const stateCell = document.createElement("td")
 stateCell.appendChild(
@@ -769,47 +980,55 @@ titleCase(codeState),
 getSentinelAccessStateVariant(codeState)
 )
 )
+row.appendChild(stateCell)
 
-const usageCell = document.createElement("td")
 const redeemedCount = safeNumber(code.redeemed_count, 0)
 const maxRedemptions = safeNumber(code.max_redemptions, 0)
 
-usageCell.innerHTML = `
-<div>${formatNumber(redeemedCount, 0)} / ${formatNumber(maxRedemptions, 0)}</div>
-<div class="dim">${formatNumber(Math.max(0, maxRedemptions - redeemedCount), 0)} remaining</div>
-`
+appendStackedCell(
+row,
+`${formatNumber(redeemedCount, 0)} / ${formatNumber(maxRedemptions, 0)}`,
+`${formatNumber(
+Math.max(0, maxRedemptions - redeemedCount),
+0
+)} remaining`
+)
 
-const boundCell = document.createElement("td")
-boundCell.innerHTML = `
-<div>${code.bound_user_id ? `#${code.bound_user_id}` : "Unbound"}</div>
-<div class="dim">${cleanText(code.bound_user_email, 160) || ""}</div>
-`
+appendStackedCell(
+row,
+code.bound_user_id ? `#${code.bound_user_id}` : "Unbound",
+cleanText(code.bound_user_email, 160)
+)
 
-const windowCell = document.createElement("td")
-windowCell.innerHTML = `
-<div>${code.starts_at ? `Starts ${formatDateTime(code.starts_at)}` : "Starts immediately"}</div>
-<div class="dim">${code.expires_at ? `Expires ${formatDateTime(code.expires_at)}` : "No absolute expiry"}</div>
-`
+appendStackedCell(
+row,
+code.starts_at
+? `Starts ${formatDateTime(code.starts_at)}`
+: "Starts immediately",
+code.expires_at
+? `Expires ${formatDateTime(code.expires_at)}`
+: "No absolute expiry"
+)
 
-const updatedCell = document.createElement("td")
-updatedCell.innerHTML = `
-<div>${formatDateTime(code.updated_at || code.created_at)}</div>
-<div class="dim">${formatDateTime(code.created_at)}</div>
-`
+appendStackedCell(
+row,
+formatDateTime(code.updated_at || code.created_at),
+codeState === "revoked" && code.revoked_at
+? `Revoked ${formatDateTime(code.revoked_at)}`
+: `Created ${formatDateTime(code.created_at)}`
+)
 
-;[
-codeCell,
-typeCell,
-planCell,
-stateCell,
-usageCell,
-boundCell,
-windowCell,
-updatedCell,
-].forEach((cell) => row.appendChild(cell))
-
-row.addEventListener("click", async () => {
+const selectRow = async () => {
 await loadCodeDetail(code.id)
+}
+
+row.addEventListener("click", selectRow)
+
+row.addEventListener("keydown", async (event) => {
+if (event.key !== "Enter" && event.key !== " ") return
+
+event.preventDefault()
+await selectRow()
 })
 
 tbody.appendChild(row)
@@ -835,40 +1054,41 @@ return
 state.redemptions.forEach((redemption) => {
 const row = document.createElement("tr")
 
-const redeemedAtCell = document.createElement("td")
-redeemedAtCell.innerHTML = `
-<div>${formatDateTime(redemption.redeemed_at || redemption.created_at)}</div>
-<div class="dim">#${safeNumber(redemption.id, 0)}</div>
-`
+appendStackedCell(
+row,
+formatDateTime(redemption.redeemed_at || redemption.created_at),
+`#${safeNumber(redemption.id, 0)}`
+)
 
-const codeCell = document.createElement("td")
-codeCell.innerHTML = `
-<div class="mono">${cleanText(redemption.code, 128) || "—"}</div>
-<div class="dim">Code #${safeNumber(redemption.code_id, 0)}</div>
-`
+appendStackedCell(
+row,
+cleanText(redemption.code, 128) || "—",
+`Code #${safeNumber(redemption.code_id, 0)}`,
+{ mono: true }
+)
 
-const userCell = document.createElement("td")
-userCell.innerHTML = `
-<div>${redemption.user_id ? `#${redemption.user_id}` : "—"}</div>
-<div class="dim">${cleanText(redemption.user_email, 160) || ""}</div>
-`
+appendStackedCell(
+row,
+redemption.user_id ? `#${redemption.user_id}` : "—",
+cleanText(redemption.user_email, 160)
+)
 
-const entitlementCell = document.createElement("td")
-entitlementCell.textContent = redemption.entitlement_id
-? `#${redemption.entitlement_id}`
-: "—"
+appendStackedCell(
+row,
+redemption.entitlement_id ? `#${redemption.entitlement_id}` : "—"
+)
 
-const walletCell = document.createElement("td")
-walletCell.innerHTML = `
-<div class="mono">${
+appendStackedCell(
+row,
 redemption.wallet_address_at_redeem
 ? shortenWallet(redemption.wallet_address_at_redeem)
-: "—"
-}</div>
-<div class="dim">${cleanText(redemption.wallet_address_at_redeem, 200) || ""}</div>
-`
+: "—",
+cleanText(redemption.wallet_address_at_redeem, 200),
+{ mono: true }
+)
 
 const statusCell = document.createElement("td")
+
 statusCell.appendChild(
 createPill(
 titleCase(redemption.redemption_status || "unknown"),
@@ -876,15 +1096,7 @@ getRedemptionStatusVariant(redemption.redemption_status)
 )
 )
 
-;[
-redeemedAtCell,
-codeCell,
-userCell,
-entitlementCell,
-walletCell,
-statusCell,
-].forEach((cell) => row.appendChild(cell))
-
+row.appendChild(statusCell)
 tbody.appendChild(row)
 })
 }
@@ -947,6 +1159,14 @@ els.sentinelAccessDetailPlanLabel,
 cleanText(code.plan_label, 120) || "—"
 )
 setText(
+els.sentinelAccessDetailCreatedForLabel,
+cleanText(code.created_for_label, 255) || "Not labelled"
+)
+setText(
+els.sentinelAccessDetailCampaignLabel,
+cleanText(code.campaign_label, 255) || "—"
+)
+setText(
 els.sentinelAccessDetailDurationDays,
 formatNumber(code.duration_days, 0)
 )
@@ -1005,9 +1225,37 @@ latestRedemption.user_id
 )
 
 setText(
+els.sentinelAccessDetailRevokedAt,
+code.revoked_at ? formatDateTime(code.revoked_at) : "—"
+)
+setText(
+els.sentinelAccessDetailRevokedBy,
+cleanText(code.revoked_by, 255) || "—"
+)
+setText(
+els.sentinelAccessDetailRevocationReason,
+cleanText(code.revocation_reason, 2000) || "—"
+)
+setText(
 els.sentinelAccessDetailNotes,
 cleanText(code.notes, 5000) || "—"
 )
+
+setValue(
+els.sentinelAccessEditCreatedForLabelInput,
+cleanText(code.created_for_label, 255)
+)
+setValue(
+els.sentinelAccessEditCampaignLabelInput,
+cleanText(code.campaign_label, 255)
+)
+
+if (codeState === "revoked") {
+setValue(
+els.sentinelAccessRevocationReasonInput,
+cleanText(code.revocation_reason, 2000)
+)
+}
 
 applyAuthenticatedActorToInputs()
 updateControlDisabledState()
@@ -1203,6 +1451,22 @@ els.sentinelAccessCustomCodeInput?.value,
 128
 ).toUpperCase()
 
+const createdForLabel = cleanText(
+els.sentinelAccessCreatedForLabelInput?.value,
+255
+)
+
+const campaignLabel = cleanText(
+els.sentinelAccessCampaignLabelInput?.value,
+255
+)
+
+if (!createdForLabel) {
+throw new Error(
+"Created For is required so every issued code can be traced to a tester or purpose."
+)
+}
+
 const codeType =
 cleanText(els.sentinelAccessCodeTypeInput?.value, 64).toLowerCase() ||
 "trial"
@@ -1262,6 +1526,8 @@ return {
 quantity: 1,
 prefix: "MSS",
 custom_code: customCode || null,
+created_for_label: createdForLabel,
+campaign_label: campaignLabel || null,
 code_type: codeType,
 plan_key: planKey,
 plan_label: planLabel,
@@ -1272,7 +1538,6 @@ starts_at: startsAt,
 expires_at: expiresAt,
 created_by_user_id: createdByUserId ? Number(createdByUserId) : null,
 notes,
-actor_id: getSentinelAccessCreateActorId(),
 is_active: true,
 }
 }
@@ -1308,11 +1573,12 @@ manageLoading: false,
 }
 
 setValue(els.sentinelAccessCustomCodeInput, "")
+setValue(els.sentinelAccessCreatedForLabelInput, "")
 setValue(els.sentinelAccessNotesInput, "")
 
 setSentinelAccessBanner(
 createdCode?.code
-? `Sentinel access code created: ${createdCode.code}`
+? `Sentinel access code created for ${body.created_for_label}: ${createdCode.code}`
 : "Sentinel access code created.",
 "good"
 )
@@ -1326,8 +1592,21 @@ endLoading()
 }
 }
 
+async function refreshSelectedAfterAction(codeId) {
+await loadSummary({ manageLoading: false })
+await loadCodes({ manageLoading: false })
+await loadRedemptions({ manageLoading: false })
+await loadEntitlements({ manageLoading: false })
+
+await loadCodeDetail(codeId, {
+quiet: true,
+manageLoading: false,
+})
+}
+
 async function postCodeAction(
 path,
+body = {},
 successMessage = "Sentinel access code updated."
 ) {
 const code = state.selectedCode
@@ -1340,28 +1619,20 @@ return
 beginLoading()
 
 try {
-await apiFetchSentinelAccessAdmin(
+const payload = await apiFetchSentinelAccessAdmin(
 `/codes/${encodeURIComponent(code.id)}${path}`,
 {
 method: "POST",
-body: JSON.stringify({
-actor_id: getSentinelAccessActionActorId(),
-notes: getSentinelAccessActionNotes(),
-}),
+body: JSON.stringify(body),
 }
 )
 
-await loadSummary({ manageLoading: false })
-await loadCodes({ manageLoading: false })
-await loadRedemptions({ manageLoading: false })
-await loadEntitlements({ manageLoading: false })
+await refreshSelectedAfterAction(code.id)
 
-await loadCodeDetail(code.id, {
-quiet: true,
-manageLoading: false,
-})
-
-setSentinelAccessBanner(successMessage, "good")
+setSentinelAccessBanner(
+payload?.message || successMessage,
+"good"
+)
 } catch (error) {
 setSentinelAccessBanner(
 error?.message || "Failed to update access code.",
@@ -1370,6 +1641,108 @@ error?.message || "Failed to update access code.",
 } finally {
 endLoading()
 }
+}
+
+async function updateSelectedReferenceLabels() {
+const code = state.selectedCode
+
+if (!code?.id) {
+setSentinelAccessBanner("Select a Sentinel access code first.", "warn")
+return
+}
+
+const createdForLabel = cleanText(
+els.sentinelAccessEditCreatedForLabelInput?.value,
+255
+)
+
+const campaignLabel = cleanText(
+els.sentinelAccessEditCampaignLabelInput?.value,
+255
+)
+
+if (!createdForLabel) {
+setSentinelAccessBanner(
+"Created For cannot be empty. Keep a clear tester or purpose reference on every access code.",
+"warn"
+)
+return
+}
+
+beginLoading()
+
+try {
+await apiFetchSentinelAccessAdmin(
+`/codes/${encodeURIComponent(code.id)}`,
+{
+method: "PATCH",
+body: JSON.stringify({
+created_for_label: createdForLabel,
+campaign_label: campaignLabel || null,
+}),
+}
+)
+
+await refreshSelectedAfterAction(code.id)
+
+setSentinelAccessBanner(
+"Access-code reference details updated.",
+"good"
+)
+} catch (error) {
+setSentinelAccessBanner(
+error?.message || "Failed to update access-code reference details.",
+"bad"
+)
+} finally {
+endLoading()
+}
+}
+
+async function revokeSelectedAccessCode() {
+const code = state.selectedCode
+
+if (!code?.id) {
+setSentinelAccessBanner("Select a Sentinel access code first.", "warn")
+return
+}
+
+if (isRevokedCode(code)) {
+setSentinelAccessBanner(
+"This access code has already been permanently revoked.",
+"warn"
+)
+return
+}
+
+const reason = getRevocationReason()
+
+if (!reason) {
+setSentinelAccessBanner(
+"Enter a revocation reason before cancelling access.",
+"warn"
+)
+els.sentinelAccessRevocationReasonInput?.focus()
+return
+}
+
+const createdFor =
+cleanText(code.created_for_label, 255) || cleanText(code.code, 128)
+
+const confirmed = window.confirm(
+`Permanently revoke access for ${createdFor}? This will disable the code and revoke any linked active access.`
+)
+
+if (!confirmed) return
+
+await postCodeAction(
+"/revoke",
+{
+revocation_reason: reason,
+notes: getSentinelAccessActionNotes() || reason,
+},
+"Access code and linked active access permanently revoked."
+)
 }
 
 async function copySelectedCode() {
@@ -1418,7 +1791,9 @@ setValue(els.sentinelAccessDurationDaysInput, "7")
 
 function bindFilterShortcuts() {
 ;[
-els.sentinelAccessCodesPlanFilter,
+els.sentinelAccessCodesSearchFilter,
+els.sentinelAccessCodesCreatedForFilter,
+els.sentinelAccessCodesCampaignFilter,
 els.sentinelAccessCodesBoundUserFilter,
 ].forEach((input) => {
 input?.addEventListener("keydown", async (event) => {
@@ -1511,27 +1886,49 @@ els.sentinelAccessCopyCodeButton?.addEventListener("click", async () => {
 await copySelectedCode()
 })
 
+els.sentinelAccessUpdateLabelsButton?.addEventListener("click", async () => {
+await updateSelectedReferenceLabels()
+})
+
 els.sentinelAccessDeactivateCodeButton?.addEventListener(
 "click",
 async () => {
 const confirmed = window.confirm(
-"Deactivate the selected Sentinel access code?"
+"Deactivate this code? This prevents future redemptions only and does not cancel access already claimed by a tester."
 )
 
 if (!confirmed) return
 
 await postCodeAction(
 "/disable",
-"Sentinel access code deactivated."
+{
+notes: getSentinelAccessActionNotes(),
+},
+"Access code deactivated. Existing redeemed access remains active."
 )
 }
 )
 
 els.sentinelAccessActivateCodeButton?.addEventListener("click", async () => {
+if (isRevokedCode(state.selectedCode)) {
+setSentinelAccessBanner(
+"Permanently revoked access codes cannot be reactivated.",
+"bad"
+)
+return
+}
+
 await postCodeAction(
 "/enable",
+{
+notes: getSentinelAccessActionNotes(),
+},
 "Sentinel access code reactivated."
 )
+})
+
+els.sentinelAccessRevokeCodeButton?.addEventListener("click", async () => {
+await revokeSelectedAccessCode()
 })
 
 els.sentinelAccessRefreshSelectedCodeButton?.addEventListener(
