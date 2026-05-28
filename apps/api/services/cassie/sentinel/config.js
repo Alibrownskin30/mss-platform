@@ -198,6 +198,7 @@ return String(value ?? "").trim().slice(0, max);
 
 function cleanMode(value) {
 const mode = cleanText(value, 64).toLowerCase();
+
 return Object.values(SENTINEL_MODE).includes(mode)
 ? mode
 : SENTINEL_MODE.PAPER;
@@ -207,6 +208,7 @@ function toBool(value, fallback = false) {
 if (typeof value === "boolean") return value;
 
 const normalized = cleanText(value, 32).toLowerCase();
+
 if (normalized === "1" || normalized === "true") return true;
 if (normalized === "0" || normalized === "false") return false;
 
@@ -229,6 +231,7 @@ const aliasKeys = CONFIG_ALIASES[key] || [key];
 for (const aliasKey of aliasKeys) {
 if (Object.prototype.hasOwnProperty.call(raw, aliasKey)) {
 const value = raw[aliasKey];
+
 if (value !== undefined && value !== null && value !== "") {
 return value;
 }
@@ -362,7 +365,9 @@ return config.execution_mode;
 
 export async function isSentinelWatcherEnabled() {
 const config = await loadSentinelConfig();
-return Boolean(config.watcher_enabled);
+const effective = getEffectiveSentinelConfig(config);
+
+return Boolean(effective.watcher_enabled);
 }
 
 export async function isSentinelEmergencyStopActive() {
@@ -386,20 +391,7 @@ export function isEmergencyStopMode(config) {
 return cleanMode(config?.execution_mode) === SENTINEL_MODE.EMERGENCY_STOP;
 }
 
-export function canEvaluateSentinel(config) {
-const safe = getEffectiveSentinelConfig(config || {});
-return safe.watcher_enabled === true;
-}
-
-export function canOpenNewPositions(config) {
-const safe = getEffectiveSentinelConfig(config || {});
-if (!safe.watcher_enabled) return false;
-if (safe.execution_mode === SENTINEL_MODE.EMERGENCY_STOP) return false;
-if (!safe.enable_scout && !safe.enable_sniper) return false;
-return true;
-}
-
-export function getEffectiveSentinelConfig(config) {
+export function getEffectiveSentinelConfig(config = {}) {
 const safe = normalizeSentinelConfig(config || {});
 
 if (safe.execution_mode !== SENTINEL_MODE.EMERGENCY_STOP) {
@@ -408,10 +400,31 @@ return safe;
 
 return {
 ...safe,
-watcher_enabled: true,
+watcher_enabled: false,
+auto_bank_enabled: false,
 enable_scout: false,
 enable_sniper: false,
+enable_runner_management: false,
 };
+}
+
+export function canEvaluateSentinel(config) {
+const safe = getEffectiveSentinelConfig(config || {});
+
+return (
+safe.execution_mode !== SENTINEL_MODE.EMERGENCY_STOP &&
+safe.watcher_enabled === true
+);
+}
+
+export function canOpenNewPositions(config) {
+const safe = getEffectiveSentinelConfig(config || {});
+
+if (safe.execution_mode === SENTINEL_MODE.EMERGENCY_STOP) return false;
+if (!safe.watcher_enabled) return false;
+if (!safe.enable_scout && !safe.enable_sniper) return false;
+
+return true;
 }
 
 export default {

@@ -288,7 +288,7 @@ return value
 
 function parsePatchFieldValue(rawValue, rule) {
 if (rule.type === "boolean") {
-return parseBoolSafe(rawValue, false)
+return parseBoolSafe(rawValue, null)
 }
 
 if (rule.type === "int") {
@@ -317,6 +317,37 @@ function computeChangedFields(before = {}, after = {}) {
 return SENTINEL_SETTINGS_FIELDS.filter(
 (field) => JSON.stringify(before?.[field]) !== JSON.stringify(after?.[field])
 )
+}
+
+function isEmergencyStopActive(settings = {}) {
+return normalizeSentinelMode(settings?.execution_mode, "paper") === "emergency_stop"
+}
+
+function buildSentinelWatcherControl(settings = {}) {
+const emergencyStopActive = isEmergencyStopActive(settings)
+const watcherEnabled = emergencyStopActive
+? false
+: Boolean(settings?.watcher_enabled)
+
+return {
+enabled: watcherEnabled,
+can_toggle: !emergencyStopActive,
+forced_off: emergencyStopActive,
+emergency_stop_active: emergencyStopActive,
+lock_reason: emergencyStopActive
+? "Emergency stop is active. Restore Paper mode before enabling Sentinel Watcher."
+: null,
+}
+}
+
+function presentSentinelSettings(settings = {}) {
+const watcherControl = buildSentinelWatcherControl(settings)
+
+return {
+...settings,
+watcher_enabled: watcherControl.enabled,
+watcher_control: watcherControl,
+}
 }
 
 function normalizeAdminSessionScopes(session = null) {
@@ -1030,6 +1061,10 @@ LIMIT 1
 }
 
 async function getSentinelOpenPositionCount(executionMode) {
+if (!(await tableExists("cassie_sentinel_positions"))) {
+return 0
+}
+
 const row = await db.get(
 `
 SELECT COUNT(*) AS count
@@ -1155,7 +1190,6 @@ params
 )
 
 const openSummary = await getSentinelOpenPositionSummary(executionMode)
-
 const rowsCount = Number(aggregate?.rows_count ?? 0)
 
 if (!rowsCount) {
@@ -1219,9 +1253,13 @@ date = todayUtcDate(),
 mode = null,
 } = {}) {
 const settingsRow = await getSentinelSettingsRow()
-const settings = serializeSentinelSettings(settingsRow)
+const storedSettings = serializeSentinelSettings(settingsRow)
+const settings = presentSentinelSettings(storedSettings)
+const watcherControl = settings.watcher_control
+
 const executionMode =
 mode && SENTINEL_MODES.has(mode) ? mode : settings.execution_mode
+
 const engine = getCompactSentinelEngineStatus()
 const statDate = parseDateOnly(date)
 const openPositions = await getSentinelOpenPositionCount(executionMode)
@@ -1229,6 +1267,7 @@ const dailyRow = await getSentinelDailyStatsRow(statDate, executionMode)
 const daily =
 serializeSentinelDailyStats(dailyRow) ||
 buildEmptySentinelDailyStats(statDate, executionMode)
+
 const periodSummary = await getSentinelPeriodStats({
 period,
 statDate,
@@ -1239,7 +1278,10 @@ return {
 settings,
 engine,
 summary: {
-watcher_enabled: Boolean(settings.watcher_enabled),
+watcher_enabled: watcherControl.enabled,
+watcher_can_toggle: watcherControl.can_toggle,
+watcher_forced_off: watcherControl.forced_off,
+watcher_lock_reason: watcherControl.lock_reason,
 execution_mode: executionMode,
 settings_execution_mode: settings.execution_mode,
 kill_switch_active: settings.execution_mode === "emergency_stop",
@@ -2004,10 +2046,13 @@ message: error?.message || String(error),
 router.get("/sentinel/settings", async (req, res) => {
 try {
 const row = await getSentinelSettingsRow()
+const storedSettings = serializeSentinelSettings(row)
+const settings = presentSentinelSettings(storedSettings)
 
 return res.json({
 ok: true,
-settings: serializeSentinelSettings(row),
+settings,
+watcher_control: settings.watcher_control,
 engine: getCompactSentinelEngineStatus(),
 })
 } catch (error) {
@@ -2016,6 +2061,102 @@ console.error("GET /api/compliance-admin/sentinel/settings failed", error)
 return res.status(500).json({
 ok: false,
 error: "Failed to load Sentinel settings",
+message: error?.message || String(error),
+})
+}
+})
+
+router.post("/sentinel/watcher", async (req, res) => {
+try {
+const actorId = getAuthenticatedAdminActorId(req)
+const notes = cleanText(req.body?.notes || "", 2000) || null
+const reason = cleanText(req.body?.reason || "", 500) || null
+
+if (!Object.prototype.hasOwnProperty.call(req.body || {}, "enabled")) {
+return res.status(400).json({
+ok: false,
+error: "enabled is required",
+})
+}
+
+const requestedEnabled = parseBoolSafe(req.body?.enabled, null)
+
+if (requestedEnabled == null) {
+return res.status(400).json({
+ok: false,
+error: "enabled must be true or false",
+})
+}
+
+const currentRow = await getSentinelSettingsRow()
+const before = serializeSentinelSettings(currentRow)
+
+if (isEmergencyStopActive(before) && requestedEnabled) {
+return res.status(409).json({
+ok: false,
+error: "sentinel_watcher_locked_by_emergency_stop",
+message:
+"Sentinel Watcher cannot be enabled while Emergency Stop is active. Restore Paper mode first.",
+settings: presentSentinelSettings(before),
+watcher_control: buildSentinelWatcherControl(before),
+})
+}
+
+const next = normalizeSentinelConfig({
+...before,
+watcher_enabled: requestedEnabled,
+})
+
+await upsertSentinelSettingsRecord(next, actorId)
+
+const updatedRow = await getSentinelSettingsRow()
+const updatedStored = serializeSentinelSettings(updatedRow)
+const updated = presentSentinelSettings(updatedStored)
+const changedFields = computeChangedFields(before, updatedStored)
+
+await insertSentinelAuditEvent({
+event_type: "settings_update",
+execution_mode: updated.execution_mode,
+decision: requestedEnabled ? "watcher_enabled" : "watcher_disabled",
+reason_codes: [REASON_CODE.SETTINGS_PATCH_APPLIED],
+actor_type: "admin",
+actor_id: actorId,
+execution_status: "skipped",
+execution_error: reason || null,
+})
+
+await insertCassieAdminAudit({
+action: requestedEnabled
+? "sentinel_watcher_enabled"
+: "sentinel_watcher_disabled",
+actorId,
+status: "ok",
+notes: notes || reason,
+targetType: "sentinel_settings",
+targetId: "1",
+details: {
+previous_watcher_enabled: Boolean(before.watcher_enabled),
+current_watcher_enabled: Boolean(updated.watcher_enabled),
+execution_mode: updated.execution_mode,
+changed_fields: changedFields,
+},
+oldState: before,
+newState: updatedStored,
+})
+
+return res.json({
+ok: true,
+changed_fields: changedFields,
+settings: updated,
+watcher_control: updated.watcher_control,
+engine: getCompactSentinelEngineStatus(),
+})
+} catch (error) {
+console.error("POST /api/compliance-admin/sentinel/watcher failed", error)
+
+return res.status(500).json({
+ok: false,
+error: "Failed to update Sentinel Watcher state",
 message: error?.message || String(error),
 })
 }
@@ -2052,6 +2193,25 @@ error: "No valid Sentinel settings fields were provided",
 })
 }
 
+if (
+isEmergencyStopActive(before) &&
+Object.prototype.hasOwnProperty.call(patch, "watcher_enabled") &&
+patch.watcher_enabled === true
+) {
+return res.status(409).json({
+ok: false,
+error: "sentinel_watcher_locked_by_emergency_stop",
+message:
+"Sentinel Watcher cannot be enabled while Emergency Stop is active. Restore Paper mode first.",
+settings: presentSentinelSettings(before),
+watcher_control: buildSentinelWatcherControl(before),
+})
+}
+
+if (isEmergencyStopActive(before)) {
+patch.watcher_enabled = false
+}
+
 const next = normalizeSentinelConfig({
 ...before,
 ...patch,
@@ -2060,8 +2220,9 @@ const next = normalizeSentinelConfig({
 await upsertSentinelSettingsRecord(next, actorId)
 
 const updatedRow = await getSentinelSettingsRow()
-const updated = serializeSentinelSettings(updatedRow)
-const changedFields = computeChangedFields(before, updated)
+const updatedStored = serializeSentinelSettings(updatedRow)
+const updated = presentSentinelSettings(updatedStored)
+const changedFields = computeChangedFields(before, updatedStored)
 
 await insertSentinelAuditEvent({
 event_type: "settings_update",
@@ -2082,15 +2243,18 @@ targetType: "sentinel_settings",
 targetId: "1",
 details: {
 changed_fields: changedFields,
+emergency_stop_active: isEmergencyStopActive(updatedStored),
+watcher_forced_off: updated.watcher_control.forced_off,
 },
 oldState: before,
-newState: updated,
+newState: updatedStored,
 })
 
 return res.json({
 ok: true,
 changed_fields: changedFields,
 settings: updated,
+watcher_control: updated.watcher_control,
 engine: getCompactSentinelEngineStatus(),
 })
 } catch (error) {
@@ -2132,14 +2296,31 @@ error:
 
 const currentRow = await getSentinelSettingsRow()
 const before = serializeSentinelSettings(currentRow)
+const leavingEmergencyStop =
+before.execution_mode === "emergency_stop" &&
+requestedMode !== "emergency_stop"
 
-if (before.execution_mode === requestedMode) {
+const requiredWatcherEnabled =
+requestedMode === "emergency_stop"
+? false
+: leavingEmergencyStop
+? true
+: before.watcher_enabled
+
+const modeUnchanged = before.execution_mode === requestedMode
+const watcherUnchanged =
+Boolean(before.watcher_enabled) === Boolean(requiredWatcherEnabled)
+
+if (modeUnchanged && watcherUnchanged) {
+const unchangedSettings = presentSentinelSettings(before)
+
 return res.json({
 ok: true,
 previous_mode: before.execution_mode,
 current_mode: before.execution_mode,
 unchanged: true,
-settings: before,
+settings: unchangedSettings,
+watcher_control: unchangedSettings.watcher_control,
 engine: getCompactSentinelEngineStatus(),
 })
 }
@@ -2147,18 +2328,26 @@ engine: getCompactSentinelEngineStatus(),
 const next = normalizeSentinelConfig({
 ...before,
 execution_mode: requestedMode,
+watcher_enabled: requiredWatcherEnabled,
 })
 
 await upsertSentinelSettingsRecord(next, actorId)
 
 const updatedRow = await getSentinelSettingsRow()
-const updated = serializeSentinelSettings(updatedRow)
+const updatedStored = serializeSentinelSettings(updatedRow)
+const updated = presentSentinelSettings(updatedStored)
+const changedFields = computeChangedFields(before, updatedStored)
 
 await insertSentinelAuditEvent({
-event_type: "mode_change",
+event_type: requestedMode === "emergency_stop" ? "emergency_stop" : "mode_change",
 execution_mode: updated.execution_mode,
-decision: "mode_change",
-reason_codes: [REASON_CODE.SENTINEL_MODE_CHANGED],
+decision:
+requestedMode === "emergency_stop" ? "kill_switch" : "mode_change",
+reason_codes: [
+requestedMode === "emergency_stop"
+? REASON_CODE.SENTINEL_EMERGENCY_STOP
+: REASON_CODE.SENTINEL_MODE_CHANGED,
+],
 actor_type: "admin",
 actor_id: actorId,
 execution_status: "skipped",
@@ -2166,7 +2355,10 @@ execution_error: reason || null,
 })
 
 await insertCassieAdminAudit({
-action: "sentinel_mode_changed",
+action:
+requestedMode === "emergency_stop"
+? "sentinel_emergency_stop_enabled"
+: "sentinel_mode_changed",
 actorId,
 status: "ok",
 notes: notes || reason,
@@ -2176,16 +2368,23 @@ details: {
 previous_mode: before.execution_mode,
 current_mode: updated.execution_mode,
 confirm_live: Boolean(confirmLive),
+previous_watcher_enabled: Boolean(before.watcher_enabled),
+current_watcher_enabled: Boolean(updated.watcher_enabled),
+watcher_auto_restored: leavingEmergencyStop,
+watcher_forced_off: requestedMode === "emergency_stop",
+changed_fields: changedFields,
 },
 oldState: before,
-newState: updated,
+newState: updatedStored,
 })
 
 return res.json({
 ok: true,
 previous_mode: before.execution_mode,
 current_mode: updated.execution_mode,
+changed_fields: changedFields,
 settings: updated,
+watcher_control: updated.watcher_control,
 engine: getCompactSentinelEngineStatus(),
 })
 } catch (error) {
@@ -2210,24 +2409,25 @@ if (!enabled) {
 return res.status(400).json({
 ok: false,
 error:
-"Emergency stop endpoint only enables stop. Use /sentinel/mode to restore a mode.",
+"Emergency stop endpoint only enables stop. Use /sentinel/mode to restore Paper mode.",
 })
 }
 
 const currentRow = await getSentinelSettingsRow()
 const before = serializeSentinelSettings(currentRow)
 
-if (before.execution_mode !== "emergency_stop") {
 const next = normalizeSentinelConfig({
 ...before,
 execution_mode: "emergency_stop",
+watcher_enabled: false,
 })
 
 await upsertSentinelSettingsRecord(next, actorId)
-}
 
 const updatedRow = await getSentinelSettingsRow()
-const updated = serializeSentinelSettings(updatedRow)
+const updatedStored = serializeSentinelSettings(updatedRow)
+const updated = presentSentinelSettings(updatedStored)
+const changedFields = computeChangedFields(before, updatedStored)
 
 await insertSentinelAuditEvent({
 event_type: "emergency_stop",
@@ -2250,16 +2450,22 @@ targetId: "1",
 details: {
 previous_mode: before.execution_mode,
 current_mode: "emergency_stop",
+previous_watcher_enabled: Boolean(before.watcher_enabled),
+current_watcher_enabled: false,
+watcher_forced_off: true,
+changed_fields: changedFields,
 },
 oldState: before,
-newState: updated,
+newState: updatedStored,
 })
 
 return res.json({
 ok: true,
 previous_mode: before.execution_mode,
 current_mode: updated.execution_mode,
+changed_fields: changedFields,
 settings: updated,
+watcher_control: updated.watcher_control,
 engine: getCompactSentinelEngineStatus(),
 })
 } catch (error) {
@@ -2682,6 +2888,7 @@ try {
 const period = normalizeSentinelSummaryPeriod(req.query.period, "daily")
 const date = parseDateOnly(req.query.date || todayUtcDate())
 const mode = normalizeSentinelMode(req.query.mode || "paper", "paper")
+
 const stats = await getSentinelPeriodStats({
 period,
 statDate: date,

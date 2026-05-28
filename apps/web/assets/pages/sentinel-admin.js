@@ -36,6 +36,7 @@ loadingCount: 0,
 sentinel: {
 status: null,
 settings: null,
+watcherControl: null,
 engine: null,
 summary: null,
 stats: null,
@@ -87,6 +88,16 @@ saveSentinelSettingsButton: document.getElementById(
 ),
 sentinelSaveButtons: Array.from(
 document.querySelectorAll(".sentinel-save-button")
+),
+
+sentinelWatcherToggleButton: document.getElementById(
+"sentinelWatcherToggleButton"
+),
+sentinelWatcherControlNote: document.getElementById(
+"sentinelWatcherControlNote"
+),
+sentinelRuntimeControlsMount: document.getElementById(
+"sentinelRuntimeControlsMount"
 ),
 
 sentinelCurrentModeValue: document.getElementById(
@@ -610,8 +621,288 @@ function refreshApiStatus() {
 setText(els.apiStatusChip, isLoading() ? "Loading" : "Ready")
 }
 
+function createElement(tagName, className = "", text = "") {
+const element = document.createElement(tagName)
+
+if (className) {
+element.className = className
+}
+
+if (text !== "") {
+element.textContent = String(text)
+}
+
+return element
+}
+
+function getSentinelWatcherControl(
+settings = state.sentinel.settings,
+summary = state.sentinel.summary
+) {
+const rawControl =
+settings?.watcher_control && typeof settings.watcher_control === "object"
+? settings.watcher_control
+: state.sentinel.watcherControl &&
+typeof state.sentinel.watcherControl === "object"
+? state.sentinel.watcherControl
+: {}
+
+const executionMode =
+cleanText(
+settings?.execution_mode ||
+summary?.settings_execution_mode ||
+summary?.execution_mode,
+64
+).toLowerCase() || "paper"
+
+const emergencyStopActive =
+executionMode === "emergency_stop" ||
+Boolean(summary?.kill_switch_active ?? summary?.killSwitchActive)
+
+const hasLoadedState = Boolean(settings || summary)
+
+const enabled = emergencyStopActive
+? false
+: Boolean(
+rawControl.enabled ??
+settings?.watcher_enabled ??
+summary?.watcher_enabled ??
+false
+)
+
+const canToggle =
+hasLoadedState &&
+!emergencyStopActive &&
+Boolean(
+rawControl.can_toggle ??
+summary?.watcher_can_toggle ??
+true
+)
+
+const forcedOff =
+emergencyStopActive ||
+Boolean(rawControl.forced_off ?? summary?.watcher_forced_off)
+
+const lockReason =
+cleanText(
+rawControl.lock_reason || summary?.watcher_lock_reason,
+500
+) ||
+(emergencyStopActive
+? "Emergency Stop is active. Restore Paper mode before enabling Sentinel Watcher."
+: "")
+
+return {
+enabled,
+canToggle,
+forcedOff,
+emergencyStopActive,
+executionMode,
+lockReason,
+hasLoadedState,
+}
+}
+
+function getSentinelControlsMount() {
+return (
+els.sentinelRuntimeControlsMount ||
+document.getElementById("sentinelRuntimeControlsMount") ||
+els.sentinelWatcherEnabledInput?.closest(
+".sentinel-settings-panel, .admin-panel, .admin-card, .panel, section"
+) ||
+els.sentinelWatcherEnabledInput?.parentElement ||
+els.sentinelBanner?.parentElement ||
+document.querySelector("main")
+)
+}
+
+function ensureSentinelActionControls() {
+let controlsRow = document.getElementById("sentinelRuntimeControlRow")
+const mount = getSentinelControlsMount()
+
+if (!controlsRow && mount) {
+controlsRow = createElement("div", "sentinel-runtime-control-row")
+controlsRow.id = "sentinelRuntimeControlRow"
+controlsRow.style.display = "flex"
+controlsRow.style.flexWrap = "wrap"
+controlsRow.style.alignItems = "center"
+controlsRow.style.gap = "10px"
+controlsRow.style.marginTop = "14px"
+controlsRow.style.marginBottom = "14px"
+controlsRow.style.padding = "12px 14px"
+controlsRow.style.border = "1px solid rgba(255,255,255,.08)"
+controlsRow.style.borderRadius = "12px"
+controlsRow.style.background = "rgba(255,255,255,.025)"
+
+const controlTitle = createElement(
+"div",
+"sentinel-runtime-control-title",
+"Watcher Runtime Control"
+)
+
+controlTitle.style.fontSize = "12px"
+controlTitle.style.fontWeight = "700"
+controlTitle.style.letterSpacing = ".08em"
+controlTitle.style.textTransform = "uppercase"
+controlTitle.style.opacity = ".72"
+controlTitle.style.marginRight = "4px"
+
+controlsRow.appendChild(controlTitle)
+
+if (!els.sentinelWatcherToggleButton) {
+const toggleButton = createElement(
+"button",
+"secondary admin-button-secondary",
+"Loading Watcher..."
+)
+
+toggleButton.id = "sentinelWatcherToggleButton"
+toggleButton.type = "button"
+toggleButton.disabled = true
+
+controlsRow.appendChild(toggleButton)
+els.sentinelWatcherToggleButton = toggleButton
+}
+
+if (!els.saveSentinelSettingsButton) {
+const saveButton = createElement(
+"button",
+"primary admin-button-primary sentinel-save-button",
+"Save Settings"
+)
+
+saveButton.id = "saveSentinelSettingsButton"
+saveButton.type = "button"
+
+controlsRow.appendChild(saveButton)
+els.saveSentinelSettingsButton = saveButton
+}
+
+if (!els.sentinelWatcherControlNote) {
+const note = createElement(
+"div",
+"sentinel-runtime-control-note",
+"Loading Sentinel Watcher state..."
+)
+
+note.id = "sentinelWatcherControlNote"
+note.style.flex = "1 1 280px"
+note.style.fontSize = "12px"
+note.style.opacity = ".72"
+note.style.marginLeft = "4px"
+
+controlsRow.appendChild(note)
+els.sentinelWatcherControlNote = note
+}
+
+mount.appendChild(controlsRow)
+}
+
+if (!els.sentinelWatcherToggleButton) {
+els.sentinelWatcherToggleButton = document.getElementById(
+"sentinelWatcherToggleButton"
+)
+}
+
+if (!els.saveSentinelSettingsButton) {
+els.saveSentinelSettingsButton = document.getElementById(
+"saveSentinelSettingsButton"
+)
+}
+
+if (!els.sentinelWatcherControlNote) {
+els.sentinelWatcherControlNote = document.getElementById(
+"sentinelWatcherControlNote"
+)
+}
+
+if (els.saveSentinelSettingsButton) {
+els.saveSentinelSettingsButton.classList.remove("hidden")
+}
+
+els.sentinelSaveButtons = Array.from(
+document.querySelectorAll(".sentinel-save-button")
+)
+}
+
+function applySentinelWatcherControlToUi(
+settings = state.sentinel.settings,
+summary = state.sentinel.summary
+) {
+ensureSentinelActionControls()
+
+const control = getSentinelWatcherControl(settings, summary)
+
+state.sentinel.watcherControl = control
+
+setText(els.sentinelWatcherEnabledValue, control.enabled ? "Yes" : "No")
+
+if (els.sentinelWatcherEnabledInput) {
+setBoolSelect(els.sentinelWatcherEnabledInput, control.enabled)
+els.sentinelWatcherEnabledInput.disabled = true
+els.sentinelWatcherEnabledInput.title =
+"Use the Enable Watcher / Disable Watcher runtime control button."
+}
+
+if (els.sentinelWatcherToggleButton) {
+const nextActionEnabled = !control.enabled
+
+els.sentinelWatcherToggleButton.textContent = control.enabled
+? "Disable Watcher"
+: "Enable Watcher"
+
+els.sentinelWatcherToggleButton.dataset.nextEnabled = String(
+nextActionEnabled
+)
+
+els.sentinelWatcherToggleButton.classList.remove(
+"primary",
+"secondary",
+"danger",
+"admin-button-primary",
+"admin-button-secondary",
+"admin-button-danger"
+)
+
+if (control.enabled) {
+els.sentinelWatcherToggleButton.classList.add(
+"secondary",
+"admin-button-secondary"
+)
+} else {
+els.sentinelWatcherToggleButton.classList.add(
+"primary",
+"admin-button-primary"
+)
+}
+
+els.sentinelWatcherToggleButton.disabled =
+isLoading() || !control.canToggle
+
+els.sentinelWatcherToggleButton.title = control.lockReason || ""
+}
+
+if (els.sentinelWatcherControlNote) {
+if (!control.hasLoadedState) {
+els.sentinelWatcherControlNote.textContent =
+"Loading Sentinel Watcher state..."
+} else if (control.forcedOff) {
+els.sentinelWatcherControlNote.textContent = control.lockReason
+} else if (control.enabled) {
+els.sentinelWatcherControlNote.textContent =
+"Sentinel Watcher is enabled. Emergency Stop remains available for immediate shutdown."
+} else {
+els.sentinelWatcherControlNote.textContent =
+"Sentinel Watcher is disabled. Enable it to resume monitoring in the active execution mode."
+}
+}
+
+return control
+}
+
 function updateControlDisabledState() {
 const disabled = isLoading()
+const watcherControl = getSentinelWatcherControl()
 
 ;[
 els.refreshSentinelButton,
@@ -631,6 +922,15 @@ if (button) {
 button.disabled = disabled
 }
 })
+
+if (els.sentinelWatcherToggleButton) {
+els.sentinelWatcherToggleButton.disabled =
+disabled || !watcherControl.canToggle
+}
+
+if (els.sentinelWatcherEnabledInput) {
+els.sentinelWatcherEnabledInput.disabled = true
+}
 }
 
 function beginLoading() {
@@ -643,20 +943,7 @@ function endLoading() {
 state.loadingCount = Math.max(0, state.loadingCount - 1)
 refreshApiStatus()
 updateControlDisabledState()
-}
-
-function createElement(tagName, className = "", text = "") {
-const element = document.createElement(tagName)
-
-if (className) {
-element.className = className
-}
-
-if (text !== "") {
-element.textContent = String(text)
-}
-
-return element
+applySentinelWatcherControlToUi()
 }
 
 function appendTextLine(
@@ -1149,6 +1436,10 @@ if (!settings) return
 
 state.sentinel.settings = settings
 
+if (settings.watcher_control) {
+state.sentinel.watcherControl = settings.watcher_control
+}
+
 setValue(els.sentinelScoutUsdInput, settings.scout_usd ?? 0.5)
 setValue(els.sentinelSniperAddUsdInput, settings.sniper_add_usd ?? 1)
 
@@ -1232,7 +1523,6 @@ els.sentinelMinPostEntryHealthScoreInput,
 settings.min_post_entry_health_score ?? 55
 )
 
-setBoolSelect(els.sentinelWatcherEnabledInput, settings.watcher_enabled)
 setBoolSelect(els.sentinelAutoBankEnabledInput, settings.auto_bank_enabled)
 setBoolSelect(els.sentinelEnableScoutInput, settings.enable_scout)
 setBoolSelect(els.sentinelEnableSniperInput, settings.enable_sniper)
@@ -1348,11 +1638,6 @@ settings.enable_hard_rejects
 )
 
 setText(
-els.sentinelWatcherEnabledValue,
-settings.watcher_enabled ? "Yes" : "No"
-)
-
-setText(
 els.sentinelKillSwitchValue,
 cleanText(settings.execution_mode, 64).toLowerCase() ===
 "emergency_stop"
@@ -1361,6 +1646,7 @@ cleanText(settings.execution_mode, 64).toLowerCase() ===
 )
 
 applySentinelModeToUi(settings.execution_mode || "paper")
+applySentinelWatcherControlToUi(settings, state.sentinel.summary)
 }
 
 function normalizeEngine(engine = null) {
@@ -1478,6 +1764,7 @@ Boolean(summary?.kill_switch_active ?? summary?.killSwitchActive)
 
 updateSentinelPeriodCopy(summary)
 updateSentinelPortfolioSummary()
+applySentinelWatcherControlToUi(state.sentinel.settings, summary)
 }
 
 function renderSentinelEngine(engine = null) {
@@ -1588,6 +1875,10 @@ state.sentinel.status = payload || null
 
 if (!payload) return
 
+if (payload.watcher_control) {
+state.sentinel.watcherControl = payload.watcher_control
+}
+
 if (payload.settings) {
 applySentinelSettingsToInputs(payload.settings)
 }
@@ -1600,12 +1891,10 @@ if (payload.engine) {
 renderSentinelEngine(payload.engine)
 }
 
-const watcherEnabled =
-payload?.settings?.watcher_enabled != null
-? Boolean(payload.settings.watcher_enabled)
-: Boolean(payload?.summary?.watcher_enabled)
-
-setText(els.sentinelWatcherEnabledValue, watcherEnabled ? "Yes" : "No")
+applySentinelWatcherControlToUi(
+payload.settings || state.sentinel.settings,
+payload.summary || state.sentinel.summary
+)
 
 updateSentinelPortfolioSummary()
 }
@@ -2196,6 +2485,10 @@ apiFetchSentinelAdmin(
 const merged = {
 ok: true,
 settings: settingsPayload?.settings || null,
+watcher_control:
+settingsPayload?.watcher_control ||
+settingsPayload?.settings?.watcher_control ||
+null,
 engine: settingsPayload?.engine || summaryPayload?.engine || null,
 summary: summaryPayload?.summary || null,
 }
@@ -2575,11 +2868,6 @@ const base = {
 return {
 actor_id: getSessionActorId(),
 
-watcher_enabled: getOptionalBool(
-els.sentinelWatcherEnabledInput,
-base.watcher_enabled
-),
-
 auto_bank_enabled: getOptionalBool(
 els.sentinelAutoBankEnabledInput,
 base.auto_bank_enabled
@@ -2882,6 +3170,10 @@ if (payload?.settings) {
 applySentinelSettingsToInputs(payload.settings)
 }
 
+if (payload?.watcher_control) {
+state.sentinel.watcherControl = payload.watcher_control
+}
+
 if (payload?.engine) {
 renderSentinelEngine(payload.engine)
 }
@@ -2916,6 +3208,85 @@ endLoading()
 }
 }
 
+async function toggleSentinelWatcher() {
+const control = getSentinelWatcherControl()
+
+if (!control.hasLoadedState) {
+setSentinelBanner("Sentinel Watcher state is still loading.", "warn")
+return
+}
+
+if (!control.canToggle) {
+setSentinelBanner(
+control.lockReason ||
+"Sentinel Watcher cannot be changed while Emergency Stop is active.",
+"bad"
+)
+return
+}
+
+const nextEnabled = !control.enabled
+
+if (
+!nextEnabled &&
+!window.confirm(
+"Disable Sentinel Watcher? Monitoring and new Sentinel decisions will stop until it is enabled again."
+)
+) {
+return
+}
+
+const reason = cleanText(els.sentinelModeReasonInput?.value, 500)
+
+beginLoading()
+
+try {
+const payload = await apiFetchSentinelAdmin("/sentinel/watcher", {
+method: "POST",
+body: JSON.stringify({
+enabled: nextEnabled,
+reason,
+notes: reason,
+actor_id: getSessionActorId(),
+}),
+})
+
+if (payload?.settings) {
+applySentinelSettingsToInputs(payload.settings)
+}
+
+if (payload?.watcher_control) {
+state.sentinel.watcherControl = payload.watcher_control
+}
+
+if (payload?.engine) {
+renderSentinelEngine(payload.engine)
+}
+
+await Promise.all([
+loadSentinelStatus({ manageLoading: false }),
+loadSentinelAudit({ manageLoading: false }),
+loadSentinelAdminAudit({ manageLoading: false }),
+])
+
+setSentinelBanner(
+nextEnabled
+? "Sentinel Watcher enabled. Monitoring is active in the current execution mode."
+: "Sentinel Watcher disabled. Monitoring remains off until re-enabled.",
+"good"
+)
+} catch (error) {
+if (!handleAdminApiAuthorizationError(error)) {
+setSentinelBanner(
+error?.message || "Failed to update Sentinel Watcher state.",
+"bad"
+)
+}
+} finally {
+endLoading()
+}
+}
+
 async function changeSentinelMode(mode) {
 const requestedMode = cleanText(mode, 64).toLowerCase()
 const reason = cleanText(els.sentinelModeReasonInput?.value, 500)
@@ -2937,7 +3308,7 @@ confirmed = window.confirm(
 )
 } else if (requestedMode === "emergency_stop") {
 confirmed = window.confirm(
-"Activate Sentinel Emergency Stop? This should immediately stop new entries."
+"Activate Sentinel Emergency Stop? This will immediately force Sentinel Watcher off and stop new entries."
 )
 }
 
@@ -2968,6 +3339,18 @@ requestedMode === "live_mainnet",
 }),
 })
 
+if (payload?.settings) {
+applySentinelSettingsToInputs(payload.settings)
+}
+
+if (payload?.watcher_control) {
+state.sentinel.watcherControl = payload.watcher_control
+}
+
+if (payload?.engine) {
+renderSentinelEngine(payload.engine)
+}
+
 const currentMode =
 cleanText(payload?.current_mode, 64) || requestedMode
 
@@ -2984,6 +3367,22 @@ loadSentinelPositions({ manageLoading: false }),
 loadSentinelAudit({ manageLoading: false }),
 loadSentinelAdminAudit({ manageLoading: false }),
 ])
+
+if (currentMode === "emergency_stop") {
+setSentinelBanner(
+"Sentinel Emergency Stop active. Watcher has been forced off.",
+"good"
+)
+return
+}
+
+if (payload?.settings?.watcher_enabled) {
+setSentinelBanner(
+`Sentinel mode switched to ${titleCase(currentMode)}. Watcher is enabled.`,
+"good"
+)
+return
+}
 
 setSentinelBanner(
 `Sentinel mode switched to ${titleCase(currentMode)}.`,
@@ -3147,40 +3546,87 @@ error?.message ||
 })
 }
 
+function bindButtonOnce(button, actionKey, handler) {
+if (!button) return
+
+const bindingKey = `sentinelBound${actionKey}`
+
+if (button.dataset[bindingKey] === "1") {
+return
+}
+
+button.dataset[bindingKey] = "1"
+button.addEventListener("click", handler)
+}
+
 function bindActions() {
-els.refreshSentinelButton?.addEventListener("click", async () => {
+ensureSentinelActionControls()
+
+bindButtonOnce(
+els.refreshSentinelButton,
+"RefreshAll",
+async () => {
 syncSentinelFiltersFromInputs()
 await loadSentinelBundle({ showSuccess: true })
-})
+}
+)
 
-els.saveSentinelSettingsButton?.addEventListener("click", async () => {
+bindButtonOnce(
+els.saveSentinelSettingsButton,
+"SaveSettings",
+async () => {
 await saveSentinelSettings()
-})
+}
+)
 
 els.sentinelSaveButtons.forEach((button) => {
 if (!button || button === els.saveSentinelSettingsButton) return
 if (button.hasAttribute("onclick")) return
 
-button.addEventListener("click", async () => {
+bindButtonOnce(button, "SaveSettings", async () => {
 await saveSentinelSettings()
 })
 })
 
-els.sentinelModePaperButton?.addEventListener("click", async () => {
+bindButtonOnce(
+els.sentinelWatcherToggleButton,
+"ToggleWatcher",
+async () => {
+await toggleSentinelWatcher()
+}
+)
+
+bindButtonOnce(
+els.sentinelModePaperButton,
+"PaperMode",
+async () => {
 await changeSentinelMode("paper")
-})
+}
+)
 
-els.sentinelModeArmedButton?.addEventListener("click", async () => {
+bindButtonOnce(
+els.sentinelModeArmedButton,
+"ArmedMode",
+async () => {
 await changeSentinelMode("armed_mainnet")
-})
+}
+)
 
-els.sentinelModeLiveButton?.addEventListener("click", async () => {
+bindButtonOnce(
+els.sentinelModeLiveButton,
+"LiveMode",
+async () => {
 await changeSentinelMode("live_mainnet")
-})
+}
+)
 
-els.sentinelEmergencyStopButton?.addEventListener("click", async () => {
+bindButtonOnce(
+els.sentinelEmergencyStopButton,
+"EmergencyStop",
+async () => {
 await changeSentinelMode("emergency_stop")
-})
+}
+)
 
 els.sentinelSummaryPeriodFilter?.addEventListener(
 "change",
@@ -3209,11 +3655,18 @@ els.sentinelStatsDateInput.value = state.sentinel.filters.statsDate
 await refreshSentinelSummaryOnly()
 })
 
-els.refreshSentinelSummaryButton?.addEventListener("click", async () => {
+bindButtonOnce(
+els.refreshSentinelSummaryButton,
+"RefreshSummary",
+async () => {
 await refreshSentinelSummaryOnly()
-})
+}
+)
 
-els.refreshSentinelStatsButton?.addEventListener("click", async () => {
+bindButtonOnce(
+els.refreshSentinelStatsButton,
+"RefreshStats",
+async () => {
 beginLoading()
 
 try {
@@ -3230,7 +3683,8 @@ error?.message || "Failed to refresh Sentinel stats.",
 } finally {
 endLoading()
 }
-})
+}
+)
 
 els.sentinelPositionSortFilter?.addEventListener("change", () => {
 state.sentinel.filters.positionSort =
@@ -3239,8 +3693,9 @@ cleanText(els.sentinelPositionSortFilter?.value, 64) || "pnl_desc"
 renderSentinelPositions()
 })
 
-els.refreshSentinelPositionsButton?.addEventListener(
-"click",
+bindButtonOnce(
+els.refreshSentinelPositionsButton,
+"RefreshPositions",
 async () => {
 beginLoading()
 
@@ -3261,7 +3716,10 @@ endLoading()
 }
 )
 
-els.refreshSentinelAuditButton?.addEventListener("click", async () => {
+bindButtonOnce(
+els.refreshSentinelAuditButton,
+"RefreshAudit",
+async () => {
 beginLoading()
 
 try {
@@ -3278,10 +3736,12 @@ error?.message || "Failed to refresh Sentinel audit.",
 } finally {
 endLoading()
 }
-})
+}
+)
 
-els.refreshSentinelAdminAuditButton?.addEventListener(
-"click",
+bindButtonOnce(
+els.refreshSentinelAdminAuditButton,
+"RefreshAdminAudit",
 async () => {
 beginLoading()
 
@@ -3316,6 +3776,8 @@ bindRefreshFilters()
 }
 
 function initDefaults() {
+ensureSentinelActionControls()
+
 if (els.sentinelSummaryPeriodFilter) {
 els.sentinelSummaryPeriodFilter.value =
 state.sentinel.filters.summaryPeriod
@@ -3363,6 +3825,7 @@ renderSentinelAdminAudit()
 updateControlDisabledState()
 refreshApiStatus()
 applySentinelModeToUi("paper")
+applySentinelWatcherControlToUi()
 }
 
 async function init() {
